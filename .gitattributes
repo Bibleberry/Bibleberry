@@ -1,0 +1,5 @@
+# Treat PDFs as binary files
+*.pdf binary
+
+# Preserve intentional Markdown trailing spaces
+*.md whitespace=-blank-at-eol

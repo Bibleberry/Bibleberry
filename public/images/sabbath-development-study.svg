@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">Development study graphic for Genesis 2:3</title>
+  <desc id="desc">Six simple markers represent days of work, followed by a distinct seventh-day marker representing rest, blessed and made holy.</desc>
+  <rect width="1200" height="760" fill="#f4f1e8"/>
+  <rect x="34" y="34" width="1132" height="692" fill="none" stroke="#a8b4a0" stroke-width="2"/>
+  <text x="82" y="100" fill="#65765f" font-family="Arial, sans-serif" font-size="32" letter-spacing="3">DEVELOPMENT STUDY GRAPHIC</text>
+  <text x="82" y="184" fill="#203e32" font-family="Georgia, serif" font-size="76">Genesis 2:3</text>
+  <text x="82" y="236" fill="#65765f" font-family="Arial, sans-serif" font-size="30">A visual fixture for the synthetic Sabbath teaching dataset</text>
+  <line x1="94" y1="420" x2="1106" y2="420" stroke="#a8b4a0" stroke-width="3"/>
+  <g fill="#203e32" font-family="Arial, sans-serif" text-anchor="middle">
+    <g stroke="#7f9275" stroke-width="3" fill="#f4f1e8">
+      <circle cx="156" cy="420" r="26"/><circle cx="282" cy="420" r="26"/><circle cx="408" cy="420" r="26"/>
+      <circle cx="534" cy="420" r="26"/><circle cx="660" cy="420" r="26"/><circle cx="786" cy="420" r="26"/>
+    </g>
+    <g font-size="36">
+      <text x="156" y="490">DAY 1</text><text x="282" y="490">DAY 2</text><text x="408" y="490">DAY 3</text>
+      <text x="534" y="490">DAY 4</text><text x="660" y="490">DAY 5</text><text x="786" y="490">DAY 6</text>
+    </g>
+    <text x="471" y="566" font-size="38" letter-spacing="4">WORK</text>
+  </g>
+  <circle cx="1030" cy="420" r="70" fill="#dce3d5" stroke="#65765f" stroke-width="3"/>
+  <path d="M1028 451c2-35 1-57 8-84m-7 53c-19-8-28-22-31-38 20 2 31 16 31 38zm4-23c15-7 25-18 30-33-18 2-29 14-30 33z" fill="none" stroke="#203e32" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="1030" y="524" fill="#203e32" font-family="Arial, sans-serif" font-size="40" text-anchor="middle">DAY 7</text>
+  <text x="1030" y="578" fill="#203e32" font-family="Georgia, serif" font-size="48" text-anchor="middle">Rest</text>
+  <text x="1030" y="622" fill="#65765f" font-family="Arial, sans-serif" font-size="30" text-anchor="middle">Blessed and made holy</text>
+  <text x="82" y="690" fill="#65765f" font-family="Arial, sans-serif" font-size="24">INTERNAL TEST ASSET • NO EXTERNAL ILLUSTRATION OR SOURCE IMPLIED</text>
+</svg>
