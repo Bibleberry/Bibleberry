@@ -1,0 +1,119 @@
+# Bibleberry — User Accounts, Authentication & Cross-Device Continuity
+
+> **Working architecture decision record**  
+> **Updated:** 2026-10-31  
+> **Status:** Planning decisions recorded; not an implementation brief  
+> **Owners:** Aaron Waid (product/technical decisions), Alexis Waid (ministry/content authority)  
+> **Target launch:** January 1, 2027
+
+## Purpose
+
+Bibleberry is a free, mobile-first Christian formation application. Readers may complete daily Scripture **Challenges**, save and memorize Scripture, and earn long-lived achievements. The account system should make those accomplishments reliably recoverable when a reader changes devices, reinstalls the app, or returns years later.
+
+The guiding requirement is: **A reader's durable accomplishments must belong to their account, not to a particular phone.**
+
+This document captures the **working decisions made so far**, why they were made, and what remains open. It is not authorization to implement or redesign existing working components.
+
+## Working decisions
+
+| Area | Working decision | Reason / boundary |
+| --- | --- | --- |
+| Authentication and user-data service | **Supabase** is the selected working direction, subject to integration validation before implementation. | Managed authentication plus a PostgreSQL database; fits React/TypeScript and connected progress records. Avoids operating a custom authentication server. |
+| Login methods | **Continue with Google**, **Continue with Apple**, **Continue with email**. | Readers choose based on preference, not device brand. Google login must work for iPhone users; credentials should work across supported platforms. |
+| Email login | **Passwordless six-digit email verification code** rather than a conventional Bibleberry password. | Familiar, relatively low-friction sign-in; requires reliable production email delivery. This is one authentication factor, not two-factor authentication. |
+| Persistent sessions | Keep signed-in readers signed in under normal conditions, with secure sign-out and session handling. | Readers should not need to enter an email code every day. |
+| Registration | **Optional.** Free published teaching and Challenges should be available without registration. | Do not place an account wall between readers and Bibleberry's ministry content. |
+| Guest activity | Guest progress may be saved on the **current device**; it is **not guaranteed** to survive device loss, reinstall, or change of device. | Communicate the consequence clearly; don't promise guest account recovery. |
+| Why register | Registration is encouraged to **protect and synchronize personal accomplishments**, not for monetization. | Offer contextual, respectful invitations; avoid repeated disruptive prompts. |
+| Permanent reader records | Account-bound cloud records for Challenge completion, saved Scripture, memorization, and earned achievements (including dates). | Core cross-device continuity requirement. |
+| Editorial content | **Sanity CMS** remains responsible for published teaching and other editorial content. | Sanity is not the user authentication or personal-progress database. |
+| Local and cloud data | The authenticated account's cloud data is the durable record; device storage may cache data for responsiveness. | Exact local/offline sync design is pending. |
+| Offline scope | **Online-first** initial release is the current working direction; do not promise full offline completion/sync for launch. | Avoid unnecessary complexity before January 1, while planning not to preclude later support. |
+| Patreon | **Entirely separate from Bibleberry AppDev.** No planned Patreon account, donation, or payment integration as part of this architecture. | Patreon has its own independent engagement system. |
+
+## Product principles
+
+1. **Teach first; registration second.** Visitors can read and participate without creating an account.
+2. **Explain consequences without penalizing guests.** A guest can use the app, but cross-device recovery requires a recoverable account.
+3. **One Bibleberry identity, multiple login methods.** Securely link Google, Apple, and email identities to the same reader account when the reader proves ownership; do not automatically merge accounts merely because emails match.
+4. **Store the facts behind achievements.** Preserve individual Challenge completion records, not just a running total.
+5. **Protect long-term accomplishments.** Achievements are noncompetitive and persistent; retain the date earned and the underlying qualifying history.
+6. **Keep records distinct.** A Challenge's release date, actual completion timestamp, and achievement earned timestamp are different facts.
+7. **Don't build a custom login-security system.** Use standard managed identity, access-control, and recovery mechanisms.
+8. **Collect minimal personal information.** Do not require a reader's real name, address, denomination, or similar information for basic accounts. Authentication does not automatically enroll someone in marketing communications.
+9. **Preserve the existing application.** Review the codebase and extend working systems rather than assuming a rebuild.
+
+## Existing implementation: repository review (October 31, 2026)
+
+Repository: [ContraPhilosophy/Bibleberry](https://github.com/ContraPhilosophy/Bibleberry), default branch `main`.
+
+- The current reader app uses **React 19, TypeScript, and Vite**.
+- Sanity Studio exists as a separate `studio/` workspace.
+- The main prototype stores browser-local preferences and reading activity under `bibleberry-prototype-v1`.
+- The development-only interactive Challenge lab stores local positions, completions, bookmarks, and saved Scripture under `bibleberry-interactive-challenge-lab-v1`.
+- Opening a Challenge and completing it are already treated as different concepts.
+- The checked application has **no implemented Supabase/Firebase authentication or cloud progress synchronization**.
+- The inspected package manifest does not include Capacitor; final native mobile packaging and its sign-in implications still need verification.
+
+These observations reflect the repository at the review date, not a promise about later branches or deployments.
+
+## How cross-device continuity should work (conceptual)
+
+1. The reader signs in using Google, Apple, or an email code.
+2. Supabase authentication establishes a **stable Bibleberry user ID**.
+3. Bibleberry writes durable personal accomplishments associated with that user ID.
+4. The same reader signs in on another supported device.
+5. The app retrieves that reader's saved accomplishments and preferences that are designed to sync.
+6. Changes on either device flow back to the cloud when connectivity permits.
+
+**Important:** Simply adding a cloud database does not solve conflicting edits. Saving records with meaningful stable IDs, preserving offline changes when eventually supported, and safely combining guest and existing-account records require explicit design and testing.
+
+### Initial data categories to plan
+
+**Expected to require durable account storage:**
+- Completed Challenge records and completion timestamps.
+- Saved Scripture passage library.
+- Memorization state, dates marked "I learned it!", and individual memorization accomplishments.
+- Earned achievement IDs, award timestamps, and supporting history.
+- Bookmarks and other saved content if approved.
+
+**Decide individually:**
+- In-progress Challenge position.
+- Reading history and archive state.
+- Appearance, text size, and other preferences.
+- Reminder/notification settings (some are necessarily device-specific).
+- Future special-event participation.
+
+**Not approved for cloud storage by this record:**
+- Personal journaling/reflections. If pursued later, requires separate product approval, privacy design, and conflict/recovery handling.
+
+## Security and sustainability expectations
+
+These are requirements for a production design, not completed implementation:
+
+- Appropriate **row-level security** so authenticated readers can access only their own private records.
+- Secure account linking, recovery, and session management.
+- Rate limiting and dependable production delivery of email verification codes.
+- Secure transport and appropriate encryption/storage controls.
+- Account/data deletion and relevant Apple App Store and Google Play compliance.
+- Backups, restoration testing, monitoring, and safeguards against accidental overwrite or deletion.
+- Cost visibility at roughly 1,000, 10,000, and 100,000 users, based on **actual monthly active users, storage, and traffic**, not just total registered accounts.
+- Versioned database/schema changes reviewed alongside the application source in GitHub.
+
+## Open questions — discuss before Kimi implementation instructions
+
+1. **Guest-to-account conversion:** Exact UX and migration behavior for locally saved progress.
+2. **Identity linking:** How readers add/change login methods and how to prevent duplicate or incorrectly merged accounts.
+3. **Data model:** Stable Challenge IDs, verse identity, completion event semantics, achievement award records, retries, and deduplication.
+4. **Synchronization:** Which data syncs, which stays on-device, and how conflicts/merges are handled.
+5. **Offline behavior:** Define the minimum acceptable launch behavior; assess future offline completion architecture.
+6. **Mobile packaging:** Confirm iOS/Android deployment technology and test Google/Apple/email-code flows on actual supported platforms.
+7. **Privacy lifecycle:** Final user-data collection, deletion, retention, and whether export is provided.
+8. **Operations and costs:** Supabase plan, transactional email provider, monitoring, backups, and budgets.
+9. **Guest registration prompts:** Decide which milestones deserve a nonintrusive invitation to protect progress.
+
+## Current process
+
+First understand the concepts and tradeoffs; recommend mainstream, secure 2026 approaches with clear reasoning; review the real codebase; make informed decisions; **only then** prepare implementation instructions for Kimi K3.1 Pro.
+
+**Do not treat this document as a complete technical specification or as permission to implement all open questions without further discussion.**
