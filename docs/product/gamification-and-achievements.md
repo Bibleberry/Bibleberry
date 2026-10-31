@@ -196,3 +196,84 @@ This record is a **snapshot of the current conversation**, not a finished gamifi
 **No build instructions for Kimi yet.** First resolve the outstanding product questions, then inspect the existing React Challenge components and persistence model, and only then prepare a scoped handoff.
 
 When revising this file, use a meaningful Git commit message and update the status of ideas as they move from **exploratory** → **approved** → **implemented**.
+
+---
+
+## Pending Design Discussion: Achievement Aesthetics and Visual Identity
+
+**Status:** Needs discussion and approval from Alexis Waid  
+**Priority:** Before final achievement UI and artwork are developed  
+**Participants:** Aaron and Alexis Waid
+
+### Purpose
+
+We need to establish how Bibleberry's achievements should be visually represented and how they should fit within the application's existing aesthetic.
+
+The achievement mechanics are being developed separately. This discussion concerns how those accomplishments should *look and feel* to readers.
+
+Alexis has expressed a preference for a mature, field-book-inspired application rather than something overly cute or game-like. The existing evergreen, cream, and brown palette provides a starting point, but the achievement collection's visual treatment has not been determined.
+
+**We should not assume that achievements must look like conventional gaming badges.**
+
+### Concepts to Present to Alexis
+
+These are exploratory directions, not approved designs.
+
+**1. Fruit and Harvest Collectibles**
+
+Achievements could be represented by berries, grapes, figs, baskets, cornucopias, or other harvest-related imagery connected to the Bibleberry identity.
+
+Progression might involve different fruits, increasingly elaborate collections, or evolving individual collectibles.
+
+**2. Botanical or Field-Book Collections**
+
+Achievements could appear as illustrated entries in a field notebook, with botanical specimens, collection labels, earned dates, and progress records.
+
+This could incorporate fruit imagery without resembling a conventional gaming reward system.
+
+**3. Stamps, Seals, and Emblems**
+
+Achievements could use simple graphical symbols, stamps, seals, or other collectible marks that complement the existing app design.
+
+These could change appearance as readers advance through achievement tiers.
+
+**4. Journal or Written Achievement Records**
+
+Achievements might not require elaborate collectible illustrations at all.
+
+They could appear as beautifully formatted journal entries, dated accomplishment records, handwritten-style annotations, or entries in a personal progress ledger.
+
+The satisfaction of collecting would come from accumulating a meaningful written record.
+
+**5. Hybrid Approaches**
+
+The system could combine restrained illustrations, typography, and journal-style presentation rather than committing exclusively to one visual approach.
+
+### Questions to Explore Together
+
+- What should someone feel when opening their achievement collection?
+- Should achievements look like objects people collect, or records of accomplishments?
+- Does fruit and harvest imagery strengthen the Bibleberry identity, or does it risk making the application feel too playful?
+- How closely should achievement graphics resemble Alexis's existing Visual Bible Study aesthetic?
+- Should achievements visually evolve as readers reach higher milestones?
+- How should earned achievements differ visually from grayed-out, unearned achievements?
+- What visual treatments would Alexis specifically *not* want associated with Bibleberry?
+
+### Important Constraints
+
+- Alexis is not expected to personally illustrate achievement graphics. Artwork can be developed separately and submitted for her approval.
+- The system should remain manageable for a small ministry, with reusable graphical components where practical.
+- Achievements should feel rewarding without undermining the application's mature Christian formation identity.
+- Visual decisions should not determine or unnecessarily restrict the underlying achievement mechanics.
+- Final artwork, terminology, and visual direction require Alexis's approval.
+
+### Desired Outcome
+
+Following the discussion, Aaron and Alexis should establish:
+
+1. A preferred overall aesthetic direction for achievements.
+2. Whether achievements should use collectible imagery, written records, or a combination.
+3. How progressive achievements should be visually distinguished.
+4. One or two concepts to develop into simple visual mockups for further review.
+
+**No visual direction is approved at this stage. No implementation work is authorized by this planning item.**
