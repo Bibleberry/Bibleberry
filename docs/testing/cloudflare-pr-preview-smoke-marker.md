@@ -3,7 +3,9 @@
 **Issue:** #21 (secure Cloudflare live Lab and PR previews)
 **Purpose:** Temporary, non-production infrastructure probe.
 **Branch:** `test/cloudflare-pr-preview-20261101`
-**Probe revision:** 1
+**Probe revision:** 2
+
+Revision 2 is a deliberately harmless branch-only update, used to test whether Cloudflare automatically refreshes an existing PR preview without touching the stable Lab.
 
 This documentation-only file is deliberately added on a feature branch to trigger the GitHub pull-request workflow and Cloudflare preview deployment. It does not alter application code, content, or configuration.
 
