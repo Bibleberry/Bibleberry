@@ -62,7 +62,7 @@ const scriptureShape = {
   translation: requiredText,
   textStatus: z.enum(['provided', 'referenceOnly']),
   passage: optionalText,
-  usageRightsConfirmed: z.boolean(),
+  usageRightsConfirmed: z.boolean().nullish().transform(value => value ?? false),
   practiceStatus: z.enum(['configured', 'notConfigured']),
 }
 
@@ -197,6 +197,24 @@ const companionLinkSchema = z.object({
   availability: optionalText,
 })
 
+function rejectDuplicateSiblingKeys(
+  values: readonly { _key: string }[] | null | undefined,
+  path: (string | number)[],
+  ctx: z.RefinementCtx,
+) {
+  const seen = new Set<string>()
+  values?.forEach((value, index) => {
+    if (seen.has(value._key)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: [...path, index, '_key'],
+        message: 'Duplicate sibling Sanity _key values are not allowed.',
+      })
+    }
+    seen.add(value._key)
+  })
+}
+
 const challengeDocumentSchema = z.object({
   _id: stableKey,
   _type: z.literal('challenge'),
@@ -219,14 +237,34 @@ const challengeDocumentSchema = z.object({
     reviewedAt: explicitInstant,
   }),
 }).superRefine((document, ctx) => {
+  rejectDuplicateSiblingKeys(document.screens, ['screens'], ctx)
+  rejectDuplicateSiblingKeys(document.companionLinks, ['companionLinks'], ctx)
+
   document.screens.forEach((screen, screenIndex) => {
+    rejectDuplicateSiblingKeys(screen.blocks, ['screens', screenIndex, 'blocks'], ctx)
+
     screen.blocks.forEach((block, blockIndex) => {
-      if (block._type === 'connectedSequenceBlock' && block.cycle && !block.returnCaption?.trim()) {
-        ctx.addIssue({
-          code: 'custom',
-          path: ['screens', screenIndex, 'blocks', blockIndex, 'returnCaption'],
-          message: 'A cyclic sequence requires a return caption.',
-        })
+      const blockPath = ['screens', screenIndex, 'blocks', blockIndex]
+      switch (block._type) {
+        case 'visualCardsBlock':
+          rejectDuplicateSiblingKeys(block.cards, [...blockPath, 'cards'], ctx)
+          break
+        case 'connectedSequenceBlock':
+          rejectDuplicateSiblingKeys(block.steps, [...blockPath, 'steps'], ctx)
+          if (block.cycle && !block.returnCaption?.trim()) {
+            ctx.addIssue({
+              code: 'custom',
+              path: [...blockPath, 'returnCaption'],
+              message: 'A cyclic sequence requires a return caption.',
+            })
+          }
+          break
+        case 'reflectionBlock':
+          rejectDuplicateSiblingKeys(block.choices, [...blockPath, 'choices'], ctx)
+          break
+        case 'optionalStudyBlock':
+          rejectDuplicateSiblingKeys(block.scriptures, [...blockPath, 'scriptures'], ctx)
+          break
       }
     })
   })

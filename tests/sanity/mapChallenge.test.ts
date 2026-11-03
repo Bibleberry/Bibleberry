@@ -8,6 +8,16 @@ import { validChallengeFixture } from './fixtures.ts'
 
 const fixture = () => structuredClone(validChallengeFixture)
 
+function assertDuplicateKeyRejected(document: unknown, expectedPath: string) {
+  const result = mapPublishedChallenge(document)
+  assert.equal(result.ok, false)
+  if (!result.ok) {
+    assert.ok(result.failure.issues.some(issue =>
+      issue.path === expectedPath && issue.message.includes('Duplicate sibling Sanity _key'),
+    ))
+  }
+}
+
 test('maps a valid published Challenge with canonical identity and release metadata', () => {
   const result = mapPublishedChallenge(fixture())
   assert.equal(result.ok, true)
@@ -96,6 +106,25 @@ test('keeps reference-only Scripture and optional content explicitly unavailable
   assert.equal(result.challenge.companionLinks[0].requiredForCompletion, false)
 })
 
+test('normalizes omitted usage rights to false for primary and nested reference-only Scripture', () => {
+  const document = fixture()
+  Reflect.deleteProperty(document.primaryScripture, 'usageRightsConfirmed')
+  Reflect.deleteProperty(document.screens[0].blocks[0].scripture, 'usageRightsConfirmed')
+  Reflect.deleteProperty(document.screens[1].blocks[2].scriptures[0], 'usageRightsConfirmed')
+
+  const result = mapPublishedChallenge(document)
+  if (!result.ok) assert.fail('Expected reference-only Scripture with omitted rights to map successfully.')
+  assert.equal(result.challenge.primaryScripture.usageRightsConfirmed, false)
+
+  const scriptureBlock = result.challenge.screens[0].blocks[0]
+  if (scriptureBlock.type !== 'scripture') assert.fail('Expected Scripture block.')
+  assert.equal(scriptureBlock.scripture.usageRightsConfirmed, false)
+
+  const optionalStudy = result.challenge.screens[1].blocks[2]
+  if (optionalStudy.type !== 'optionalExploration') assert.fail('Expected optional study block.')
+  assert.equal(optionalStudy.scriptures[0].usageRightsConfirmed, false)
+})
+
 test('accepts provided passage text only with rights and preserves memorization eligibility', () => {
   const document = fixture()
   document.primaryScripture.textStatus = 'provided'
@@ -136,6 +165,42 @@ test('rejects invalid screen structure and missing stable keys', () => {
   if (!result.ok) assert.ok(result.failure.issues.some(issue => issue.path.includes('_key')))
 })
 
+test('rejects duplicate sibling keys in screens and blocks', () => {
+  const duplicateScreens = fixture()
+  duplicateScreens.screens[1]._key = duplicateScreens.screens[0]._key
+  assertDuplicateKeyRejected(duplicateScreens, 'screens.1._key')
+
+  const duplicateBlocks = fixture()
+  duplicateBlocks.screens[0].blocks[1]._key = duplicateBlocks.screens[0].blocks[0]._key
+  assertDuplicateKeyRejected(duplicateBlocks, 'screens.0.blocks.1._key')
+})
+
+test('rejects duplicate sibling keys in nested arrays and companion links', () => {
+  const duplicateCards = fixture()
+  duplicateCards.screens[0].blocks[4].cards[1]._key = duplicateCards.screens[0].blocks[4].cards[0]._key
+  assertDuplicateKeyRejected(duplicateCards, 'screens.0.blocks.4.cards.1._key')
+
+  const duplicateSteps = fixture()
+  duplicateSteps.screens[1].blocks[0].steps[1]._key = duplicateSteps.screens[1].blocks[0].steps[0]._key
+  assertDuplicateKeyRejected(duplicateSteps, 'screens.1.blocks.0.steps.1._key')
+
+  const duplicateChoices = fixture()
+  duplicateChoices.screens[1].blocks[1].choices[1]._key = duplicateChoices.screens[1].blocks[1].choices[0]._key
+  assertDuplicateKeyRejected(duplicateChoices, 'screens.1.blocks.1.choices.1._key')
+
+  const duplicateStudyScripture = fixture()
+  const studyScriptures = duplicateStudyScripture.screens[1].blocks[2].scriptures
+  studyScriptures.push({ ...studyScriptures[0], reference: 'Fixture Reference 3:3' })
+  assertDuplicateKeyRejected(duplicateStudyScripture, 'screens.1.blocks.2.scriptures.1._key')
+
+  const duplicateCompanions = fixture()
+  duplicateCompanions.companionLinks.push({
+    ...duplicateCompanions.companionLinks[0],
+    label: 'Second fixture companion',
+  })
+  assertDuplicateKeyRejected(duplicateCompanions, 'companionLinks.1._key')
+})
+
 test('rejects provided Scripture with missing passage text', () => {
   const document = fixture()
   document.primaryScripture.textStatus = 'provided'
@@ -152,6 +217,33 @@ test('rejects passage text without confirmed usage rights', () => {
   const result = mapPublishedChallenge(document)
   assert.equal(result.ok, false)
   if (!result.ok) assert.ok(result.failure.issues.some(issue => issue.path.includes('usageRightsConfirmed')))
+})
+
+test('rejects provided passage text with omitted rights in primary and nested Scripture', () => {
+  const primary = fixture()
+  primary.primaryScripture.textStatus = 'provided'
+  primary.primaryScripture.passage = 'Development-only placeholder text; not Scripture.'
+  Reflect.deleteProperty(primary.primaryScripture, 'usageRightsConfirmed')
+  const primaryResult = mapPublishedChallenge(primary)
+  assert.equal(primaryResult.ok, false)
+  if (!primaryResult.ok) {
+    assert.ok(primaryResult.failure.issues.some(issue =>
+      issue.path === 'primaryScripture.usageRightsConfirmed',
+    ))
+  }
+
+  const nested = fixture()
+  const nestedScripture = nested.screens[1].blocks[2].scriptures[0]
+  nestedScripture.textStatus = 'provided'
+  nestedScripture.passage = 'Development-only placeholder text; not Scripture.'
+  Reflect.deleteProperty(nestedScripture, 'usageRightsConfirmed')
+  const nestedResult = mapPublishedChallenge(nested)
+  assert.equal(nestedResult.ok, false)
+  if (!nestedResult.ok) {
+    assert.ok(nestedResult.failure.issues.some(issue =>
+      issue.path === 'screens.1.blocks.2.scriptures.0.usageRightsConfirmed',
+    ))
+  }
 })
 
 test('rejects memorization marked configured without eligible passage text', () => {
