@@ -674,8 +674,67 @@ h3 { line-height: 1.4; }
 .lab-practice-view > .eyebrow { margin-bottom: 20px; }
 .lab-practice-view .memorization-source { margin-top: 28px; }
 
+/* Milestone B2 · Source selection and isolated Sanity CMS preview */
+.lab-source-selector-page { padding-bottom: 0; }
+.lab-source-selector-page + .interactive-challenge-lab { padding-top: 24px; }
+.lab-source-selector { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 18px 0 22px; border-bottom: 1px solid var(--rule); }
+.lab-source-selector .section-label { margin-bottom: 7px; }
+.lab-source-selector p { max-width: 48ch; margin: 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.lab-source-selector__buttons, .cms-mode-selector__buttons { display: flex; flex: 0 0 auto; border: 1px solid var(--rule); }
+.lab-source-selector__buttons button, .cms-mode-selector__buttons button { display: inline-flex; min-height: 46px; align-items: center; justify-content: center; gap: 8px; padding: 10px 14px; border: 0; border-right: 1px solid var(--rule); background: var(--surface); color: var(--muted); font-size: 11px; }
+.lab-source-selector__buttons button:last-child, .cms-mode-selector__buttons button:last-child { border-right: 0; }
+.lab-source-selector__buttons button:hover, .cms-mode-selector__buttons button:hover { background: var(--selected); color: var(--ink); }
+.lab-source-selector__buttons button.is-current, .cms-mode-selector__buttons button.is-current { background: var(--selected); color: var(--selected-ink); font-weight: 600; }
+.cms-mode-selector { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 28px; padding: 20px 0; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
+.cms-mode-selector .section-label { margin-bottom: 7px; }
+.cms-mode-selector p { max-width: 47ch; margin: 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.cms-live-label { display: flex; min-height: 46px; align-items: center; gap: 9px; margin-bottom: 22px; color: var(--accent); font-size: 10px; font-weight: 600; letter-spacing: .04em; }
+.cms-live-label .button { margin-left: auto; font-size: 10px; }
+.cms-fixture-banner { display: flex; align-items: flex-start; gap: 13px; margin-bottom: 28px; padding: 18px 20px; border-left: 1px solid var(--secondary-accent); background: var(--selected); }
+.cms-fixture-banner > svg { flex: 0 0 auto; margin-top: 2px; color: var(--accent); }
+.cms-fixture-banner strong { display: block; margin-bottom: 5px; font-size: 12px; }
+.cms-fixture-banner p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.cms-source-badge { display: inline-flex; align-items: center; gap: 7px; margin-bottom: 22px; color: var(--accent); font-size: 9px; font-weight: 600; letter-spacing: .06em; line-height: 1.5; text-transform: uppercase; }
+.cms-saved-scripture .cms-source-badge, .lab-saved-scripture .cms-source-badge { margin: 18px 0 0; }
+.cms-catalog-state { padding: 42px 0; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
+.cms-catalog-state > svg { margin-bottom: 18px; color: var(--accent); }
+.cms-catalog-state h2 { margin-bottom: 12px; font-size: 27px; }
+.cms-catalog-state > p { max-width: 62ch; margin-bottom: 22px; color: var(--muted); font-size: 13px; }
+.cms-catalog-state--error > svg, .cms-catalog-state--error h2 { color: var(--danger); }
+.cms-catalog-state ul { display: flex; max-height: 280px; overflow: auto; flex-direction: column; gap: 12px; margin: 0 0 24px; padding: 18px; background: var(--surface); list-style: none; }
+.cms-catalog-state li strong, .cms-catalog-state li span { display: block; overflow-wrap: anywhere; }
+.cms-catalog-state li strong { margin-bottom: 5px; font-size: 11px; }
+.cms-catalog-state li span { color: var(--muted); font-family: monospace; font-size: 10px; line-height: 1.6; }
+.cms-reference-only { display: flex; align-items: flex-start; gap: 14px; }
+.cms-reference-only > svg { flex: 0 0 auto; margin-top: 2px; color: var(--accent); }
+.cms-reference-only strong { font-family: 'Lora', serif; font-size: calc(var(--reading-size) + 2px); font-weight: 500; }
+.cms-reference-only p { margin: 8px 0 0; color: var(--muted); font-size: 11px; }
+.cms-challenge-summary { max-width: 60ch; margin: 18px 0 0; color: var(--muted); font-family: 'Lora', serif; font-size: 16px; }
+.lab-statement { padding: 26px 28px; border-left: 1px solid var(--secondary-accent); background: var(--surface); }
+.lab-statement .section-label { margin-bottom: 13px; }
+.lab-statement p { margin: 0; font-family: 'Lora', serif; font-size: calc(var(--reading-size) + 3px); line-height: 1.6; }
+.cms-portable-text h3 { margin: 1.5em 0 .8em; font-size: 1.2em; }
+.cms-portable-text ul, .cms-portable-text ol { margin: 0 0 1.45em; padding-left: 1.5em; }
+.cms-portable-text ul { list-style: disc; }
+.cms-portable-text ol { list-style: decimal; }
+.cms-portable-text li { margin-bottom: .55em; padding-left: .2em; }
+.cms-portable-text li > ul, .cms-portable-text li > ol { margin: .55em 0 0; }
+.cms-portable-text a, .lab-related-resource a { display: inline-flex; align-items: center; gap: 5px; color: var(--accent); text-underline-offset: 4px; }
+.cms-portable-text a svg, .lab-related-resource a svg { flex: 0 0 auto; }
+.cms-portable-quote { margin: 1.6em 0; padding: 20px 24px; border-left: 1px solid var(--secondary-accent); background: var(--surface); }
+.cms-portable-quote p { margin: 0; }
+.lab-related-resource a { min-height: 44px; margin-top: 8px; font-size: 12px; }
+.local-note code { overflow-wrap: anywhere; font-size: .9em; }
+
 @media (max-width: 700px) {
   .interactive-challenge-lab { padding-top: 26px; }
+  .lab-source-selector-page { padding-bottom: 0; }
+  .lab-source-selector-page + .interactive-challenge-lab { padding-top: 18px; }
+  .lab-source-selector, .cms-mode-selector { align-items: stretch; flex-direction: column; gap: 16px; }
+  .lab-source-selector__buttons, .cms-mode-selector__buttons { width: 100%; }
+  .lab-source-selector__buttons button, .cms-mode-selector__buttons button { min-width: 0; flex: 1; padding-inline: 10px; }
+  .cms-live-label { align-items: flex-start; flex-wrap: wrap; }
+  .cms-live-label .button { margin-left: 0; }
   .lab-topbar { align-items: flex-start; flex-direction: column; gap: 0; margin-bottom: 28px; }
   .lab-home-intro h1 { font-size: 36px; }
   .lab-challenge-row { grid-template-columns: minmax(0, 1fr) 54px; }
