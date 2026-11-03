@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   ArrowDown, ArrowLeft, ArrowRight, BookOpen, Bookmark, BookmarkCheck,
-  Check, ChevronDown, Headphones, Library, RotateCcw, Trash2,
+  Check, ChevronDown, Cloud, Headphones, Library, RotateCcw, Trash2,
 } from 'lucide-react'
 import {
   interactiveChallenges,
@@ -12,6 +12,7 @@ import {
   type LabScripture,
 } from '../data/interactiveChallenges'
 import { MemorizationTool } from './FormationViews'
+import { SanityChallengeLab } from '../cms/sanity/SanityChallengeLab'
 
 const LAB_STORAGE_KEY = 'bibleberry-interactive-challenge-lab-v1'
 
@@ -286,7 +287,7 @@ function ScriptureLibrary({ state, onBack, onToggle, onPractice }: {
   )
 }
 
-export function InteractiveChallengeLab({ onReturnToStudio }: { onReturnToStudio: () => void }) {
+function LocalPrototypeLab({ onReturnToStudio }: { onReturnToStudio: () => void }) {
   const [state, setState] = useState<LabState>(loadLabState)
   const [view, setView] = useState<LabView>('home')
   const [selectedId, setSelectedId] = useState<InteractiveChallenge['id']>('nov-1')
@@ -388,5 +389,33 @@ export function InteractiveChallengeLab({ onReturnToStudio }: { onReturnToStudio
         <p className="lab-navigation-note">Optional studies and reflection choices never change required progress. Switching Challenges does not mark them complete.</p>
       </>}
     </div>
+  )
+}
+
+export function InteractiveChallengeLab({ onReturnToStudio }: { onReturnToStudio: () => void }) {
+  const [source, setSource] = useState<'local' | 'sanity'>('local')
+
+  return (
+    <>
+      <section className="standard-page interactive-challenge-lab lab-source-selector-page" aria-labelledby="lab-source-heading">
+        <div className="lab-source-selector">
+          <div>
+            <span className="section-label" id="lab-source-heading">Interactive Challenge Lab source</span>
+            <p>Choose the unchanged hardcoded prototype or the Developer Studio-only Sanity renderer.</p>
+          </div>
+          <div className="lab-source-selector__buttons" role="group" aria-label="Challenge content source">
+            <button type="button" aria-pressed={source === 'local'} className={source === 'local' ? 'is-current' : ''} onClick={() => setSource('local')}>
+              <BookOpen size={16} aria-hidden="true" /> Local Prototype
+            </button>
+            <button type="button" aria-pressed={source === 'sanity'} className={source === 'sanity' ? 'is-current' : ''} onClick={() => setSource('sanity')}>
+              <Cloud size={16} aria-hidden="true" /> Sanity CMS
+            </button>
+          </div>
+        </div>
+      </section>
+      {source === 'local'
+        ? <LocalPrototypeLab onReturnToStudio={onReturnToStudio} />
+        : <SanityChallengeLab onReturnToStudio={onReturnToStudio} />}
+    </>
   )
 }
