@@ -7,7 +7,9 @@ export type CmsSourceKind = 'live' | 'fixture'
 export type CmsSavedScripture = {
   key: string
   source: CmsSourceKind
-  scripture: CmsScripture
+  scriptureId: string
+  reference: string
+  translation: string
 }
 
 export type CmsLabState = {
@@ -54,7 +56,13 @@ export function toggleCmsScripture(
   const exists = entries.some(entry => entry.key === key)
   return exists
     ? entries.filter(entry => entry.key !== key)
-    : [...entries, { key, source, scripture }]
+    : [...entries, {
+      key,
+      source,
+      scriptureId: scripture.id,
+      reference: scripture.reference,
+      translation: scripture.translation,
+    }]
 }
 
 export function toggleCmsSavedChallenge(ids: string[], key: string) {
@@ -73,12 +81,19 @@ function isCmsScripture(value: unknown): value is CmsScripture {
     && typeof item.usageRightsConfirmed === 'boolean'
 }
 
-function isCmsSavedScripture(value: unknown): value is CmsSavedScripture {
-  if (typeof value !== 'object' || value === null) return false
-  const item = value as Partial<CmsSavedScripture>
-  return typeof item.key === 'string'
-    && (item.source === 'live' || item.source === 'fixture')
-    && isCmsScripture(item.scripture)
+function normalizeCmsSavedScripture(value: unknown): CmsSavedScripture | null {
+  if (typeof value !== 'object' || value === null) return null
+  const item = value as Partial<CmsSavedScripture> & { scripture?: unknown }
+  if (typeof item.key !== 'string' || (item.source !== 'live' && item.source !== 'fixture')) return null
+
+  // B2 initially persisted the full Scripture object. Migrate those entries to
+  // reference metadata so obsolete or rights-withdrawn passage text is discarded.
+  const legacy = isCmsScripture(item.scripture) ? item.scripture : undefined
+  const scriptureId = typeof item.scriptureId === 'string' ? item.scriptureId : legacy?.id
+  const reference = typeof item.reference === 'string' ? item.reference : legacy?.reference
+  const translation = typeof item.translation === 'string' ? item.translation : legacy?.translation
+  if (!scriptureId || !reference || !translation) return null
+  return { key: item.key, source: item.source, scriptureId, reference, translation }
 }
 
 function stringArray(value: unknown) {
@@ -100,7 +115,9 @@ export function readCmsLabState(storage: CmsStorage): CmsLabState {
       positions,
       completedChallengeIds: stringArray(parsed.completedChallengeIds),
       savedChallengeIds: stringArray(parsed.savedChallengeIds),
-      scripture: Array.isArray(parsed.scripture) ? parsed.scripture.filter(isCmsSavedScripture) : [],
+      scripture: Array.isArray(parsed.scripture)
+        ? parsed.scripture.map(normalizeCmsSavedScripture).filter((entry): entry is CmsSavedScripture => entry !== null)
+        : [],
     }
   } catch {
     return emptyCmsLabState()
@@ -109,7 +126,17 @@ export function readCmsLabState(storage: CmsStorage): CmsLabState {
 
 export function writeCmsLabState(storage: CmsStorage, state: CmsLabState) {
   try {
-    storage.setItem(CMS_LAB_STORAGE_KEY, JSON.stringify(state))
+    const serializable: CmsLabState = {
+      ...state,
+      scripture: state.scripture.map(entry => ({
+        key: entry.key,
+        source: entry.source,
+        scriptureId: entry.scriptureId,
+        reference: entry.reference,
+        translation: entry.translation,
+      })),
+    }
+    storage.setItem(CMS_LAB_STORAGE_KEY, JSON.stringify(serializable))
     return true
   } catch {
     return false

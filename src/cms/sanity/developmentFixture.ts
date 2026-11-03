@@ -136,12 +136,24 @@ export const validChallengeFixture = {
           _type: 'optionalStudyBlock',
           title: 'Fixture optional study',
           body: [paragraph('study-paragraph', 'Fixture optional-study body.')],
-          scriptures: [{
-            ...referenceOnlyScripture,
-            _key: 'study-scripture',
-            _type: 'scriptureReference',
-            reference: 'Fixture Reference 2:2',
-          }],
+          scriptures: [
+            {
+              ...referenceOnlyScripture,
+              _key: 'study-scripture',
+              _type: 'scriptureReference',
+              reference: 'Fixture Reference 2:2',
+            },
+            {
+              _key: 'study-scripture-provided',
+              _type: 'scriptureReference',
+              reference: 'Fixture Reference 3:3',
+              translation: 'Fixture translation',
+              textStatus: 'provided',
+              passage: 'Development-only placeholder passage.',
+              usageRightsConfirmed: true,
+              practiceStatus: 'notConfigured',
+            },
+          ],
           reviewStatus: 'approved',
         },
         {

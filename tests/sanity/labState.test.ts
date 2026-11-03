@@ -97,7 +97,38 @@ test('round-trips only the isolated CMS storage namespace', () => {
   assert.equal(CMS_LAB_STORAGE_KEY, 'bibleberry-sanity-challenge-lab-v1')
 })
 
-test('filters malformed persisted fields and recovers from invalid JSON or storage failures', () => {
+test('persists only Scripture reference metadata after source withdrawal or rights changes', () => {
+  const challenge = mappedChallenge()
+  const provided: typeof challenge.primaryScripture = {
+    ...challenge.primaryScripture,
+    reference: 'Fixture Reference 3:3',
+    translation: 'Fixture translation',
+    textStatus: 'provided',
+    passage: 'Development-only placeholder passage.',
+    usageRightsConfirmed: true,
+  }
+  const saved = toggleCmsScripture([], 'live', provided)
+  assert.deepEqual(saved, [{
+    key: cmsScriptureKey('live', provided),
+    source: 'live',
+    scriptureId: provided.id,
+    reference: provided.reference,
+    translation: provided.translation,
+  }])
+
+  // Simulate the source later withdrawing the passage and its usage rights.
+  const withdrawn = { ...provided, textStatus: 'referenceOnly' as const, passage: undefined, usageRightsConfirmed: false }
+  assert.equal(withdrawn.usageRightsConfirmed, false)
+  const { storage } = memoryStorage()
+  assert.equal(writeCmsLabState(storage, { ...emptyCmsLabState(), scripture: saved }), true)
+  const restored = readCmsLabState(storage)
+  assert.deepEqual(restored.scripture, saved)
+  assert.equal(JSON.stringify(restored).includes(provided.passage!), false)
+  assert.equal('passage' in restored.scripture[0], false)
+  assert.equal('usageRightsConfirmed' in restored.scripture[0], false)
+})
+
+test('filters malformed persisted fields, migrates legacy Scripture, and recovers from storage failures', () => {
   const challenge = mappedChallenge()
   const validScripture = { key: cmsScriptureKey('live', challenge.primaryScripture), source: 'live', scripture: challenge.primaryScripture }
   const malformed = JSON.stringify({
@@ -110,7 +141,13 @@ test('filters malformed persisted fields and recovers from invalid JSON or stora
     positions: { valid: 'screen-key' },
     completedChallengeIds: ['complete'],
     savedChallengeIds: ['saved'],
-    scripture: [JSON.parse(JSON.stringify(validScripture))],
+    scripture: [{
+      key: validScripture.key,
+      source: 'live',
+      scriptureId: challenge.primaryScripture.id,
+      reference: challenge.primaryScripture.reference,
+      translation: challenge.primaryScripture.translation,
+    }],
   })
   assert.deepEqual(readCmsLabState(memoryStorage('{not-json').storage), emptyCmsLabState())
   assert.deepEqual(readCmsLabState({ getItem() { throw new Error('denied') }, setItem() {} }), emptyCmsLabState())

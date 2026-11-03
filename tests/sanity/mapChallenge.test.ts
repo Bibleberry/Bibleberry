@@ -190,7 +190,7 @@ test('rejects duplicate sibling keys in nested arrays and companion links', () =
 
   const duplicateStudyScripture = fixture()
   const studyScriptures = duplicateStudyScripture.screens[1].blocks[2].scriptures
-  studyScriptures.push({ ...studyScriptures[0], reference: 'Fixture Reference 3:3' })
+  studyScriptures[1]._key = studyScriptures[0]._key
   assertDuplicateKeyRejected(duplicateStudyScripture, 'screens.1.blocks.2.scriptures.1._key')
 
   const duplicateCompanions = fixture()
