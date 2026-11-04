@@ -101,15 +101,16 @@ The import validator must reject, rather than strip or repair:
 
 Validation must recompute structural counts and candidate/provenance hashes rather than trusting report totals. Unlike the local preview, import validation must reject unknown fields instead of allowing schema parsing to discard them.
 
-### 4.2 Source binding
+### 4.2 Source verification states
 
-A browser-supplied JSON artifact is not trusted evidence for a write. The recommended future request includes the exact BerryMark source and the compilation. The authenticated server must:
+The offline planner must report which input and verification level it actually used:
 
-1. Recompute SHA-256 over the exact source and compare it with `reviewReport.source.sha256`.
-2. Recompile with the pinned BerryMark compiler and compare the candidate and relevant review-report fields with the supplied artifact.
-3. Reject any mismatch as `BM_IMPORT_ARTIFACT_MISMATCH`.
+- **Source-verified:** The planner receives the exact BerryMark manuscript and complete compiler result. It recomputes SHA-256 over the exact source, compares it with `reviewReport.source.sha256`, recompiles with the pinned compiler under the approved contract, and compares the candidate and relevant review-report fields with the supplied artifact. Any mismatch produces `BM_IMPORT_ARTIFACT_MISMATCH`.
+- **Artifact-only:** The planner receives only the complete compiler result. It may perform structural validation and internal consistency checks, but it must explicitly report that independent source verification was not performed. The presence of a source filename or fingerprint in the artifact does not prove that the planner compared the artifact with its manuscript.
 
-A future trusted build pipeline may substitute a server-generated artifact for source recompilation, but that is a separate implementation decision. Artifact-only structural validation is sufficient for local preview, not for an authenticated write.
+Both modes remain pure, zero-network, and zero-write in the offline planner; neither requires credentials, services, or new technical dependencies. An artifact-only dry run may establish structural validity, but it is never authorization for an actual Sanity write and must not be described as source-verified.
+
+A browser-supplied JSON artifact is not trusted evidence for a write. Before any mutation, the eventual authenticated importer must independently complete the source-verified comparison above. A future trusted build pipeline may substitute a server-generated, source-verified artifact for importer-side recompilation only through a separately approved implementation decision.
 
 ## 5. Field and metadata contract
 
@@ -188,9 +189,11 @@ This exceptional pre-approval update path does not establish ongoing BerryMark�
 - Always create with `adaptationReviewed: false` and CB4–CB8 `reviewStatus: 'proposed'`.
 - Never map source `approvalStatus`, `approvedBy`, or `approvedAt` into Sanity approval automatically, even when present and truthful in the source.
 - Preserve those claims in the returned import report as source claims, not destination facts.
-- `EDITORIAL NOTE`, `TODO`, and `REVIEW REQUIRED` items remain exact, located, and unresolved in the dry-run/import report.
-- Recommended draft policy: unresolved editorial annotations may accompany an unpublished draft for human review, but they block publication. They must be explicitly counted and acknowledged; none may disappear because Sanity lacks a structured destination.
-- Do not put annotations, source-author metadata, diagnostics, warning overrides, or fingerprints into public teaching prose.
+- `REVIEW REQUIRED` identifies an unresolved item that blocks publication until explicitly addressed. `TODO` identifies an unresolved actionable item that likewise blocks publication until addressed.
+- `EDITORIAL NOTE` preserves informational context and does not automatically block publication. If an informational note identifies an actual unresolved editorial decision, the review report must explicitly classify that item as actionable rather than silently ignoring it or leaving it non-blocking.
+- Every category retains its original text, source location, and review history. Compilation and import never automatically resolve an annotation, mark it complete, or erase its original classification.
+- Recommended draft policy: unresolved actionable items may accompany an unpublished draft for human review only if the approved incomplete-draft policy permits. They must be explicitly counted and acknowledged, must remain visibly unresolved, and must not disappear or appear completed because Sanity lacks a structured destination. Informational notes remain visible as context without becoming automatic publication blockers.
+- No annotation text may enter reader-facing teaching. Do not put annotations, source-author metadata, diagnostics, warning overrides, or fingerprints into public teaching prose.
 - A scoped warning-override syntax and structured Sanity review-item disposition remain unapproved. No importer may invent them.
 
 ## 9. Scripture rights contract
@@ -228,14 +231,26 @@ Dry run is the default and only offline operation. It performs **zero Sanity wri
 {
   mode: "dry-run",
   writesAttempted: 0,
+  structuralValid: boolean,
   importEligible: boolean,
+  sourceVerification: {
+    state: "source-verified" | "artifact-only",
+    independentSourceComparisonPerformed: boolean
+  },
   source: { filename, sha256, revision },
   proposedIdentity: { slug, canonicalId, draftId },
   lookup: { status: "offline" | "complete" | "failed", dependencies: [...] },
   proposedAction: "create" | "update" | "none" | "reject" | "unknown",
   readyFields: [{ path, source, resolution }],
   missingRequiredMetadata: [{ path, state, blocksPublication: true }],
-  unresolvedEditorialDecisions: [...],
+  unresolvedEditorialDecisions: [
+    { originalCategory: "TODO" | "REVIEW REQUIRED" | "EDITORIAL NOTE",
+      classification: "actionable", text, sourceLocation, reviewHistory }
+  ],
+  informationalEditorialNotes: [
+    { originalCategory: "EDITORIAL NOTE",
+      classification: "informational", text, sourceLocation, reviewHistory }
+  ],
   unresolvedLookups: [...],
   conflicts: [...],
   errors: [...],
@@ -247,14 +262,16 @@ Dry run is the default and only offline operation. It performs **zero Sanity wri
 
 `readyFields` describes fields that can be mapped truthfully; it does not claim publication readiness. `missingRequiredMetadata` preserves absent versus explicit null where the compiler report supplies it.
 
+`structuralValid` reports structural and internal-consistency validation only. `sourceVerification.state` must reflect the inputs and work actually performed: artifact-only results report `independentSourceComparisonPerformed: false` and must state that independent source verification was not performed. Artifact-only results have `importEligible: false` even when structurally valid. No dry-run result authorizes a Sanity write; apply always requires a fresh source-verified preflight. Editorial annotations remain separated into actionable decisions and informational notes, with original text, source locations, and review history intact.
+
 ### 11.2 Required behavior
 
 - Offline validation can report `reject` for invalid input without contacting Sanity.
 - If all local gates pass but existing-document/series lookup requires unavailable authentication, return `lookup.status: 'offline'` and `proposedAction: 'unknown'`. Never fabricate `create` or `update`.
 - An authenticated dry run may read the target dataset but must not create a token, mutate a document, publish, or change a setting.
 - `create` requires a completed duplicate/identity lookup; `update` additionally requires the provenance and revision checks in Section 7.
-- Missing publishing metadata, unresolved editorial items, rights assertions, and conflicts must remain separately visible rather than collapsing into a generic “ready” label.
-- A subsequent apply operation must rerun preflight; it cannot treat an old dry run as authorization.
+- Missing publishing metadata, unresolved actionable `TODO`/`REVIEW REQUIRED` items, informational `EDITORIAL NOTE` items, rights assertions, and conflicts must remain separately visible rather than collapsing into a generic “ready” label. Unresolved actionable editorial decisions block publication; informational notes alone do not.
+- A subsequent apply operation must rerun preflight with independent source verification; it cannot treat an old or artifact-only dry run as authorization.
 
 ## 12. Error and conflict reporting
 
@@ -299,11 +316,11 @@ No more than three small PRs should implement this contract. Each requires its o
 
 ### PR 1 — Pure import planner and offline dry run
 
-**Boundary:** Strict complete-artifact validation, source/artifact binding, deterministic identity proposal, field-readiness report, machine-readable issues, and offline `unknown` action. No network, schema change, browser UI, or writes.
+**Boundary:** Strict complete-artifact validation with explicit source-verified and artifact-only modes, deterministic identity proposal, field-readiness report, machine-readable issues, and offline `unknown` action. Source-verified mode recomputes the source fingerprint and verifies the artifact against the exact manuscript under the pinned compiler contract. Artifact-only mode performs only structural/internal-consistency validation and explicitly reports that independent source verification was not performed. No network, schema change, browser UI, credentials, services, new technical dependencies, or writes.
 
-**Regression coverage:** All CB1–CB9 and nested structures; malformed/false-readiness/unknown-field rejection; counts and hashes; stable IDs; missing metadata; series pending lookup; rights states; editorial separation; deterministic repeat reports; explicit assertion of zero network/write calls.
+**Regression coverage:** All CB1–CB9 and nested structures; malformed/false-readiness/unknown-field rejection; counts and hashes; source fingerprint and recompilation match/mismatch; stable IDs; missing metadata; series pending lookup; rights states; actionable versus informational editorial reporting; deterministic repeat reports; explicit assertion of zero network/write calls. Artifact-only tests must prove that no source-verification claim, import eligibility, or write authorization is inferred.
 
-**Acceptance:** Synthetic valid/invalid artifacts produce accurate reports; the real demonstrations remain truthful and are not bundled into production; no application behavior changes.
+**Acceptance:** Synthetic valid/invalid source-plus-artifact and artifact-only inputs produce accurate, distinct reports; the real demonstrations remain truthful and are not bundled into production; no application behavior changes.
 
 ### PR 2 — Reviewed provenance schema and authenticated read-only online dry run
 
@@ -315,9 +332,9 @@ No more than three small PRs should implement this contract. Each requires its o
 
 ### PR 3 — Controlled draft-only apply
 
-**Boundary:** Authenticated server-side create/no-op/exceptional update using fresh preflight and atomic `createIfNotExists`/expected-revision behavior. Return draft identity and review report. No publish, reader release, general sync, or public UI.
+**Boundary:** Authenticated server-side create/no-op/exceptional update using fresh preflight and atomic `createIfNotExists`/expected-revision behavior. Before any mutation, the importer must independently verify the exact source and compiled output under Section 4.2; an artifact-only or previously completed dry run is insufficient. Return draft identity and review report. No publish, reader release, general sync, or public UI.
 
-**Regression coverage:** Successful new draft; idempotent same-source no-op; permitted unchanged/unapproved draft update; every conflict path; no partial writes; no approval transfer; no editorial leakage; no credential exposure; published adapter remains strict; production bundle isolation.
+**Regression coverage:** Successful new draft only after independent source verification; rejection of artifact-only write attempts and source/artifact mismatches; idempotent same-source no-op; permitted unchanged/unapproved draft update; every conflict path; no partial writes; no approval transfer; no editorial leakage; no credential exposure; published adapter remains strict; production bundle isolation.
 
 **Acceptance:** A separately authorized harmless synthetic draft demonstrates the path in a development dataset/environment. Human editorial review and publication remain manual, distinct, and unperformed by the importer.
 
@@ -327,7 +344,7 @@ No more than three small PRs should implement this contract. Each requires its o
 2. **Identity convention:** Approve `berrymark-challenge-<slug>` and the immutable-slug rule before implementation.
 3. **Exceptional updates:** Approve the bounded pre-approval update path and content-hash conflict detection, or retain strict create-only behavior.
 4. **Provenance storage:** Approve the schema fields and protected import-run retention location. Do not treat excluded reader fields as private in a public dataset.
-5. **Editorial annotations:** Confirm that unresolved annotations may accompany a draft while blocking publication, and decide their durable review/disposition mechanism.
+5. **Editorial annotations:** Confirm whether unresolved actionable `TODO`/`REVIEW REQUIRED` items may accompany an unpublished draft; they block publication until addressed. Informational `EDITORIAL NOTE` items are preserved but do not automatically block publication. Decide the durable review/disposition mechanism without discarding original text, source locations, or review history.
 6. **Approval policy/schema:** Reconcile Aaron-or-Alexis technical approval with Alexis’s ministry editorial authority and current Alexis-only labels. Import itself never transfers approval.
 7. **Rights evidence:** Select the durable human verification record required before passage text can be imported.
 8. **Warning overrides:** Syntax, storage, and revision-sensitive disposition remain unapproved and are not needed for a conservative first implementation.
