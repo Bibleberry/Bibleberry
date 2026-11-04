@@ -213,6 +213,22 @@ test('rejects missing compiler sections, invalid candidates, and false approval 
   if (!result.ok) assert.ok(result.failure.issues.some(issue => issue.path.includes('adaptationReviewed')))
 })
 
+for (const field of ['importReady', 'publicationReady'] as const) {
+  test(`rejects compiler reports falsely claiming ${field}: true`, () => {
+    const input = compilerResultFixture()
+    input.reviewReport[field] = true
+
+    const result = mapBerryMarkCompilerResult(input)
+    assert.equal(result.ok, false)
+    if (!result.ok) {
+      assert.ok(
+        result.failure.issues.some(issue => issue.path === `reviewReport.${field}`),
+        `Expected a path-specific rejection for ${field}`,
+      )
+    }
+  })
+}
+
 test('rejects unknown blocks rather than omitting them from the preview', () => {
   const input = compilerResultFixture()
   input.sanityCandidate.screens[0].blocks[0] = {
