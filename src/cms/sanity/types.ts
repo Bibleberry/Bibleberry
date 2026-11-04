@@ -41,7 +41,7 @@ export type CmsScripture = {
 type CmsBlockBase = {
   id: string
   requiredForCompletion: boolean
-  reviewStatus?: 'approved'
+  reviewStatus?: 'approved' | 'proposed'
 }
 
 export type CmsBlock = CmsBlockBase & (
