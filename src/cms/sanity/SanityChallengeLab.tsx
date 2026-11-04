@@ -85,12 +85,13 @@ function CmsScriptureSaveButton({ scripture, source, state, onToggle }: {
   )
 }
 
-function CmsScripturePanel({ scripture, source, state, onToggle, primary = false }: {
+export function CmsScripturePanel({ scripture, source, state, onToggle, primary = false, readOnly = false }: {
   scripture: CmsScripture
   source: CmsSourceKind
   state: CmsLabState
   onToggle: (source: CmsSourceKind, scripture: CmsScripture) => void
   primary?: boolean
+  readOnly?: boolean
 }) {
   const presentation = presentCmsScripture(scripture)
   return (
@@ -102,20 +103,21 @@ function CmsScripturePanel({ scripture, source, state, onToggle, primary = false
         <div className="cms-reference-only"><BookOpen size={20} aria-hidden="true" /><div><strong>{scripture.reference}</strong><p>Reference only · No passage text supplied{scripture.translation === 'Not configured' ? ' · Translation not configured' : ''}</p></div></div>
       )}
       <div className="lab-scripture__actions">
-        <CmsScriptureSaveButton scripture={scripture} source={source} state={state} onToggle={onToggle} />
+        {!readOnly && <CmsScriptureSaveButton scripture={scripture} source={source} state={state} onToggle={onToggle} />}
         <small>{scripture.practiceStatus === 'configured'
-          ? 'Practice configured in Sanity · CMS memorization practice is not available in this view'
+          ? `${readOnly ? 'Practice configured in the local file' : 'Practice configured in Sanity'} · CMS memorization practice is not available in this view`
           : 'Memorization practice not configured'}</small>
       </div>
     </section>
   )
 }
 
-function CmsOptionalStudy({ block, source, state, onToggle }: {
+function CmsOptionalStudy({ block, source, state, onToggle, readOnly = false }: {
   block: Extract<CmsBlock, { type: 'optionalExploration' }>
   source: CmsSourceKind
   state: CmsLabState
   onToggle: (source: CmsSourceKind, scripture: CmsScripture) => void
+  readOnly?: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
   const contentId = `${block.id}-cms-content`
@@ -128,7 +130,7 @@ function CmsOptionalStudy({ block, source, state, onToggle }: {
       <div id={contentId} className="lab-optional__content" hidden={!expanded}>
         <CmsPortableTextView value={block.body} />
         {block.scriptures.map(scripture => (
-          <CmsScripturePanel key={scripture.id} scripture={scripture} source={source} state={state} onToggle={onToggle} />
+          <CmsScripturePanel key={scripture.id} scripture={scripture} source={source} state={state} onToggle={onToggle} readOnly={readOnly} />
         ))}
       </div>
     </section>
@@ -169,35 +171,41 @@ function CmsSequence({ block }: { block: Extract<CmsBlock, { type: 'connectedSeq
   )
 }
 
-function CmsBlockView({ block, source, state, onToggle }: {
+function CmsProposedBadge({ block }: { block: CmsBlock }) {
+  if (block.reviewStatus !== 'proposed') return null
+  return <span className="cms-proposed-badge">Proposed block · Not approved</span>
+}
+
+export function CmsBlockView({ block, source, state, onToggle, readOnly = false }: {
   block: CmsBlock
   source: CmsSourceKind
   state: CmsLabState
   onToggle: (source: CmsSourceKind, scripture: CmsScripture) => void
+  readOnly?: boolean
 }) {
   switch (block.type) {
     case 'scripture':
-      return <CmsScripturePanel scripture={block.scripture} source={source} state={state} onToggle={onToggle} />
+      return <CmsScripturePanel scripture={block.scripture} source={source} state={state} onToggle={onToggle} readOnly={readOnly} />
     case 'teachingText':
       return <section className="lab-teaching-text"><CmsPortableTextView value={block.body} /></section>
     case 'statement':
       return <section className="lab-statement">{block.label && <span className="section-label">{block.label}</span>}<p>{block.text}</p></section>
     case 'contrast':
-      return <section className="lab-contrast"><div>{[block.left, block.right].map(side => <article key={side.title}><h3>{side.title}</h3><CmsPortableTextView value={side.body} /></article>)}</div>{block.footer && <p>{block.footer}</p>}</section>
+      return <section className="lab-contrast">{readOnly && <CmsProposedBadge block={block} />}<div>{[block.left, block.right].map(side => <article key={side.title}><h3>{side.title}</h3><CmsPortableTextView value={side.body} /></article>)}</div>{block.footer && <p>{block.footer}</p>}</section>
     case 'visualCards':
-      return <section className="lab-visual-cards"><div>{block.cards.map(card => <article key={card.id}><h3>{card.title}</h3>{card.body && <p>{card.body}</p>}</article>)}</div></section>
+      return <section className="lab-visual-cards">{readOnly && <CmsProposedBadge block={block} />}<div>{block.cards.map(card => <article key={card.id}><h3>{card.title}</h3>{card.body && <p>{card.body}</p>}</article>)}</div></section>
     case 'connectedSequence':
-      return <CmsSequence block={block} />
+      return <>{readOnly && <CmsProposedBadge block={block} />}<CmsSequence block={block} /></>
     case 'reflectionChoice':
-      return <CmsReflection block={block} />
+      return <>{readOnly && <CmsProposedBadge block={block} />}<CmsReflection block={block} /></>
     case 'optionalExploration':
-      return <CmsOptionalStudy block={block} source={source} state={state} onToggle={onToggle} />
+      return <>{readOnly && <CmsProposedBadge block={block} />}<CmsOptionalStudy block={block} source={source} state={state} onToggle={onToggle} readOnly={readOnly} /></>
     case 'prayer':
       return <section className="prayer-section lab-prayer" aria-labelledby={`${block.id}-title`}><span className="section-label" id={`${block.id}-title`}>Prayer</span>{block.paragraphs.map((paragraph, index) => <p key={`${block.id}-${index}`}>{paragraph}</p>)}</section>
   }
 }
 
-function CmsCompanionLinks({ links }: { links: CmsCompanionLink[] }) {
+export function CmsCompanionLinks({ links }: { links: CmsCompanionLink[] }) {
   if (links.length === 0) return null
   return (
     <section className="lab-related-list" aria-labelledby="cms-companion-links">
