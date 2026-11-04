@@ -21,6 +21,7 @@ export const challenge = defineType({
     {name: 'content', title: 'Challenge content', default: true},
     {name: 'publishing', title: 'Series & release'},
     {name: 'review', title: 'Editorial review'},
+    {name: 'provenance', title: 'Technical provenance'},
   ],
   fields: [
     defineField({name: 'title', title: 'Title', type: 'string', group: 'content', validation: Rule => Rule.required()}),
@@ -104,6 +105,14 @@ export const challenge = defineType({
       type: 'editorialReview',
       group: 'review',
       validation: Rule => Rule.required(),
+    }),
+    defineField({
+      name: 'importProvenance',
+      title: 'BerryMark import provenance',
+      type: 'importProvenance',
+      group: 'provenance',
+      description: 'Read-only technical lineage supplied by the future authenticated importer. This is not editorial approval and never satisfies review or publication requirements.',
+      readOnly: true,
     }),
   ],
   validation: Rule => Rule.custom((value) => {

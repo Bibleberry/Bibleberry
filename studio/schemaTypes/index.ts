@@ -6,6 +6,7 @@ import {comparisonBlock} from './objects/comparisonBlock'
 import {comparisonSide} from './objects/comparisonSide'
 import {connectedSequenceBlock} from './objects/connectedSequenceBlock'
 import {editorialReview} from './objects/editorialReview'
+import {importProvenance} from './objects/importProvenance'
 import {optionalStudyBlock} from './objects/optionalStudyBlock'
 import {prayerBlock} from './objects/prayerBlock'
 import {reflectionBlock} from './objects/reflectionBlock'
@@ -38,4 +39,5 @@ export const schemaTypes = [
   prayerBlock,
   companionLink,
   editorialReview,
+  importProvenance,
 ]
