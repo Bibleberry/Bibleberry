@@ -282,8 +282,10 @@ const sourceLocationSchema = z.looseObject({
 
 const reviewReportSchema = z.looseObject({
   schemaComplete: z.boolean().nullish(),
-  importReady: z.boolean().nullish(),
-  publicationReady: z.boolean().nullish(),
+  // A local compiler preview is never approved for import or publication.
+  // Reject contradictory claims rather than displaying them as trustworthy readiness states.
+  importReady: z.literal(false).nullish(),
+  publicationReady: z.literal(false).nullish(),
   source: z.looseObject({
     filename: z.string().nullish(),
     sha256: z.string().regex(/^[a-f0-9]{64}$/).nullish(),
