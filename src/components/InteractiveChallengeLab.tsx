@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import {
   ArrowDown, ArrowLeft, ArrowRight, BookOpen, Bookmark, BookmarkCheck,
-  Check, ChevronDown, Cloud, Headphones, Library, RotateCcw, Trash2,
+  Check, ChevronDown, Cloud, FileJson, Headphones, Library, RotateCcw, Trash2,
 } from 'lucide-react'
 import {
   interactiveChallenges,
@@ -13,6 +13,10 @@ import {
 } from '../data/interactiveChallenges'
 import { MemorizationTool } from './FormationViews'
 import { SanityChallengeLab } from '../cms/sanity/SanityChallengeLab'
+
+const BerryMarkLocalPreview = import.meta.env.DEV
+  ? lazy(() => import('../cms/sanity/BerryMarkLocalPreview').then(module => ({ default: module.BerryMarkLocalPreview })))
+  : null
 
 const LAB_STORAGE_KEY = 'bibleberry-interactive-challenge-lab-v1'
 
@@ -393,7 +397,7 @@ function LocalPrototypeLab({ onReturnToStudio }: { onReturnToStudio: () => void 
 }
 
 export function InteractiveChallengeLab({ onReturnToStudio }: { onReturnToStudio: () => void }) {
-  const [source, setSource] = useState<'local' | 'sanity'>('local')
+  const [source, setSource] = useState<'local' | 'sanity' | 'berrymark'>('local')
 
   return (
     <>
@@ -410,12 +414,17 @@ export function InteractiveChallengeLab({ onReturnToStudio }: { onReturnToStudio
             <button type="button" aria-pressed={source === 'sanity'} className={source === 'sanity' ? 'is-current' : ''} onClick={() => setSource('sanity')}>
               <Cloud size={16} aria-hidden="true" /> Sanity CMS
             </button>
+            {import.meta.env.DEV && <button type="button" aria-pressed={source === 'berrymark'} className={source === 'berrymark' ? 'is-current' : ''} onClick={() => setSource('berrymark')}>
+              <FileJson size={16} aria-hidden="true" /> BerryMark Local Preview
+            </button>}
           </div>
         </div>
       </section>
-      {source === 'local'
-        ? <LocalPrototypeLab onReturnToStudio={onReturnToStudio} />
-        : <SanityChallengeLab onReturnToStudio={onReturnToStudio} />}
+      {source === 'local' && <LocalPrototypeLab onReturnToStudio={onReturnToStudio} />}
+      {source === 'sanity' && <SanityChallengeLab onReturnToStudio={onReturnToStudio} />}
+      {source === 'berrymark' && import.meta.env.DEV && BerryMarkLocalPreview && <Suspense fallback={<div className="standard-page cms-catalog-state" role="status">Loading local preview tooling…</div>}>
+        <BerryMarkLocalPreview />
+      </Suspense>}
     </>
   )
 }
