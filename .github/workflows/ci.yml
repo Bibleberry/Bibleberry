@@ -25,11 +25,25 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
       - name: Lint application
         run: npm run lint
 
       - name: Build application
         run: npm run build
+
+      - name: Run reader regression smoke suite
+        run: npm run test:smoke
+
+      - name: Upload smoke test failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-smoke-results
+          path: test-results/
+          retention-days: 7
 
   cms-adapter-tests:
     name: Verify CMS adapters and BerryMark preview
