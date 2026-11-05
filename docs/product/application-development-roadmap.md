@@ -15,6 +15,8 @@
 
 Bibleberry is the working name for a mobile-first Christian biblical-formation application led by Alexis Waid's substantive biblical teaching. It should deliver carefully authored, flexible **Challenges**, not simply present daily devotional text in a conventional reader. The broader ministry includes Realigned; Spiritually Hungry is the business entity.
 
+**Device reach is a product requirement.** Bibleberry must provide a reliable, readable and responsive core experience on inexpensive and older Android phones, including under constrained CPU, memory and network conditions. A high-end iPhone or development laptop is not the acceptance baseline. Design for low-end devices from the beginning, then verify on representative hardware before launch. This cross-cutting decision was approved by Aaron on November 5, 2026; see [R21 / Issue #37](https://github.com/ContraPhilosophy/Bibleberry/issues/37).
+
 **The teaching determines the experience.** The reader, its component registry and its CMS must accommodate the argument Alexis needs to communicate. Do not impose arbitrary lesson length, a fixed number of screens, a mandatory generic devotional template, or limits that force theological content to be shortened. Preserve original manuscripts apart from adaptations, uphold recognizable teaching voice and prayers, and do not invent editorial approvals or theological conclusions.
 
 Every dated daily experience is called a **Challenge**, even when the experience differs from multi-screen biblical teaching. The product intends seven daily experience types in the longer-term vision. The precise final type taxonomy and corresponding authoring contracts have not all been settled.
@@ -77,7 +79,7 @@ Begin the data-path test with a **synthetic, rights-safe, reference-only** Chall
 
 ## 4. Prioritized product-development backlog
 
-The following twenty work areas describe **capabilities and dependencies**, not twenty preauthorized implementation PRs. Priorities are directional. Distinct scoped Issues may cover a portion of an area, and some work can proceed in parallel.
+The following twenty-one work areas describe **capabilities and dependencies**, not twenty-one preauthorized implementation PRs. Priorities are directional. Distinct scoped Issues may cover a portion of an area, and some work can proceed in parallel.
 
 ### P0 — Connect the manuscript to the actual reader
 
@@ -216,14 +218,23 @@ The following twenty work areas describe **capabilities and dependencies**, not 
 - **In everyday language:** Bibleberry should feel comfortable to read and navigate on actual phones, with enlarged text and accessibility tools.
 - **Current state:** Responsive and one-off browser assertions previously reported; real iOS/Android and native screen-reader validation not established by those checks.
 - **Deliverable / evidence:** Target-device test matrix, actual iPhone/Android/browser testing as supported, VoiceOver/TalkBack or equivalent, focus and keyboard checks, text scaling, long teaching layouts and network failure states.
-- **Dependencies:** R03/R06 integrated reader, R17 repeatable regression foundation.
+- **Dependencies:** R03/R06 integrated reader, R17 repeatable regression foundation, and R21 measurable low-end device/performance acceptance.
 
 #### R20. Release engineering and operations
 - **Engineering term:** Release-channel decision, production CI/CD, observability, privacy and incident recovery.
 - **In everyday language:** Decide how people get Bibleberry, how updates go out, what happens when something fails, and how it is restored.
 - **Current state:** Internal Cloudflare Lab and a release runbook **plan** exist. Public launch mechanism, production rollback rehearsal and app-store/native scope are not fully decided.
 - **Deliverable / evidence:** Approve web/PWA/native scope, production deployment and domain, error monitoring, data backup/restore when accounts are shipped, incident ownership, privacy, controlled beta and go/no-go evidence.
-- **Dependencies:** Approved launch scope, R05 release policy, R13 if account-backed durability is promised, R18/R19 checks. See [release readiness and rollback](../release/release-readiness-and-rollback.md).
+- **Dependencies:** Approved launch scope, R05 release policy, R13 if account-backed durability is promised, R18/R19 checks **and R21 low-end Android acceptance**. See [release readiness and rollback](../release/release-readiness-and-rollback.md).
+
+#### R21. Low-end Android performance and inclusive delivery
+- **Engineering term:** Production performance budgets, constrained-device profiling, network resilience and launch performance acceptance.
+- **In everyday language:** Bibleberry's Scripture and substantial daily teaching must run smoothly enough to read, navigate and resume on an inexpensive or older Android phone, not only on flagship devices.
+- **Priority and decision:** **P0 launch-quality requirement, approved by Aaron November 5, 2026.** Applies to UX architecture and implementation now, with measured acceptance required before public launch. This is a required outcome, not automatic authorization for broad refactoring or a new framework.
+- **Current state:** Mobile-first presentation exists, but no agreed low-end Android device matrix, real-device performance baseline or approved production performance budget has been demonstrated. Do not infer acceptable low-end performance from BigMac or a green CI run.
+- **Deliverable / evidence:** Choose representative budget/older Android hardware (including a roughly 2 GB RAM-class device where feasible), confirm browser/OS versions, and supplement real-device checks with CPU and slow-network throttling. Profile a clean production build: initial content readability, transferred and executed JavaScript/CSS, images/fonts, long-Challenge scrolling, navigation, resume/state behavior, input responsiveness, memory constraints where measurable, and slow/interrupted-network recovery. Propose measurable performance thresholds based on those results for Aaron's approval; record pass/fail evidence and any exceptions. Add stable automated budgets where useful but retain actual low-end device testing as a launch gate.
+- **Design constraint:** Optimize code splitting, content/media delivery, rendering and optional effects **without shortening Alexis's manuscripts, prayers or substantial teaching**. Keep developer-only tooling outside public builds. Account for large text, reduced motion and accessible controls on constrained hardware.
+- **Dependencies:** R03 reader integration, R06 Hub/UX decisions, R17 automated testing, R19 mobile/accessibility QA and R20 release readiness. **Track:** [#37 — low-end Android performance](https://github.com/ContraPhilosophy/Bibleberry/issues/37). Final benchmarks and acceptance criteria require explicit review; no benchmarks or device passes are yet claimed.
 
 ## 5. Three coordinated delivery tracks
 
@@ -233,7 +244,7 @@ These tracks can advance together without assigning multiple agents to the same 
 | --- | --- | --- |
 | **A. Manuscript to reader** | R01 → R02 → R03, with R04/R07 contract work and later R05 release enforcement | A safe, editorially reviewed Challenge arrives in the normal reader from Sanity; readers navigate, save and complete without a code change for the teaching |
 | **B. Reader product experience** | R06 mockups and decisions; R08/R09/R10/R11/R12 integration plan | Approved Hub/exploration architecture and production-ready paths for existing teaching, collections and formation experiments |
-| **C. Engineering reliability** | R16 #15 Antigravity onboarding; R17 #26; R18 #21; later R19/R20 | Cleaner required CI, repeatable browser tests and trustworthy protected previews |
+| **C. Engineering reliability** | R16 #15; R17 #26; R18 #21; R19 mobile/accessibility; **R21 low-end Android performance**; R20 release | Cleaner required CI, repeatable browser tests, trustworthy protected previews and measured budget-device launch acceptance |
 
 R13–R15 become schedulable as their dependencies and approved launch scope are clearer. R05 must be completed before relying on advance publication of actual unreleased approved content. Preserve the distinction between a **safe public CMS demo** and a **production embargo-protected reader feed**.
 
