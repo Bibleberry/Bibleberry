@@ -1,6 +1,19 @@
 import { test, expect } from '@playwright/test';
 
-test.describe('Navigation and Onboarding', () => {
+test.describe('Navigation, Onboarding, and Date-Gated Teaching', () => {
+  let uncaughtErrors: Error[] = [];
+
+  test.beforeEach(async ({ page }) => {
+    uncaughtErrors = [];
+    page.on('pageerror', err => uncaughtErrors.push(err));
+    // Pin deterministic test clock to November 5, 2026
+    await page.clock.setFixedTime(new Date('2026-11-05T12:00:00Z'));
+  });
+
+  test.afterEach(async () => {
+    expect(uncaughtErrors).toEqual([]);
+  });
+
   test('fresh browser session displays Onboarding with Colossians 3:16 and completes to Today', async ({ page }) => {
     // Clean context: no localStorage
     await page.goto('/');
@@ -51,6 +64,41 @@ test.describe('Navigation and Onboarding', () => {
     // Check Today navigation item is active
     const todayTab = page.locator('.desktop-nav button[aria-current="page"]');
     await expect(todayTab).toContainText('Today');
+  });
+
+  test('date-gated teaching release displays available entry and gates future fixtures', async ({ page }) => {
+    // Pin time to November 4, 2026
+    await page.clock.setFixedTime(new Date('2026-11-04T12:00:00Z'));
+    await page.addInitScript(() => {
+      localStorage.setItem('bibleberry-prototype-v1', JSON.stringify({
+        onboarded: true,
+        appearance: 'system',
+        textSize: 'default',
+        reminderEnabled: false,
+        reminderTime: '08:00',
+        explored: [],
+        journey: [],
+        lastOpened: null,
+        resumeDismissedDate: '',
+      }));
+    });
+
+    await page.goto('/');
+
+    // On November 4, Today must show "Rest That Reaches Others" (sabbath-2026-11-04)
+    await expect(page.locator('#daily-teaching')).toBeVisible();
+    await expect(page.locator('#daily-teaching h1')).toContainText('Rest That Reaches Others');
+
+    // Future fixtures (Nov 5, Nov 6, Nov 7) must NOT appear as Today's teaching
+    await expect(page.locator('#daily-teaching h1')).not.toContainText('God’s Will for Our Lives');
+    await expect(page.locator('#daily-teaching h1')).not.toContainText('A Sign Between Us');
+
+    // Advance clock to November 5, 2026 and reload
+    await page.clock.setFixedTime(new Date('2026-11-05T12:00:00Z'));
+    await page.reload();
+
+    // Now November 5 teaching is released
+    await expect(page.locator('#daily-teaching h1')).toContainText('God’s Will for Our Lives');
   });
 
   test('bottom/desktop navigation cycles across Today, Foundations, Archive, and More', async ({ page }) => {

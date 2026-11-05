@@ -4,6 +4,10 @@ import * as path from 'node:path';
 
 test.describe('Build Isolation and Public Production Verification', () => {
   test('public build excludes Developer Studio navigation, chunks, and fixtures', async ({ page }) => {
+    // Track uncaught page errors
+    const uncaughtErrors: Error[] = [];
+    page.on('pageerror', err => uncaughtErrors.push(err));
+
     // 1. Check DOM: In public build, Developer Studio must NOT appear in More view
     await page.addInitScript(() => {
       localStorage.setItem('bibleberry-prototype-v1', JSON.stringify({
@@ -37,18 +41,36 @@ test.describe('Build Isolation and Public Production Verification', () => {
       await expect(page.locator(`.more-list button:has-text("${title}")`)).toBeVisible();
     }
 
-    // Developer Studio must be completely absent in public build
+    // Developer Studio entry button must be unconditionally absent in public build
     const devStudioButton = page.locator('button.developer-studio-entry');
-    const isPublicBuild = !(await devStudioButton.isVisible());
+    await expect(devStudioButton).not.toBeVisible();
 
-    if (isPublicBuild) {
-      // 2. Check filesystem: dist/ directory must NOT contain InteractiveChallengeLab chunk
-      const distDir = path.resolve(process.cwd(), 'dist', 'assets');
-      if (fs.existsSync(distDir)) {
-        const files = fs.readdirSync(distDir);
-        const labChunk = files.find(f => f.startsWith('InteractiveChallengeLab'));
-        expect(labChunk).toBeUndefined();
+    // 2. Check filesystem: dist/ directory must NOT contain InteractiveChallengeLab chunk
+    const distDir = path.resolve(process.cwd(), 'dist', 'assets');
+    expect(fs.existsSync(distDir)).toBe(true);
+
+    const files = fs.readdirSync(distDir);
+    const labChunk = files.find(f => f.startsWith('InteractiveChallengeLab'));
+    expect(labChunk).toBeUndefined();
+
+    // 3. Scan all public JavaScript assets: must NOT contain distinguishing development code or fixture strings
+    const jsFiles = files.filter(f => f.endsWith('.js'));
+    expect(jsFiles.length).toBeGreaterThan(0);
+
+    const distinguishingDevMarkers = [
+      'Interactive Challenge Lab',
+      'Four guided Biblical Teaching Challenges',
+      'lab-source-selector',
+      'Open Interactive Challenge Lab',
+    ];
+
+    for (const jsFile of jsFiles) {
+      const content = fs.readFileSync(path.join(distDir, jsFile), 'utf-8');
+      for (const marker of distinguishingDevMarkers) {
+        expect(content).not.toContain(marker);
       }
     }
+
+    expect(uncaughtErrors).toEqual([]);
   });
 });

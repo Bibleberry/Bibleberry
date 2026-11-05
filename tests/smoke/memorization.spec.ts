@@ -1,6 +1,17 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Scripture Memorization Phrase-Reveal Tool', () => {
+  let uncaughtErrors: Error[] = [];
+
+  test.beforeEach(async ({ page }) => {
+    uncaughtErrors = [];
+    page.on('pageerror', err => uncaughtErrors.push(err));
+  });
+
+  test.afterEach(async () => {
+    expect(uncaughtErrors).toEqual([]);
+  });
+
   test('Sunday pilot memorization reveals phrases incrementally and resets cleanly', async ({ page }) => {
     await page.addInitScript(() => {
       localStorage.setItem('bibleberry-prototype-v1', JSON.stringify({

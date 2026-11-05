@@ -20,6 +20,18 @@ async function waitForServer(url: string, retries = 30): Promise<boolean> {
   return false;
 }
 
+async function waitForPortFree(url: string, retries = 30): Promise<boolean> {
+  for (let i = 0; i < retries; i++) {
+    try {
+      await fetch(url);
+      await sleep(150);
+    } catch {
+      return true;
+    }
+  }
+  return false;
+}
+
 function runCommand(command: string, env: Record<string, string> = {}): Promise<void> {
   return new Promise((resolve, reject) => {
     const proc = spawn(command, {
@@ -34,13 +46,30 @@ function runCommand(command: string, env: Record<string, string> = {}): Promise<
   });
 }
 
+async function stopPreviewServer(proc: ChildProcess): Promise<void> {
+  if (proc.killed || proc.exitCode !== null) return;
+  proc.kill('SIGTERM');
+  await new Promise<void>(resolve => {
+    proc.on('close', () => resolve());
+    setTimeout(resolve, 2000);
+  });
+  const freed = await waitForPortFree(`http://localhost:${PORT}`);
+  if (!freed) {
+    proc.kill('SIGKILL');
+    await sleep(200);
+  }
+}
+
 async function startPreviewServer(): Promise<ChildProcess> {
+  // Ensure port is not currently held by a stale process
+  await waitForPortFree(`http://localhost:${PORT}`);
+
   const proc = spawn('npx', ['vite', 'preview', '--port', String(PORT), '--strictPort'], {
     stdio: 'ignore',
   });
   const ready = await waitForServer(`http://localhost:${PORT}`);
   if (!ready) {
-    proc.kill();
+    await stopPreviewServer(proc);
     throw new Error(`Preview server did not become ready on port ${PORT}`);
   }
   return proc;
@@ -56,49 +85,57 @@ function cleanDist() {
 async function main() {
   console.log('=== Bibleberry Automated Reader Regression Suite ===\n');
 
-  // ---------------------------------------------------------
-  // PASS 1: Public Production Build (Standard public bundle)
-  // ---------------------------------------------------------
-  console.log('>>> [Pass 1] Building and testing Public Production Bundle...');
-  cleanDist();
-  await runCommand('npm run build');
+  let executionError: Error | null = null;
 
-  console.log('>>> Starting preview server for Public Bundle...');
-  let server = await startPreviewServer();
   try {
-    // Run tests targeting public build: navigation, today-resume, memorization, build-isolation
-    console.log('>>> Running Playwright smoke tests against Public Bundle...');
-    await runCommand('npx playwright test tests/smoke/navigation.spec.ts tests/smoke/today-resume.spec.ts tests/smoke/memorization.spec.ts tests/smoke/build-isolation.spec.ts', {
-      PLAYWRIGHT_TEST_BASE_URL: `http://localhost:${PORT}`,
-    });
+    // ---------------------------------------------------------
+    // PASS 1: Public Production Build (Standard public bundle)
+    // ---------------------------------------------------------
+    console.log('>>> [Pass 1] Building and testing Public Production Bundle...');
+    cleanDist();
+    await runCommand('npm run build');
+
+    console.log('>>> Starting preview server for Public Bundle...');
+    const server1 = await startPreviewServer();
+    try {
+      // Run tests targeting public build: navigation, today-resume, memorization, build-isolation
+      console.log('>>> Running Playwright smoke tests against Public Bundle...');
+      await runCommand('npx playwright test tests/smoke/navigation.spec.ts tests/smoke/today-resume.spec.ts tests/smoke/memorization.spec.ts tests/smoke/build-isolation.spec.ts', {
+        PLAYWRIGHT_TEST_BASE_URL: `http://localhost:${PORT}`,
+      });
+    } finally {
+      await stopPreviewServer(server1);
+    }
+
+    // ---------------------------------------------------------
+    // PASS 2: Testing-Enabled Build (Developer Studio included)
+    // ---------------------------------------------------------
+    console.log('\n>>> [Pass 2] Building and testing Developer-Enabled Bundle...');
+    cleanDist();
+    await runCommand('npm run build', { VITE_ENABLE_DEVELOPER_STUDIO: 'true' });
+
+    console.log('>>> Starting preview server for Developer-Enabled Bundle...');
+    const server2 = await startPreviewServer();
+    try {
+      console.log('>>> Running Playwright smoke tests against Developer-Enabled Bundle...');
+      await runCommand('npx playwright test tests/smoke/interactive-lab.spec.ts', {
+        PLAYWRIGHT_TEST_BASE_URL: `http://localhost:${PORT}`,
+      });
+    } finally {
+      await stopPreviewServer(server2);
+    }
+  } catch (err) {
+    executionError = err as Error;
   } finally {
-    server.kill();
-    await sleep(500);
+    // GUARANTEED CLEANUP: Always restore a clean public build in dist/ regardless of test success or failure
+    console.log('\n>>> Restoring clean public build in dist/...');
+    cleanDist();
+    await runCommand('npm run build');
   }
 
-  // ---------------------------------------------------------
-  // PASS 2: Testing-Enabled Build (Developer Studio included)
-  // ---------------------------------------------------------
-  console.log('\n>>> [Pass 2] Building and testing Developer-Enabled Bundle...');
-  cleanDist();
-  await runCommand('npm run build', { VITE_ENABLE_DEVELOPER_STUDIO: 'true' });
-
-  console.log('>>> Starting preview server for Developer-Enabled Bundle...');
-  server = await startPreviewServer();
-  try {
-    console.log('>>> Running Playwright smoke tests against Developer-Enabled Bundle...');
-    await runCommand('npx playwright test tests/smoke/interactive-lab.spec.ts', {
-      PLAYWRIGHT_TEST_BASE_URL: `http://localhost:${PORT}`,
-    });
-  } finally {
-    server.kill();
-    await sleep(500);
+  if (executionError) {
+    throw executionError;
   }
-
-  // Restore clean public build in dist
-  console.log('\n>>> Restoring clean public build in dist/...');
-  cleanDist();
-  await runCommand('npm run build');
 
   console.log('\n======================================================');
   console.log('SUCCESS: All regression passes and build checks passed!');
