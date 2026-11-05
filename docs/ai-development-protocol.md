@@ -4,6 +4,27 @@
 **Project owner:** Aaron Waid  
 **Editorial and theological authority:** Alexis Waid
 
+## 0. Project Context and Continuity Between AI Sessions
+
+Bibleberry uses multiple AI coding/research/review assistants. **GitHub is the durable shared record**; no single model's chat history, private sandbox or session notes are the sole project handoff.
+
+**Before proposing implementation or resuming a branch:**
+
+1. Read [Current Project Status](project/current-status.md), [Product & Application Development Roadmap](product/application-development-roadmap.md), this protocol, and the **specific** assignment Issue/PR. When work involves BerryMark, also inspect its current repository, importer contracts and relevant Issue/PR.
+2. **Verify live GitHub state:** current accepted `main` SHA in each affected repo, open PRs, relevant Issue comments, actual source files and last *pushed* assignment-branch commit. A dated status snapshot is a starting point, not proof of the current build.
+3. Give a concise **delta since the status timestamp**: accepted changes, verified results, unfinished work, material blockers and approvals still needed. Separate implemented-on-main, proposed PR work, local-only work, external configuration and unverified reports.
+4. Agree on a narrowly bounded assignment with Aaron before coding. Read the repository's authority/content protections; an aspirational roadmap bullet is not authorization to build.
+
+**After a meaningful milestone or a material blocker/unblock:**
+
+- Propose or make a small, evidence-linked update to `docs/project/current-status.md` with the date, accepted commit/PR or independently verified external action, remaining limitations and next step. Good triggers include a merged feature, successful real integration test, significant infrastructure change, product decision, or agent workflow blocker. **Do not rewrite it after every small commit.**
+- Use one coordinated writer/PR at a time for this shared document. If a feature is still in an open PR, record it as *proposed/in review*; do not describe it as merged. A later docs PR after merge is appropriate, especially when the change originated in the separate BerryMark repo.
+- Leave completed historical snapshots under `docs/project/status-history/` unchanged. Add a new snapshot only for a useful major checkpoint, not each conversation.
+- Keep detailed logs, review threads, full diagnostics and work notes in scoped Issues/PRs. The status document is an operational index, **not** a second issue tracker.
+- Explicitly identify the last pushed SHA, actual tests, checked CI result, outstanding blockers and any work that existed only in the agent's local workspace. When permissions or session capacity fail, preserve the last known remote state and stop claiming undelivered changes.
+
+**Handoff principle:** A different AI assistant must be able to continue from the accepted repository state and recorded evidence without relying on hidden chat context, and without mistaking plans, unmerged PRs or claimed test results for completed work.
+
 ## 1. Before Implementation
 
 Before making changes, the AI development assistant must:

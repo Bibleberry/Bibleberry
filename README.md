@@ -2,6 +2,16 @@
 
 A mobile-first biblical formation prototype built with React, TypeScript, Vite, and CSS. **Bibleberry is a temporary app-name placeholder.** Realigned is Alexis Waid’s podcast, and Spiritually Hungry is the business entity.
 
+## Project handoff and development roadmap
+
+**Start here when resuming Bibleberry in a new AI chat or coding agent:**
+
+1. [**Current Project Status**](docs/project/current-status.md): the actively maintained, dated view of the accepted build, both repositories, pending decisions, live integration evidence, blockers and next steps. Compare it against current GitHub refs, Issues and PRs before relying on it.
+2. [**Product & Application Development Roadmap**](docs/product/application-development-roadmap.md): 20 prioritized development areas with engineering terminology, plain-English descriptions, dependencies and milestones. It is a planning reference, not automatic implementation approval.
+3. [**AI Development Protocol**](docs/ai-development-protocol.md): how agents get context, work on branches, verify results and hand off changes for review.
+
+The initial [November 5, 2026 status baseline](docs/project/status-history/2026-11-05.md) is preserved separately for historical comparison. [Issue #34](https://github.com/ContraPhilosophy/Bibleberry/issues/34) tracks this documentation system; individual scoped Issues and pull requests track actual implementation.
+
 ## Run locally
 
 ```bash
