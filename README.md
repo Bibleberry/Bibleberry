@@ -2,6 +2,10 @@
 
 A mobile-first biblical formation prototype built with React, TypeScript, Vite, and CSS. **Bibleberry is a temporary app-name placeholder.** Realigned is Alexis Waid’s podcast, and Spiritually Hungry is the business entity.
 
+## Project roadmap
+
+The [**Product & Application Development Roadmap**](docs/product/application-development-roadmap.md) maps the existing application, Developer Studio experiments, BerryMark/Sanity integration, reader UX, account continuity, and release engineering into 20 prioritized work areas with both technical and plain-English explanations. It is a planning reference, not authorization to implement; see [tracking Issue #34](https://github.com/ContraPhilosophy/Bibleberry/issues/34) and the linked scoped Issues for current status.
+
 ## Run locally
 
 ```bash
