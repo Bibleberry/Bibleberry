@@ -1,6 +1,9 @@
 import {defineArrayMember, defineField, defineType} from 'sanity'
 
 type ChallengeValue = {
+  _id?: unknown
+  importProvenance?: unknown
+  slug?: {current?: unknown}
   editorialReview?: {adaptationReviewed?: boolean}
   screens?: {blocks?: {_type?: string; reviewStatus?: string}[]}[]
 }
@@ -130,6 +133,35 @@ export const challenge = defineType({
         message: `${proposedCount} structured editorial block${proposedCount === 1 ? ' is' : 's are'} still awaiting Alexis’s approval.`,
         path: ['screens'],
       })
+    }
+    if (document?.importProvenance !== undefined) {
+      const slug = document.slug?.current
+      if (typeof slug !== 'string' || slug.length === 0) {
+        issues.push({
+          message: 'A Challenge slug is required to validate imported provenance identity.',
+          path: ['slug', 'current'],
+        })
+      } else {
+        const canonicalId = `berrymark-challenge-${slug}`
+        const provenance = document.importProvenance
+        if (
+          !provenance
+          || typeof provenance !== 'object'
+          || Array.isArray(provenance)
+          || (provenance as {canonicalId?: unknown}).canonicalId !== canonicalId
+        ) {
+          issues.push({
+            message: 'The provenance canonical ID must match the Challenge slug.',
+            path: ['importProvenance', 'canonicalId'],
+          })
+        }
+        if (document._id !== canonicalId && document._id !== `drafts.${canonicalId}`) {
+          issues.push({
+            message: 'The Challenge document ID must be its canonical ID or the corresponding draft ID.',
+            path: ['_id'],
+          })
+        }
+      }
     }
     return issues.length > 0 ? issues : true
   }),

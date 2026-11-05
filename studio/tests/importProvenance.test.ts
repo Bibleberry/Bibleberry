@@ -31,7 +31,7 @@ const baseChallenge = {
   _createdAt: '2026-11-04T12:00:00Z',
   _updatedAt: '2026-11-04T12:00:00Z',
   title: 'Schema validation fixture',
-  slug: {_type: 'slug', current: 'schema-validation-fixture'},
+  slug: {_type: 'slug', current: 'schema-test'},
   challengeType: 'teaching',
   series: {_type: 'reference', _ref: 'schema-test-series', _weak: true},
   sequence: 1,
@@ -75,9 +75,10 @@ const validProvenance: Provenance = {
   importedAt: '2026-11-04T12:30:00Z',
 }
 
-function challengeWith(provenance?: Provenance) {
+function challengeWith(provenance?: Provenance, overrides: Record<string, unknown> = {}) {
   return {
     ...structuredClone(baseChallenge),
+    ...overrides,
     ...(provenance === undefined ? {} : {importProvenance: structuredClone(provenance)}),
   } as ValidationDocument
 }
@@ -85,6 +86,15 @@ function challengeWith(provenance?: Provenance) {
 async function validateChallenge(provenance?: Provenance) {
   return validateDocument({
     document: challengeWith(provenance),
+    schema,
+    client: noNetworkClient,
+    getDocumentExists: async () => true,
+  })
+}
+
+async function validateChallengeIdentity(provenance: Provenance | undefined, identity: Record<string, unknown>) {
+  return validateDocument({
+    document: challengeWith(provenance, identity),
     schema,
     client: noNetworkClient,
     getDocumentExists: async () => true,
@@ -124,6 +134,37 @@ test('complete create and exceptional-update provenance records are accepted', a
   const updateResult = await validateChallenge(update)
   assert.equal(updateResult.complete, true)
   assert.deepEqual(updateResult.markers, [])
+})
+
+test('provenance accepts canonical published and draft Challenge identities', async () => {
+  const published = await validateChallenge(validProvenance)
+  assert.equal(published.complete, true)
+  assert.deepEqual(published.markers, [])
+
+  const draft = await validateChallengeIdentity(validProvenance, {_id: 'drafts.berrymark-challenge-schema-test'})
+  assert.equal(draft.complete, true)
+  assert.deepEqual(draft.markers, [])
+})
+
+test('provenance identity must match the Challenge slug and document ID', async () => {
+  const canonicalIdMismatch = await validateChallenge({
+    ...validProvenance,
+    canonicalId: 'berrymark-challenge-another-challenge',
+  })
+  assert.ok(markerPaths(canonicalIdMismatch).includes('importProvenance.canonicalId'))
+
+  const documentIdMismatch = await validateChallengeIdentity(validProvenance, {
+    _id: 'berrymark-challenge-another-challenge',
+  })
+  assert.ok(markerPaths(documentIdMismatch).includes('_id'))
+
+  const missingDocumentId = await validateChallengeIdentity(validProvenance, {_id: undefined})
+  assert.ok(markerPaths(missingDocumentId).includes('_id'))
+
+  const malformedSlug = await validateChallengeIdentity(validProvenance, {
+    slug: {_type: 'slug'},
+  })
+  assert.ok(markerPaths(malformedSlug).includes('slug.current'))
 })
 
 test('every required provenance field is validated when the object is supplied', async () => {
