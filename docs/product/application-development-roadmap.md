@@ -7,7 +7,7 @@
 **Tracking Issue:** [#34 — Product & Application Development Roadmap](https://github.com/ContraPhilosophy/Bibleberry/issues/34)  
 **Companion:** [#20 — Engineering Maturity Roadmap](https://github.com/ContraPhilosophy/Bibleberry/issues/20)  
 **Planning target:** January 1, 2027, subject to approved release scope and demonstrated readiness  
-**Baseline:** Bibleberry \`main\` at \`a0a7758ce0d10175ad7fc5c573035456c8218136\`; BerryMark \`main\` at \`bc1862b5d1ffd487e9f90725f495157a59070ca4\`.
+**Baseline:** Bibleberry `main` at `a0a7758ce0d10175ad7fc5c573035456c8218136`; BerryMark `main` at `bc1862b5d1ffd487e9f90725f495157a59070ca4`.
 
 > **How to use this document:** It preserves the November 5 product/engineering audit and proposes sequencing across the application. It explains each work area in both development terminology and everyday language. It does **not** replace existing Issue specifications, confer approval on open design questions, or authorize an agent to build all listed features. Before taking up an item, check current code, newer merged PRs, the relevant Issue, and Aaron's explicit assignment. Keep this file as a durable map; track execution and evidence through scoped Issues, PRs and the existing GitHub Project.
 
@@ -36,25 +36,25 @@ This is a **dated source-level and GitHub-history audit**, not a newly performed
 | Sanity CMS Lab | Published-perspective read adapter, runtime validation, nine Content Block concepts, CMS Challenge rendering, explicit live/fixture sources, dedicated local saved/completion state | Live CMS browser proof and editorial content demonstration; production reader integration; release enforcement |
 | Formation prototypes | Guided discipline, worksheet/PDF, phrase-reveal memorization, Foundations and resource library | Make distinct formats first-class ordinary daily Challenges and supply consistent progress and content contracts |
 | BerryMark | Language, parser, validator, compiler, import planning, content fingerprints, provenance and controlled create-only development draft importer merged in BerryMark PR #11 | Authenticated write/readback acceptance in a confirmed separate development dataset; faithful Nov 3/Nov 5 adaptations |
-| Sanity authoring | Studio schemas, import provenance, live Studio deployment previously verified; existing \`production\` dataset public, Studio points there | Separate test dataset/token existence not confirmed; editorial workflow, schedule and secure future release boundary |
-| Cloudflare protected testing | Stable protected Lab and GitHub PR previews have been deployed and tested in part; tracked in #21; \`wrangler.jsonc\` is in \`main\` | Finish outstanding Access/asset/real-device/rollback verification; do not confuse the internal Lab with public production |
+| Sanity authoring | Studio schemas, import provenance, live Studio deployment previously verified; existing `production` dataset public, Studio points there | Separate test dataset/token existence not confirmed; editorial workflow, schedule and secure future release boundary |
+| Cloudflare protected testing | Stable protected Lab and GitHub PR previews have been deployed and tested in part; tracked in #21; `wrangler.jsonc` is in `main` | Finish outstanding Access/asset/real-device/rollback verification; do not confuse the internal Lab with public production |
 | Development checks | Reader build, Studio schema/type/build jobs, CMS adapter/preview tests; protected main and PR workflow | Reader ESLint baseline / lint enforcement #15; reproducible automated browser behavior suite #26 |
 | Reader account durability | Account/sync architecture document, working Supabase direction | No confirmed reader account service or cross-device synchronization |
 | Product navigation | Existing Today/Foundations/Archive/More; extensive exploratory Hub / My Journey / What's New direction in #22 | Polished coordinated mockups, Alexis's visual review, decisions on names/placement/flow and explicit implementation scope |
 
 ### The pivotal finding
 
-**The working capability is ahead of its ordinary-reader integration.** The standard app still primarily draws from \`src/data/content.ts\` and related local fixtures via \`src/App.tsx\`. The more capable interactive lesson and CMS rendering live behind the developer-only \`InteractiveChallengeLab\` route. Their reader-state namespaces are deliberately isolated:
+**The working capability is ahead of its ordinary-reader integration.** The standard app still primarily draws from `src/data/content.ts` and related local fixtures via `src/App.tsx`. The more capable interactive lesson and CMS rendering live behind the developer-only `InteractiveChallengeLab` route. Their reader-state namespaces are deliberately isolated:
 
-- Ordinary prototype: \`bibleberry-prototype-v1\`.
-- Local Interactive Challenge Lab: \`bibleberry-interactive-challenge-lab-v1\`.
-- Sanity CMS Lab: \`bibleberry-sanity-challenge-lab-v1\`.
+- Ordinary prototype: `bibleberry-prototype-v1`.
+- Local Interactive Challenge Lab: `bibleberry-interactive-challenge-lab-v1`.
+- Sanity CMS Lab: `bibleberry-sanity-challenge-lab-v1`.
 
 **Recommendation:** Evolve the validated CMS-capable Challenge player into an ordinary reader-facing experience; reuse relevant components and behavior rather than transplanting all Developer Studio tooling. Design one authoritative reader-state model and deliberate migration plan. Do not merge existing test stores by accident.
 
 ### An important content-model mismatch to resolve
 
-The ordinary formation entry types are \`teaching\`, \`guidedDiscipline\`, \`worksheet\`, \`memorization\` (\`src/data/formation.ts\`). The current Sanity Challenge types are \`teaching\`, \`discipline\`, \`reflection\`, \`memorization\` (\`studio/schemaTypes/documents/challenge.ts\`). The interactive teaching Lab is organized primarily by screen and Content Block rather than by this daily-type taxonomy. These implementations are compatible foundations, **not yet one agreed contract for seven daily types**. Decide their relationship and plan extensibility without forcing different experiences into one presentation shape.
+The ordinary formation entry types are `teaching`, `guidedDiscipline`, `worksheet`, `memorization` (`src/data/formation.ts`). The current Sanity Challenge types are `teaching`, `discipline`, `reflection`, `memorization` (`studio/schemaTypes/documents/challenge.ts`). The interactive teaching Lab is organized primarily by screen and Content Block rather than by this daily-type taxonomy. These implementations are compatible foundations, **not yet one agreed contract for seven daily types**. Decide their relationship and plan extensibility without forcing different experiences into one presentation shape.
 
 ## 3. Product north star and next demonstrable milestone
 
@@ -142,7 +142,7 @@ The following twenty work areas describe **capabilities and dependencies**, not 
 #### R09. App-wide Scripture saving and memorization
 - **Engineering term:** Scripture collection, reference normalization and practice UX.
 - **In everyday language:** Save a passage anywhere, find it later, practice when eligible, and record “I learned it!” with its date.
-- **Current state:** Lab supports reference saving and one configured phrase-reveal experience; the CMS library currently saves references but does **not** offer practice in that view. The existing \`MemorizationTool\` should be reused.
+- **Current state:** Lab supports reference saving and one configured phrase-reveal experience; the CMS library currently saves references but does **not** offer practice in that view. The existing `MemorizationTool` should be reused.
 - **Deliverable / evidence:** Consistent Add to My Scripture controls, normalized/deduplicated references and translation labels, persistent library, eligible passage practice, learned dates and rights-aware reference-only fallbacks.
 - **Dependencies:** R07, source rights rules, R13 for durable account records.
 
@@ -251,7 +251,7 @@ Do **not** combine BerryMark importer acceptance, lint remediation, Hub redesign
 
 ## 6. Key dependencies and decisions that must stay explicit
 
-**Editorial:** Original manuscript is retained untouched; adaptation is compared for full argument, structure, prayers, Scripture and links. Imported drafts are not approved; publish/release each have independent authorization. Do not fabricate a November 5 cycle \`returnCaption\` merely to satisfy schema validation; resolve the underlying editorial/contract choice explicitly.
+**Editorial:** Original manuscript is retained untouched; adaptation is compared for full argument, structure, prayers, Scripture and links. Imported drafts are not approved; publish/release each have independent authorization. Do not fabricate a November 5 cycle `returnCaption` merely to satisfy schema validation; resolve the underlying editorial/contract choice explicitly.
 
 **UI and product:** The mature evergreen/cream/brown field-notebook aesthetic is a starting point. Alexis has not approved final achievement artwork or a comprehensive Hub/My Journey visual design. The working name of the personal exploration area remains open. Do not present future optional special events as committed work.
 
@@ -267,9 +267,9 @@ Do **not** combine BerryMark importer acceptance, lint remediation, Hub redesign
 
 ## 7. Source-of-truth links for future chats and engineering agents
 
-- **Current reader:** [\`src/App.tsx\`](../../src/App.tsx); [\`src/components/FormationViews.tsx\`](../../src/components/FormationViews.tsx); [\`src/data/formation.ts\`](../../src/data/formation.ts).
-- **Interactive Lab:** [\`src/components/InteractiveChallengeLab.tsx\`](../../src/components/InteractiveChallengeLab.tsx); [\`src/data/interactiveChallenges.ts\`](../../src/data/interactiveChallenges.ts); [handoff](../../INTERACTIVE_CHALLENGE_LAB_HANDOFF.md).
-- **CMS reader:** [\`src/cms/sanity/\`](../../src/cms/sanity/); [Sanity schema](../../studio/schemaTypes/documents/challenge.ts).
+- **Current reader:** [`src/App.tsx`](../../src/App.tsx); [`src/components/FormationViews.tsx`](../../src/components/FormationViews.tsx); [`src/data/formation.ts`](../../src/data/formation.ts).
+- **Interactive Lab:** [`src/components/InteractiveChallengeLab.tsx`](../../src/components/InteractiveChallengeLab.tsx); [`src/data/interactiveChallenges.ts`](../../src/data/interactiveChallenges.ts); [handoff](../../INTERACTIVE_CHALLENGE_LAB_HANDOFF.md).
+- **CMS reader:** [`src/cms/sanity/`](../../src/cms/sanity/); [Sanity schema](../../studio/schemaTypes/documents/challenge.ts).
 - **AI development workflow:** [protocol](../ai-development-protocol.md), [workflow](../development-workflow.md).
 - **Product decisions:** [#22 Hub/personal area/What's New](https://github.com/ContraPhilosophy/Bibleberry/issues/22), [achievements](gamification-and-achievements.md), [accounts/sync](../architecture/user-accounts-and-sync.md).
 - **Execution and verification:** [#15 lint](https://github.com/ContraPhilosophy/Bibleberry/issues/15), [#20 engineering maturity](https://github.com/ContraPhilosophy/Bibleberry/issues/20), [#21 Cloudflare testing](https://github.com/ContraPhilosophy/Bibleberry/issues/21), [#25 CMS integration](https://github.com/ContraPhilosophy/Bibleberry/issues/25), [#26 browser regression](https://github.com/ContraPhilosophy/Bibleberry/issues/26), [manual regression checklist](../testing/regression-smoke-checklist.md).
