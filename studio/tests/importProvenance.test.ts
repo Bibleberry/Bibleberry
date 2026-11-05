@@ -256,7 +256,10 @@ test('provenance rejects absolute local source paths and email-shaped operator d
 })
 
 test('provenance never satisfies editorial or structured-block review', async () => {
-  const unreviewed = challengeWith(validProvenance) as ValidationDocument & Record<string, any>
+  const unreviewed = challengeWith(validProvenance) as ValidationDocument & {
+    editorialReview?: Record<string, unknown>
+    screens: Array<{ blocks: Array<Record<string, unknown>> }>
+  }
   unreviewed.editorialReview = {
     _type: 'editorialReview',
     sourceTitle: 'Schema fixture manuscript',

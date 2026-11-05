@@ -563,12 +563,51 @@ function InformationView({ section, onBack }: { section: 'about' | 'scripture' |
   )
 }
 
+function parseInitialRoute(): {
+  view: PrimaryView
+  detail: Detail
+  developmentCollection: 'ordinary' | 'pilot'
+  previewDate: string
+} {
+  const hash = typeof window !== 'undefined' ? window.location.hash : ''
+  if (hash.startsWith('#/teaching/')) {
+    const id = hash.replace('#/teaching/', '')
+    const item = allEntries.find(entry => entry.id === id && entry.entryType === 'teaching')
+    if (item) {
+      const isPilot = item.challengeId === WEEKLY_PILOT_CHALLENGE_ID
+      return {
+        view: id === novemberTeaching.id || isPilot ? 'today' : 'archive',
+        detail: { type: 'teaching', id },
+        developmentCollection: isPilot ? 'pilot' : 'ordinary',
+        previewDate: isPilot ? item.date : '',
+      }
+    }
+  } else if (hash.startsWith('#/entry/')) {
+    const id = hash.replace('#/entry/', '')
+    const item = allFormationEntries.find(entry => entry.id === id && entry.entryType !== 'teaching')
+    if (item) {
+      return {
+        view: 'today',
+        detail: { type: 'formation', id },
+        developmentCollection: 'pilot',
+        previewDate: item.date,
+      }
+    }
+  }
+  return {
+    view: 'today',
+    detail: null,
+    developmentCollection: 'ordinary',
+    previewDate: '',
+  }
+}
+
 export default function App() {
   const [state, setState] = useState<PrototypeState>(loadState)
-  const [view, setView] = useState<PrimaryView>('today')
-  const [detail, setDetail] = useState<Detail>(null)
-  const [previewDate, setPreviewDate] = useState('')
-  const [developmentCollection, setDevelopmentCollection] = useState<'ordinary' | 'pilot'>('ordinary')
+  const [view, setView] = useState<PrimaryView>(() => (loadState().onboarded ? parseInitialRoute().view : 'today'))
+  const [detail, setDetail] = useState<Detail>(() => (loadState().onboarded ? parseInitialRoute().detail : null))
+  const [previewDate, setPreviewDate] = useState(() => (loadState().onboarded ? parseInitialRoute().previewDate : ''))
+  const [developmentCollection, setDevelopmentCollection] = useState<'ordinary' | 'pilot'>(() => (loadState().onboarded ? parseInitialRoute().developmentCollection : 'ordinary'))
   const [simulatedDate, setSimulatedDate] = useState('')
   const [simulatedLastOpened, setSimulatedLastOpened] = useState<LastOpened | null>(null)
   const [simulatedDismissedDate, setSimulatedDismissedDate] = useState('')
@@ -689,36 +728,11 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (!state.onboarded) return
-    const hash = window.location.hash
-    if (hash.startsWith('#/teaching/')) {
-      const id = hash.replace('#/teaching/', '')
-      const item = allEntries.find(entry => entry.id === id && entry.entryType === 'teaching')
-      if (item) {
-        const isPilot = item.challengeId === WEEKLY_PILOT_CHALLENGE_ID
-        setView(id === novemberTeaching.id || isPilot ? 'today' : 'archive')
-        if (isPilot) {
-          setDevelopmentCollection('pilot')
-          setPreviewDate(item.date)
-        }
-        setDetail({ type: 'teaching', id })
-      }
-    } else if (hash.startsWith('#/entry/')) {
-      const id = hash.replace('#/entry/', '')
-      const item = allFormationEntries.find(entry => entry.id === id && entry.entryType !== 'teaching')
-      if (item) {
-        setView('today')
-        setDevelopmentCollection('pilot')
-        setPreviewDate(item.date)
-        setDetail({ type: 'formation', id })
-      }
-    }
-  }, []) // Initial shared prototype route only.
-
-  useEffect(() => {
     const latestTeaching = latestEntryThrough(simulatedDate || localDateKey())
     if (state.onboarded && !simulatedDate && view === 'today' && !detail && !previewDate && latestTeaching && recordedOpening.current !== latestTeaching.id) {
       recordedOpening.current = latestTeaching.id
+      // Synchronize latest teaching view with local journey activity log
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       addActivity(`Opened latest available teaching: ${latestTeaching.title}`)
     }
     if (view !== 'today' || detail || previewDate || simulatedDate) recordedOpening.current = ''
