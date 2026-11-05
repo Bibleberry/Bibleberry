@@ -23,29 +23,31 @@ The current GitHub Actions workflow `.github/workflows/ci.yml` runs on PRs into 
 
 | Job | Actual current checks | Meaning |
 | --- | --- | --- |
-| **Build reader application** | Root `npm ci`; `npm run build` (TypeScript + Vite) | Dependency installation, type compilation, and production bundle generation |
+| **Build reader application** | Root `npm ci`; `npm run lint`; `npm run build` (TypeScript + Vite) | Dependency installation, ESLint verification, type compilation, and production bundle generation |
 | **Verify Sanity Studio** | In `studio/`: `npm ci`, `npm run typecheck`, `npm run build` | Studio install, TypeScript check, and Studio bundle generation |
 
-These jobs **do not** currently prove navigation, persistence, visual behavior, accessibility, Sanity authenticated editing, or real-device compatibility. They do **not** run an automated browser smoke suite or `npm run lint`. Do not describe those checks as CI-enforced until a separate approved change adds them.
+These jobs **do not** currently prove navigation, persistence, visual behavior, accessibility, Sanity authenticated editing, or real-device compatibility. They do **not** run an automated browser smoke suite. Do not describe those checks as CI-enforced until a separate approved change adds them.
 
 Useful local commands from a clean checkout:
 
 ```bash
 # Reader app (repository root)
 npm ci
+npm run lint           # ESLint verification (enforced in required CI reader-app job)
 npm run build
-npm run lint           # report findings; not currently a required CI job
+npm run test:adapter   # CMS adapter & BerryMark preview tests
 npm run dev            # manual browser checks, developer tools available
 
 # Studio (run from repository root)
 cd studio
 npm ci
+npm run test:schema
 npm run typecheck
 npm run build
 npm run dev            # authenticated editor checks require appropriate access
 ```
 
-The project README documents a **pre-existing lint baseline** (historically 10 errors and 1 warning). Confirm the current baseline before attributing findings to a PR. Do not suppress new lint defects because older findings exist. Dependency-security investigation is tracked separately in **Issue #10**.
+Issue #15 cleared the pre-existing lint baseline and added `npm run lint` as an enforced CI step in the required reader build job. Do not suppress new lint defects. Dependency-security investigation is tracked separately in **Issue #10**.
 
 ## 3. Reader smoke checks (manual, when applicable)
 
