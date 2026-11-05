@@ -33,7 +33,7 @@ This is a **dated source-level and GitHub-history audit**, not a newly performed
 | --- | --- | --- |
 | Ordinary reader | Mobile-first React 19/TypeScript/Vite application; Today, Foundations, Archive, More, existing teaching, local preferences, resume/last-opened history, several formation components | Ordinary Today/Archive still select hardcoded entries; the CMS-backed interactive Challenge experience is not yet the normal reader path |
 | Interactive Challenge Lab | Four hardcoded teaching Challenges: Nov 1 (5 screens), Nov 2 (7), Nov 3 (8), Nov 5 (8); screen navigation, explicit completion, saves, optional studies, Scripture, prayer | Promote/reuse suitable production components, without exposing developer mode or incorrectly copying Lab-only state |
-| Sanity CMS Lab | Published-perspective read adapter, runtime validation, nine Content Block concepts, CMS Challenge rendering, explicit live/fixture sources, dedicated local saved/completion state | Live CMS browser proof and editorial content demonstration; production reader integration; release enforcement |
+| Sanity CMS Lab | Published-perspective read adapter, runtime validation, nine Content Block concepts, CMS Challenge rendering, explicit live/fixture sources, dedicated local saved/completion state. **Nov 3 local live proof passed:** Aaron published, edited, republished and re-read a harmless Sanity Challenge without rebuilding the reader | Ordinary reader integration, editorial-approval schema correction, broader device/host verification and release enforcement |
 | Formation prototypes | Guided discipline, worksheet/PDF, phrase-reveal memorization, Foundations and resource library | Make distinct formats first-class ordinary daily Challenges and supply consistent progress and content contracts |
 | BerryMark | Language, parser, validator, compiler, import planning, content fingerprints, provenance and controlled create-only development draft importer merged in BerryMark PR #11 | Authenticated write/readback acceptance in a confirmed separate development dataset; faithful Nov 3/Nov 5 adaptations |
 | Sanity authoring | Studio schemas, import provenance, live Studio deployment previously verified; existing `production` dataset public, Studio points there | Separate test dataset/token existence not confirmed; editorial workflow, schedule and secure future release boundary |
@@ -91,8 +91,8 @@ The following twenty work areas describe **capabilities and dependencies**, not 
 #### R02. Live Sanity-to-reader integration
 - **Engineering term:** CMS read-path integration and acceptance testing.
 - **In everyday language:** Make a safe change in Sanity and observe the correct change in Bibleberry, without recoding that day's teaching.
-- **Current state:** Read adapter, validation and CMS Lab renderer merged; B3 live browser proof remains outstanding. One earlier local request was blocked by missing exact-origin Sanity CORS settings.
-- **Deliverable / evidence:** An unmocked, rights-safe live query; correct empty/error states; an expressly approved public-safe test Challenge accurately rendered and updated; no hidden fallback from live content to a fixture.
+- **Current state:** Read adapter and CMS Lab renderer are merged. **B3's core unmocked local browser proof passed November 3:** a harmless, Aaron-approved test Challenge was published to the public Sanity `production` dataset, rendered in the CMS Lab, edited, republished and reloaded without rebuilding. Sanity CORS for `http://localhost:3000` was configured with credentials disabled. This does **not** prove ordinary-reader integration or release security.
+- **Deliverable / evidence:** **Core local proof complete.** Remaining scope: clarify truthful Aaron-or-Alexis editorial approval attribution in Studio, verify any desired protected host/device behavior, and promote validated CMS Challenges into ordinary Today/Archive through a separate approved implementation. Preserve live/fixture isolation and honest errors.
 - **Dependencies:** Safe Sanity content path and authorized test configuration. See [#25](https://github.com/ContraPhilosophy/Bibleberry/issues/25).
 
 #### R03. Production Challenge player integration
@@ -240,7 +240,7 @@ R13–R15 become schedulable as their dependencies and approved launch scope are
 ### Suggested near-term order
 
 1. Verify Sanity's separate development dataset and credential setup, then run the synthetic BerryMark create-only draft acceptance (R01).
-2. Complete the safe live Sanity read/render proof already tracked by #25 (R02).
+2. Treat **November 3's safe live CMS Lab read/render-and-revision proof as completed** (R02 core); finish separately scoped #25 editorial-review labeling and any remaining host/device checks, without repeating that demonstrated milestone.
 3. Design the minimal promotion path for the CMS Challenge player, stable identities and progress (R03/R07), then implement in **separately scoped, reviewable PRs**.
 4. In parallel, review polished Hub / personal-exploration / What's New mockups under #22 (R06) and determine how existing feature destinations fit.
 5. Use Antigravity for scoped #15 lint/CI work (R16), and later implement #26 reader smoke automation (R17).
