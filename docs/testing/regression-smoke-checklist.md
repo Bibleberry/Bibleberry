@@ -17,26 +17,39 @@ This is a **verification procedure, not a claim that any tests have run**. Use i
 - Record each relevant test as **PASS**, **FAIL**, **NOT RUN**, **BLOCKED** (with reason), or **N/A** (with reason). Never treat an unperformed or unavailable check as PASS. Attach screenshots, short recordings, console output, or links when they substantiate results.
 - If a regression is found, do not merge until it is fixed or Aaron explicitly accepts a documented exception. Preserve prior working behavior unless an approved requirement changes it.
 
-## 2. Existing automated checks (as of November 1, 2026)
+## 2. Existing automated checks
 
 The current GitHub Actions workflow `.github/workflows/ci.yml` runs on PRs into `main` and pushes to `main`:
 
 | Job | Actual current checks | Meaning |
 | --- | --- | --- |
-| **Build reader application** | Root `npm ci`; `npm run lint`; `npm run build` (TypeScript + Vite) | Dependency installation, ESLint verification, type compilation, and production bundle generation |
-| **Verify Sanity Studio** | In `studio/`: `npm ci`, `npm run typecheck`, `npm run build` | Studio install, TypeScript check, and Studio bundle generation |
+| **Build reader application** | Root `npm ci`; `npx playwright install --with-deps chromium`; `npm run lint`; `npm run build`; `npm run test:smoke` | Dependency installation, Playwright Chromium setup, ESLint verification, production build, and automated reader regression smoke suite |
+| **Verify CMS adapters and BerryMark preview** | Root `npm ci`; `npm run test:adapter` | Adapter unit verification and BerryMark fixture tests |
+| **Verify Sanity Studio** | In `studio/`: `npm ci`, `npm run test:schema`, `npm run typecheck`, `npm run build` | Studio install, schema tests, TypeScript check, and Studio bundle generation |
 
-These jobs **do not** currently prove navigation, persistence, visual behavior, accessibility, Sanity authenticated editing, or real-device compatibility. They do **not** run an automated browser smoke suite. Do not describe those checks as CI-enforced until a separate approved change adds them.
+### Automated Reader Regression Smoke Suite (`npm run test:smoke`)
+
+Enforced in the required `reader-app` CI job and runnable locally, this suite runs automated Playwright Chromium end-to-end tests across two distinct build passes with strict directory cleaning between them:
+- **Pass 1 (Public Production Bundle):** Builds standard reader via `npm run build` and tests:
+  - `tests/smoke/build-isolation.spec.ts`: Asserts complete absence of Developer Studio navigation, routes, code chunks (`InteractiveChallengeLab`), and fixture payloads from the production bundle (R12 / Section 5).
+  - `tests/smoke/navigation.spec.ts`: Tests onboarding flow (Colossians 3:16 to Today), standard returning reader startup, 4-tab app navigation (Today, Foundations, Archive, More), and direct shared teaching link navigation preserving target entry.
+  - `tests/smoke/today-resume.spec.ts`: Tests Today activity recording into `localStorage`, journey activity rendering, and returning reader resume card actions (Return, Continue, Jump to today).
+  - `tests/smoke/memorization.spec.ts`: Tests Sunday pilot Scripture memorization phrase-reveal practice, incremental phrase reveals, and clean resets (R08).
+- **Pass 2 (Developer-Enabled Bundle):** Builds testing bundle with `VITE_ENABLE_DEVELOPER_STUDIO=true npm run build` and tests:
+  - `tests/smoke/interactive-lab.spec.ts`: Tests Developer Studio entry, opening Interactive Challenge Lab, multi-screen Challenge navigation and completion, challenge bookmarking/saving, and strict storage key isolation (`bibleberry-interactive-challenge-lab-v1` vs `bibleberry-prototype-v1`) (R04, R09, R10, R12).
+- **Restoration:** Restores clean public build in `dist/` upon completion.
 
 Useful local commands from a clean checkout:
 
 ```bash
 # Reader app (repository root)
 npm ci
-npm run lint           # ESLint verification (enforced in required CI reader-app job)
-npm run build
-npm run test:adapter   # CMS adapter & BerryMark preview tests
-npm run dev            # manual browser checks, developer tools available
+npx playwright install chromium # Install Chromium browser for Playwright tests
+npm run lint                    # ESLint verification (enforced in CI)
+npm run build                   # Standard production build
+npm run test:smoke              # Dual-pass automated reader regression smoke suite (enforced in CI)
+npm run test:adapter            # CMS adapter & BerryMark preview tests
+npm run dev                     # Manual browser checks, developer tools available
 
 # Studio (run from repository root)
 cd studio
@@ -44,10 +57,10 @@ npm ci
 npm run test:schema
 npm run typecheck
 npm run build
-npm run dev            # authenticated editor checks require appropriate access
+npm run dev                     # authenticated editor checks require appropriate access
 ```
 
-Issue #15 cleared the pre-existing lint baseline and added `npm run lint` as an enforced CI step in the required reader build job. Do not suppress new lint defects. Dependency-security investigation is tracked separately in **Issue #10**.
+Issue #15 established ESLint verification in CI. Issue #26 established the automated reader regression smoke suite and CI enforcement via Playwright Chromium. Dependency-security investigation is tracked separately in **Issue #10**.
 
 ## 3. Reader smoke checks (manual, when applicable)
 
