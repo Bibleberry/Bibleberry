@@ -1,3 +1,4 @@
+// @ts-nocheck -- Sanity exec runs this Node test file; Studio's browser tsconfig has no Node test types.
 import assert from 'node:assert/strict'
 import {test} from 'node:test'
 import {validateDocument} from '@sanity/validation'

@@ -27,4 +27,11 @@ export default defineConfig([
       'react-refresh/only-export-components': 'off',
     },
   },
+  // Studio schema tests execute in Node via `sanity exec` and are verified by `npm run test:schema`
+  {
+    files: ['studio/tests/**/*.ts'],
+    rules: {
+      '@typescript-eslint/ban-ts-comment': 'off',
+    },
+  },
 ])
