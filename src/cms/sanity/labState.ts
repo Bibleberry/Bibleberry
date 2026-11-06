@@ -1,3 +1,4 @@
+import { resolveScreenIndex } from '../../components/challenge/challengePlayerModel.ts'
 import type { CmsChallenge, CmsScripture } from './types.ts'
 
 export const CMS_LAB_STORAGE_KEY = 'bibleberry-sanity-challenge-lab-v1'
@@ -42,9 +43,7 @@ export function cmsScriptureKey(source: CmsSourceKind, scripture: CmsScripture) 
 }
 
 export function resolveCmsScreenIndex(challenge: CmsChallenge, savedScreenId: string | undefined) {
-  if (!savedScreenId) return 0
-  const index = challenge.screens.findIndex(screen => screen.id === savedScreenId)
-  return index >= 0 ? index : 0
+  return resolveScreenIndex(challenge.screens, savedScreenId)
 }
 
 export function toggleCmsScripture(

@@ -8,16 +8,12 @@ import {
   type BerryMarkPreviewIssue,
   type BerryMarkReviewSummary,
 } from './berryMarkPreview.ts'
-import { emptyCmsLabState } from './labState.ts'
 import './berryMarkPreview.css'
 import {
   CmsBlockView,
   CmsCompanionLinks,
   CmsScripturePanel,
-} from './SanityChallengeLab.tsx'
-
-const previewLabState = emptyCmsLabState()
-const ignoreScriptureToggle = () => {}
+} from '../../components/challenge/CmsContentBlocks.tsx'
 
 function reviewStatus(value: boolean | null) {
   if (value === null) return 'Not reported'
@@ -163,7 +159,7 @@ export function BerryMarkLocalPreview() {
           </div>
         </header>
 
-        <CmsScripturePanel scripture={preview.challenge.primaryScripture} source="fixture" state={previewLabState} onToggle={ignoreScriptureToggle} primary readOnly />
+        <CmsScripturePanel scripture={preview.challenge.primaryScripture} primary preview />
 
         <div className="lab-progress">
           <div><span>Preview screen</span><strong>{currentIndex + 1} of {preview.challenge.screens.length}</strong></div>
@@ -173,7 +169,7 @@ export function BerryMarkLocalPreview() {
         <article className="lab-screen" key={screen.id} aria-labelledby={`${screen.id}-preview-title`}>
           <p className="eyebrow">{screen.stepLabel}</p>
           <h2 id={`${screen.id}-preview-title`} ref={screenHeading} tabIndex={-1}>{screen.title}</h2>
-          <div className="lab-screen__blocks">{screen.blocks.map(block => <CmsBlockView key={block.id} block={block} source="fixture" state={previewLabState} onToggle={ignoreScriptureToggle} readOnly />)}</div>
+          <div className="lab-screen__blocks">{screen.blocks.map(block => <CmsBlockView key={block.id} block={block} preview />)}</div>
         </article>
 
         <nav className="lab-screen-nav" aria-label="Local preview screen navigation">
