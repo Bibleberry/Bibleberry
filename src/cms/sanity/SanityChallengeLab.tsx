@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
-import { PortableText, type PortableTextComponents } from '@portabletext/react'
+import { useEffect, useState } from 'react'
 import {
-  ArrowDown, ArrowLeft, ArrowRight, BookOpen, Bookmark, BookmarkCheck,
-  Check, ChevronDown, Cloud, ExternalLink, FlaskConical, Library, RotateCcw, Trash2,
+  ArrowLeft, ArrowRight, BookOpen, Bookmark, BookmarkCheck,
+  Cloud, FlaskConical, Library, RotateCcw, Trash2,
 } from 'lucide-react'
+import { ChallengePlayer } from '../../components/challenge/ChallengePlayer.tsx'
 import { loadPublishedChallengeCatalog, type CmsCatalogResult } from './catalog.ts'
 import { validChallengeFixture } from './developmentFixture.ts'
 import {
@@ -19,204 +19,14 @@ import {
   type CmsSourceKind,
 } from './labState.ts'
 import { mapPublishedChallenge } from './mapChallenge.ts'
-import { formatCmsReleaseDate, presentCmsScripture } from './presentation.ts'
-import type {
-  CmsBlock,
-  CmsChallenge,
-  CmsCompanionLink,
-  CmsPortableText,
-  CmsScripture,
-} from './types.ts'
+import { formatCmsReleaseDate } from './presentation.ts'
+import type { CmsChallenge, CmsScripture } from './types.ts'
 
 const developmentChallenges = (() => {
   const result = mapPublishedChallenge(validChallengeFixture)
   if (!result.ok) throw new Error('The structural CMS development fixture is invalid.')
   return [result.challenge]
 })()
-
-const portableTextComponents: PortableTextComponents = {
-  block: {
-    normal: ({ children }) => <p>{children}</p>,
-    h2: ({ children }) => <h2>{children}</h2>,
-    h3: ({ children }) => <h3>{children}</h3>,
-    blockquote: ({ children }) => <blockquote className="cms-portable-quote"><p>{children}</p></blockquote>,
-  },
-  marks: {
-    strong: ({ children }) => <strong>{children}</strong>,
-    em: ({ children }) => <em>{children}</em>,
-    link: ({ children, value }) => {
-      const href = typeof value?.href === 'string' ? value.href : ''
-      if (!href) return <>{children}</>
-      return <a href={href} target="_blank" rel="noreferrer noopener">{children}<ExternalLink size={13} aria-hidden="true" /></a>
-    },
-  },
-  list: {
-    bullet: ({ children }) => <ul>{children}</ul>,
-    number: ({ children }) => <ol>{children}</ol>,
-  },
-  listItem: {
-    bullet: ({ children }) => <li>{children}</li>,
-    number: ({ children }) => <li>{children}</li>,
-  },
-}
-
-function CmsPortableTextView({ value }: { value: CmsPortableText }) {
-  return <div className="longform cms-portable-text"><PortableText value={value} components={portableTextComponents} /></div>
-}
-
-function CmsScriptureSaveButton({ scripture, source, state, onToggle }: {
-  scripture: CmsScripture
-  source: CmsSourceKind
-  state: CmsLabState
-  onToggle: (source: CmsSourceKind, scripture: CmsScripture) => void
-}) {
-  const saved = state.scripture.some(entry => entry.key === cmsScriptureKey(source, scripture))
-  return (
-    <button
-      type="button"
-      className={`button ${saved ? 'button--text' : 'button--secondary'} lab-scripture-save`}
-      aria-pressed={saved}
-      aria-label={`${saved ? 'Remove' : 'Add'} ${scripture.reference} ${saved ? 'from' : 'to'} CMS My Scripture`}
-      onClick={() => onToggle(source, scripture)}
-    >
-      {saved ? <BookmarkCheck size={16} /> : <Bookmark size={16} />}
-      {saved ? 'Remove from My Scripture' : 'Add to My Scripture'}
-    </button>
-  )
-}
-
-export function CmsScripturePanel({ scripture, source, state, onToggle, primary = false, readOnly = false }: {
-  scripture: CmsScripture
-  source: CmsSourceKind
-  state: CmsLabState
-  onToggle: (source: CmsSourceKind, scripture: CmsScripture) => void
-  primary?: boolean
-  readOnly?: boolean
-}) {
-  const presentation = presentCmsScripture(scripture)
-  return (
-    <section className="scripture-panel lab-scripture cms-scripture" aria-label={primary ? 'Primary Scripture' : 'Scripture focus'}>
-      <span className="section-label">{primary ? 'Primary Scripture' : 'Scripture focus'} · {scripture.translation}</span>
-      {presentation.status === 'provided' ? (
-        <blockquote className="scripture-block"><p>{presentation.passage}</p><cite>{scripture.reference} · {scripture.translation}</cite></blockquote>
-      ) : (
-        <div className="cms-reference-only"><BookOpen size={20} aria-hidden="true" /><div><strong>{scripture.reference}</strong><p>Reference only · No passage text supplied{scripture.translation === 'Not configured' ? ' · Translation not configured' : ''}</p></div></div>
-      )}
-      <div className="lab-scripture__actions">
-        {!readOnly && <CmsScriptureSaveButton scripture={scripture} source={source} state={state} onToggle={onToggle} />}
-        <small>{scripture.practiceStatus === 'configured'
-          ? `${readOnly ? 'Practice configured in the local file' : 'Practice configured in Sanity'} · CMS memorization practice is not available in this view`
-          : 'Memorization practice not configured'}</small>
-      </div>
-    </section>
-  )
-}
-
-function CmsOptionalStudy({ block, source, state, onToggle, readOnly = false }: {
-  block: Extract<CmsBlock, { type: 'optionalExploration' }>
-  source: CmsSourceKind
-  state: CmsLabState
-  onToggle: (source: CmsSourceKind, scripture: CmsScripture) => void
-  readOnly?: boolean
-}) {
-  const [expanded, setExpanded] = useState(false)
-  const contentId = `${block.id}-cms-content`
-  return (
-    <section className="lab-optional">
-      <button type="button" className="lab-optional__toggle" aria-expanded={expanded} aria-controls={contentId} onClick={() => setExpanded(value => !value)}>
-        <span><small>Optional deeper study · Not required</small><strong>{block.title}</strong></span>
-        <ChevronDown size={18} aria-hidden="true" />
-      </button>
-      <div id={contentId} className="lab-optional__content" hidden={!expanded}>
-        <CmsPortableTextView value={block.body} />
-        {block.scriptures.map(scripture => (
-          <CmsScripturePanel key={scripture.id} scripture={scripture} source={source} state={state} onToggle={onToggle} readOnly={readOnly} />
-        ))}
-      </div>
-    </section>
-  )
-}
-
-function CmsReflection({ block }: { block: Extract<CmsBlock, { type: 'reflectionChoice' }> }) {
-  const [selected, setSelected] = useState('')
-  const choice = block.choices.find(item => item.id === selected)
-  return (
-    <section className="lab-reflection" aria-labelledby={`${block.id}-question`}>
-      <span className="section-label">Optional reflection · No answer required</span>
-      <h3 id={`${block.id}-question`}>{block.question}</h3>
-      <div className="lab-reflection__choices">
-        {block.choices.map(item => <button key={item.id} type="button" aria-pressed={selected === item.id} onClick={() => setSelected(item.id)}>{item.label}</button>)}
-      </div>
-      {choice && <div className="lab-reflection__prompt" role="status" aria-live="polite"><p>{choice.prompt}</p></div>}
-      {block.closing && <p className="lab-reflection__closing">{block.closing}</p>}
-    </section>
-  )
-}
-
-function CmsSequence({ block }: { block: Extract<CmsBlock, { type: 'connectedSequence' }> }) {
-  return (
-    <section className={`lab-sequence ${block.cycle ? 'lab-sequence--cycle' : ''}`} aria-label="Connected teaching sequence">
-      <ol>
-        {block.steps.map((step, index) => (
-          <li key={step.id}>
-            <article><span>{String(index + 1).padStart(2, '0')}</span><h3>{step.title}</h3><p>{step.body}</p></article>
-            {index < block.steps.length - 1 && <ArrowRight className="lab-sequence__arrow-desktop" size={20} aria-hidden="true" />}
-            {index < block.steps.length - 1 && <ArrowDown className="lab-sequence__arrow-mobile" size={20} aria-hidden="true" />}
-          </li>
-        ))}
-      </ol>
-      {block.cycle && block.returnCaption && <div className="lab-sequence__return"><RotateCcw size={18} aria-hidden="true" /><span>{block.returnCaption}</span></div>}
-      {block.conclusion && <p className="lab-sequence__conclusion">{block.conclusion}</p>}
-    </section>
-  )
-}
-
-function CmsProposedBadge({ block }: { block: CmsBlock }) {
-  if (block.reviewStatus !== 'proposed') return null
-  return <span className="cms-proposed-badge">Proposed block · Not approved</span>
-}
-
-export function CmsBlockView({ block, source, state, onToggle, readOnly = false }: {
-  block: CmsBlock
-  source: CmsSourceKind
-  state: CmsLabState
-  onToggle: (source: CmsSourceKind, scripture: CmsScripture) => void
-  readOnly?: boolean
-}) {
-  switch (block.type) {
-    case 'scripture':
-      return <CmsScripturePanel scripture={block.scripture} source={source} state={state} onToggle={onToggle} readOnly={readOnly} />
-    case 'teachingText':
-      return <section className="lab-teaching-text"><CmsPortableTextView value={block.body} /></section>
-    case 'statement':
-      return <section className="lab-statement">{block.label && <span className="section-label">{block.label}</span>}<p>{block.text}</p></section>
-    case 'contrast':
-      return <section className="lab-contrast">{readOnly && <CmsProposedBadge block={block} />}<div>{[block.left, block.right].map(side => <article key={side.title}><h3>{side.title}</h3><CmsPortableTextView value={side.body} /></article>)}</div>{block.footer && <p>{block.footer}</p>}</section>
-    case 'visualCards':
-      return <section className="lab-visual-cards">{readOnly && <CmsProposedBadge block={block} />}<div>{block.cards.map(card => <article key={card.id}><h3>{card.title}</h3>{card.body && <p>{card.body}</p>}</article>)}</div></section>
-    case 'connectedSequence':
-      return <>{readOnly && <CmsProposedBadge block={block} />}<CmsSequence block={block} /></>
-    case 'reflectionChoice':
-      return <>{readOnly && <CmsProposedBadge block={block} />}<CmsReflection block={block} /></>
-    case 'optionalExploration':
-      return <>{readOnly && <CmsProposedBadge block={block} />}<CmsOptionalStudy block={block} source={source} state={state} onToggle={onToggle} readOnly={readOnly} /></>
-    case 'prayer':
-      return <section className="prayer-section lab-prayer" aria-labelledby={`${block.id}-title`}><span className="section-label" id={`${block.id}-title`}>Prayer</span>{block.paragraphs.map((paragraph, index) => <p key={`${block.id}-${index}`}>{paragraph}</p>)}</section>
-  }
-}
-
-export function CmsCompanionLinks({ links }: { links: CmsCompanionLink[] }) {
-  if (links.length === 0) return null
-  return (
-    <section className="lab-related-list" aria-labelledby="cms-companion-links">
-      <span className="section-label" id="cms-companion-links">Companion links · Optional · Not required</span>
-      {links.map(link => <article className="lab-related-resource" key={link.id}>
-        <ExternalLink size={19} aria-hidden="true" />
-        <div><h3>{link.label}</h3>{link.description && <p>{link.description}</p>}{link.url && <a href={link.url} target="_blank" rel="noreferrer noopener">Open {link.provider} resource <ExternalLink size={13} aria-hidden="true" /></a>}{link.availability && <small>{link.availability}</small>}</div>
-      </article>)}
-    </section>
-  )
-}
 
 function CmsChallengeHome({ challenges, source, state, onOpen, onOpenScripture, onToggleSaved }: {
   challenges: CmsChallenge[]
@@ -307,7 +117,6 @@ export function SanityChallengeLab({ onReturnToStudio }: { onReturnToStudio: () 
   const [state, setState] = useState<CmsLabState>(() => typeof window === 'undefined' ? emptyCmsLabState() : readCmsLabState(window.localStorage))
   const [view, setView] = useState<'home' | 'challenge' | 'scripture'>('home')
   const [selectedKey, setSelectedKey] = useState('')
-  const screenHeading = useRef<HTMLHeadingElement>(null)
 
   useEffect(() => {
     if (typeof window !== 'undefined') writeCmsLabState(window.localStorage, state)
@@ -331,15 +140,8 @@ export function SanityChallengeLab({ onReturnToStudio }: { onReturnToStudio: () 
     : catalog.status === 'ready' ? catalog.challenges : []
   const challenge = challenges.find(item => cmsChallengeKey(source, item) === selectedKey)
   const currentIndex = challenge ? resolveCmsScreenIndex(challenge, state.positions[selectedKey]) : 0
-  const screen = challenge?.screens[currentIndex]
   const completed = challenge ? state.completedChallengeIds.includes(selectedKey) : false
   const challengeSaved = challenge ? state.savedChallengeIds.includes(selectedKey) : false
-
-  useEffect(() => {
-    if (view !== 'challenge' || !screen) return
-    window.scrollTo({ top: 0, behavior: 'instant' })
-    screenHeading.current?.focus({ preventScroll: true })
-  }, [view, selectedKey, currentIndex, screen])
 
   const changeSource = (nextSource: CmsSourceKind) => {
     if (nextSource === source) return
@@ -365,10 +167,9 @@ export function SanityChallengeLab({ onReturnToStudio }: { onReturnToStudio: () 
   const removeScripture = (key: string) => {
     setState(previous => ({ ...previous, scripture: previous.scripture.filter(entry => entry.key !== key) }))
   }
-  const goToScreen = (index: number) => {
-    if (!challenge) return
-    const bounded = Math.max(0, Math.min(index, challenge.screens.length - 1))
-    const screenId = challenge.screens[bounded].id
+  const isScriptureSaved = (scripture: CmsScripture) => state.scripture.some(entry => entry.key === cmsScriptureKey(source, scripture))
+  const changeScreen = (screenId: string) => {
+    if (!challenge || !challenge.screens.some(item => item.id === screenId)) return
     setState(previous => ({ ...previous, positions: { ...previous.positions, [selectedKey]: screenId } }))
   }
   const completeChallenge = () => {
@@ -404,30 +205,26 @@ export function SanityChallengeLab({ onReturnToStudio }: { onReturnToStudio: () 
         </>}
       </>}
 
-      {view === 'challenge' && challenge && screen && <>
+      {view === 'challenge' && challenge && <>
         <div className={`cms-source-badge ${source === 'fixture' ? 'cms-source-badge--fixture' : ''}`}>{source === 'live' ? <Cloud size={14} aria-hidden="true" /> : <FlaskConical size={14} aria-hidden="true" />}{source === 'live' ? 'Live Published Sanity' : 'Development Fixture Preview · Simulated content'}</div>
-        <header className="lab-challenge-header">
-          <div><p className="eyebrow">{challenge.series.title} · SEQUENCE {challenge.sequence} · RELEASE {challenge.releaseAtUtc}</p><h1>{challenge.title}</h1>{challenge.summary && <p className="cms-challenge-summary">{challenge.summary}</p>}</div>
-          <button type="button" className="button button--secondary lab-save-challenge" aria-pressed={challengeSaved} onClick={() => toggleSavedChallenge(selectedKey)}>{challengeSaved ? <BookmarkCheck size={17} /> : <Bookmark size={17} />}{challengeSaved ? 'Remove Saved Challenge' : 'Save Challenge'}</button>
-        </header>
-        <CmsScripturePanel scripture={challenge.primaryScripture} source={source} state={state} onToggle={toggleScripture} primary />
-        <div className="lab-progress">
-          <div><span>Required screens</span><strong>{currentIndex + 1} of {challenge.screens.length}</strong></div>
-          <div className="lab-progress__segments" role="progressbar" aria-label="CMS required Challenge screen position" aria-valuemin={1} aria-valuemax={challenge.screens.length} aria-valuenow={currentIndex + 1} aria-valuetext={`${currentIndex + 1} of ${challenge.screens.length}`}>{challenge.screens.map(item => <span key={item.id} className={item.id === screen.id || challenge.screens.findIndex(candidate => candidate.id === item.id) < currentIndex ? 'is-filled' : ''} />)}</div>
-        </div>
-        <article className="lab-screen" key={screen.id} aria-labelledby={`${screen.id}-title`}>
-          <p className="eyebrow">{screen.stepLabel}</p><h2 id={`${screen.id}-title`} ref={screenHeading} tabIndex={-1}>{screen.title}</h2>
-          <div className="lab-screen__blocks">{screen.blocks.map(block => <CmsBlockView key={block.id} block={block} source={source} state={state} onToggle={toggleScripture} />)}</div>
-        </article>
-        {completed && currentIndex === challenge.screens.length - 1 && <section className="lab-completion" role="status" aria-live="polite"><Check size={22} aria-hidden="true" /><div><h2>Challenge complete</h2><p>You explicitly completed the required screens. Optional content remains available to revisit.</p></div></section>}
-        <nav className="lab-screen-nav" aria-label="CMS Challenge screen navigation">
-          <button type="button" className="button button--secondary" disabled={currentIndex === 0} onClick={() => goToScreen(currentIndex - 1)}><ArrowLeft size={17} /> Back</button>
-          {currentIndex < challenge.screens.length - 1
-            ? <button type="button" className="button button--primary" onClick={() => goToScreen(currentIndex + 1)}>Continue <ArrowRight size={17} /></button>
-            : <button type="button" className="button button--primary" disabled={completed} onClick={completeChallenge}>{completed && <Check size={17} />}{completed ? 'Challenge complete' : 'Complete Challenge'}</button>}
-        </nav>
-        <p className="lab-navigation-note">Optional studies, reflection choices, and companion links never change required progress. Revisiting does not automatically complete a Challenge.</p>
-        <CmsCompanionLinks links={challenge.companionLinks} />
+        <ChallengePlayer
+          key={selectedKey}
+          challenge={challenge}
+          screenId={state.positions[selectedKey]}
+          isSaved={challengeSaved}
+          isCompleted={completed}
+          isScriptureSaved={isScriptureSaved}
+          onScreenChange={changeScreen}
+          onToggleSaveChallenge={() => toggleSavedChallenge(selectedKey)}
+          onToggleSaveScripture={scripture => toggleScripture(source, scripture)}
+          onComplete={completeChallenge}
+          eyebrow={`${challenge.series.title} · SEQUENCE ${challenge.sequence} · RELEASE ${challenge.releaseAtUtc}`}
+          labels={{
+            scriptureCollection: 'CMS My Scripture',
+            progress: 'CMS required Challenge screen position',
+            navigation: 'CMS Challenge screen navigation',
+          }}
+        />
       </>}
     </div>
   )

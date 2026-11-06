@@ -1,3 +1,4 @@
+import { resolveScreenIndex } from '../../components/challenge/challengePlayerModel.ts'
 import type { CmsChallenge, CmsScripture } from './types.ts'
 
 export const CMS_LAB_STORAGE_KEY = 'bibleberry-sanity-challenge-lab-v1'
@@ -26,6 +27,11 @@ export function emptyCmsLabState(): CmsLabState {
   return { positions: {}, completedChallengeIds: [], savedChallengeIds: [], scripture: [] }
 }
 
+/**
+ * Isolated Developer Studio CMS Lab key using source + Sanity `documentId`.
+ * Preserved unchanged for `bibleberry-sanity-challenge-lab-v1`; do not equate slug (`challenge.id`)
+ * with canonical persistent reader identity or migrate Lab keys into ordinary reader storage.
+ */
 export function cmsChallengeKey(source: CmsSourceKind, challenge: CmsChallenge) {
   return `sanity-${source}:${challenge.documentId}`
 }
@@ -42,9 +48,7 @@ export function cmsScriptureKey(source: CmsSourceKind, scripture: CmsScripture) 
 }
 
 export function resolveCmsScreenIndex(challenge: CmsChallenge, savedScreenId: string | undefined) {
-  if (!savedScreenId) return 0
-  const index = challenge.screens.findIndex(screen => screen.id === savedScreenId)
-  return index >= 0 ? index : 0
+  return resolveScreenIndex(challenge.screens, savedScreenId)
 }
 
 export function toggleCmsScripture(

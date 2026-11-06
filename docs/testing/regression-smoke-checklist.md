@@ -37,6 +37,7 @@ Enforced in the required `reader-app` CI job and runnable locally, this suite ru
   - `tests/smoke/memorization.spec.ts`: Tests Sunday pilot Scripture memorization phrase-reveal practice, incremental phrase reveals, and clean resets (R08).
 - **Pass 2 (Developer-Enabled Bundle):** Builds testing bundle with `VITE_ENABLE_DEVELOPER_STUDIO=true npm run build` and tests:
   - `tests/smoke/interactive-lab.spec.ts`: Tests Developer Studio entry, opening Interactive Challenge Lab, multi-screen Challenge navigation and completion, challenge bookmarking/saving, and strict storage key isolation (`bibleberry-interactive-challenge-lab-v1` vs `bibleberry-prototype-v1`) (R04, R09, R10, R12).
+  - `tests/smoke/cms-challenge-player.spec.ts`: Tests shared `ChallengePlayer` and all nine CMS content block views against rights-safe synthetic fixture data, stable screen-ID resume and invalid screen-ID clamping, optional study/reflection non-requirement, reference-only Scripture metadata persistence, idempotent final-screen completion, 3-store namespace isolation (`bibleberry-sanity-challenge-lab-v1`), and narrow portrait layout with large reading text (R04, R05, R09, R10, R12, R13).
 - **Restoration:** Restores clean public build in `dist/` upon completion.
 
 Useful local commands from a clean checkout:

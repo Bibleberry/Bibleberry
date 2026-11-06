@@ -50,7 +50,12 @@ test.describe('Build Isolation and Public Production Verification', () => {
     expect(fs.existsSync(distDir)).toBe(true);
 
     const files = fs.readdirSync(distDir);
-    const labChunk = files.find(f => f.startsWith('InteractiveChallengeLab'));
+    const labChunk = files.find(
+      f =>
+        f.startsWith('InteractiveChallengeLab') ||
+        f.startsWith('SanityChallengeLab') ||
+        f.startsWith('BerryMarkLocalPreview'),
+    );
     expect(labChunk).toBeUndefined();
 
     // 3. Scan all public JavaScript assets: must NOT contain distinguishing development code or fixture strings
@@ -62,6 +67,11 @@ test.describe('Build Isolation and Public Production Verification', () => {
       'Four guided Biblical Teaching Challenges',
       'lab-source-selector',
       'Open Interactive Challenge Lab',
+      'bibleberry-interactive-challenge-lab-v1',
+      'bibleberry-sanity-challenge-lab-v1',
+      'Structural Adapter Fixture',
+      'Development Fixture Preview',
+      'BerryMark Local Preview',
     ];
 
     for (const jsFile of jsFiles) {
