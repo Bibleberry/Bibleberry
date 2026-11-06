@@ -118,7 +118,7 @@ async function main() {
     const server2 = await startPreviewServer();
     try {
       console.log('>>> Running Playwright smoke tests against Developer-Enabled Bundle...');
-      await runCommand('npx playwright test tests/smoke/interactive-lab.spec.ts', {
+      await runCommand('npx playwright test tests/smoke/interactive-lab.spec.ts tests/smoke/cms-challenge-player.spec.ts', {
         PLAYWRIGHT_TEST_BASE_URL: `http://localhost:${PORT}`,
       });
     } finally {
