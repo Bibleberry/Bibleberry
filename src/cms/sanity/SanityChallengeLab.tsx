@@ -219,8 +219,10 @@ export function SanityChallengeLab({ onReturnToStudio }: { onReturnToStudio: () 
           onToggleSaveScripture={scripture => toggleScripture(source, scripture)}
           onComplete={completeChallenge}
           eyebrow={`${challenge.series.title} · SEQUENCE ${challenge.sequence} · RELEASE ${challenge.releaseAtUtc}`}
+          diagnostics
           labels={{
             scriptureCollection: 'CMS My Scripture',
+            progressHeading: 'Required screens',
             progress: 'CMS required Challenge screen position',
             navigation: 'CMS Challenge screen navigation',
           }}

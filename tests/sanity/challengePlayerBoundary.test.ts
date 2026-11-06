@@ -19,6 +19,8 @@ const sharedEntryPoints = [
   'src/components/challenge/ChallengePlayer.tsx',
   'src/components/challenge/CmsContentBlocks.tsx',
   'src/components/challenge/challengePlayerModel.ts',
+  'src/components/challenge/OrdinaryChallengeHost.tsx',
+  'src/components/challenge/ordinaryChallengeHostModel.ts',
 ]
 
 const forbiddenModules = [
@@ -33,6 +35,7 @@ const forbiddenModules = [
   'src/components/InteractiveChallengeLab.tsx',
   'src/components/DeveloperStudio.tsx',
   'src/data/interactiveChallenges.ts',
+  'src/pilot/ordinaryChallengePilot.tsx',
   'src/App.tsx',
 ]
 

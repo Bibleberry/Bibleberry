@@ -1,12 +1,101 @@
-import type { CmsScreen } from '../../cms/sanity/types.ts'
+import { presentCmsScripture } from '../../cms/sanity/presentation.ts'
+import type { CmsChallenge, CmsScreen, CmsScripture } from '../../cms/sanity/types.ts'
 
 /**
- * Pure, storage-free navigation rules for the shared multi-screen Challenge player.
+ * Pure, storage-free navigation and presentation rules for the shared multi-screen Challenge
+ * player.
  *
  * Hosts persist a stable screen identity (for CMS content, the Sanity screen `_key`), never an
  * array position. These helpers translate that identity into a safe position and decide which
- * explicit actions are available. They never read or write browser storage.
+ * explicit actions and reader/diagnostic labels apply. They never read or write browser storage.
  */
+
+export type ChallengePlayerChallenge = Pick<
+  CmsChallenge,
+  'title' | 'summary' | 'primaryScripture' | 'screens' | 'companionLinks'
+>
+
+export type ChallengePlayerLabels = {
+  scriptureCollection?: string
+  progressHeading?: string
+  progress?: string
+  navigation?: string
+}
+
+export type ChallengePlayerCopy = {
+  scriptureCollection: string
+  progressHeading: string
+  progressAriaLabel: string
+  navigationAriaLabel: string
+  completionMessage: string
+  navigationNote: string
+}
+
+export function resolveChallengePlayerCopy(options: {
+  diagnostics?: boolean
+  labels?: ChallengePlayerLabels
+} = {}): ChallengePlayerCopy {
+  const { diagnostics = false, labels = {} } = options
+  return {
+    scriptureCollection: labels.scriptureCollection ?? 'My Scripture',
+    progressHeading: labels.progressHeading ?? (diagnostics ? 'Required screens' : 'Challenge screens'),
+    progressAriaLabel: labels.progress ?? (diagnostics ? 'Required Challenge screen position' : 'Challenge screen position'),
+    navigationAriaLabel: labels.navigation ?? 'Challenge screen navigation',
+    completionMessage: diagnostics
+      ? 'You explicitly completed the required screens. Optional content remains available to revisit.'
+      : 'You completed this Challenge. Optional content remains available to revisit.',
+    navigationNote: diagnostics
+      ? 'Optional studies, reflection choices, and companion links never change required progress. Revisiting does not automatically complete a Challenge.'
+      : 'Optional studies, reflection choices, and companion links are never required. Revisiting does not automatically complete a Challenge.',
+  }
+}
+
+export type ScripturePanelCopy = {
+  ariaLabel: 'Primary Scripture' | 'Scripture focus'
+  sectionLabel: string
+  status: 'provided' | 'referenceOnly'
+  passage?: string
+  citationLabel: string
+  referenceOnlyNote: string
+  practiceNote: string | null
+}
+
+/**
+ * Resolve reader-facing vs developer-diagnostic copy for a CMS Scripture panel.
+ * Ordinary reader mode suppresses CMS/Sanity configuration diagnostics and unavailable-practice
+ * notices, while Developer Studio (`diagnostics`) and BerryMark Local Preview (`preview`) retain
+ * their full diagnostic wording.
+ */
+export function resolveScripturePanelCopy(
+  scripture: CmsScripture,
+  options: { primary?: boolean; preview?: boolean; diagnostics?: boolean } = {},
+): ScripturePanelCopy {
+  const { primary = false, preview = false, diagnostics = false } = options
+  const showDiagnostics = preview || diagnostics
+  const presentation = presentCmsScripture(scripture)
+  const ariaLabel = primary ? 'Primary Scripture' : 'Scripture focus'
+  const showTranslation = Boolean(scripture.translation) && (showDiagnostics || scripture.translation !== 'Not configured')
+  const sectionLabel = `${ariaLabel}${showTranslation ? ` · ${scripture.translation}` : ''}`
+  const citationLabel = `${scripture.reference}${showTranslation ? ` · ${scripture.translation}` : ''}`
+  const referenceOnlyNote = showDiagnostics
+    ? `Reference only · No passage text supplied${scripture.translation === 'Not configured' ? ' · Translation not configured' : ''}`
+    : 'Reference only · Passage text not included'
+  const practiceNote = showDiagnostics
+    ? scripture.practiceStatus === 'configured'
+      ? `${preview ? 'Practice configured in the local file' : 'Practice configured in Sanity'} · CMS memorization practice is not available in this view`
+      : 'Memorization practice not configured'
+    : null
+
+  return {
+    ariaLabel,
+    sectionLabel,
+    status: presentation.status,
+    passage: presentation.status === 'provided' ? presentation.passage : undefined,
+    citationLabel,
+    referenceOnlyNote,
+    practiceNote,
+  }
+}
 
 type ScreenList = readonly Pick<CmsScreen, 'id'>[]
 

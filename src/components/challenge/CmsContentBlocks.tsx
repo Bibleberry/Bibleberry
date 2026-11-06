@@ -3,13 +3,13 @@ import { PortableText, type PortableTextComponents } from '@portabletext/react'
 import {
   ArrowDown, ArrowRight, BookOpen, Bookmark, BookmarkCheck, ChevronDown, ExternalLink, RotateCcw,
 } from 'lucide-react'
-import { presentCmsScripture } from '../../cms/sanity/presentation.ts'
 import type {
   CmsBlock,
   CmsCompanionLink,
   CmsPortableText,
   CmsScripture,
 } from '../../cms/sanity/types.ts'
+import { resolveScripturePanelCopy } from './challengePlayerModel.ts'
 
 /**
  * Shared, production-safe renderers for validated CMS-shaped Challenge content.
@@ -37,6 +37,12 @@ export type CmsContentRenderOptions = {
    * practice wording. It never enables saving, completion, or persistence.
    */
   preview?: boolean
+  /**
+   * Developer-facing CMS diagnostic mode (used by Developer Studio's Sanity CMS Lab).
+   * Preserves Sanity/CMS translation and practice-configuration diagnostics that stay hidden in
+   * the ordinary reader.
+   */
+  diagnostics?: boolean
 }
 
 const portableTextComponents: PortableTextComponents = {
@@ -88,30 +94,30 @@ function CmsScriptureSaveButton({ scripture, controls }: {
   )
 }
 
-export function CmsScripturePanel({ scripture, primary = false, scriptureSave, preview = false }: {
+export function CmsScripturePanel({ scripture, primary = false, scriptureSave, preview = false, diagnostics = false }: {
   scripture: CmsScripture
   primary?: boolean
 } & CmsContentRenderOptions) {
-  const presentation = presentCmsScripture(scripture)
+  const copy = resolveScripturePanelCopy(scripture, { primary, preview, diagnostics })
   return (
-    <section className="scripture-panel lab-scripture cms-scripture" aria-label={primary ? 'Primary Scripture' : 'Scripture focus'}>
-      <span className="section-label">{primary ? 'Primary Scripture' : 'Scripture focus'} · {scripture.translation}</span>
-      {presentation.status === 'provided' ? (
-        <blockquote className="scripture-block"><p>{presentation.passage}</p><cite>{scripture.reference} · {scripture.translation}</cite></blockquote>
+    <section className="scripture-panel lab-scripture cms-scripture" aria-label={copy.ariaLabel}>
+      <span className="section-label">{copy.sectionLabel}</span>
+      {copy.status === 'provided' ? (
+        <blockquote className="scripture-block"><p>{copy.passage}</p><cite>{copy.citationLabel}</cite></blockquote>
       ) : (
-        <div className="cms-reference-only"><BookOpen size={20} aria-hidden="true" /><div><strong>{scripture.reference}</strong><p>Reference only · No passage text supplied{scripture.translation === 'Not configured' ? ' · Translation not configured' : ''}</p></div></div>
+        <div className="cms-reference-only"><BookOpen size={20} aria-hidden="true" /><div><strong>{scripture.reference}</strong><p>{copy.referenceOnlyNote}</p></div></div>
       )}
-      <div className="lab-scripture__actions">
-        {scriptureSave && <CmsScriptureSaveButton scripture={scripture} controls={scriptureSave} />}
-        <small>{scripture.practiceStatus === 'configured'
-          ? `${preview ? 'Practice configured in the local file' : 'Practice configured in Sanity'} · CMS memorization practice is not available in this view`
-          : 'Memorization practice not configured'}</small>
-      </div>
+      {(scriptureSave || copy.practiceNote !== null) && (
+        <div className="lab-scripture__actions">
+          {scriptureSave && <CmsScriptureSaveButton scripture={scripture} controls={scriptureSave} />}
+          {copy.practiceNote !== null && <small>{copy.practiceNote}</small>}
+        </div>
+      )}
     </section>
   )
 }
 
-function CmsOptionalStudy({ block, scriptureSave, preview }: {
+function CmsOptionalStudy({ block, scriptureSave, preview = false, diagnostics = false }: {
   block: Extract<CmsBlock, { type: 'optionalExploration' }>
 } & CmsContentRenderOptions) {
   const [expanded, setExpanded] = useState(false)
@@ -125,7 +131,7 @@ function CmsOptionalStudy({ block, scriptureSave, preview }: {
       <div id={contentId} className="lab-optional__content" hidden={!expanded}>
         <CmsPortableTextView value={block.body} />
         {block.scriptures.map(scripture => (
-          <CmsScripturePanel key={scripture.id} scripture={scripture} scriptureSave={scriptureSave} preview={preview} />
+          <CmsScripturePanel key={scripture.id} scripture={scripture} scriptureSave={scriptureSave} preview={preview} diagnostics={diagnostics} />
         ))}
       </div>
     </section>
@@ -172,10 +178,10 @@ function CmsProposedBadge({ block }: { block: CmsBlock }) {
 }
 
 /** Render one of the nine CMS Content Block concepts in authored order and at full length. */
-export function CmsBlockView({ block, scriptureSave, preview = false }: { block: CmsBlock } & CmsContentRenderOptions) {
+export function CmsBlockView({ block, scriptureSave, preview = false, diagnostics = false }: { block: CmsBlock } & CmsContentRenderOptions) {
   switch (block.type) {
     case 'scripture':
-      return <CmsScripturePanel scripture={block.scripture} scriptureSave={scriptureSave} preview={preview} />
+      return <CmsScripturePanel scripture={block.scripture} scriptureSave={scriptureSave} preview={preview} diagnostics={diagnostics} />
     case 'teachingText':
       return <section className="lab-teaching-text"><CmsPortableTextView value={block.body} /></section>
     case 'statement':
@@ -189,7 +195,7 @@ export function CmsBlockView({ block, scriptureSave, preview = false }: { block:
     case 'reflectionChoice':
       return <>{preview && <CmsProposedBadge block={block} />}<CmsReflection block={block} /></>
     case 'optionalExploration':
-      return <>{preview && <CmsProposedBadge block={block} />}<CmsOptionalStudy block={block} scriptureSave={scriptureSave} preview={preview} /></>
+      return <>{preview && <CmsProposedBadge block={block} />}<CmsOptionalStudy block={block} scriptureSave={scriptureSave} preview={preview} diagnostics={diagnostics} /></>
     case 'prayer':
       return <section className="prayer-section lab-prayer" aria-labelledby={`${block.id}-title`}><span className="section-label" id={`${block.id}-title`}>Prayer</span>{block.paragraphs.map((paragraph, index) => <p key={`${block.id}-${index}`}>{paragraph}</p>)}</section>
   }
