@@ -128,10 +128,10 @@ The following twenty-one work areas describe **capabilities and dependencies**, 
 - **Dependencies:** Aaron's product decisions and Alexis's visual review before implementation.
 
 #### R07. Unified reader progress and saved-state model
-- **Engineering term:** Client state/domain events and stable-identity migration.
+- **Engineering term:** Unified reader state, durable completion records and stable-identity migration.
 - **In everyday language:** The app consistently knows what you opened, saved, started, completed and where you left off.
 - **Current state:** Separate, intentionally isolated local prototype, interactive Lab and CMS Lab state; the ordinary Journey is largely an activity-open history.
-- **Deliverable / evidence:** One authoritative event/record model for position, completion date, saved Challenge, saved Scripture and last-opened history; test distinct actions and repeat visits; explicit safe transition from development stores rather than casual namespace merging.
+- **Deliverable / evidence:** One authoritative record model for position, distinct completed Challenge IDs, saved Challenges, saved Scripture and last-opened history; test distinct actions and repeat visits; explicit safe transition from development stores rather than casual namespace merging. Store technical timestamps only where justified for safety or an approved feature, not a comprehensive behavioral diary.
 - **Dependencies:** R03 content identities; design in coordination with R13 future cloud records.
 
 #### R08. Personal exploration area and collections
@@ -179,11 +179,11 @@ The following twenty-one work areas describe **capabilities and dependencies**, 
 - **Dependencies:** R07 record identities; approved launch scope and [accounts architecture](../architecture/user-accounts-and-sync.md).
 
 #### R14. Nonpunitive achievements and participation history
-- **Engineering term:** Achievement rules engine and dated event ledger.
+- **Engineering term:** Achievement eligibility over durable completion records and dated awards (no full event-sourcing requirement).
 - **In everyday language:** Readers can see goals, make progress and keep a lasting collection of what they have accomplished.
-- **Current state:** Product principles documented, no approved final visual identity or complete production engine.
-- **Deliverable / evidence:** Clear visible regular goals, progress and earned dates, meaningful positive criteria, completion-based rules rather than endless usage streaks, no content gating or competitive rankings.
-- **Dependencies:** R07 reliable completion events, R13 for enduring cross-device collections, Alexis's design review. Future special events are **not approved** by this item. See [gamification design record](gamification-and-achievements.md).
+- **Current state:** November 6 research synthesis and product decisions documented; no approved final visual identity, monthly eligibility rules or complete production achievement engine.
+- **Deliverable / evidence:** Selected visible lifetime goals based on distinct completed Challenges; content-derived monthly mini-collections and a full-month commemorative direction; a personal Field Notebook of earned, dated accomplishments; no mandatory reading timers, destructive streaks, content gating, public rankings or spirituality scores. Exact milestone thresholds, monthly content eligibility and artwork require separate approval.
+- **Dependencies:** R07 reliable distinct-completion records, R13 for enduring cross-device collections, monthly editorial definitions and Alexis's design review. Optional actual-day encouragement and future Special Events are **not** automatically approved engineering scope. See [gamification design record](gamification-and-achievements.md).
 
 #### R15. Actual reminder and notification delivery
 - **Engineering term:** Notification permission, scheduling, delivery and target routing.
