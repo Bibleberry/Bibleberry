@@ -124,6 +124,24 @@ async function main() {
     } finally {
       await stopPreviewServer(server2);
     }
+
+    // ---------------------------------------------------------
+    // PASS 3: Pilot-Enabled Ordinary Shell Build (Developer Studio excluded)
+    // ---------------------------------------------------------
+    console.log('\n>>> [Pass 3] Building and testing Challenge-Pilot-Enabled Ordinary Bundle...');
+    cleanDist();
+    await runCommand('npm run build', { VITE_ENABLE_CHALLENGE_PILOT: 'true' });
+
+    console.log('>>> Starting preview server for Challenge-Pilot-Enabled Bundle...');
+    const server3 = await startPreviewServer();
+    try {
+      console.log('>>> Running Playwright smoke tests against Challenge-Pilot-Enabled Bundle...');
+      await runCommand('npx playwright test tests/smoke/ordinary-challenge-pilot.spec.ts', {
+        PLAYWRIGHT_TEST_BASE_URL: `http://localhost:${PORT}`,
+      });
+    } finally {
+      await stopPreviewServer(server3);
+    }
   } catch (err) {
     executionError = err as Error;
   } finally {

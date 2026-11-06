@@ -7,6 +7,7 @@ test.describe('Build Isolation and Public Production Verification', () => {
     // Track uncaught page errors
     const uncaughtErrors: Error[] = [];
     page.on('pageerror', err => uncaughtErrors.push(err));
+    await page.clock.setFixedTime(new Date('2026-11-05T12:00:00Z'));
 
     // 1. Check DOM: In public build, Developer Studio must NOT appear in More view
     await page.addInitScript(() => {
@@ -41,24 +42,39 @@ test.describe('Build Isolation and Public Production Verification', () => {
       await expect(page.locator(`.more-list button:has-text("${title}")`)).toBeVisible();
     }
 
-    // Developer Studio entry button must be unconditionally absent in public build
+    // Developer Studio entry button and ordinary Challenge pilot bar must be unconditionally absent in public build
     const devStudioButton = page.locator('button.developer-studio-entry');
     await expect(devStudioButton).not.toBeVisible();
+    await expect(page.locator('.pilot-entry-bar')).toHaveCount(0);
 
-    // 2. Check filesystem: dist/ directory must NOT contain InteractiveChallengeLab chunk
+    // Visiting the pilot hash route in the public bundle must be inert on both hash navigation and initial load
+    await page.goto('/#/pilot/challenge');
+    await expect(page.locator('.more-page')).toBeVisible();
+    await expect(page.locator('.pilot-entry-bar')).toHaveCount(0);
+    await expect(page.locator('.pilot-disclosure')).toHaveCount(0);
+    await expect(page.locator('.challenge-reader-page')).toHaveCount(0);
+
+    await page.reload();
+    await expect(page.locator('#daily-teaching')).toBeVisible();
+    await expect(page.locator('.pilot-entry-bar')).toHaveCount(0);
+    await expect(page.locator('.pilot-disclosure')).toHaveCount(0);
+    await expect(page.locator('.challenge-reader-page')).toHaveCount(0);
+
+    // 2. Check filesystem: dist/ directory must NOT contain Lab, Preview, or Pilot chunks
     const distDir = path.resolve(process.cwd(), 'dist', 'assets');
     expect(fs.existsSync(distDir)).toBe(true);
 
     const files = fs.readdirSync(distDir);
-    const labChunk = files.find(
+    const nonPublicChunk = files.find(
       f =>
         f.startsWith('InteractiveChallengeLab') ||
         f.startsWith('SanityChallengeLab') ||
-        f.startsWith('BerryMarkLocalPreview'),
+        f.startsWith('BerryMarkLocalPreview') ||
+        f.startsWith('ordinaryChallengePilot'),
     );
-    expect(labChunk).toBeUndefined();
+    expect(nonPublicChunk).toBeUndefined();
 
-    // 3. Scan all public JavaScript assets: must NOT contain distinguishing development code or fixture strings
+    // 3. Scan all public JavaScript assets: must NOT contain distinguishing development or pilot code/fixture strings
     const jsFiles = files.filter(f => f.endsWith('.js'));
     expect(jsFiles.length).toBeGreaterThan(0);
 
@@ -72,6 +88,11 @@ test.describe('Build Isolation and Public Production Verification', () => {
       'Structural Adapter Fixture',
       'Development Fixture Preview',
       'BerryMark Local Preview',
+      'Synthetic Player Pilot',
+      'pilot-synthetic-ordinary-shell-a2',
+      '#/pilot/challenge',
+      'Open Challenge pilot',
+      'TECHNICAL PILOT · NOT PUBLISHED CONTENT',
     ];
 
     for (const jsFile of jsFiles) {
