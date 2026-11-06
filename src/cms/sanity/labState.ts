@@ -27,6 +27,11 @@ export function emptyCmsLabState(): CmsLabState {
   return { positions: {}, completedChallengeIds: [], savedChallengeIds: [], scripture: [] }
 }
 
+/**
+ * Isolated Developer Studio CMS Lab key using source + Sanity `documentId`.
+ * Preserved unchanged for `bibleberry-sanity-challenge-lab-v1`; do not equate slug (`challenge.id`)
+ * with canonical persistent reader identity or migrate Lab keys into ordinary reader storage.
+ */
 export function cmsChallengeKey(source: CmsSourceKind, challenge: CmsChallenge) {
   return `sanity-${source}:${challenge.documentId}`
 }

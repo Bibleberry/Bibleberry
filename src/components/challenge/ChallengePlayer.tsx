@@ -12,6 +12,14 @@ import { canCompleteChallenge, challengePlayerPosition } from './challengePlayer
 /**
  * The narrowly documented presentation subset the player needs. Identity, series, release
  * metadata, and editorial records stay with the host, which already validated the Challenge.
+ *
+ * Identity contract note (Issue #41, A1 -> A3): `CmsChallenge` currently carries both a
+ * slug-derived `id` and a Sanity `documentId`. Those two values must not be silently equated as
+ * canonical persistent reader identity: the Developer Studio CMS Lab keys isolated state by
+ * source-qualified `documentId` (`sanity-${source}:${challenge.documentId}`), while durable
+ * ordinary-reader identity and participation records belong to a later host contract (A3).
+ * Keeping identity fields out of `ChallengePlayerChallenge` ensures the player never invents or
+ * assumes storage keys.
  */
 export type ChallengePlayerChallenge = Pick<CmsChallenge, 'title' | 'summary' | 'primaryScripture' | 'screens' | 'companionLinks'>
 
