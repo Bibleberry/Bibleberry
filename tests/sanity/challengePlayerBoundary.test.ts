@@ -165,3 +165,28 @@ test('Lab and read-only preview consume the shared renderers instead of private 
   // Read-only preview never receives Scripture save controls.
   assert.doesNotMatch(preview, /scriptureSave=/)
 })
+
+test('ordinary-shell pilot module uses OrdinaryChallengeHost without Lab, fixture, network, or storage coupling', () => {
+  const pilotFile = 'src/pilot/ordinaryChallengePilot.tsx'
+  const rawPilot = readFileSync(resolve(repositoryRoot, pilotFile), 'utf8')
+  const executablePilot = stripComments(pilotFile, rawPilot)
+
+  assert.match(rawPilot, /from '\.\.\/components\/challenge\/OrdinaryChallengeHost\.tsx'/)
+  for (const [pattern, description] of forbiddenSourcePatterns) {
+    assert.doesNotMatch(executablePilot, pattern, `${pilotFile} contains ${description}`)
+  }
+
+  for (const { specifier } of collectImports(pilotFile, rawPilot)) {
+    if (!specifier.startsWith('.')) {
+      const pkg = specifier.startsWith('@') ? specifier.split('/').slice(0, 2).join('/') : specifier.split('/')[0]
+      assert.ok(allowedPackages.has(pkg), `unexpected package in ${pilotFile}: ${pkg}`)
+      continue
+    }
+    const target = relative(repositoryRoot, resolve(dirname(resolve(repositoryRoot, pilotFile)), specifier))
+    assert.equal(
+      forbiddenModules.includes(target),
+      false,
+      `${pilotFile} must not import ${target}`,
+    )
+  }
+})
