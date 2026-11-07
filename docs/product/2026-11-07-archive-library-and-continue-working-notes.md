@@ -88,7 +88,7 @@ Aaron explicitly confirmed that the **entire Challenge reading session remains d
 
 An achievement may be recorded when earned, but its **in-app notification is deferred until outside the Challenge reader**. The reader may first encounter it after returning to the Hub. The notification can inform them of the earned award and offer a way to visit the Field Notebook.
 
-**Multiple simultaneous awards (decided):** If a single Challenge completion earns more than one collectible, show **one combined announcement outside the Challenge reader**, such as “You've earned 3 new Scripture cards!”, with a way to open the Field Notebook and view them. Do **not** queue separate reward reveal animations/announcements for each card. Exact visuals, dismissal behavior and Quiet Reading Mode interaction remain open. This does **not** authorize engineering to implement a notification system.
+**Multiple simultaneous awards (decided):** If a single Challenge completion earns more than one collectible, show **one combined announcement outside the Challenge reader**, such as “You've earned 3 new Scripture cards!”, with a way to open the Field Notebook and view them. Do **not** queue separate reward reveal animations/announcements for each card. **Location-independent rule clarified (November 7):** The same post-reader announcement applies whether the award was earned from current teaching, Personal Archive, or directly inside the Past Teaching Library. **All three study locations are quiet while reading**; once the reader leaves the reading experience, there is no special reason to suppress an earned-card announcement merely because the Challenge was opened from the Library. Multiple awards are announced together, and the Hub's **New Discoveries** indicator may also signal unviewed cards. Exact visuals, dismissal behavior, timing when leaving a Library surface versus an individual Challenge, and Quiet Reading Mode interaction remain open. This does **not** authorize engineering to implement a notification system.
 
 ## 5. Relationship to existing November 6 decisions
 
@@ -200,7 +200,7 @@ Readers can find a remembered illustrated subject without knowing its publicatio
 
 ### Silent Library awards, visible Notebook records
 
-**The Library hides all in-context gamification, but it does not disable earning.** Challenge completions there count toward lifetime totals, monthly full-completion commemoratives, and thematic mini-collections exactly as they do elsewhere. Qualifying awards are **recorded and visible in the Field Notebook even if the reader never adds that month to the Personal Archive**. The Library should not show reward progress, celebrations or collector prompts during study. Achievement notifications, if shown, occur outside the active Challenge reading session under the existing decision.
+**The Library hides all in-context gamification, but it does not disable earning.** Challenge completions there count toward lifetime totals, full-month Scripture cards, and thematic mini-collections exactly as they do elsewhere. Qualifying awards are **recorded and visible in the Field Notebook even if the reader never adds that month to the Personal Archive**. The Library should not show reward progress, celebrations or collector prompts during study. **When the reader exits the quiet reading experience, the same combined earned-card announcement applies as for Challenges opened from the Hub or Personal Archive.** The Hub's New Discoveries indicator also remains available.
 
 ### Evolving lifetime status and special collections
 
