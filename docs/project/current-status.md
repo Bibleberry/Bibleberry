@@ -1,6 +1,7 @@
 # Bibleberry — Current Project Status
 
-**Last reconciled:** November 5, 2026  
+**Last full inventory reconciled:** November 5, 2026  
+**Latest scoped checkpoint:** November 6, 2026 ([A3/native-first handoff](handoffs/2026-11-06-a3-mobile-first.md))  
 **Status:** Living, cross-repository handoff and project-state summary  
 **Primary repository:** [ContraPhilosophy/Bibleberry](https://github.com/ContraPhilosophy/Bibleberry)  
 **Companion repository:** [ContraPhilosophy/BerryMark](https://github.com/ContraPhilosophy/BerryMark)  
@@ -9,6 +10,14 @@
 **Related planning:** [Bibleberry #34](https://github.com/ContraPhilosophy/Bibleberry/issues/34), [engineering maturity #20](https://github.com/ContraPhilosophy/Bibleberry/issues/20)
 
 > **Read this at the start of a new AI session**, then verify anything relevant against the **current** GitHub branches, Issues, PRs and source code before making decisions or assignments. This is a maintained summary, **not an automatic reflection of GitHub**. It must not be mistaken for proof that tests, access controls, deployments or approvals have occurred. Last reconciled means the date of the documented review, not continuous monitoring.
+
+## November 6, 2026: end-of-day A3 and native-app-first checkpoint
+
+**Verified GitHub at this scoped check:** Bibleberry main `f2461e4edfdfeff62e2a0578489428b0f8f33a4f`; BerryMark main `d94d5fa01d7b423650527d00f802ee0356362c6f`; **zero open Bibleberry PRs**. A3 branch `feat/46-reader-participation-state` existed at the same SHA as main, so no A3 implementation was yet confirmed remotely. Later branch/PR activity must be rechecked. Bibleberry [A1 PR #42](https://github.com/ContraPhilosophy/Bibleberry/pull/42), [A2 PR #45](https://github.com/ContraPhilosophy/Bibleberry/pull/45), and product docs [#43](https://github.com/ContraPhilosophy/Bibleberry/pull/43)/[#47](https://github.com/ContraPhilosophy/Bibleberry/pull/47) were merged.
+
+**Product clarification from Aaron:** Bibleberry is planned primarily for **installed iOS and Android use**; the hosted web option is supplementary. React/Vite does not imply browser-only delivery. A3 [Issue #46](https://github.com/ContraPhilosophy/Bibleberry/issues/46) now records a platform-neutral, async-capable participation store: browser localStorage is a **web/development adapter**, not an assumed native storage solution. Final native packaging/driver and account synchronization remain separate future decisions. Argon's revised architecture was accepted in principle and a Phase 2 implementation authorization message was prepared; no pushed A3 code or CI evidence existed at this check. Do not confuse that approval with completed implementation.
+
+**Next session:** Start with the [November 6 handoff](handoffs/2026-11-06-a3-mobile-first.md), verify Issue #46, its feature branch and any PR, then review actual pushed code/tests when available. Keep A3 separate from Hub design [#22](https://github.com/ContraPhilosophy/Bibleberry/issues/22), CMS reader integration [#25](https://github.com/ContraPhilosophy/Bibleberry/issues/25), and the later native release-channel decision (R20). The older November 5 inventory below remains dated historical evidence, not a newly re-audited full project inventory.
 
 ## November 6, 2026: product-design addendum (not an engineering-status reconciliation)
 

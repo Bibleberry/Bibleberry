@@ -41,7 +41,7 @@ This is a **planning classification**, not a decision to add or drop features.
 
 | Decision | Current direction | What must be decided before a release claim |
 | --- | --- | --- |
-| **Release channel** | Mobile-first reader | Web/PWA, iOS/Android native, or staged combination; store distribution, actual devices, required lead times, and what “launch” means |
+| **Release channel** | **Installed iOS/Android is the primary product direction (Aaron, Nov 6); hosted web supplementary** | Choose native packaging/runtime (not yet selected), confirm actual app-store deployment scope/sequence, signing, testing devices, review lead times, and launch meaning; decide hosted-web scope and coordination |
 | **Accounts and durable progress** | Optional registration; Supabase direction; Google, Apple and passwordless email-code login; durable accomplishments tied to accounts | Whether authenticated cross-device saves, Challenge completions, Scripture and achievement history are part of *initial* launch; the required migration, recovery, access-control and UX rules. **Do not remove them from launch scope without Aaron's decision** |
 | **Achievement system** | Noncompetitive, nonpunitive, dated accomplishments; design still open | Exact initial collection, calculation rules, visual identity, and approval, or an explicitly approved staged introduction |
 | **Challenge formats and initial content** | All dated experiences called Challenges; current prototypes cover several formats | Which formats and editorial corpus ship, publishing cadence, content QA and release-time behavior, and Alexis's approvals |
