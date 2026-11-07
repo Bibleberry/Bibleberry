@@ -277,3 +277,29 @@ In Milestone R05 Stage 2A, the ordinary reader Challenge route (`#/challenge/:sl
 5. **Release Clock Authority Distinction:**
    - **Gateway Source (`source: 'gateway'`): Server-Authoritative Release Gate.** When the Cloudflare Worker responds with HTTP 200, the server's evaluated release schedule is authoritative. The client verifies document mapping, slug match, editorial review confirmation (`adaptationReviewed === true`), release timestamp syntax, and mints capability admission via `admitTrustedCatalogChallenge(challenge)`. A desynchronized or incorrectly set client device clock (e.g. running slow/behind `releaseAtUtc`) cannot veto or delay server-authorized releases.
    - **Legacy Catalog Source (`source: 'catalog'`): Client-Authoritative Release Gate.** Direct Sanity catalog reads bypass the Worker gateway and continue to evaluate `evaluateChallengeReleaseEligibility(challenge, now)` and `admitReleasedCmsChallenge(challenge, now)` against client device time. Arbitrary catalog results cannot bypass the client release gate.
+
+### 6.4 Stage 2B1 Released Challenge Catalog Provider Specification
+In Milestone R05 Stage 2B1, the reader-facing catalog data boundary for `GET /api/challenges` is established via `ReleasedCatalogProvider` (`src/cms/reader/releasedCatalogProvider.ts`):
+1. **Catalog Provider Boundary (`createGatewayCatalogProvider`):**
+   - Connects to `GET /api/challenges` using same-origin relative path or configured `VITE_RELEASE_GATEWAY_ORIGIN` / `VITE_GATEWAY_ORIGIN`.
+   - Supports injectable `fetchImpl`, configured origin, same-origin fallback, and `AbortSignal` cancellation.
+   - Kept distinct from the A4.1 `ChallengeCatalogProvider` to decouple lightweight catalog summaries from complete `CmsChallenge` screen trees.
+2. **Typed Catalog Summary Contract (`ReleasedCatalogSummary`):**
+   - Strictly projects discovery-safe fields only: `id` (slug), `slug`, `documentId` (canonical Sanity document ID), `title`, `summary`, `challengeType` (`CmsChallengeType`), `sequence` (positive integer), `releaseAt`, `releaseAtUtc`, `series` (`documentId`, `id`, `title`), and `primaryScripture` (`id`, `reference`, `translation`, `textStatus`, `practiceStatus`, `usageRightsConfirmed`, `passage`). Aligned with reader detail mapper requirements.
+   - Deep allowlist projection excludes private editorial artifacts, `screens`, `blocks`, `unapprovedBlockCount`, `_type`, `_rev`, and `importProvenance`.
+3. **Explicit Result States:**
+   - `{ status: 'ready', challenges, source: 'gateway' }`: fully validated catalog summary list.
+   - `{ status: 'empty', source: 'gateway' }`: valid empty catalog response.
+   - `{ status: 'requestError', message, source: 'gateway' }`: HTTP 4xx/5xx errors or network fetch failure.
+   - `{ status: 'validationError', message, issues, source: 'gateway' }`: malformed JSON, invalid response envelope, or schema validation failures (fails closed without partial leakage).
+4. **Validation and Identity Safety:**
+   - Enforces non-draft document ID (`_id` must not start with `drafts.`).
+   - Detects and rejects duplicate document IDs or duplicate slugs across the catalog.
+   - Strictly validates supported reader `challengeType` (`teaching`, `discipline`, `reflection`, `memorization`), positive integer `sequence`, required series, required primary Scripture with usage rights, and reviewed editorial eligibility (`reviewedAt` instant).
+   - Never falls back to direct Sanity queries when gateway calls fail.
+5. **Server-Authoritative Release Eligibility:**
+   - No client-clock embargo check is performed by the catalog provider. The secure gateway's evaluated release schedule is authoritative.
+6. **Detail-Reader and Participation Integration:**
+   - Provides `loadChallengeDetailForSummary(summary, detailProvider)` requiring `{ slug, documentId }`, verifying that the resolved Challenge's document ID matches the selected catalog summary's `documentId` before returning `ready`, failing closed on document ID mismatch to safeguard canonical `cms:<documentId>` participation identity.
+   - Full Challenge documents (with screens and blocks) are loaded only upon explicit selection.
+   - Preserves canonical `cms:<documentId>` participation identity and capability token admission (`admitTrustedCatalogChallenge`).
