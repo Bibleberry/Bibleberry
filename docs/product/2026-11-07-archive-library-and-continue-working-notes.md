@@ -90,6 +90,12 @@ An achievement may be recorded when earned, but its **in-app notification is def
 
 **Multiple simultaneous awards (decided):** If a single Challenge completion earns more than one collectible, show **one combined announcement outside the Challenge reader**, such as “You've earned 3 new Scripture cards!”, with a way to open the Field Notebook and view them. Do **not** queue separate reward reveal animations/announcements for each card. **Location-independent rule clarified (November 7):** The same post-reader announcement applies whether the award was earned from current teaching, Personal Archive, or directly inside the Past Teaching Library. **All three study locations are quiet while reading**; once the reader leaves the reading experience, there is no special reason to suppress an earned-card announcement merely because the Challenge was opened from the Library. Multiple awards are announced together, and the Hub's **New Discoveries** indicator may also signal unviewed cards. Exact visuals, dismissal behavior, timing when leaving a Library surface versus an individual Challenge, and Quiet Reading Mode interaction remain open. This does **not** authorize engineering to implement a notification system.
 
+### Unannounced awards across app sessions (approved November 7)
+
+**Decision: Option A.** If a reader earns one or more Scripture collectible cards and closes Bibleberry before the out-of-reader earned-card announcement is displayed, keep those awards eligible for a **single delayed combined announcement on the next app visit**, outside the Challenge reader. For example, two cards earned immediately before closing result in one announcement such as “You've earned 2 new Scripture cards!” after returning, not two separate announcements. This applies regardless of whether the triggering Challenge was opened from current teaching, Personal Archive or Past Teaching Library.
+
+The delayed announcement for that batch should **appear only once**, not repeat on every subsequent visit. The existing Hub **New Discoveries** indicator remains part of the experience. **Still to decide separately:** exactly when an announcement is treated as delivered/acknowledged, what dismissing it means, and when the New Discoveries indicator clears. Quiet Reading Mode interaction also remains open. This decision does not authorize implementation.
+
 ## 5. Relationship to existing November 6 decisions
 
 This **working model does not repeal** the previously adopted decisions that:
