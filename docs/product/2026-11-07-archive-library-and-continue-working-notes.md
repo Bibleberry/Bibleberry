@@ -113,6 +113,31 @@ The earlier open question of historical-month eligibility is being reframed: **a
 6. **Award notifications:** Define post-reader notice timing (possibly on the Hub), multiple awards, dismissal and Quiet Reading Mode, without interrupting Challenge reading.
 7. **Scope/timing:** Decide what can ship at launch and what should be deferred; validate against A3 durable participation identity/persistence without prematurely expanding A3's authorized engineering scope.
 
+## 7. November 7 Field Notebook collectible card directions
+
+> **Product direction agreed in conversation, not an approved implementation spec or artwork package.** Alexis remains the editorial/theological and visual approval authority.
+
+### Permanent thematic discovery collectibles
+
+- **Every completed content-derived monthly mini-collection should earn a permanent collectible.** This is an explicit choice, replacing earlier uncertainty about whether mini-collections merely showed progress or yielded a lasting object.
+- In the Notebook, a collectible can have a concise, visually appealing collection-level presentation: illustration, title, source month and earned date.
+- Tapping it opens a more substantial **collectible card screen** with its image, key Scripture references, relevant verse text displayed in Bibleberry's **WEBP** translation, and a **short explanatory teaching note**.
+- The explanation should go beyond word-matching. It can show the theological, narrative, symbolic or semiotic relationships that Alexis draws across the passages. A discussed illustrative card topic was **"Jacob's Well"**, connecting the Jacob traditions to Jesus' encounter with the Samaritan woman in John 4. **Exact historical/OT references and wording still require editorial verification**; no final claim or published copy has been approved.
+- This is a miniature study artifact rather than a badge with a decorative tooltip. It remains concise and should be composed from Alexis's actual teaching, never requiring her to produce a separate curriculum to satisfy an award.
+
+### Monthly full-completion commemorative card
+
+- Aaron explicitly chose **a substantive monthly summary card (Option B)** rather than a mostly decorative record.
+- A monthly commemorative can open to a card showing its art, month and theme, earned date, **key passages**, and a **short account of what that month's teaching emphasized**.
+- This is distinct from the more narrowly focused **thematic discovery card**: the monthly card recalls the entire month or teaching season, whereas a discovery card explains a specific motif or connection.
+- Suggested language such as "memory stone" was an analogy in discussion, not approved reader-facing terminology.
+
+### Different card types
+
+Lifetime Challenge milestones and Special Experience commemoratives may need their own simpler participation-focused card treatments. **Do not assume they require exegetical summaries or that every collectible has the same card template.** Their details remain open.
+
+**Open product/editorial questions:** How many reference verses belong on a card, whether quoted WEBP verses are full/partial, whether Scripture saving is available within cards, creation/review process and CMS data shape, how cards display on small screens, and which awards notify readers outside Challenge sessions. These are not approved implementation details.
+
 ## Status and process
 
 The discussion generated a coherent **working hypothesis** for organizing personal participation. Aaron explicitly encouraged recording this level of detail even where final decisions have **not** been made. Keep proposals labeled as provisional until reviewed and accepted. Do not issue implementation tasks, alter participation stores or merge this documentation without Aaron's review.
