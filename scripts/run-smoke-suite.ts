@@ -160,6 +160,24 @@ async function main() {
     } finally {
       await stopPreviewServer(server4);
     }
+
+    // ---------------------------------------------------------
+    // PASS 5: Released-Challenge-Enabled Bundle (A4.1 Controlled CMS-to-Reader Route)
+    // ---------------------------------------------------------
+    console.log('\n>>> [Pass 5] Building and testing Released-Challenge-Enabled Bundle...');
+    cleanDist();
+    await runCommand('npm run build', { VITE_ENABLE_RELEASED_CHALLENGE_ROUTE: 'true' });
+
+    console.log('>>> Starting preview server for Released-Challenge-Enabled Bundle...');
+    const server5 = await startPreviewServer();
+    try {
+      console.log('>>> Running Playwright smoke tests against Released-Challenge-Enabled Bundle...');
+      await runCommand('npx playwright test tests/smoke/released-challenge.spec.ts', {
+        PLAYWRIGHT_TEST_BASE_URL: `http://localhost:${PORT}`,
+      });
+    } finally {
+      await stopPreviewServer(server5);
+    }
   } catch (err) {
     executionError = err as Error;
   } finally {

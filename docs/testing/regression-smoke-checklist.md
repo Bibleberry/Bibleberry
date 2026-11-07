@@ -42,6 +42,8 @@ Enforced in the required `reader-app` CI job and runnable locally, this suite ru
   - `tests/smoke/ordinary-challenge-pilot.spec.ts`: Tests opening `ChallengePlayer` via `OrdinaryChallengeHost` inside the normal `AppShell` without Developer Studio present, `#/pilot/challenge` deep-linking (including post-onboarding and browser Back/Forward navigation), suppression of CMS/Sanity diagnostics and unavailable-practice notices, optional study non-requirement, separate non-durable in-memory Challenge save / Scripture save / explicit final-screen completion with zero browser-storage writes, return to previous normal app surface, keyboard operation, and narrow portrait (`320px`, `375px`) + tablet landscape (`1024px`) layouts with large reading text (#44, A2).
 - **Pass 4 (Participation-Pilot-Enabled Bundle):** Builds isolated persistence pilot bundle with `VITE_ENABLE_PARTICIPATION_PILOT=true npm run build` (without `VITE_ENABLE_DEVELOPER_STUDIO` or `VITE_ENABLE_CHALLENGE_PILOT`) and tests:
   - `tests/smoke/participation-pilot.spec.ts`: Tests `PersistedChallengeHost` and the durable participation store across full browser reloads via `#/pilot/participation`, verifying screen-ID resume across reload, `Back` to Screen 1 retaining durable `inProgress` status across reload, independent Challenge bookmarking and normalized reference-only Scripture saving (`'Not configured' -> null`, zero passage text persisted), explicit final-screen completion incrementing distinct completed count once and clearing `inProgress`, reread starting cleanly on Screen 1 without inflating completion count, isolated storage namespace (`bibleberry-participation-pilot-v1` only), and local app data reset (#46, A3).
+- **Pass 5 (Released-Challenge-Enabled Bundle):** Builds controlled CMS-to-reader bundle with `VITE_ENABLE_RELEASED_CHALLENGE_ROUTE=true npm run build` and tests:
+  - `tests/smoke/released-challenge.spec.ts`: Tests `ReleasedChallengeHost` and ordinary reader deep linking at `#/challenge/:slug`, verifying catalog provider integration, pure release-eligibility evaluation (exact boundary and timezone offsets), fail-closed capability token admission, multi-screen navigation and durable reload resume in `bibleberry-reader-participation-v1`, single-screen Start Challenge button lifecycle, missing slug empty state, embargoed future-release state without content leakage, validation failure notices, network failure recovery with Retry, and clean AppShell navigation (#41, A4.1).
 - **Restoration:** Restores clean public build in `dist/` upon completion.
 
 Useful local commands from a clean checkout:
@@ -52,11 +54,12 @@ npm ci
 npx playwright install chromium # Install Chromium browser for Playwright tests
 npm run lint                    # ESLint verification (enforced in CI)
 npm run build                   # Standard production build
-npm run test:smoke              # Four-pass automated reader regression smoke suite (enforced in CI)
+npm run test:smoke              # Automated reader regression smoke suite (enforced in CI)
 npm run test:adapter            # CMS adapter, participation domain/store, & BerryMark preview tests
 npm run dev                     # Manual browser checks, developer tools available (pilots off)
 npm run dev:pilot               # Manual browser checks with ordinary-shell Challenge pilot enabled
 npm run dev:participation-pilot # Manual browser checks with isolated participation persistence pilot enabled
+npm run dev:released-challenge  # Manual browser checks with controlled released Challenge route enabled
 
 # Studio (run from repository root)
 cd studio

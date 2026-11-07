@@ -7,6 +7,7 @@
     "dev": "vite",
     "dev:pilot": "VITE_ENABLE_CHALLENGE_PILOT=true vite",
     "dev:participation-pilot": "VITE_ENABLE_PARTICIPATION_PILOT=true vite",
+    "dev:released-challenge": "VITE_ENABLE_RELEASED_CHALLENGE_ROUTE=true vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "test:adapter": "node --experimental-strip-types --test tests/sanity/*.test.ts",

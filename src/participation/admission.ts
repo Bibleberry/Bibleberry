@@ -1,4 +1,8 @@
 import type { CmsChallenge, CmsScreen } from '../cms/sanity/types.ts'
+import {
+  evaluateChallengeReleaseEligibility,
+  type ReleaseEligibilityChallengeInput,
+} from '../cms/reader/releaseEligibility.ts'
 import { formatCanonicalChallengeId, parseStoredChallengeId } from './identity.ts'
 import type { CanonicalChallengeId, ChallengeIdentityNamespace } from './types.ts'
 
@@ -92,6 +96,30 @@ export function admitTrustedCatalogChallenge(
     screens,
     previousChallengeIds: Object.freeze(previousChallengeIds),
   })
+}
+
+export type ReleasedCmsChallengeInput = TrustedCatalogChallengeInput &
+  ReleaseEligibilityChallengeInput
+
+/**
+ * Release-aware admission helper for ordinary CMS reader integration (Track A, A4.1).
+ *
+ * Mints an `AdmittedChallenge` capability token ONLY if the Challenge is reviewed,
+ * syntactically valid, and released at or before `now`. Fails closed (`null`) for
+ * embargoed, unreviewed, or malformed records.
+ */
+export function admitReleasedCmsChallenge(
+  challenge: ReleasedCmsChallengeInput,
+  now: Date = new Date(),
+  options: {
+    readonly previousDocumentIds?: readonly string[]
+  } = {},
+): AdmittedChallenge | null {
+  const eligibility = evaluateChallengeReleaseEligibility(challenge, now)
+  if (!eligibility.isEligible) {
+    return null
+  }
+  return admitTrustedCatalogChallenge(challenge, options)
 }
 
 /**
