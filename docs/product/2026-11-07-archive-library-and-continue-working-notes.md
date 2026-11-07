@@ -24,9 +24,9 @@ A **first-use onboarding/tutorial experience** was proposed to explain this phil
 ### Personal Archive = active workspace (Aaron's "RAM" analogy)
 
 - A reader-curated working set of **months** the reader is actively interested in studying, not necessarily a complete historical record of every month Bibleberry has ever published.
-- **Chosen capacity: three active historical months, plus the current publication month.** The current month does not consume one of the three historical study slots. This preserves the Archive as an intentional workspace instead of a second Library. Aaron explained that three months represent a *season of life*, recognizing that participation in ministry naturally varies across life's seasons. Readers can exchange older months with `Put Away`, without losing progress.
-- When the reader first opens Bibleberry **during a publication month**, that month enters their Personal Archive automatically. All Challenges for that month enter the reader's available month as **each is published**, even if the reader does not visit again during that month. A reader first opening the app on May 20 can access May 1–20 and subsequently published May Challenges, not unpublished future Challenges.
-- If a reader skips an entire month without using Bibleberry, that month does **not** automatically appear in their Personal Archive on their return. It remains available in the Past Teaching Library.
+- **Chosen capacity: zero to three reader-selected historical months, plus the separate current publication month.** Three is a **maximum, not a quota or target**. The reader may choose none, one, two, or three previous months to work on, irrespective of publication order, unfinished status or recency. Bibleberry does **not** fill historical slots with the last three unfinished or most recent months. The current month does not use a historical study slot. This preserves the working-space function and the reader's agency. Aaron explained that three months evoke a *season of life*, recognizing that participation in ministry varies. Readers can exchange or put away older months without losing progress.
+- The **current publication month is always a separate current-teaching experience**, rather than a forced historical active slot. If the reader first opens Bibleberry on May 20, they can access May 1–20 and all May Challenges as published, even if they do not visit again that month; future unpublished Challenges remain unavailable until release. Whether the finished current month automatically becomes a historical workspace selection is **not settled**, and must not be assumed; the latest reader-control direction suggests a deliberate choice may be preferable.
+- If a reader skips an entire month without using Bibleberry, that month does **not** automatically occupy a historical workspace slot on their return. It remains available in the Past Teaching Library. Historical workspace selection is voluntary.
 - Readers can voluntarily **Add to My Personal Archive** a month from the Past Teaching Library at any later time, exposing that month's progress and achievement opportunities.
 - Readers can **Put Away** a month from their Personal Archive. It leaves their active working set and stops being a Hub `Continue` candidate. Completion data, saved reading position, earned awards and dated accomplishments are preserved. Re-adding the month restores its prior state.
 - It was not decided whether automatically added current months can be put away before the month ends, or how current months should be distinguished visually from historical active months.
@@ -76,11 +76,11 @@ The conversation supplied the following *illustrative* routing behavior:
 
 ### Three historical study slots plus the current month
 
-Aaron reconsidered the earlier unlimited-month idea and **explicitly chose three active historical months in addition to the current publication month**. This is a product-direction decision, not merely a candidate capacity.
+Aaron reconsidered the earlier unlimited-month idea and **explicitly chose a maximum of three reader-selected active historical months, in addition to the separate current publication month**. There is **no minimum**: zero, one, two or three historical months are all valid. The user chooses which months to activate; neither completion gaps nor publication recency should automatically fill the slots. This is a product-direction decision, not merely a candidate capacity.
 
 The *season-of-life* rationale matters: the Archive should accommodate periods when someone participates more deeply or less deeply without accumulating an overwhelming backlog. Limiting active historical studies does not limit access to teaching in the Library. `Put Away` preserves progress and awards.
 
-**Still open:** What happens when the current month ends while the three historical slots are already full; whether the current month can be put away; how the interface explains these transitions. Do not assume automatic eviction.
+**Still open:** At month-end, does the former current month become merely available in the Library, prompt the reader to choose whether to activate it, or follow some other explicit rule? Do not assume automatic rollover into any historical slot, eviction of a selected month, or compulsory occupation of all three slots. Final naming is intentionally deferred; *Archive*, *Library* and *workspace* are conceptual working labels, not approved reader-facing product names.
 
 ### Achievement notification placement
 
@@ -105,7 +105,7 @@ The earlier open question of historical-month eligibility is being reframed: **a
 
 ## 6. Questions before product approval and engineering
 
-1. **Membership and availability:** Precise first-use/month activation behavior, including anonymous guests, device loss, returning after inactivity, current-month `Put Away` options and month-end transitions when the three historical slots are full.
+1. **Membership and availability:** Precise first-use/month activation behavior, including anonymous guests, device loss, returning after inactivity, and month-end transitions whether the reader has zero, one, two or three historical slots selected; do not assume forced archive additions.
 2. **Completion versus award eligibility:** Do achievements for a historically completed month get *awarded* while studying silently in Library, or only upon adding the month? What date should each award keep? Ensure no loss or rewriting of genuine earned history.
 3. **Progress preservation:** Define `Put Away` as a visibility/workspace operation rather than deletion. Clarify if removing a month affects only Hub suggestions or other views as well.
 4. **Continue selector:** Confirm a deterministic ordering/recency rule for ties, cross-month gaps, the frontier and manual navigation.
