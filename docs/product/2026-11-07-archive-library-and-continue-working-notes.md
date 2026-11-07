@@ -148,24 +148,23 @@ Lifetime Challenge milestones and Special Experience commemoratives may need the
 
 **Open product/editorial questions:** How many reference verses belong on a card, whether quoted WEBP verses are full/partial, whether Scripture saving is available within cards, creation/review process and CMS data shape, how cards display on small screens, and which awards notify readers outside Challenge sessions. These are not approved implementation details.
 
-## 8. November 7 refinement: completed-Challenge equivalents for long-term milestones
+## 8. November 7 refinement: straightforward lifetime Challenge-count milestones
 
-> **Explicit clarification of the intended measure; exact final thresholds, names and presentation remain product-design work.**
+> **Chosen milestone direction and initial thresholds, not an engineering assignment.** Artwork, reveal treatment and any milestones beyond 365 remain open.
 
-Aaron initially suggested evocative labels such as **One Week**, **One Month**, **Three Months**, **Six Months**, **One Year**, and a new annual award for each subsequent year. He then explicitly clarified that **these are NOT calendar anniversaries counted from the day someone first uses the app**.
+Aaron first explored anniversary-style labels, then clarified that he does **not** want these awards named as periods of time such as "One Month Completed" or "Three Months Completed". The collectible names should plainly describe the **number of distinct Challenges completed**:
 
-They represent the **cumulative quantity of distinct daily Challenges completed**. For example:
+- **7 Challenges Completed**
+- **30 Challenges Completed**
+- **100 Challenges Completed**
+- **200 Challenges Completed**
+- **365 Challenges Completed** — at this point the award may additionally use the meaningful phrase **"A Year's Worth"** of Challenges.
 
-- **One Week** = 7 daily Challenges completed.
-- **One Month** = 30 daily Challenges completed.
-- **Three Months** = 90 daily Challenges completed.
-- **Six Months / One Year / later annual equivalents** = longer cumulative Challenge-completion thresholds; determine exact numbers deliberately before implementing, rather than treating month lengths and leap years as settled here.
+The **365** milestone is the point at which time-equivalent wording becomes appropriate. The previous provisional 90- and 180-Challenge equivalents are **superseded**, not approved milestones. Further achievements after 365 have **not** been specified.
 
-The names evoke the scale of a daily-teaching commitment, **not elapsed membership time, unbroken calendar attendance, or consecutively published dates**. Completing Challenges over a longer period still counts, and a Challenge completed in the historical Library still contributes to lifetime distinct-completion progress even though Library gamification is hidden. Completing the same Challenge twice must not inflate the total.
+These milestones count completed **distinct Challenges**, regardless of whether the reader worked through current teaching, their selected historical workspace, or the Past Teaching Library. They are **not membership anniversaries, attendance streaks, consecutive-publication-date requirements, or calendar-day attendance measures**. Repeating an already completed Challenge must not inflate the lifetime total. Gamification remains hidden while reading in the Library and must not interrupt Challenge teaching.
 
-This clarification changes the earlier note about "anniversary" collectibles: **do not design a one-year-of-membership award triggered merely by the passage of a calendar year**. The collectible direction is participation-volume recognition with accessible, meaningful labels rather than an indefinite arbitrary numerical badge ladder.
-
-**Open questions:** exact thresholds for the longer equivalents; whether the daily Challenge publication cadence ever includes zero/multiple Challenges on a date; badge/art direction for these milestones; and how this layer coexists visually with monthly commemoratives and themed discovery collectibles. No implementation authorization is granted.
+**Still open:** Specific art and card design for the lifetime series, notification behavior outside the reader, whether 365 has a distinctive explanatory subtitle, and any post-365 progression. Do not manufacture additional thresholds.
 
 ## Status and process
 
