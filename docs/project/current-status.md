@@ -10,6 +10,18 @@
 
 > **Read this at the start of a new AI session**, then verify anything relevant against the **current** GitHub branches, Issues, PRs and source code before making decisions or assignments. This is a maintained summary, **not an automatic reflection of GitHub**. It must not be mistaken for proof that tests, access controls, deployments or approvals have occurred. Last reconciled means the date of the documented review, not continuous monitoring.
 
+## November 6, 2026: product-design addendum (not an engineering-status reconciliation)
+
+**Important for new chats and agents:** The engineering inventory and commit/PR snapshots **below** were reviewed as of November 5 and have **not** been re-audited solely by recording this design addendum. Verify live GitHub before treating any work as merged, open, tested or deployed.
+
+A separate November 6 conversation **resolved all five gamification research divergences**, accepted **Biblical Discovery** in place of dedicated weekly WEBP memorization, and refined the Hub, Field Notebook, Special Experiences, and intentional WEBP translation direction. Those changes are preserved in:
+
+- **[Gamification and Achievements](../product/gamification-and-achievements.md):** lifetime distinct-completion progress, monthly mini-collections/commemoratives, selected visible goals, earned-only time-limited Special Experiences, Hub's temporary “New Discoveries” indicator, Alexis-derived notebook design direction and open rules.
+- **[Biblical Discovery and Scripture](../product/biblical-discovery-and-scripture.md):** WEBP as a deliberate primary in-app translation, flexible Sunday Biblical Discovery, Argon's 12 candidate approaches, translation-independent reader-owned-Bible explorations as optional concepts, and possible self-directed memorization guidance without an integrated launch memorization engine.
+- **[November 6 Design Session](../product/2026-11-06-design-session-record.md):** durable chronology, research inputs, decisions, exact remaining questions and distinctions between approved direction and exploratory ideas.
+
+**Do not assume the historical Sunday memorization pilot has been replaced in code.** Its fixture/tool remains a development prototype unless and until separately scoped implementation is approved. Alexis's ministry-facing review and final Field Notebook artwork are pending. These documents are **product decision records, not implementation authorization**.
+
 ## 1. Start here: what this project is and who decides
 
 Bibleberry is the working name of a free, mobile-first Christian biblical-formation application built around Alexis Waid's substantive teaching. **The teaching determines the experience:** preserve source manuscripts, theological reasoning, full prayers, optional deeper study and flexible presentation; never shorten teaching just to fit cards, screen-count limits or a fixed template. Every dated daily experience is a **Challenge** regardless of format. The intended seven experience types are not yet one finalized technical contract.

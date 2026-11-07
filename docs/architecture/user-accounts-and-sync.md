@@ -8,7 +8,7 @@
 
 ## Purpose
 
-Bibleberry is a free, mobile-first Christian formation application. Readers may complete daily Scripture **Challenges**, save and memorize Scripture, and earn long-lived achievements. The account system should make those accomplishments reliably recoverable when a reader changes devices, reinstalls the app, or returns years later.
+Bibleberry is a free, mobile-first Christian formation application. Readers may complete daily Scripture **Challenges**, save Scripture references, and earn long-lived achievements. Optional personal-Bible memorization guidance and memorization-status controls remain design possibilities, **not approved launch account-data requirements**. The account system should make those accomplishments reliably recoverable when a reader changes devices, reinstalls the app, or returns years later.
 
 The guiding requirement is: **A reader's durable accomplishments must belong to their account, not to a particular phone.**
 
@@ -18,14 +18,14 @@ This document captures the **working decisions made so far**, why they were made
 
 Aaron resolved the gamification research architecture disagreement in favor of the **simpler durable-record approach**, rather than a comprehensive append-only event log. This is a product-scope decision, not a finalized database schema.
 
-- **Record what matters to the reader:** which distinct Challenges are complete, which Scripture passages are saved or declared learned, and which accomplishments were earned, with their actual earned **calendar dates**.
+- **Record what matters to the reader:** which distinct Challenges are complete, which Scripture references are saved, and which accomplishments were earned, with their actual earned **calendar dates**. A future honor-system “learned” declaration is conditional on a separate memorization-feature decision.
 - **Keep identities stable and progress recoverable:** preserve completion and award records when signed-in readers change devices. Deduplication and authorized access remain engineering requirements, even if there is no detailed interaction diary.
 - **Avoid unneeded behavioral history:** precise times for every view, tap, practice session or reading interval are not product requirements. Use minimal technical timestamps or provenance only where needed to implement reliable sync, correction, or a separately approved feature.
 - **Respect the separate editorial calendar:** a Challenge's publication month and any content-derived monthly collection are editorial data; one permanent reader-completion fact can satisfy lifetime, monthly and topic-related eligibility without a duplicated event stream.
 - **Do not overbuild guest synchronization:** current direction remains guest progress stored locally and recoverable account-bound records in Supabase after sign-in. Online-first release remains the working direction. Exact guest merge and collision rules remain to be designed and verified.
 - **Keep future ideas conditional:** surprise acknowledgments for actual consecutive participation days are possible, not approved technical scope. If adopted, they may need day-level participation dates, but not minute-by-minute activity tracking. Do not preemptively build a real-day streak ledger.
 
-For product decisions and unresolved achievement rules, see [Gamification, Achievements & Participation](../product/gamification-and-achievements.md). This note supersedes any inference elsewhere in this record that **full event sourcing or a comprehensive append-only interaction ledger** is required.
+For product decisions and unresolved achievement rules, see [Gamification, Achievements & Participation](../product/gamification-and-achievements.md) and [Biblical Discovery & Scripture](../product/biblical-discovery-and-scripture.md). This note supersedes any inference elsewhere in this record that **full event sourcing or a comprehensive append-only interaction ledger** is required.
 
 ## Working decisions
 
@@ -38,7 +38,7 @@ For product decisions and unresolved achievement rules, see [Gamification, Achie
 | Registration | **Optional.** Free published teaching and Challenges should be available without registration. | Do not place an account wall between readers and Bibleberry's ministry content. |
 | Guest activity | Guest progress may be saved on the **current device**; it is **not guaranteed** to survive device loss, reinstall, or change of device. | Communicate the consequence clearly; don't promise guest account recovery. |
 | Why register | Registration is encouraged to **protect and synchronize personal accomplishments**, not for monetization. | Offer contextual, respectful invitations; avoid repeated disruptive prompts. |
-| Permanent reader records | Account-bound cloud records for Challenge completion, saved Scripture, memorization, and earned achievements (including dates). | Core cross-device continuity requirement. |
+| Permanent reader records | Account-bound cloud records for Challenge completion, saved Scripture, and earned achievements (including earned dates). Optional memorization state **only if separately approved**. | Core cross-device continuity requirement without presuming a dedicated launch memorization app. |
 | Editorial content | **Sanity CMS** remains responsible for published teaching and other editorial content. | Sanity is not the user authentication or personal-progress database. |
 | Local and cloud data | The authenticated account's cloud data is the durable record; device storage may cache data for responsiveness. | Exact local/offline sync design is pending. |
 | Offline scope | **Online-first** initial release is the current working direction; do not promise full offline completion/sync for launch. | Avoid unnecessary complexity before January 1, while planning not to preclude later support. |
@@ -86,7 +86,7 @@ These observations reflect the repository at the review date, not a promise abou
 **Expected to require durable account storage:**
 - Distinct completed Challenge IDs with minimal metadata for safe deduplication and sync; completion date/time only when needed for a defined feature or technical integrity.
 - Saved Scripture passage library.
-- Memorization state, dates marked "I learned it!", and individual memorization accomplishments.
+- **Conditional future category only:** Memorization state, dates marked “I learned it!”, or memorization-specific achievements **if** a separate product decision approves the relevant feature. These are **not mandatory for initial account schema or launch**.
 - Earned achievement IDs and dates, with only the supporting facts needed to explain and preserve awards.
 - Bookmarks and other saved content if approved.
 

@@ -19,9 +19,9 @@ Bibleberry is the working name for a mobile-first Christian biblical-formation a
 
 **The teaching determines the experience.** The reader, its component registry and its CMS must accommodate the argument Alexis needs to communicate. Do not impose arbitrary lesson length, a fixed number of screens, a mandatory generic devotional template, or limits that force theological content to be shortened. Preserve original manuscripts apart from adaptations, uphold recognizable teaching voice and prayers, and do not invent editorial approvals or theological conclusions.
 
-Every dated daily experience is called a **Challenge**, even when the experience differs from multi-screen biblical teaching. The product intends seven daily experience types in the longer-term vision. The precise final type taxonomy and corresponding authoring contracts have not all been settled.
+Every dated daily experience is called a **Challenge**, even when the experience differs from multi-screen biblical teaching. A familiar **seven-day weekly rhythm** can use several formats; do **not** infer that exactly seven distinct technical experience types are approved. **Biblical Discovery** is the selected direction for the previously prototyped Sunday verbatim memorization slot. The final taxonomy and authoring contracts remain open. See [Biblical Discovery and Scripture](biblical-discovery-and-scripture.md).
 
-For an individual Challenge, opening, saving, resuming and completing are distinct reader actions. Optional reflections, deeper study and companion links remain optional. Scripture found anywhere in the app should ultimately be savable into **My Scripture**; that collection is separate from saved Challenges. Translation-rights constraints must govern provided passage text and practice availability. Achievements, if implemented, celebrate participation without punitive attendance streaks, competitive rankings or content gates.
+For an individual Challenge, opening, saving, resuming and completing are distinct reader actions. Optional reflections, deeper study and companion links remain optional. Scripture found anywhere in the app should ultimately be savable into **My Scripture**; that collection is separate from saved Challenges. **WEBP** is the intentionally chosen free-to-use primary in-app Scripture translation; an About explanation is planned. Translation-rights constraints still govern provided passage text and future practice tools. Achievements, if implemented, celebrate participation without punitive attendance streaks, competitive rankings or content gates.
 
 **Division of systems:** Bibleberry owns the reader experience, Sanity Studio schemas and CMS-to-reader delivery. **BerryMark** owns the independently versioned manuscript language, compiler, import planning and controlled Sanity draft ingestion. Maintain separate repositories and scoped assignments. Sanity becomes the editing authority after import.
 
@@ -123,8 +123,8 @@ The following twenty-one work areas describe **capabilities and dependencies**, 
 #### R06. Hub and information architecture
 - **Engineering term:** Information architecture (IA), UX flows and navigation architecture.
 - **In everyday language:** Decide what opening Bibleberry feels like and make starting or resuming a Challenge immediately obvious.
-- **Current state:** [#22](https://github.com/ContraPhilosophy/Bibleberry/issues/22) preserves exploratory direction, **not approved mockups**. Hub = action; personal exploration area = exploration; What's New = ministry updates and connection.
-- **Deliverable / evidence:** Coordinated polished mobile mockups; deliberate global navigation and new/returning reader behavior; no loss of Archives or Foundations. Working preference to explore: Hub / Today / personal area / More, with What's New prominently accessible from Hub. The personal area name, visual identity and exact placement remain open.
+- **Current state:** [#22](https://github.com/ContraPhilosophy/Bibleberry/issues/22) preserves earlier exploratory direction, **not approved mockups**. The November 6 decision clarifies **Hub = discovery**, where readers can find current Challenges, Latest from Bibleberry and useful videos/formation resources. The **Challenge reader**, not the Hub, is the focused distraction-free learning environment.
+- **Deliverable / evidence:** Coordinated polished mobile mockups; deliberate global navigation and new/returning reader behavior; no loss of Archive or Foundations. Provide a persistent **Field Notebook** entry in the Hub that may display a temporary **“New Discoveries”** overlay when a newly earned item awaits viewing, cleared by opening the Notebook; no permanent progress dashboard on the Hub. Content discovery should be tasteful and ministry/resource-focused, not personal promotion. Exact layout, other personal-area naming and Alexis's visual approval remain open.
 - **Dependencies:** Aaron's product decisions and Alexis's visual review before implementation.
 
 #### R07. Unified reader progress and saved-state model
@@ -136,24 +136,24 @@ The following twenty-one work areas describe **capabilities and dependencies**, 
 
 #### R08. Personal exploration area and collections
 - **Engineering term:** My Journey/library IA and aggregated reader views.
-- **In everyday language:** A place to explore Scripture saved, Challenges completed, Foundations, Archive, spiritual disciplines and the reader's personal history.
+- **In everyday language:** A place to explore saved Scripture, completed Challenges, Foundations, Archive, spiritual disciplines and the reader's personal history; the **Field Notebook** holds progress and earned collectibles.
 - **Current state:** Parts already exist, but across separate views and Lab collections; the current Journey page is a limited browser activity log.
-- **Deliverable / evidence:** Clear destinations and accessible empty states using **authoritative** data; no invented progress counts or shadow achievement stores. The label “My Journey” is provisional.
+- **Deliverable / evidence:** Clear destinations and accessible empty states using **authoritative** data; no invented progress counts or shadow achievement stores. Keep achievement details *inside* the Field Notebook, including lifetime goals, monthly discoveries and an earned-only Special Experiences category; hide that category before the first Special Experience award. The label “My Journey” for the broader personal area remains provisional.
 - **Dependencies:** R06, R07, R09, R10; some achievement views later depend on R14.
 
-#### R09. App-wide Scripture saving and memorization
-- **Engineering term:** Scripture collection, reference normalization and practice UX.
-- **In everyday language:** Save a passage anywhere, find it later, practice when eligible, and record “I learned it!” with its date.
-- **Current state:** Lab supports reference saving and one configured phrase-reveal experience; the CMS library currently saves references but does **not** offer practice in that view. The existing `MemorizationTool` should be reused.
-- **Deliverable / evidence:** Consistent Add to My Scripture controls, normalized/deduplicated references and translation labels, persistent library, eligible passage practice, learned dates and rights-aware reference-only fallbacks.
-- **Dependencies:** R07, source rights rules, R13 for durable account records.
+#### R09. App-wide Scripture saving and optional future memorization guidance
+- **Engineering term:** Reference-based personal Scripture collection and translation-aware metadata; optionally guided practices later.
+- **In everyday language:** Save a Scripture reference from anywhere, find it later, and, if later approved, use Bibleberry to learn how to memorize it in your **own preferred Bible**.
+- **Current state:** Labs support reference saving and a test-only WEBP phrase-reveal memorization prototype; the CMS Scripture library does **not** have general memorization practice. The November 6 product decision **does not approve a full memorization app or a weekly WEBP memorization Challenge for launch**.
+- **Deliverable / evidence:** Consistent Save/Add to My Scripture controls, stable/deduplicated references, provenance/translation labels where helpful, rights-aware reference-only display, and durable account-bound storage when R13 is implemented. An optional self-directed **“Memorize with Your Bible”** walkthrough and “I learned it!” state are **open scope decisions**, not automatic deliverables. Preserve existing prototypes unless a separate change is approved.
+- **Dependencies:** R07, source rights rules, R13 for durable accounts; [Biblical Discovery and Scripture](biblical-discovery-and-scripture.md).
 
-#### R10. First-class formation experience types
+#### R10. First-class formation experience types, including Biblical Discovery
 - **Engineering term:** Multi-format Challenge rendering / shared scheduling contract.
-- **In everyday language:** The guided discipline, worksheet and memorization exercises already explored in Developer Studio should work as ordinary daily Challenges.
-- **Current state:** Guided Sabbath practice, journal/PDF and memorization tools are functional prototypes outside the CMS-backed ordinary reader workflow.
-- **Deliverable / evidence:** Integrate approved daily formats into schedule, Archive, completion and content authoring while preserving each format's natural UI; ensure PDF and reflection remain optional.
-- **Dependencies:** R04 content contract, R03 player routing, R07 progress.
+- **In everyday language:** Guided discipline, journal/worksheet and **Biblical Discovery** should be viable daily Challenges alongside substantive teaching. The Discovery format replaces the weekly memorization slot in the current product direction.
+- **Current state:** Guided Sabbath practice, journal/PDF and a **memorization** tool are functional **development prototypes** outside the CMS-backed ordinary reader workflow. The Sunday Discovery direction is a **new product decision**, not already-built code or an approved production schema.
+- **Deliverable / evidence:** Integrate **approved** daily formats into schedule, Archive, completion and content authoring while preserving their natural UX. Discovery may use curated canonical connections, historical lenses, literary architecture, monthly synthesis or an optional reader-in-own-Bible theme trail, only where editorially appropriate; **no fixed four-week rotation** or mandatory external Bible. Preserve source manuscripts and make companion PDF/reflection optional. New specific blocks need separate approval and validation.
+- **Dependencies:** R04 content contract, R03 player routing, R07 progress; Alexis's editorial review; [Biblical Discovery and Scripture](biblical-discovery-and-scripture.md).
 
 #### R11. What's New and ministry feed
 - **Engineering term:** Editorial content feed, announcements and read-state model.
@@ -181,9 +181,9 @@ The following twenty-one work areas describe **capabilities and dependencies**, 
 #### R14. Nonpunitive achievements and participation history
 - **Engineering term:** Achievement eligibility over durable completion records and dated awards (no full event-sourcing requirement).
 - **In everyday language:** Readers can see goals, make progress and keep a lasting collection of what they have accomplished.
-- **Current state:** November 6 research synthesis and product decisions documented; no approved final visual identity, monthly eligibility rules or complete production achievement engine.
-- **Deliverable / evidence:** Selected visible lifetime goals based on distinct completed Challenges; content-derived monthly mini-collections and a full-month commemorative direction; a personal Field Notebook of earned, dated accomplishments; no mandatory reading timers, destructive streaks, content gating, public rankings or spirituality scores. Exact milestone thresholds, monthly content eligibility and artwork require separate approval.
-- **Dependencies:** R07 reliable distinct-completion records, R13 for enduring cross-device collections, monthly editorial definitions and Alexis's design review. Optional actual-day encouragement and future Special Events are **not** automatically approved engineering scope. See [gamification design record](gamification-and-achievements.md).
+- **Current state:** All five November 6 research divergences are now discussed and documented. Field Notebook direction is grounded in Alexis's real illustrated notebook style; final assets/layout, monthly eligibility rules and production achievement engine are not approved.
+- **Deliverable / evidence:** Selected visible lifetime goals based on distinct completed Challenges; content-derived monthly mini-collections and full-month commemoratives; a personally illustrated Field Notebook with earned dates and **Special Experiences** hidden until a first earned commemorative; no mandatory reading timers, destructive streaks, content gating, public rankings or spirituality scores. Time-limited Special Experiences are **permitted in principle**, not scheduled or authorized for implementation. Exact milestone thresholds, monthly eligibility, imagery and artwork require separate approval.
+- **Dependencies:** R07 reliable distinct-completion records, R13 for enduring cross-device collections, monthly editorial definitions and Alexis's design review. Optional actual-day encouragement and *specific Special Event production* are **not** automatically approved engineering scope. See [gamification design record](gamification-and-achievements.md).
 
 #### R15. Actual reminder and notification delivery
 - **Engineering term:** Notification permission, scheduling, delivery and target routing.
@@ -264,11 +264,11 @@ Do **not** combine BerryMark importer acceptance, lint remediation, Hub redesign
 
 **Editorial:** Original manuscript is retained untouched; adaptation is compared for full argument, structure, prayers, Scripture and links. Imported drafts are not approved; publish/release each have independent authorization. Do not fabricate a November 5 cycle `returnCaption` merely to satisfy schema validation; resolve the underlying editorial/contract choice explicitly.
 
-**UI and product:** The mature evergreen/cream/brown field-notebook aesthetic is a starting point. Alexis has not approved final achievement artwork or a comprehensive Hub/My Journey visual design. The working name of the personal exploration area remains open. Do not present future optional special events as committed work.
+**UI and product:** The Field Notebook should draw on **Alexis's actual illustrated Bible-study notebooks** (screenshots shared November 6), not a generic botanical moodboard; final artwork and comprehensive Hub layout still require her approval. Hub = discovery of Bibleberry resources, Field Notebook = achievements and progress, Challenge reader = focused learning. The working name of the broader personal exploration area remains open. Time-limited Special Experiences are approved **in principle** but no individual event is production-committed.
 
 **State:** Opening, saving, completing, learning Scripture and earning an achievement are distinct events. Avoid deriving permanent identity from display titles or array positions. Do not accidentally mix local Lab fixtures with authentic published content or user accounts.
 
-**Rights:** A Scripture reference with no cleared quotation is valid; never invent a quoted passage, pretend practice is configured or turn optional references into mandatory content.
+**Rights:** **WEBP remains Bibleberry's positively chosen free-use primary in-app Scripture translation**; an About explanation is planned. A Scripture reference with no cleared quotation is valid; never invent a quoted passage, pretend practice is configured or turn optional references into mandatory content. Interactive multi-translation memorization is deferred, and guiding someone to use their own Bible must not become a mandatory outside-app step.
 
 **Security/release:** A public Sanity document is queryable independently of browser display logic. CORS is not an authorization control and client-side date filtering is not a secure embargo. Do not put future unreleased confidential content into a publicly readable dataset. Do not copy import write tokens into reader code.
 
@@ -282,7 +282,7 @@ Do **not** combine BerryMark importer acceptance, lint remediation, Hub redesign
 - **Interactive Lab:** [`src/components/InteractiveChallengeLab.tsx`](../../src/components/InteractiveChallengeLab.tsx); [`src/data/interactiveChallenges.ts`](../../src/data/interactiveChallenges.ts); [handoff](../../INTERACTIVE_CHALLENGE_LAB_HANDOFF.md).
 - **CMS reader:** [`src/cms/sanity/`](../../src/cms/sanity/); [Sanity schema](../../studio/schemaTypes/documents/challenge.ts).
 - **AI development workflow:** [protocol](../ai-development-protocol.md), [workflow](../development-workflow.md).
-- **Product decisions:** [#22 Hub/personal area/What's New](https://github.com/ContraPhilosophy/Bibleberry/issues/22), [achievements](gamification-and-achievements.md), [accounts/sync](../architecture/user-accounts-and-sync.md).
+- **Product decisions:** [#22 Hub/personal area/What's New](https://github.com/ContraPhilosophy/Bibleberry/issues/22), [achievements](gamification-and-achievements.md), [Biblical Discovery and Scripture](biblical-discovery-and-scripture.md), [Nov 6 decision history](2026-11-06-design-session-record.md), [accounts/sync](../architecture/user-accounts-and-sync.md).
 - **Execution and verification:** [#15 lint](https://github.com/ContraPhilosophy/Bibleberry/issues/15), [#20 engineering maturity](https://github.com/ContraPhilosophy/Bibleberry/issues/20), [#21 Cloudflare testing](https://github.com/ContraPhilosophy/Bibleberry/issues/21), [#25 CMS integration](https://github.com/ContraPhilosophy/Bibleberry/issues/25), [#26 browser regression](https://github.com/ContraPhilosophy/Bibleberry/issues/26), [manual regression checklist](../testing/regression-smoke-checklist.md).
 - **Separate repository:** [BerryMark](https://github.com/ContraPhilosophy/BerryMark), including language specification, import planner, controlled draft importer, and merged [PR #11](https://github.com/ContraPhilosophy/BerryMark/pull/11).
 
