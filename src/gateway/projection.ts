@@ -16,6 +16,7 @@ export type ValidationFailureReason =
   | 'invalidTimestamp'
   | 'malformedDocument'
   | 'missingScreens'
+  | 'unlicensedScripture'
 
 export type ProjectionValidationResult<T> =
   | { readonly ok: true; readonly document: T }
@@ -34,20 +35,82 @@ function sanitizeSeries(series: unknown): GatewayCatalogSummary['series'] | unde
   }
 }
 
+/**
+ * Validates and sanitizes core Scripture fields according to the rights and status invariants:
+ * 1. Reference and translation must be non-empty strings.
+ * 2. Text status must be 'provided' or 'referenceOnly'.
+ * 3. Practice status must be 'configured' or 'notConfigured'.
+ * 4. Provided status requires non-empty passage text.
+ * 5. Reference-only status must NOT contain passage text.
+ * 6. Passage text strictly requires confirmed app usage rights (usageRightsConfirmed === true).
+ * 7. Memorization practice requires provided text with confirmed rights.
+ */
+function validateAndSanitizeScriptureCore(
+  scripture: unknown,
+): { valid: true; data: Record<string, unknown> } | { valid: false } {
+  if (!scripture || typeof scripture !== 'object') return { valid: false }
+  const s = scripture as Record<string, unknown>
+
+  const reference = typeof s.reference === 'string' ? s.reference.trim() : ''
+  const translation = typeof s.translation === 'string' ? s.translation.trim() : ''
+  const textStatus = s.textStatus
+  const usageRightsConfirmed = Boolean(s.usageRightsConfirmed)
+  const practiceStatus = s.practiceStatus
+
+  if (!reference || !translation) return { valid: false }
+  if (textStatus !== 'provided' && textStatus !== 'referenceOnly') return { valid: false }
+  if (practiceStatus !== 'configured' && practiceStatus !== 'notConfigured') return { valid: false }
+
+  const rawPassage = typeof s.passage === 'string' ? s.passage.trim() : ''
+  const hasPassage = rawPassage.length > 0
+
+  // 1. Provided Scripture status requires passage text
+  if (textStatus === 'provided' && !hasPassage) return { valid: false }
+
+  // 2. Reference-only Scripture must not contain passage text
+  if (textStatus === 'referenceOnly' && hasPassage) return { valid: false }
+
+  // 3. Passage text requires confirmed app usage rights
+  if (hasPassage && !usageRightsConfirmed) return { valid: false }
+
+  // 4. Memorization practice requires provided passage text
+  if (practiceStatus === 'configured' && (textStatus !== 'provided' || !hasPassage)) return { valid: false }
+
+  const clean: Record<string, unknown> = {
+    reference,
+    translation,
+    textStatus,
+    usageRightsConfirmed,
+    practiceStatus,
+  }
+
+  if (hasPassage) {
+    clean.passage = rawPassage
+  }
+
+  return { valid: true, data: clean }
+}
+
 function sanitizeScripture(scripture: unknown): Record<string, unknown> | null {
+  const result = validateAndSanitizeScriptureCore(scripture)
+  if (!result.valid) return null
+  return result.data
+}
+
+function sanitizeKeyedScripture(scripture: unknown): Record<string, unknown> | null {
   if (!scripture || typeof scripture !== 'object') return null
   const s = scripture as Record<string, unknown>
-  const result: Record<string, unknown> = {
-    reference: String(s.reference ?? ''),
-    translation: String(s.translation ?? ''),
-    textStatus: String(s.textStatus ?? 'referenceOnly'),
-    usageRightsConfirmed: Boolean(s.usageRightsConfirmed),
-    practiceStatus: String(s.practiceStatus ?? 'notConfigured'),
+  const key = typeof s._key === 'string' ? s._key.trim() : ''
+  if (!key) return null
+
+  const result = validateAndSanitizeScriptureCore(scripture)
+  if (!result.valid) return null
+
+  return {
+    _key: key,
+    _type: 'scriptureReference',
+    ...result.data,
   }
-  if (typeof s.passage === 'string') {
-    result.passage = s.passage
-  }
-  return result
 }
 
 function sanitizeCompanionLinks(links: unknown): Record<string, unknown>[] {
@@ -216,10 +279,14 @@ function sanitizeBlock(rawBlock: Record<string, unknown>): Record<string, unknow
     case 'optionalStudyBlock': {
       base.title = String(rawBlock.title ?? '')
       base.body = sanitizePortableText(rawBlock.body)
-      const scriptures = Array.isArray(rawBlock.scriptures) ? rawBlock.scriptures : []
-      base.scriptures = scriptures
-        .map(s => sanitizeScripture(s))
-        .filter((s): s is Record<string, unknown> => s !== null)
+      const rawScriptures = Array.isArray(rawBlock.scriptures) ? rawBlock.scriptures : []
+      const cleanScriptures: Record<string, unknown>[] = []
+      for (const s of rawScriptures) {
+        const clean = sanitizeKeyedScripture(s)
+        if (!clean) return null
+        cleanScriptures.push(clean)
+      }
+      base.scriptures = cleanScriptures
       if (typeof rawBlock.reviewStatus === 'string') base.reviewStatus = rawBlock.reviewStatus
       return base
     }
@@ -237,7 +304,8 @@ function sanitizeBlock(rawBlock: Record<string, unknown>): Record<string, unknow
 }
 
 /**
- * Validates that all structured editorial blocks requiring approval have been approved.
+ * Validates that all structured editorial blocks requiring approval have been approved
+ * and that all blocks (including scriptures and Portable Text) satisfy the reader contract.
  */
 function validateScreenBlocks(screens: unknown): boolean {
   if (!Array.isArray(screens) || screens.length === 0) {
@@ -254,16 +322,21 @@ function validateScreenBlocks(screens: unknown): boolean {
     seenKeys.add(key)
 
     const blocks = (screen as { blocks?: unknown }).blocks
-    if (!Array.isArray(blocks)) return false
+    if (!Array.isArray(blocks) || blocks.length === 0) return false
 
     for (const block of blocks) {
       if (!block || typeof block !== 'object') return false
-      const blockType = (block as { _type?: unknown })._type
+      const blockObj = block as Record<string, unknown>
+      const blockType = blockObj._type as string
       if (typeof blockType === 'string' && REVIEWED_BLOCK_TYPES.has(blockType)) {
-        const reviewStatus = (block as { reviewStatus?: unknown }).reviewStatus
+        const reviewStatus = blockObj.reviewStatus
         if (reviewStatus !== 'approved') {
           return false
         }
+      }
+      const sanitized = sanitizeBlock(blockObj)
+      if (!sanitized) {
+        return false
       }
     }
   }
@@ -334,22 +407,30 @@ export function validateAndProjectChallenge(
     return { ok: false, reason: 'embargoed' }
   }
 
-  // 4. If unapprovedBlockCount is supplied by GROQ, enforce it directly
-  if (typeof doc.unapprovedBlockCount === 'number' && doc.unapprovedBlockCount > 0) {
+  // 4. If unapprovedBlockCount is supplied by GROQ, enforce that it is 0
+  if (
+    doc.unapprovedBlockCount !== undefined &&
+    (typeof doc.unapprovedBlockCount !== 'number' ||
+      !Number.isFinite(doc.unapprovedBlockCount) ||
+      doc.unapprovedBlockCount !== 0)
+  ) {
     return { ok: false, reason: 'unapprovedBlocks' }
   }
 
-  // 5. Screens must exist and contain zero unapproved structured blocks
+  // 5. Validate primary scripture and rights
+  const primaryScripture = sanitizeScripture(doc.primaryScripture)
+  if (!primaryScripture) {
+    return { ok: false, reason: 'unlicensedScripture' }
+  }
+
+  // 6. Screens must exist and contain zero unapproved blocks or unlicensed scriptures
   if (!validateScreenBlocks(doc.screens)) {
     return { ok: false, reason: 'unapprovedBlocks' }
   }
 
-  const primaryScripture = sanitizeScripture(doc.primaryScripture)
-  if (!primaryScripture) {
-    return { ok: false, reason: 'malformedDocument' }
-  }
+  // 7. Deep allowlist projection: strictly copies allowed fields only
+  const series = sanitizeSeries(doc.series)
 
-  // 6. Deep allowlist projection: strictly copies allowed fields only
   const projected: Record<string, unknown> = {
     _id: String(doc._id),
     _type: 'challenge',
@@ -364,15 +445,9 @@ export function validateAndProjectChallenge(
       adaptationReviewed: true,
       reviewedAt: String(eligibility.reviewedAt ?? ''),
     },
-  }
-
-  const series = sanitizeSeries(doc.series)
-  if (series) projected.series = series
-
-  if (typeof doc.summary === 'string') projected.summary = doc.summary
-
-  if (Array.isArray(doc.companionLinks)) {
-    projected.companionLinks = sanitizeCompanionLinks(doc.companionLinks)
+    ...(series ? { series } : {}),
+    ...(typeof doc.summary === 'string' ? { summary: doc.summary } : {}),
+    ...(Array.isArray(doc.companionLinks) ? { companionLinks: sanitizeCompanionLinks(doc.companionLinks) } : {}),
   }
 
   return { ok: true, document: projected }
@@ -416,8 +491,13 @@ export function validateAndProjectCatalogSummary(
     return { ok: false, reason: 'embargoed' }
   }
 
-  // 4. If unapprovedBlockCount is present, any unapproved structured block fails closed
-  if (typeof doc.unapprovedBlockCount === 'number' && doc.unapprovedBlockCount > 0) {
+  // 4. unapprovedBlockCount must be a finite numeric zero.
+  // Missing, null, non-numeric, or non-zero values strictly fail closed.
+  if (
+    typeof doc.unapprovedBlockCount !== 'number' ||
+    !Number.isFinite(doc.unapprovedBlockCount) ||
+    doc.unapprovedBlockCount !== 0
+  ) {
     return { ok: false, reason: 'unapprovedBlocks' }
   }
 
@@ -426,14 +506,15 @@ export function validateAndProjectCatalogSummary(
     return { ok: false, reason: 'unapprovedBlocks' }
   }
 
+  // 5. Validate primary Scripture and rights
   const primaryScripture = sanitizeScripture(doc.primaryScripture)
   if (!primaryScripture) {
-    return { ok: false, reason: 'malformedDocument' }
+    return { ok: false, reason: 'unlicensedScripture' }
   }
 
   const series = sanitizeSeries(doc.series)
 
-  // 5. Deep allowlist projection
+  // 6. Deep allowlist projection
   const summary: GatewayCatalogSummary = {
     _id: String(doc._id),
     _type: 'challenge',

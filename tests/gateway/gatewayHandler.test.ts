@@ -4,6 +4,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { handleGatewayRequest } from '../../src/gateway/handler.ts'
 import type { GatewayEnv, GatewayFetch } from '../../src/gateway/types.ts'
+import { mapPublishedChallenge } from '../../src/cms/sanity/mapChallenge.ts'
 
 const TEST_ENV: GatewayEnv = {
   SANITY_PROJECT_ID: 'test-project',
@@ -62,6 +63,7 @@ const makeValidChallengeDoc = (overrides: Record<string, unknown> = {}) => ({
     adaptationReviewed: true,
     reviewedAt: '2026-11-01T12:00:00.000Z',
   },
+  unapprovedBlockCount: 0,
   // Internal metadata that must NEVER leak to client
   editorialReview: {
     adaptationReviewed: true,
@@ -822,7 +824,13 @@ test('preserves exact Sanity base document ID and screen _key identity for reade
         _type: 'challengeScreen',
         screenLabel: 'Step 1',
         heading: 'Identity Test',
-        blocks: [],
+        blocks: [
+          {
+            _key: 'custom-block-key-abc',
+            _type: 'statementBlock',
+            text: 'Identity test statement',
+          },
+        ],
       },
     ],
   })
@@ -873,3 +881,300 @@ test('verifies zero imports of src/gateway/ in browser application entrypoint an
 
   checkDir(rootSrcDir)
 })
+
+// ---------------------------------------------------------------------------
+// 14. Keyed Scripture & Gateway-to-Existing-CMS-Mapper Contract Verification
+// ---------------------------------------------------------------------------
+
+test('preserves keyed scripture identity in optional-study block and verifies gateway-to-existing-CMS-mapper contract compatibility', async () => {
+  const challengeWithOptionalStudy = makeValidChallengeDoc({
+    screens: [
+      {
+        _key: 'screen-opt-1',
+        _type: 'challengeScreen',
+        screenLabel: 'Study Step',
+        heading: 'Deep Dive Heading',
+        blocks: [
+          {
+            _key: 'statement-1',
+            _type: 'statementBlock',
+            text: 'Opening statement before optional study',
+          },
+          {
+            _key: 'opt-study-block-1',
+            _type: 'optionalStudyBlock',
+            title: 'Context and Reflection',
+            reviewStatus: 'approved',
+            body: [
+              {
+                _key: 'pt-opt-1',
+                _type: 'block',
+                style: 'normal',
+                children: [
+                  {
+                    _key: 'span-opt-1',
+                    _type: 'span',
+                    text: 'Here is detailed optional background text.',
+                    marks: [],
+                  },
+                ],
+                markDefs: [],
+              },
+            ],
+            scriptures: [
+              {
+                _key: 'keyed-scripture-1',
+                _type: 'scriptureReference',
+                reference: 'Psalm 23:2',
+                translation: 'WEB',
+                textStatus: 'provided',
+                passage: 'He makes me lie down in green pastures.',
+                usageRightsConfirmed: true,
+                practiceStatus: 'configured',
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  })
+
+  const mockFetch = createMockFetch(() => new Response(JSON.stringify({ result: challengeWithOptionalStudy }), { status: 200 }))
+
+  const req = new Request('http://localhost/api/challenges/test-published-challenge')
+  const res = await handleGatewayRequest(req, TEST_ENV, {
+    getNow: () => new Date('2026-11-07T12:00:00Z'),
+    fetchImpl: mockFetch,
+  })
+
+  assert.equal(res.status, 200)
+  const body = await res.json() as { ok: boolean; challenge: Record<string, unknown> }
+  assert.equal(body.ok, true)
+
+  const rawScreens = body.challenge.screens as Record<string, unknown>[]
+  const optBlock = (rawScreens[0].blocks as Record<string, unknown>[])[1]
+  assert.equal(optBlock._type, 'optionalStudyBlock')
+
+  const optScriptures = optBlock.scriptures as Record<string, unknown>[]
+  assert.equal(optScriptures.length, 1)
+  assert.equal(optScriptures[0]._key, 'keyed-scripture-1')
+  assert.equal(optScriptures[0]._type, 'scriptureReference')
+  assert.equal(optScriptures[0].reference, 'Psalm 23:2')
+  assert.equal(optScriptures[0].passage, 'He makes me lie down in green pastures.')
+
+  // CRUCIAL: Pass the gateway output directly into Bibleberry's existing CMS mapper
+  const mapResult = mapPublishedChallenge(body.challenge)
+  assert.equal(mapResult.ok, true, `mapPublishedChallenge must accept gateway response: ${JSON.stringify(mapResult)}`)
+
+  if (mapResult.ok) {
+    const mapped = mapResult.challenge
+    assert.equal(mapped.screens.length, 1)
+    const mappedBlock = mapped.screens[0].blocks[1]
+    assert.equal(mappedBlock.type, 'optionalExploration')
+    if (mappedBlock.type === 'optionalExploration') {
+      assert.equal(mappedBlock.scriptures.length, 1)
+      assert.equal(mappedBlock.scriptures[0].reference, 'Psalm 23:2')
+      assert.equal(mappedBlock.scriptures[0].passage, 'He makes me lie down in green pastures.')
+      assert.equal(mappedBlock.scriptures[0].practiceStatus, 'configured')
+      assert.equal(mappedBlock.scriptures[0].usageRightsConfirmed, true)
+    }
+  }
+})
+
+// ---------------------------------------------------------------------------
+// 15. Scripture Usage Rights Validation and Restricted Passage Withholding
+// ---------------------------------------------------------------------------
+
+test('withholds Scripture passage text and fails closed (404) when usage rights are unconfirmed', async () => {
+  // Case A: Primary scripture with provided text but usageRightsConfirmed: false
+  {
+    const unconfirmedPrimary = makeValidChallengeDoc({
+      primaryScripture: {
+        reference: 'John 3:16',
+        translation: 'ESV',
+        textStatus: 'provided',
+        passage: 'RESTRICTED_PRIMARY_PASSAGE_TEXT',
+        usageRightsConfirmed: false, // NOT CONFIRMED!
+        practiceStatus: 'notConfigured',
+      },
+    })
+    const mockFetch = createMockFetch(() => new Response(JSON.stringify({ result: unconfirmedPrimary }), { status: 200 }))
+    const req = new Request('http://localhost/api/challenges/test-published-challenge')
+    const res = await handleGatewayRequest(req, TEST_ENV, {
+      getNow: () => new Date('2026-11-07T12:00:00Z'),
+      fetchImpl: mockFetch,
+    })
+    assert.equal(res.status, 404)
+    const text = await res.text()
+    assert.equal(text.includes('RESTRICTED_PRIMARY_PASSAGE_TEXT'), false)
+  }
+
+  // Case B: Primary scripture with referenceOnly textStatus but containing passage text
+  {
+    const refOnlyWithPassage = makeValidChallengeDoc({
+      primaryScripture: {
+        reference: 'John 3:16',
+        translation: 'ESV',
+        textStatus: 'referenceOnly',
+        passage: 'RESTRICTED_REFERENCE_PASSAGE_TEXT',
+        usageRightsConfirmed: false,
+        practiceStatus: 'notConfigured',
+      },
+    })
+    const mockFetch = createMockFetch(() => new Response(JSON.stringify({ result: refOnlyWithPassage }), { status: 200 }))
+    const req = new Request('http://localhost/api/challenges/test-published-challenge')
+    const res = await handleGatewayRequest(req, TEST_ENV, {
+      getNow: () => new Date('2026-11-07T12:00:00Z'),
+      fetchImpl: mockFetch,
+    })
+    assert.equal(res.status, 404)
+    const text = await res.text()
+    assert.equal(text.includes('RESTRICTED_REFERENCE_PASSAGE_TEXT'), false)
+  }
+
+  // Case C: Regular scriptureBlock with passage but unconfirmed usage rights
+  {
+    const unconfirmedScriptureBlock = makeValidChallengeDoc({
+      screens: [
+        {
+          _key: 's1',
+          _type: 'challengeScreen',
+          screenLabel: 'Step 1',
+          heading: 'Heading',
+          blocks: [
+            {
+              _key: 'b1',
+              _type: 'scriptureBlock',
+              scripture: {
+                reference: 'Romans 8:28',
+                translation: 'ESV',
+                textStatus: 'provided',
+                passage: 'RESTRICTED_BLOCK_PASSAGE_TEXT',
+                usageRightsConfirmed: false, // NOT CONFIRMED!
+                practiceStatus: 'notConfigured',
+              },
+            },
+          ],
+        },
+      ],
+    })
+    const mockFetch = createMockFetch(() => new Response(JSON.stringify({ result: unconfirmedScriptureBlock }), { status: 200 }))
+    const req = new Request('http://localhost/api/challenges/test-published-challenge')
+    const res = await handleGatewayRequest(req, TEST_ENV, {
+      getNow: () => new Date('2026-11-07T12:00:00Z'),
+      fetchImpl: mockFetch,
+    })
+    assert.equal(res.status, 404)
+    const text = await res.text()
+    assert.equal(text.includes('RESTRICTED_BLOCK_PASSAGE_TEXT'), false)
+  }
+
+  // Case D: optionalStudyBlock with scripture having unconfirmed rights
+  {
+    const unconfirmedOptionalStudy = makeValidChallengeDoc({
+      screens: [
+        {
+          _key: 's1',
+          _type: 'challengeScreen',
+          screenLabel: 'Step 1',
+          heading: 'Heading',
+          blocks: [
+            {
+              _key: 'b1',
+              _type: 'optionalStudyBlock',
+              title: 'Study',
+              reviewStatus: 'approved',
+              body: [],
+              scriptures: [
+                {
+                  _key: 'k1',
+                  _type: 'scriptureReference',
+                  reference: 'Romans 8:28',
+                  translation: 'ESV',
+                  textStatus: 'provided',
+                  passage: 'RESTRICTED_OPTIONAL_PASSAGE_TEXT',
+                  usageRightsConfirmed: false, // NOT CONFIRMED!
+                  practiceStatus: 'notConfigured',
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    })
+    const mockFetch = createMockFetch(() => new Response(JSON.stringify({ result: unconfirmedOptionalStudy }), { status: 200 }))
+    const req = new Request('http://localhost/api/challenges/test-published-challenge')
+    const res = await handleGatewayRequest(req, TEST_ENV, {
+      getNow: () => new Date('2026-11-07T12:00:00Z'),
+      fetchImpl: mockFetch,
+    })
+    assert.equal(res.status, 404)
+    const text = await res.text()
+    assert.equal(text.includes('RESTRICTED_OPTIONAL_PASSAGE_TEXT'), false)
+  }
+
+  // Case E: Catalog endpoint excludes items with unlicensed primary scripture
+  {
+    const unconfirmedCatalogItem = makeValidChallengeDoc({
+      _id: 'doc-unlicensed-primary',
+      slug: 'unlicensed-primary',
+      title: 'Unlicensed Primary Title',
+      unapprovedBlockCount: 0,
+      primaryScripture: {
+        reference: 'Romans 8:28',
+        translation: 'ESV',
+        textStatus: 'provided',
+        passage: 'RESTRICTED_CATALOG_PASSAGE_TEXT',
+        usageRightsConfirmed: false,
+        practiceStatus: 'notConfigured',
+      },
+    })
+    const mockFetch = createMockFetch(() => new Response(JSON.stringify({ result: [unconfirmedCatalogItem] }), { status: 200 }))
+    const req = new Request('http://localhost/api/challenges')
+    const res = await handleGatewayRequest(req, TEST_ENV, {
+      getNow: () => new Date('2026-11-07T12:00:00Z'),
+      fetchImpl: mockFetch,
+    })
+    assert.equal(res.status, 200)
+    const body = await res.json() as { ok: boolean; challenges: unknown[] }
+    assert.equal(body.ok, true)
+    assert.equal(body.challenges.length, 0) // Excluded!
+    const text = JSON.stringify(body)
+    assert.equal(text.includes('RESTRICTED_CATALOG_PASSAGE_TEXT'), false)
+    assert.equal(text.includes('Unlicensed Primary Title'), false)
+  }
+})
+
+// ---------------------------------------------------------------------------
+// 16. Catalog unapprovedBlockCount Fail-Closed Postcheck Hardening
+// ---------------------------------------------------------------------------
+
+test('catalog postcheck fails closed when unapprovedBlockCount is missing, null, or non-numeric', async () => {
+  const invalidCounts = [
+    undefined, // Missing
+    null,      // Null
+    '0',       // String zero
+    NaN,       // Non-finite
+    Infinity,  // Non-finite
+    1,         // Non-zero
+  ]
+
+  for (const count of invalidCounts) {
+    const item = makeValidChallengeDoc({
+      _id: 'doc-count-test',
+      slug: 'count-test',
+      unapprovedBlockCount: count,
+    })
+    const mockFetch = createMockFetch(() => new Response(JSON.stringify({ result: [item] }), { status: 200 }))
+    const req = new Request('http://localhost/api/challenges')
+    const res = await handleGatewayRequest(req, TEST_ENV, {
+      getNow: () => new Date('2026-11-07T12:00:00Z'),
+      fetchImpl: mockFetch,
+    })
+    assert.equal(res.status, 200)
+    const body = await res.json() as { ok: boolean; challenges: unknown[] }
+    assert.equal(body.ok, true)
+    assert.equal(body.challenges.length, 0, `unapprovedBlockCount value ${String(count)} must fail closed and be excluded from catalog`)
+  }
+})
+
