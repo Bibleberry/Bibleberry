@@ -6,6 +6,7 @@ import {
   admitReleasedCmsChallenge,
   type AdmittedChallenge,
 } from '../../participation/admission.ts'
+import type { ChallengeDetailResult } from './challengeDetailProvider.ts'
 import { evaluateChallengeReleaseEligibility } from './releaseEligibility.ts'
 
 export type ReleasedChallengeHostState =
@@ -106,3 +107,65 @@ export function deriveReleasedChallengeState(
     admittedChallenge,
   }
 }
+
+/**
+ * Pure state resolution helper for ReleasedChallengeHost when consuming a single
+ * `ChallengeDetailResult` (e.g. from the Stage 2 release gateway or an adapted catalog provider).
+ *
+ * Verifies slug matching, editorial eligibility, and trusted capability admission.
+ */
+export function deriveReleasedChallengeDetailState(
+  detailResult: ChallengeDetailResult | null,
+  slug: string,
+  now: Date,
+): ReleasedChallengeHostState {
+  if (!detailResult) {
+    return { status: 'loading' }
+  }
+
+  if (detailResult.status === 'requestError') {
+    return { status: 'requestError', message: detailResult.message }
+  }
+
+  if (detailResult.status === 'validationError') {
+    return { status: 'validationError', failures: detailResult.failures }
+  }
+
+  if (detailResult.status === 'notFound') {
+    return { status: 'notFound', slug }
+  }
+
+  const challenge = detailResult.challenge
+  if (challenge.id !== slug) {
+    return { status: 'notFound', slug }
+  }
+
+  const eligibility = evaluateChallengeReleaseEligibility(challenge, now)
+  if (!eligibility.isEligible) {
+    if (eligibility.reason === 'embargoed') {
+      return {
+        status: 'embargoed',
+        slug,
+        title: challenge.title,
+        releaseDate: eligibility.releaseDate ?? new Date(challenge.releaseAtUtc),
+      }
+    }
+    return {
+      status: 'ineligible',
+      slug,
+      reason: eligibility.reason,
+    }
+  }
+
+  const admittedChallenge = admitReleasedCmsChallenge(challenge, now)
+  if (!admittedChallenge) {
+    return { status: 'admissionFailed', slug }
+  }
+
+  return {
+    status: 'ready',
+    challenge,
+    admittedChallenge,
+  }
+}
+

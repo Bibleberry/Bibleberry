@@ -4,6 +4,7 @@ import type { CmsCatalogResult } from '../../src/cms/sanity/catalog.ts'
 import type { CmsChallenge } from '../../src/cms/sanity/types.ts'
 import {
   deriveReleasedChallengeState,
+  deriveReleasedChallengeDetailState,
   formatReleaseDateTime,
 } from '../../src/cms/reader/releasedChallengeHostModel.ts'
 
@@ -143,4 +144,95 @@ test('formats release date-time using editorial timezone', () => {
   const formatted = formatReleaseDateTime(date)
   // 23:00 UTC on Nov 6 is 18:00 (6:00 PM) Nov 6 in America/New_York
   assert.ok(formatted.includes('November 6, 2026'))
+})
+
+// ---------------------------------------------------------------------------
+// Stage 2A: deriveReleasedChallengeDetailState
+// ---------------------------------------------------------------------------
+
+test('deriveReleasedChallengeDetailState derives loading state when detail is null', () => {
+  const state = deriveReleasedChallengeDetailState(null, 'any-slug', new Date())
+  assert.equal(state.status, 'loading')
+})
+
+test('deriveReleasedChallengeDetailState derives requestError when gateway fails', () => {
+  const state = deriveReleasedChallengeDetailState(
+    { status: 'requestError', message: 'Gateway timeout' },
+    'slug-1',
+    new Date(),
+  )
+  assert.equal(state.status, 'requestError')
+  if (state.status === 'requestError') {
+    assert.equal(state.message, 'Gateway timeout')
+  }
+})
+
+test('deriveReleasedChallengeDetailState derives validationError when payload is malformed', () => {
+  const state = deriveReleasedChallengeDetailState(
+    {
+      status: 'validationError',
+      failures: [{ issues: [{ path: 'document', message: 'Schema mismatch' }] }],
+    },
+    'slug-1',
+    new Date(),
+  )
+  assert.equal(state.status, 'validationError')
+})
+
+test('deriveReleasedChallengeDetailState derives notFound for nonexistent slug', () => {
+  const state = deriveReleasedChallengeDetailState(
+    { status: 'notFound' },
+    'missing-slug',
+    new Date(),
+  )
+  assert.equal(state.status, 'notFound')
+  if (state.status === 'notFound') {
+    assert.equal(state.slug, 'missing-slug')
+  }
+})
+
+test('deriveReleasedChallengeDetailState rejects mismatched slug to prevent stale rendering', () => {
+  // Detail result has challenge.id = 'old-slug', but requested slug is 'new-slug'
+  const state = deriveReleasedChallengeDetailState(
+    { status: 'ready', challenge: sampleChallenge },
+    'mismatched-requested-slug',
+    new Date(),
+  )
+  assert.equal(state.status, 'notFound')
+  if (state.status === 'notFound') {
+    assert.equal(state.slug, 'mismatched-requested-slug')
+  }
+})
+
+test('deriveReleasedChallengeDetailState derives ready state with AdmittedChallenge for eligible past-released Challenge', () => {
+  const pastNow = new Date('2026-11-06T18:00:00.000Z')
+  const state = deriveReleasedChallengeDetailState(
+    { status: 'ready', challenge: sampleChallenge },
+    'test-challenge-slug',
+    pastNow,
+  )
+  assert.equal(state.status, 'ready')
+  if (state.status === 'ready') {
+    assert.equal(state.challenge.id, 'test-challenge-slug')
+    assert.equal(state.admittedChallenge.namespace, 'cms')
+    assert.equal(state.admittedChallenge.challengeId, 'cms:challenge-doc-001')
+  }
+})
+
+test('deriveReleasedChallengeDetailState derives embargoed state when releaseAt is future', () => {
+  const futureChallenge: CmsChallenge = {
+    ...sampleChallenge,
+    releaseAt: '2099-01-01T00:00:00Z',
+    releaseAtUtc: '2099-01-01T00:00:00.000Z',
+  }
+  const state = deriveReleasedChallengeDetailState(
+    { status: 'ready', challenge: futureChallenge },
+    'test-challenge-slug',
+    new Date('2026-11-06T12:00:00Z'),
+  )
+  assert.equal(state.status, 'embargoed')
+  if (state.status === 'embargoed') {
+    assert.equal(state.slug, 'test-challenge-slug')
+    assert.equal(state.title, 'Test Released Challenge')
+  }
 })

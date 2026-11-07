@@ -3,18 +3,21 @@ import { ArrowLeft, RotateCcw } from 'lucide-react'
 import { defaultGuestParticipationStore } from '../../participation/defaultGuestStore.ts'
 import { PersistedChallengeHost } from '../../participation/PersistedChallengeHost.tsx'
 import type { ReaderParticipationStore } from '../../participation/store.ts'
+import type { ChallengeCatalogProvider } from './catalogProvider.ts'
 import {
-  defaultPublishedCatalogProvider,
-  type ChallengeCatalogProvider,
-  type CmsCatalogResult,
-} from './catalogProvider.ts'
+  adaptCatalogProviderToDetailProvider,
+  resolveDefaultChallengeProvider,
+  type ChallengeDetailProvider,
+  type ChallengeDetailResult,
+} from './challengeDetailProvider.ts'
 import {
-  deriveReleasedChallengeState,
+  deriveReleasedChallengeDetailState,
   formatReleaseDateTime,
 } from './releasedChallengeHostModel.ts'
 
 export type ReleasedChallengeHostProps = {
   slug: string
+  challengeProvider?: ChallengeDetailProvider
   catalogProvider?: ChallengeCatalogProvider
   store?: ReaderParticipationStore
   getNow?: () => Date
@@ -26,14 +29,17 @@ export type ReleasedChallengeHostProps = {
 }
 
 /**
- * Controlled Released CMS Challenge Host (Track A, A4.1).
+ * Controlled Released CMS Challenge Host (R05 Stage 2A).
  *
- * Connects the published CMS catalog provider, pure release-eligibility evaluation,
- * and fail-closed trusted admission to `PersistedChallengeHost` and `ChallengePlayer`.
+ * Connects the Challenge provider (either the secure Stage 1 release gateway or
+ * the existing A4.1 published CMS catalog provider), pure release-eligibility
+ * evaluation, and fail-closed trusted capability admission to `PersistedChallengeHost`
+ * and `ChallengePlayer`.
  */
 export function ReleasedChallengeHost({
   slug,
-  catalogProvider = defaultPublishedCatalogProvider,
+  challengeProvider,
+  catalogProvider,
   store = defaultGuestParticipationStore,
   getNow = () => new Date(),
   onExit,
@@ -43,11 +49,15 @@ export function ReleasedChallengeHost({
   footer,
 }: ReleasedChallengeHostProps) {
   const effectiveExitLabel = returnLabel ?? exitLabel ?? 'Return'
-  const [catalogResult, setCatalogResult] = useState<CmsCatalogResult | null>(null)
+  const effectiveProvider =
+    challengeProvider ??
+    (catalogProvider ? adaptCatalogProviderToDetailProvider(catalogProvider) : resolveDefaultChallengeProvider())
+
+  const [detailResult, setDetailResult] = useState<ChallengeDetailResult | null>(null)
   const [loadAttempt, setLoadAttempt] = useState<number>(0)
 
   const retry = useCallback(() => {
-    setCatalogResult(null)
+    setDetailResult(null)
     setLoadAttempt(prev => prev + 1)
   }, [])
 
@@ -55,18 +65,24 @@ export function ReleasedChallengeHost({
     const controller = new AbortController()
     let ignore = false
 
-    catalogProvider
-      .loadCatalog({ signal: controller.signal })
+    // Immediately reset to null on slug or provider change to show loading state
+    setDetailResult(null)
+
+    effectiveProvider
+      .loadChallenge(slug, { signal: controller.signal })
       .then(result => {
         if (!ignore) {
-          setCatalogResult(result)
+          setDetailResult(result)
         }
       })
       .catch(err => {
         if (!ignore) {
-          setCatalogResult({
+          if (err instanceof DOMException && err.name === 'AbortError') {
+            return
+          }
+          setDetailResult({
             status: 'requestError',
-            message: err instanceof Error ? err.message : 'Network error loading catalog',
+            message: err instanceof Error ? err.message : 'Network error loading Challenge',
           })
         }
       })
@@ -75,9 +91,9 @@ export function ReleasedChallengeHost({
       ignore = true
       controller.abort()
     }
-  }, [catalogProvider, loadAttempt])
+  }, [effectiveProvider, slug, loadAttempt])
 
-  const state = deriveReleasedChallengeState(catalogResult, slug, getNow())
+  const state = deriveReleasedChallengeDetailState(detailResult, slug, getNow())
 
   if (state.status === 'loading') {
     return (
