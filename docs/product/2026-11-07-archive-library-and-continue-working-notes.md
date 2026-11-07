@@ -160,11 +160,11 @@ Aaron first explored anniversary-style labels, then clarified that he does **not
 - **200 Challenges Completed**
 - **365 Challenges Completed** — at this point the award may additionally use the meaningful phrase **"A Year's Worth"** of Challenges.
 
-The **365** milestone is the point at which time-equivalent wording becomes appropriate. The previous provisional 90- and 180-Challenge equivalents are **superseded**, not approved milestones. Further achievements after 365 have **not** been specified.
+The **365** milestone is the point at which time-equivalent wording becomes appropriate. The previous provisional 90- and 180-Challenge equivalents are **superseded**, not approved milestones. **After 365, recognize only additional full years' worth of distinct Challenges:** 730, 1,095, 1,460, and so forth in 365-Challenge increments. Aaron chose this deliberately because monthly commemoratives and thematic collections already provide frequent recognition; the lifetime series does not need intermediate awards between annual equivalents.
 
 These milestones count completed **distinct Challenges**, regardless of whether the reader worked through current teaching, their selected historical workspace, or the Past Teaching Library. They are **not membership anniversaries, attendance streaks, consecutive-publication-date requirements, or calendar-day attendance measures**. Repeating an already completed Challenge must not inflate the lifetime total. Gamification remains hidden while reading in the Library and must not interrupt Challenge teaching.
 
-**Still open:** Specific art and card design for the lifetime series, notification behavior outside the reader, whether 365 has a distinctive explanatory subtitle, and any post-365 progression. Do not manufacture additional thresholds.
+**Still open:** Specific art and card design for the lifetime series, notification behavior outside the reader, and exact title/subtitle treatment at 365 and subsequent year-equivalent milestones. **Post-365 threshold cadence is settled at 365-Challenge increments**; do not add intermediate lifetime awards without a new product decision.
 
 ## Status and process
 
