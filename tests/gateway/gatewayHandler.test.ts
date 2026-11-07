@@ -326,7 +326,7 @@ test('returns identical 404 without leaking manuscript data for nonexistent and 
 })
 
 // ---------------------------------------------------------------------------
-// 7. Public Catalog Exclusion of Unreleased Challenges
+// 7. Public Catalog Exclusion of Unreleased Challenges and Unapproved Blocks
 // ---------------------------------------------------------------------------
 
 test('GET /api/challenges excludes unreleased and unreviewed Challenges', async () => {
@@ -371,8 +371,78 @@ test('GET /api/challenges excludes unreleased and unreviewed Challenges', async 
   assert.equal(body.challenges[0].title, 'Released 1')
 })
 
+test('GET /api/challenges excludes Challenges with unapproved structured blocks, leaking neither title nor summary', async () => {
+  const normalChallenge = makeValidChallengeDoc({
+    _id: 'doc-normal-1',
+    slug: 'normal-teaching',
+    title: 'Normal Approved Teaching',
+    summary: 'Normal teaching summary',
+    releaseAt: '2026-11-01T12:00:00Z',
+    unapprovedBlockCount: 0,
+    screens: [
+      {
+        _key: 's1',
+        _type: 'challengeScreen',
+        screenLabel: 'Step 1',
+        heading: 'Normal Heading',
+        blocks: [
+          { _key: 'b1', _type: 'statementBlock', text: 'Normal statement without reviewStatus' },
+        ],
+      },
+    ],
+  })
+
+  const unapprovedBlockChallenge = makeValidChallengeDoc({
+    _id: 'doc-unapproved-blocks',
+    slug: 'unapproved-blocks-teaching',
+    title: 'Hidden Unapproved Teaching',
+    summary: 'Secret unapproved summary text',
+    releaseAt: '2026-11-01T12:00:00Z',
+    unapprovedBlockCount: 1, // Upstream computed unapproved count
+    screens: [
+      {
+        _key: 's2',
+        _type: 'challengeScreen',
+        screenLabel: 'Step 1',
+        heading: 'Draft Step',
+        blocks: [
+          { _key: 'b2', _type: 'comparisonBlock', reviewStatus: 'proposed' },
+        ],
+      },
+    ],
+  })
+
+  const mockFetch = createMockFetch((url) => {
+    // Assert that the GROQ query itself filters unapproved blocks
+    const query = url.searchParams.get('query') ?? ''
+    assert.ok(query.includes('count(screens[].blocks[_type in ["comparisonBlock"'))
+
+    return new Response(JSON.stringify({ result: [normalChallenge, unapprovedBlockChallenge] }), {
+      status: 200,
+    })
+  })
+
+  const req = new Request('http://localhost/api/challenges')
+  const res = await handleGatewayRequest(req, TEST_ENV, {
+    getNow: () => new Date('2026-11-06T12:00:00Z'),
+    fetchImpl: mockFetch,
+  })
+  assert.equal(res.status, 200)
+  const body = await res.json() as { ok: boolean; challenges: { slug: string; title: string }[] }
+  assert.equal(body.ok, true)
+  assert.equal(body.challenges.length, 1)
+  assert.equal(body.challenges[0].slug, 'normal-teaching')
+  assert.equal(body.challenges[0].title, 'Normal Approved Teaching')
+
+  // Verify that neither title nor summary of the unapproved block challenge leaked
+  const serialized = JSON.stringify(body)
+  assert.equal(serialized.includes('Hidden Unapproved Teaching'), false)
+  assert.equal(serialized.includes('Secret unapproved summary text'), false)
+  assert.equal(serialized.includes('unapprovedBlockCount'), false)
+})
+
 // ---------------------------------------------------------------------------
-// 8. Safe Response Projection (No Leaked Review Notes or Lineage)
+// 8. Safe Response Projection (No Leaked Review Notes, Lineage, or Unexpected Fields)
 // ---------------------------------------------------------------------------
 
 test('projects reader-safe fields only, stripping internal notes, author identity, and provenance', async () => {
@@ -420,6 +490,167 @@ test('projects reader-safe fields only, stripping internal notes, author identit
   assert.equal(serialized.includes('Confidential Reviewer'), false)
   assert.equal(serialized.includes('berrymark-challenge-test'), false)
   assert.equal(serialized.includes('rev-internal'), false)
+})
+
+test('deep allowlist drops unexpected injected fields across nested screens, blocks, scriptures, series, and companion links', async () => {
+  const challengeWithInjectedSecrets = makeValidChallengeDoc({
+    series: {
+      _id: 'series-secret-1',
+      title: 'Valid Series Title',
+      slug: 'valid-series-slug',
+      secretAccountingCode: 'CONFIDENTIAL_SERIES_CODE_XYZ',
+      internalDepartment: 'CONFIDENTIAL_DEPT_DATA',
+    },
+    primaryScripture: {
+      reference: 'John 1:1',
+      translation: 'ESV',
+      textStatus: 'provided',
+      passage: 'In the beginning was the Word.',
+      usageRightsConfirmed: true,
+      practiceStatus: 'configured',
+      secretNegotiationNotes: 'CONFIDENTIAL_SCRIPTURE_NOTES_123',
+      publisherAgreementId: 'CONFIDENTIAL_AGREEMENT_ID',
+    },
+    screens: [
+      {
+        _key: 'screen-nested-1',
+        _type: 'challengeScreen',
+        screenLabel: 'Screen 1',
+        heading: 'Approved Heading',
+        secretScreenNote: 'CONFIDENTIAL_SCREEN_DIRECTIVE_ABC',
+        blocks: [
+          {
+            _key: 'block-statement-1',
+            _type: 'statementBlock',
+            text: 'Valid statement text',
+            label: 'Teacher note',
+            secretStaffComment: 'CONFIDENTIAL_BLOCK_COMMENT_DEF',
+          },
+          {
+            _key: 'block-cards-1',
+            _type: 'visualCardsBlock',
+            reviewStatus: 'approved',
+            secretVisualMeta: 'CONFIDENTIAL_VISUAL_META',
+            cards: [
+              {
+                _key: 'card-1',
+                _type: 'visualCard',
+                title: 'Card 1 Title',
+                body: 'Card 1 Body',
+                secretCardCost: 'CONFIDENTIAL_CARD_COST_999',
+              },
+            ],
+          },
+          {
+            _key: 'block-contrast-1',
+            _type: 'comparisonBlock',
+            reviewStatus: 'approved',
+            secretContrastInternal: 'CONFIDENTIAL_CONTRAST_SECRET',
+            left: {
+              title: 'Left Title',
+              body: [
+                {
+                  _key: 'pt-1',
+                  _type: 'block',
+                  style: 'normal',
+                  secretPtMeta: 'CONFIDENTIAL_PT_META',
+                  children: [
+                    {
+                      _key: 'span-1',
+                      _type: 'span',
+                      text: 'Paragraph text',
+                      marks: [],
+                      secretSpanProp: 'CONFIDENTIAL_SPAN_PROP',
+                    },
+                  ],
+                },
+              ],
+            },
+            right: {
+              title: 'Right Title',
+              body: [],
+            },
+          },
+        ],
+      },
+    ],
+    companionLinks: [
+      {
+        _key: 'link-1',
+        _type: 'companionLink',
+        provider: 'youtube',
+        label: 'Watch Video',
+        url: 'https://youtube.com/example',
+        secretTrackingToken: 'CONFIDENTIAL_TRACKING_TOKEN_777',
+      },
+    ],
+  })
+
+  const mockFetch = createMockFetch((url) => {
+    const query = url.searchParams.get('query') ?? ''
+    if (query.includes('| order(releaseAt asc)')) {
+      return new Response(JSON.stringify({ result: [challengeWithInjectedSecrets] }), { status: 200 })
+    }
+    return new Response(JSON.stringify({ result: challengeWithInjectedSecrets }), { status: 200 })
+  })
+
+  // 1. Single challenge response
+  {
+    const req = new Request('http://localhost/api/challenges/test-published-challenge')
+    const res = await handleGatewayRequest(req, TEST_ENV, {
+      getNow: () => new Date('2026-11-07T12:00:00Z'),
+      fetchImpl: mockFetch,
+    })
+    assert.equal(res.status, 200)
+    const body = await res.json() as { ok: boolean; challenge: Record<string, unknown> }
+    assert.equal(body.ok, true)
+
+    const serialized = JSON.stringify(body)
+    // Verify none of the injected confidential fields or values leaked
+    assert.equal(serialized.includes('CONFIDENTIAL_SERIES_CODE_XYZ'), false)
+    assert.equal(serialized.includes('CONFIDENTIAL_DEPT_DATA'), false)
+    assert.equal(serialized.includes('CONFIDENTIAL_SCRIPTURE_NOTES_123'), false)
+    assert.equal(serialized.includes('CONFIDENTIAL_AGREEMENT_ID'), false)
+    assert.equal(serialized.includes('CONFIDENTIAL_SCREEN_DIRECTIVE_ABC'), false)
+    assert.equal(serialized.includes('CONFIDENTIAL_BLOCK_COMMENT_DEF'), false)
+    assert.equal(serialized.includes('CONFIDENTIAL_VISUAL_META'), false)
+    assert.equal(serialized.includes('CONFIDENTIAL_CARD_COST_999'), false)
+    assert.equal(serialized.includes('CONFIDENTIAL_CONTRAST_SECRET'), false)
+    assert.equal(serialized.includes('CONFIDENTIAL_PT_META'), false)
+    assert.equal(serialized.includes('CONFIDENTIAL_SPAN_PROP'), false)
+    assert.equal(serialized.includes('CONFIDENTIAL_TRACKING_TOKEN_777'), false)
+
+    // Verify approved reader fields are intact
+    const challenge = body.challenge
+    assert.equal(challenge.title, 'Test Published Challenge')
+    const s = challenge.series as Record<string, unknown>
+    assert.equal(s.title, 'Valid Series Title')
+    assert.equal(s.slug, 'valid-series-slug')
+    const sc = challenge.primaryScripture as Record<string, unknown>
+    assert.equal(sc.reference, 'John 1:1')
+    assert.equal(sc.passage, 'In the beginning was the Word.')
+    const screens = challenge.screens as Record<string, unknown>[]
+    assert.equal(screens.length, 1)
+    assert.equal(screens[0].heading, 'Approved Heading')
+    const blocks = screens[0].blocks as Record<string, unknown>[]
+    assert.equal(blocks.length, 3)
+  }
+
+  // 2. Catalog summary response
+  {
+    const req = new Request('http://localhost/api/challenges')
+    const res = await handleGatewayRequest(req, TEST_ENV, {
+      getNow: () => new Date('2026-11-07T12:00:00Z'),
+      fetchImpl: mockFetch,
+    })
+    assert.equal(res.status, 200)
+    const body = await res.json() as { ok: boolean; challenges: Record<string, unknown>[] }
+    assert.equal(body.ok, true)
+    const serialized = JSON.stringify(body)
+    assert.equal(serialized.includes('CONFIDENTIAL_SERIES_CODE_XYZ'), false)
+    assert.equal(serialized.includes('CONFIDENTIAL_SCRIPTURE_NOTES_123'), false)
+    assert.equal(body.challenges[0].title, 'Test Published Challenge')
+  }
 })
 
 // ---------------------------------------------------------------------------

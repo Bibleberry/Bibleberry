@@ -9,6 +9,7 @@ export const CATALOG_GROQ_QUERY = `
     && editorialReview.adaptationReviewed == true
     && defined(releaseAt)
     && dateTime(releaseAt) <= dateTime($nowUtc)
+    && count(screens[].blocks[_type in ["comparisonBlock", "visualCardsBlock", "connectedSequenceBlock", "reflectionBlock", "optionalStudyBlock"] && reviewStatus != "approved"]) == 0
   ] | order(releaseAt asc) {
     _id,
     _type,
@@ -34,7 +35,8 @@ export const CATALOG_GROQ_QUERY = `
     "editorialEligibility": {
       "adaptationReviewed": editorialReview.adaptationReviewed,
       "reviewedAt": editorialReview.reviewedAt
-    }
+    },
+    "unapprovedBlockCount": count(screens[].blocks[_type in ["comparisonBlock", "visualCardsBlock", "connectedSequenceBlock", "reflectionBlock", "optionalStudyBlock"] && reviewStatus != "approved"])
   }
 `
 
@@ -48,6 +50,7 @@ export const CHALLENGE_BY_SLUG_GROQ_QUERY = `
     && editorialReview.adaptationReviewed == true
     && defined(releaseAt)
     && dateTime(releaseAt) <= dateTime($nowUtc)
+    && count(screens[].blocks[_type in ["comparisonBlock", "visualCardsBlock", "connectedSequenceBlock", "reflectionBlock", "optionalStudyBlock"] && reviewStatus != "approved"]) == 0
   ][0] {
     _id,
     _type,

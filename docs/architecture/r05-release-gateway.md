@@ -77,6 +77,7 @@ Queries are parameterized to prevent injection and ensure server-side filtering:
   && editorialReview.adaptationReviewed == true
   && defined(releaseAt)
   && dateTime(releaseAt) <= dateTime($nowUtc)
+  && count(screens[].blocks[_type in ["comparisonBlock", "visualCardsBlock", "connectedSequenceBlock", "reflectionBlock", "optionalStudyBlock"] && reviewStatus != "approved"]) == 0
 ] | order(releaseAt asc) {
   _id,
   _type,
@@ -102,7 +103,8 @@ Queries are parameterized to prevent injection and ensure server-side filtering:
   "editorialEligibility": {
     "adaptationReviewed": editorialReview.adaptationReviewed,
     "reviewedAt": editorialReview.reviewedAt
-  }
+  },
+  "unapprovedBlockCount": count(screens[].blocks[_type in ["comparisonBlock", "visualCardsBlock", "connectedSequenceBlock", "reflectionBlock", "optionalStudyBlock"] && reviewStatus != "approved"])
 }
 ```
 
@@ -114,6 +116,7 @@ Queries are parameterized to prevent injection and ensure server-side filtering:
   && editorialReview.adaptationReviewed == true
   && defined(releaseAt)
   && dateTime(releaseAt) <= dateTime($nowUtc)
+  && count(screens[].blocks[_type in ["comparisonBlock", "visualCardsBlock", "connectedSequenceBlock", "reflectionBlock", "optionalStudyBlock"] && reviewStatus != "approved"]) == 0
 ][0] {
   _id,
   _type,
@@ -197,12 +200,12 @@ Queries are parameterized to prevent injection and ensure server-side filtering:
 }
 ```
 
-### 3.3 Server-Side Post-Validation and Projection
-Before returning any payload to the client, the gateway performs secondary validation:
+### 3.3 Server-Side Post-Validation and Deep Allowlist Projection
+Before returning any payload to the client, the gateway performs secondary validation and recursive field allowlisting:
 1. Re-verifies `editorialEligibility.adaptationReviewed === true`.
 2. Re-verifies `Date.parse(releaseAt) <= Date.now()`.
-3. Verifies that all structured editorial blocks requiring review (`comparisonBlock`, `visualCardsBlock`, `connectedSequenceBlock`, `reflectionBlock`, `optionalStudyBlock`) have `reviewStatus === 'approved'`. If any unapproved block is present, the Challenge fails closed.
-4. Strips all internal metadata: `editorialReview.reviewNotes`, `editorialReview.sourceRevision`, `editorialReview.reviewedBy`, and `importProvenance`.
+3. Verifies that all structured editorial blocks requiring review (`comparisonBlock`, `visualCardsBlock`, `connectedSequenceBlock`, `reflectionBlock`, `optionalStudyBlock`) have `reviewStatus === 'approved'`. If any unapproved block is present (or `unapprovedBlockCount > 0`), the Challenge fails closed.
+4. Enforces a strict, deep allowlist across every nesting level (series, scriptures, screens, blocks, portable text, companion links). Any unexpected upstream fields (e.g. injected accounting codes, confidential reviewer notes, internal flags, `_rev`, `_system`, or `importProvenance`) are dropped during projection.
 
 ---
 
@@ -233,11 +236,23 @@ Cache-Control: no-store
 
 ---
 
-## 6. Compatibility with Existing Reader and Participation System
+## 6. Compatibility and Stage 2 Integration Contract
 
-The gateway output conforms exactly to the data contract established in Milestone B1 (`src/cms/sanity/`):
+### 6.1 Data Contract and Identity Preservation
+The gateway output conforms to the foundational data contract established in Milestone B1 (`src/cms/sanity/`):
 - `_id` is preserved as the canonical Sanity document ID.
 - `slug` is preserved as the reader presentation slug.
-- `screens[]._key` is preserved for step identity.
-- Client mapper `mapPublishedChallengeBatch` and admission helper `admitReleasedCmsChallenge` operate unchanged.
-- Durable participation keys remain `cms:<documentId>` in `bibleberry-reader-participation-v1`.
+- `screens[]._key` is preserved for screen/step identity.
+- Field values for scripture, blocks, and series are mapped cleanly to the reader domain types.
+- Durable participation storage keys remain strictly `cms:<documentId>` in `bibleberry-reader-participation-v1`, with unforgeable capability tokens minted by `admitReleasedCmsChallenge`.
+
+### 6.2 Catalog vs. Detail Integration Contract (Stage 2 Integration Clarification)
+An important architectural distinction exists between the gateway's catalog endpoint and the existing A4.1 reader provider:
+- `GET /api/challenges` returns **lightweight catalog summaries** (`GatewayCatalogSummary`), omitting `screens` and manuscript blocks to minimize payload size and eliminate any possibility of manuscript leakage during catalog indexing.
+- Because `mapPublishedChallengeBatch` expects full Challenge documents containing `screens`, the catalog index response cannot be piped directly into `mapPublishedChallengeBatch` without adaptational plumbing.
+- **Stage 2 Implementation Strategy:**
+  1. The Stage 2 gateway catalog provider (`createGatewayCatalogProvider`) will decouple catalog availability discovery from full challenge rendering:
+     - Catalog queries (`GET /api/challenges`) populate available listings.
+     - Single Challenge detail queries (`GET /api/challenges/:slug`) fetch the complete reader-safe document containing `screens` and `blocks` when the reader navigates to `#/challenge/:slug`.
+  2. Alternatively, the reader catalog provider interface will be extended to support lazy loading of individual challenge screens upon navigation.
+- **Stage 1 Boundary:** A4.1's shipped `defaultPublishedCatalogProvider` in `src/cms/reader/catalogProvider.ts` remains completely untouched during Stage 1. No reader application code or routes are modified in this milestone.
