@@ -24,7 +24,7 @@ A **first-use onboarding/tutorial experience** was proposed to explain this phil
 ### Personal Archive = active workspace (Aaron's "RAM" analogy)
 
 - A reader-curated working set of **months** the reader is actively interested in studying, not necessarily a complete historical record of every month Bibleberry has ever published.
-- No artificial cap on the number of months in this workspace.
+- **Chosen capacity: three active historical months, plus the current publication month.** The current month does not consume one of the three historical study slots. This preserves the Archive as an intentional workspace instead of a second Library. Aaron explained that three months represent a *season of life*, recognizing that participation in ministry naturally varies across life's seasons. Readers can exchange older months with `Put Away`, without losing progress.
 - When the reader first opens Bibleberry **during a publication month**, that month enters their Personal Archive automatically. All Challenges for that month enter the reader's available month as **each is published**, even if the reader does not visit again during that month. A reader first opening the app on May 20 can access May 1–20 and subsequently published May Challenges, not unpublished future Challenges.
 - If a reader skips an entire month without using Bibleberry, that month does **not** automatically appear in their Personal Archive on their return. It remains available in the Past Teaching Library.
 - Readers can voluntarily **Add to My Personal Archive** a month from the Past Teaching Library at any later time, exposing that month's progress and achievement opportunities.
@@ -72,7 +72,25 @@ The conversation supplied the following *illustrative* routing behavior:
 
 **Open edge cases:** How to select among multiple partially opened Challenges; whether opening another eligible month moves the routing anchor immediately; exact ordering when multiple incomplete months exist behind the frontier; what happens at the transition to a newly published current month; how removing/re-adding an Archive month changes the routing anchor; and precise semantics if the current day's primary Challenge overlaps with `Continue`. Do not silently declare an algorithm final from examples alone.
 
-## 4. Relationship to existing November 6 decisions
+## 4. November 7 refinements explicitly chosen
+
+### Three historical study slots plus the current month
+
+Aaron reconsidered the earlier unlimited-month idea and **explicitly chose three active historical months in addition to the current publication month**. This is a product-direction decision, not merely a candidate capacity.
+
+The *season-of-life* rationale matters: the Archive should accommodate periods when someone participates more deeply or less deeply without accumulating an overwhelming backlog. Limiting active historical studies does not limit access to teaching in the Library. `Put Away` preserves progress and awards.
+
+**Still open:** What happens when the current month ends while the three historical slots are already full; whether the current month can be put away; how the interface explains these transitions. Do not assume automatic eviction.
+
+### Achievement notification placement
+
+Aaron explicitly confirmed that the **entire Challenge reading session remains distraction-free**: no achievement announcements, collectible unlock reveals, reward counters or unrelated gamification interruptions while someone is engaged in teaching.
+
+An achievement may be recorded when earned, but its **in-app notification is deferred until outside the Challenge reader**. The reader may first encounter it after returning to the Hub. The notification can inform them of the earned award and offer a way to visit the Field Notebook.
+
+Exact visual treatment, aggregation of multiple simultaneous awards, dismissal behavior and interaction with Quiet Reading Mode are still open. This does **not** authorize engineering to implement a notification system.
+
+## 5. Relationship to existing November 6 decisions
 
 This **working model does not repeal** the previously adopted decisions that:
 - every Challenge is substantive biblical teaching, and content is not distorted by gamification;
@@ -85,14 +103,15 @@ This **working model does not repeal** the previously adopted decisions that:
 
 The earlier open question of historical-month eligibility is being reframed: **available** Library material is distinct from months **actively brought into** the Personal Archive. This is exploratory product behavior, not yet a settled eligibility contract.
 
-## 5. Questions before product approval and engineering
+## 6. Questions before product approval and engineering
 
-1. **Membership and availability:** Precise first-use/month activation behavior, including anonymous guests, device loss, returning after inactivity and current-month `Put Away` options.
+1. **Membership and availability:** Precise first-use/month activation behavior, including anonymous guests, device loss, returning after inactivity, current-month `Put Away` options and month-end transitions when the three historical slots are full.
 2. **Completion versus award eligibility:** Do achievements for a historically completed month get *awarded* while studying silently in Library, or only upon adding the month? What date should each award keep? Ensure no loss or rewriting of genuine earned history.
 3. **Progress preservation:** Define `Put Away` as a visibility/workspace operation rather than deletion. Clarify if removing a month affects only Hub suggestions or other views as well.
 4. **Continue selector:** Confirm a deterministic ordering/recency rule for ties, cross-month gaps, the frontier and manual navigation.
 5. **Onboarding:** Explain that Bibleberry is a **live ministry**, the current teaching is primary, older teaching is accessible, and the Personal Archive is optional reader-managed workspace. UX and wording require separate review.
-6. **Scope/timing:** Decide what can ship at launch and what should be deferred; validate against A3 durable participation identity/persistence without prematurely expanding A3's authorized engineering scope.
+6. **Award notifications:** Define post-reader notice timing (possibly on the Hub), multiple awards, dismissal and Quiet Reading Mode, without interrupting Challenge reading.
+7. **Scope/timing:** Decide what can ship at launch and what should be deferred; validate against A3 durable participation identity/persistence without prematurely expanding A3's authorized engineering scope.
 
 ## Status and process
 
