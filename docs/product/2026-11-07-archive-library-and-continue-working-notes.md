@@ -132,6 +132,9 @@ The earlier open question of historical-month eligibility is being reframed: **a
 - This is distinct from the more narrowly focused **thematic discovery card**: the monthly card recalls the entire month or teaching season, whereas a discovery card explains a specific motif or connection.
 - Suggested language such as "memory stone" was an analogy in discussion, not approved reader-facing terminology.
 
+
+**Completion timing clarified (November 7):** The **full-month commemorative is the final reward for completing the entire month's teaching**, never an early reward for finishing only the Challenges published so far. A reader earns it only after the full monthly Challenge set has actually been published and each required Challenge in that set has been completed. Thematic discovery mini-collections may be earned earlier during the month as their own requirements are met. Completing the month later through the Past Teaching Library earns the same final commemorative; award presentation remains outside the distraction-free Challenge reading session. Rules for post-publication editorial additions or removals still need an explicit decision.
+
 ### Consistent Bibleberry illustration language (reaffirmed)
 
 Aaron reaffirmed that the choice is **not** between distinct monthly artwork and a cohesive collection. **All collectible artwork should share an overarching, recognizable Bibleberry visual style**, with Alexis's actual illustrated Bible-study notebooks as the primary stylistic guidance. Individual subjects, symbols, card images and monthly themes can differ while remaining part of the same artistic family. Do not invent an alternate generic botanical style or require each month to repeat the same image. Specific compositions, templates, palette refinements and the finished artwork remain subject to Alexis's ministry-facing visual approval.
