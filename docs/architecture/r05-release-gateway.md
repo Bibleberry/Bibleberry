@@ -256,3 +256,24 @@ An important architectural distinction exists between the gateway's catalog endp
      - Single Challenge detail queries (`GET /api/challenges/:slug`) fetch the complete reader-safe document containing `screens` and `blocks` when the reader navigates to `#/challenge/:slug`.
   2. Alternatively, the reader catalog provider interface will be extended to support lazy loading of individual challenge screens upon navigation.
 - **Stage 1 Boundary:** A4.1's shipped `defaultPublishedCatalogProvider` in `src/cms/reader/catalogProvider.ts` remains completely untouched during Stage 1. No reader application code or routes are modified in this milestone.
+
+### 6.3 Stage 2A Ordinary Reader Detail Integration
+In Milestone R05 Stage 2A, the ordinary reader Challenge route (`#/challenge/:slug`) is connected to the secure release gateway via `ChallengeDetailProvider`:
+1. **Detail Provider Boundary (`src/cms/reader/challengeDetailProvider.ts`):**
+   - Connects to `GET /api/challenges/:slug` via same-origin relative path or configured `VITE_RELEASE_GATEWAY_ORIGIN`.
+   - Validates gateway response envelopes and runs documents through `mapPublishedChallenge()`.
+   - Maps 404 responses to a neutral `{ status: 'notFound' }` state without manuscript leakage.
+   - Maps 500/502 and network failures to `{ status: 'requestError' }` with recoverable retry.
+   - Fails closed on malformed JSON or invalid schema with `{ status: 'validationError' }`.
+2. **Build-Time Gateway Feature Flag:**
+   - Active when `VITE_ENABLE_RELEASE_GATEWAY_SOURCE === 'true'`.
+   - When gateway mode is active, `ReleasedChallengeHost` consumes `defaultGatewayChallengeProvider` and **never silently falls back to direct Sanity reads**.
+   - When gateway mode is inactive, `ReleasedChallengeHost` uses `adaptCatalogProviderToDetailProvider(defaultPublishedCatalogProvider)`, preserving full backward compatibility for A4.1 regression testing.
+3. **Stale Response and Slug Cancellation:**
+   - `useEffect` in `ReleasedChallengeHost` tracks `slug`, triggers `AbortController.abort()` on slug changes, resets state to loading, and ignores stale promises.
+   - `deriveReleasedChallengeDetailState` validates `challenge.id === slug` before admitting.
+4. **Participation Preservation:**
+   - Capability admission (`admitTrustedCatalogChallenge` on the gateway path, `admitReleasedCmsChallenge` on the catalog path) and `PersistedChallengeHost` continue to store durable records under canonical `cms:<documentId>`.
+5. **Release Clock Authority Distinction:**
+   - **Gateway Source (`source: 'gateway'`): Server-Authoritative Release Gate.** When the Cloudflare Worker responds with HTTP 200, the server's evaluated release schedule is authoritative. The client verifies document mapping, slug match, editorial review confirmation (`adaptationReviewed === true`), release timestamp syntax, and mints capability admission via `admitTrustedCatalogChallenge(challenge)`. A desynchronized or incorrectly set client device clock (e.g. running slow/behind `releaseAtUtc`) cannot veto or delay server-authorized releases.
+   - **Legacy Catalog Source (`source: 'catalog'`): Client-Authoritative Release Gate.** Direct Sanity catalog reads bypass the Worker gateway and continue to evaluate `evaluateChallengeReleaseEligibility(challenge, now)` and `admitReleasedCmsChallenge(challenge, now)` against client device time. Arbitrary catalog results cannot bypass the client release gate.
