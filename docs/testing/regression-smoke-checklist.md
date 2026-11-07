@@ -29,15 +29,17 @@ The current GitHub Actions workflow `.github/workflows/ci.yml` runs on PRs into 
 
 ### Automated Reader Regression Smoke Suite (`npm run test:smoke`)
 
-Enforced in the required `reader-app` CI job and runnable locally, this suite runs automated Playwright Chromium end-to-end tests across two distinct build passes with strict directory cleaning between them:
+Enforced in the required `reader-app` CI job and runnable locally, this suite runs automated Playwright Chromium end-to-end tests across three distinct build passes with strict directory cleaning between them:
 - **Pass 1 (Public Production Bundle):** Builds standard reader via `npm run build` and tests:
-  - `tests/smoke/build-isolation.spec.ts`: Asserts complete absence of Developer Studio navigation, routes, code chunks (`InteractiveChallengeLab`), and fixture payloads from the production bundle (R12 / Section 5).
+  - `tests/smoke/build-isolation.spec.ts`: Asserts complete absence of Developer Studio and ordinary-shell Challenge pilot navigation, inert `#/pilot/challenge` route fallback, and exclusion of Lab, preview, and pilot code chunks (`InteractiveChallengeLab`, `SanityChallengeLab`, `BerryMarkLocalPreview`, `ordinaryChallengePilot`) and synthetic fixture/pilot payloads from the production bundle (R12 / Section 5).
   - `tests/smoke/navigation.spec.ts`: Tests onboarding flow (Colossians 3:16 to Today), standard returning reader startup, 4-tab app navigation (Today, Foundations, Archive, More), and direct shared teaching link navigation preserving target entry.
   - `tests/smoke/today-resume.spec.ts`: Tests Today activity recording into `localStorage`, journey activity rendering, and returning reader resume card actions (Return, Continue, Jump to today).
   - `tests/smoke/memorization.spec.ts`: Tests Sunday pilot Scripture memorization phrase-reveal practice, incremental phrase reveals, and clean resets (R08).
 - **Pass 2 (Developer-Enabled Bundle):** Builds testing bundle with `VITE_ENABLE_DEVELOPER_STUDIO=true npm run build` and tests:
   - `tests/smoke/interactive-lab.spec.ts`: Tests Developer Studio entry, opening Interactive Challenge Lab, multi-screen Challenge navigation and completion, challenge bookmarking/saving, and strict storage key isolation (`bibleberry-interactive-challenge-lab-v1` vs `bibleberry-prototype-v1`) (R04, R09, R10, R12).
-  - `tests/smoke/cms-challenge-player.spec.ts`: Tests shared `ChallengePlayer` and all nine CMS content block views against rights-safe synthetic fixture data, stable screen-ID resume and invalid screen-ID clamping, optional study/reflection non-requirement, reference-only Scripture metadata persistence, idempotent final-screen completion, 3-store namespace isolation (`bibleberry-sanity-challenge-lab-v1`), and narrow portrait layout with large reading text (R04, R05, R09, R10, R12, R13).
+  - `tests/smoke/cms-challenge-player.spec.ts`: Tests shared `ChallengePlayer` and all nine CMS content block views against rights-safe synthetic fixture data, developer diagnostic retention, stable screen-ID resume and invalid screen-ID clamping, optional study/reflection non-requirement, reference-only Scripture metadata persistence, idempotent final-screen completion, 3-store namespace isolation (`bibleberry-sanity-challenge-lab-v1`), and narrow portrait layout with large reading text (R04, R05, R09, R10, R12, R13).
+- **Pass 3 (Pilot-Enabled Ordinary Shell Bundle):** Builds ordinary-shell pilot bundle with `VITE_ENABLE_CHALLENGE_PILOT=true npm run build` (without `VITE_ENABLE_DEVELOPER_STUDIO`) and tests:
+  - `tests/smoke/ordinary-challenge-pilot.spec.ts`: Tests opening `ChallengePlayer` via `OrdinaryChallengeHost` inside the normal `AppShell` without Developer Studio present, `#/pilot/challenge` deep-linking (including post-onboarding and browser Back/Forward navigation), suppression of CMS/Sanity diagnostics and unavailable-practice notices, optional study non-requirement, separate non-durable in-memory Challenge save / Scripture save / explicit final-screen completion with zero browser-storage writes, return to previous normal app surface, keyboard operation, and narrow portrait (`320px`, `375px`) + tablet landscape (`1024px`) layouts with large reading text (#44, A2).
 - **Restoration:** Restores clean public build in `dist/` upon completion.
 
 Useful local commands from a clean checkout:
@@ -48,9 +50,10 @@ npm ci
 npx playwright install chromium # Install Chromium browser for Playwright tests
 npm run lint                    # ESLint verification (enforced in CI)
 npm run build                   # Standard production build
-npm run test:smoke              # Dual-pass automated reader regression smoke suite (enforced in CI)
+npm run test:smoke              # Three-pass automated reader regression smoke suite (enforced in CI)
 npm run test:adapter            # CMS adapter & BerryMark preview tests
-npm run dev                     # Manual browser checks, developer tools available
+npm run dev                     # Manual browser checks, developer tools available (pilot off)
+npm run dev:pilot               # Manual browser checks with ordinary-shell Challenge pilot enabled
 
 # Studio (run from repository root)
 cd studio

@@ -12,6 +12,7 @@ import { allFormationEntries, disciplineResources, onePhraseMemorizationEntry, w
 import { entryTypeLabel, WEEKLY_PILOT_CHALLENGE_ID, type ChallengeEntry, type TeachingEntry } from './data/formation'
 import { DisciplineLibraryView, DisciplineResourceView, FormationExperienceView } from './components/FormationViews'
 import { DeveloperStudio } from './components/DeveloperStudio'
+import type { OrdinaryChallengeSessionState } from './components/challenge/ordinaryChallengeHostModel'
 import './App.css'
 
 type PrimaryView = 'today' | 'foundations' | 'archive' | 'more'
@@ -25,6 +26,7 @@ type Detail =
   | { type: 'more'; section: MoreSection }
   | { type: 'developerStudio' }
   | { type: 'challengeLab' }
+  | { type: 'challengePilot' }
   | null
 type Appearance = 'light' | 'dark' | 'system'
 type TextSize = 'compact' | 'default' | 'large'
@@ -44,8 +46,15 @@ type PrototypeState = {
 
 const STORAGE_KEY = 'bibleberry-prototype-v1'
 const developerStudioEnabled = import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEVELOPER_STUDIO === 'true'
+const challengePilotEnabled = import.meta.env.VITE_ENABLE_CHALLENGE_PILOT === 'true'
 const InteractiveChallengeLab = developerStudioEnabled
   ? lazy(() => import('./components/InteractiveChallengeLab').then(module => ({ default: module.InteractiveChallengeLab })))
+  : null
+const OrdinaryChallengePilot = challengePilotEnabled
+  ? lazy(() => import('./pilot/ordinaryChallengePilot').then(module => ({ default: module.OrdinaryChallengePilot })))
+  : null
+const OrdinaryChallengePilotEntryBar = challengePilotEnabled
+  ? lazy(() => import('./pilot/ordinaryChallengePilot').then(module => ({ default: module.OrdinaryChallengePilotEntryBar })))
   : null
 const initialState: PrototypeState = {
   onboarded: false,
@@ -563,6 +572,14 @@ function InformationView({ section, onBack }: { section: 'about' | 'scripture' |
   )
 }
 
+function isPrimaryView(value: unknown): value is PrimaryView {
+  return value === 'today' || value === 'foundations' || value === 'archive' || value === 'more'
+}
+
+function primaryViewLabel(view: PrimaryView): string {
+  return navItems.find(item => item.id === view)?.label ?? 'Today'
+}
+
 function parseInitialRoute(): {
   view: PrimaryView
   detail: Detail
@@ -570,6 +587,17 @@ function parseInitialRoute(): {
   previewDate: string
 } {
   const hash = typeof window !== 'undefined' ? window.location.hash : ''
+  if (challengePilotEnabled && hash === '#/pilot/challenge') {
+    const originView = typeof window !== 'undefined' && isPrimaryView(window.history.state?.originView)
+      ? window.history.state.originView
+      : 'today'
+    return {
+      view: originView,
+      detail: { type: 'challengePilot' },
+      developmentCollection: 'ordinary',
+      previewDate: '',
+    }
+  }
   if (hash.startsWith('#/teaching/')) {
     const id = hash.replace('#/teaching/', '')
     const item = allEntries.find(entry => entry.id === id && entry.entryType === 'teaching')
@@ -611,6 +639,7 @@ export default function App() {
   const [simulatedDate, setSimulatedDate] = useState('')
   const [simulatedLastOpened, setSimulatedLastOpened] = useState<LastOpened | null>(null)
   const [simulatedDismissedDate, setSimulatedDismissedDate] = useState('')
+  const [pilotSession, setPilotSession] = useState<OrdinaryChallengeSessionState | undefined>(undefined)
   const [toast, setToast] = useState('')
   const [resetConfirm, setResetConfirm] = useState(false)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -645,9 +674,50 @@ export default function App() {
     setDetail(null)
     if (destination !== 'more') setPreviewDate('')
     setResetConfirm(false)
-    window.history.replaceState(null, '', window.location.pathname)
+    if (challengePilotEnabled && window.location.hash === '#/pilot/challenge') {
+      window.history.pushState({ bibleberryView: destination }, '', window.location.pathname)
+    } else {
+      window.history.replaceState(null, '', window.location.pathname)
+    }
     scrollTop()
   }, [])
+
+  useEffect(() => {
+    if (!challengePilotEnabled || !state.onboarded) return
+    const syncPilotRoute = () => {
+      const currentHash = window.location.hash
+      if (currentHash === '#/pilot/challenge') {
+        const originView = isPrimaryView(window.history.state?.originView)
+          ? window.history.state.originView
+          : undefined
+        if (originView) setView(originView)
+        setDetail({ type: 'challengePilot' })
+        scrollTop()
+        return
+      }
+      const restored = parseInitialRoute()
+      if (restored.detail) {
+        setView(restored.view)
+        setDetail(restored.detail)
+        setDevelopmentCollection(restored.developmentCollection)
+        setPreviewDate(restored.previewDate)
+        scrollTop()
+        return
+      }
+      const historyView = isPrimaryView(window.history.state?.bibleberryView)
+        ? window.history.state.bibleberryView
+        : undefined
+      if (historyView) setView(historyView)
+      setDetail(previous => (previous?.type === 'challengePilot' ? null : previous))
+      scrollTop()
+    }
+    window.addEventListener('popstate', syncPilotRoute)
+    window.addEventListener('hashchange', syncPilotRoute)
+    return () => {
+      window.removeEventListener('popstate', syncPilotRoute)
+      window.removeEventListener('hashchange', syncPilotRoute)
+    }
+  }, [state.onboarded])
   const openFoundation = (id: string) => {
     const item = foundations.find(f => f.id === id)
     if (!item) return
@@ -692,7 +762,10 @@ export default function App() {
     setDetail(null)
     scrollTop()
     const hash = window.location.hash
-    if (hash.startsWith('#/teaching/')) {
+    if (challengePilotEnabled && hash === '#/pilot/challenge') {
+      window.history.replaceState({ bibleberryPilot: true, originView: destination }, '', '#/pilot/challenge')
+      setDetail({ type: 'challengePilot' })
+    } else if (hash.startsWith('#/teaching/')) {
       const id = hash.replace('#/teaching/', '')
       const item = allEntries.find(entry => entry.id === id && entry.entryType === 'teaching')
       if (item) {
@@ -720,6 +793,7 @@ export default function App() {
     setSimulatedDate('')
     setSimulatedLastOpened(null)
     setSimulatedDismissedDate('')
+    setPilotSession(undefined)
     setView('today')
     setResetConfirm(false)
     window.history.replaceState(null, '', window.location.pathname)
@@ -843,6 +917,20 @@ export default function App() {
     window.history.replaceState(null, '', window.location.pathname)
     scrollTop()
   }
+  const openChallengePilot = () => {
+    if (!challengePilotEnabled) return
+    window.history.replaceState({ ...(window.history.state ?? {}), bibleberryView: view }, '', window.location.href)
+    window.history.pushState({ bibleberryPilot: true, originView: view }, '', '#/pilot/challenge')
+    setDetail({ type: 'challengePilot' })
+    scrollTop()
+  }
+  const exitChallengePilot = () => {
+    setDetail(null)
+    if (window.location.hash === '#/pilot/challenge') {
+      window.history.pushState({ bibleberryView: view }, '', window.location.pathname)
+    }
+    scrollTop()
+  }
 
   const todayKey = simulatedDate || localDateKey()
   const yesterday = simulatedDate ? new Date(`${simulatedDate}T12:00:00`) : new Date()
@@ -900,6 +988,15 @@ export default function App() {
     const resource = disciplineResources.find(item => item.id === detail.id)!
     const relatedSessions = allFormationEntries.filter(entry => resource.relatedSessionIds?.includes(entry.id))
     content = <DisciplineResourceView resource={resource} relatedSessions={relatedSessions} onBack={openDisciplineLibrary} onOpenSession={openEntry} />
+  } else if (detail?.type === 'challengePilot' && challengePilotEnabled && OrdinaryChallengePilot) {
+    content = <Suspense fallback={<div className="standard-page"><p>Opening Challenge…</p></div>}>
+      <OrdinaryChallengePilot
+        sessionState={pilotSession}
+        onSessionStateChange={setPilotSession}
+        returnLabel={`Return to ${primaryViewLabel(view)}`}
+        onExit={exitChallengePilot}
+      />
+    </Suspense>
   } else if (detail?.type === 'challengeLab' && developerStudioEnabled && InteractiveChallengeLab) {
     content = <Suspense fallback={<div className="standard-page"><p>Opening Interactive Challenge Lab…</p></div>}>
       <InteractiveChallengeLab onReturnToStudio={openDeveloperStudio} />
@@ -951,7 +1048,14 @@ export default function App() {
 
   return (
     <div className={`reading-${state.textSize}`}>
-      <AppShell view={view} detail={detail} navigate={navigate}>{content}</AppShell>
+      <AppShell view={view} detail={detail} navigate={navigate}>
+        {challengePilotEnabled && !detail && OrdinaryChallengePilotEntryBar && (
+          <Suspense fallback={null}>
+            <OrdinaryChallengePilotEntryBar onOpenPilot={openChallengePilot} />
+          </Suspense>
+        )}
+        {content}
+      </AppShell>
       <div className={`toast ${toast ? 'is-visible' : ''}`} role="status" aria-live="polite">{toast}<button aria-label="Dismiss notification" onClick={() => setToast('')}><X size={16} /></button></div>
     </div>
   )

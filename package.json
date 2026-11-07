@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:pilot": "VITE_ENABLE_CHALLENGE_PILOT=true vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "test:adapter": "node --experimental-strip-types --test tests/sanity/*.test.ts",

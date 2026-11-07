@@ -53,6 +53,8 @@ test.describe('Shared CMS Challenge Player and Content Blocks (A1)', () => {
     }, PROTOTYPE_STORAGE_KEY);
 
     await page.goto('/');
+    // Enabling Developer Studio alone must not enable the distinct ordinary-shell pilot banner
+    await expect(page.locator('.pilot-entry-bar')).toHaveCount(0);
     await page.locator('.desktop-nav button:has-text("More")').click();
     await page.locator('button.developer-studio-entry').click();
     await page.locator('button:has-text("Open Interactive Challenge Lab")').click();
