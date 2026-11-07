@@ -285,7 +285,7 @@ In Milestone R05 Stage 2B1, the reader-facing catalog data boundary for `GET /ap
    - Supports injectable `fetchImpl`, configured origin, same-origin fallback, and `AbortSignal` cancellation.
    - Kept distinct from the A4.1 `ChallengeCatalogProvider` to decouple lightweight catalog summaries from complete `CmsChallenge` screen trees.
 2. **Typed Catalog Summary Contract (`ReleasedCatalogSummary`):**
-   - Strictly projects discovery-safe fields only: `id` (slug), `slug`, `documentId` (canonical Sanity document ID), `title`, `summary`, `challengeType`, `sequence`, `releaseAt`, `releaseAtUtc`, `series` (`documentId`, `id`, `title`), and `primaryScripture` (`id`, `reference`, `translation`, `textStatus`, `practiceStatus`, `usageRightsConfirmed`, `passage`).
+   - Strictly projects discovery-safe fields only: `id` (slug), `slug`, `documentId` (canonical Sanity document ID), `title`, `summary`, `challengeType` (`CmsChallengeType`), `sequence` (positive integer), `releaseAt`, `releaseAtUtc`, `series` (`documentId`, `id`, `title`), and `primaryScripture` (`id`, `reference`, `translation`, `textStatus`, `practiceStatus`, `usageRightsConfirmed`, `passage`). Aligned with reader detail mapper requirements.
    - Deep allowlist projection excludes private editorial artifacts, `screens`, `blocks`, `unapprovedBlockCount`, `_type`, `_rev`, and `importProvenance`.
 3. **Explicit Result States:**
    - `{ status: 'ready', challenges, source: 'gateway' }`: fully validated catalog summary list.
@@ -295,11 +295,11 @@ In Milestone R05 Stage 2B1, the reader-facing catalog data boundary for `GET /ap
 4. **Validation and Identity Safety:**
    - Enforces non-draft document ID (`_id` must not start with `drafts.`).
    - Detects and rejects duplicate document IDs or duplicate slugs across the catalog.
-   - Validates explicit UTC offset and timestamp syntax; validates primary Scripture rights and text status invariants.
+   - Strictly validates supported reader `challengeType` (`teaching`, `discipline`, `reflection`, `memorization`), positive integer `sequence`, required series, required primary Scripture with usage rights, and reviewed editorial eligibility (`reviewedAt` instant).
    - Never falls back to direct Sanity queries when gateway calls fail.
 5. **Server-Authoritative Release Eligibility:**
    - No client-clock embargo check is performed by the catalog provider. The secure gateway's evaluated release schedule is authoritative.
 6. **Detail-Reader and Participation Integration:**
-   - Provides `loadChallengeDetailForSummary(summary, detailProvider)` enabling a selected summary's slug to be resolved through the existing `ChallengeDetailProvider`.
+   - Provides `loadChallengeDetailForSummary(summary, detailProvider)` requiring `{ slug, documentId }`, verifying that the resolved Challenge's document ID matches the selected catalog summary's `documentId` before returning `ready`, failing closed on document ID mismatch to safeguard canonical `cms:<documentId>` participation identity.
    - Full Challenge documents (with screens and blocks) are loaded only upon explicit selection.
    - Preserves canonical `cms:<documentId>` participation identity and capability token admission (`admitTrustedCatalogChallenge`).

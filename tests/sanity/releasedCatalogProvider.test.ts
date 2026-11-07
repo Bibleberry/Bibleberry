@@ -114,7 +114,6 @@ test('returns ready status with populated, typed catalog summaries', async () =>
     slug: 'living-in-truth',
     title: 'Living in Truth',
     sequence: 2,
-    series: undefined,
     summary: undefined,
   })
 
@@ -147,15 +146,19 @@ test('returns ready status with populated, typed catalog summaries', async () =>
       id: '1-john',
       title: 'Epistle of 1 John',
     })
-    assert.equal(c1.primaryScripture?.reference, '1 John 1:7')
-    assert.equal(c1.primaryScripture?.translation, 'ESV')
-    assert.equal(c1.primaryScripture?.textStatus, 'provided')
-    assert.equal(c1.primaryScripture?.usageRightsConfirmed, true)
+    assert.equal(c1.primaryScripture.reference, '1 John 1:7')
+    assert.equal(c1.primaryScripture.translation, 'ESV')
+    assert.equal(c1.primaryScripture.textStatus, 'provided')
+    assert.equal(c1.primaryScripture.usageRightsConfirmed, true)
 
     const c2 = result.challenges[1]
     assert.equal(c2.id, 'living-in-truth')
     assert.equal(c2.documentId, 'challenge-doc-2')
-    assert.equal(c2.series, undefined)
+    assert.deepEqual(c2.series, {
+      documentId: 'series-doc-uuid-5678',
+      id: '1-john',
+      title: 'Epistle of 1 John',
+    })
     assert.equal(c2.summary, undefined)
   }
 })
@@ -268,7 +271,7 @@ test('returns validationError when response envelope has ok !== true or missing 
 })
 
 // ---------------------------------------------------------------------------
-// 4. Missing, Malformed, or Duplicate Challenge Identities
+// 4. Missing, Malformed, or Duplicate Challenge Identities and Schemas
 // ---------------------------------------------------------------------------
 
 test('returns validationError for missing or blank _id', async () => {
@@ -384,6 +387,153 @@ test('fails closed without returning partial valid catalog when one item is inva
   // Must not return { status: 'ready', challenges: [validItem] }
   assert.equal(result.status, 'validationError')
   assert.equal(result.source, 'gateway')
+})
+
+// ---------------------------------------------------------------------------
+// 4B. Schema Alignment with Detail Reader Mapper (Finding 2 Regression Tests)
+// ---------------------------------------------------------------------------
+
+test('fails closed for unsupported challengeType strings', async () => {
+  const unsupportedTypes = ['quiz', 'interactive', 'video', '']
+  for (const challengeType of unsupportedTypes) {
+    const invalidItem = makeValidGatewayCatalogItem({ challengeType })
+    const mockFetch: typeof fetch = async () =>
+      new Response(JSON.stringify({ ok: true, challenges: [invalidItem] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+
+    const provider = createGatewayCatalogProvider({ fetchImpl: mockFetch })
+    const result = await provider.loadReleasedCatalog()
+
+    assert.equal(result.status, 'validationError', `Should fail for challengeType: ${challengeType}`)
+    assert.equal(result.source, 'gateway')
+  }
+})
+
+test('accepts all four reader-supported challenge types', async () => {
+  const supportedTypes = ['teaching', 'discipline', 'reflection', 'memorization'] as const
+  for (const challengeType of supportedTypes) {
+    const validItem = makeValidGatewayCatalogItem({ challengeType, slug: `slug-${challengeType}` })
+    const mockFetch: typeof fetch = async () =>
+      new Response(JSON.stringify({ ok: true, challenges: [validItem] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+
+    const provider = createGatewayCatalogProvider({ fetchImpl: mockFetch })
+    const result = await provider.loadReleasedCatalog()
+
+    assert.equal(result.status, 'ready')
+    if (result.status === 'ready') {
+      assert.equal(result.challenges[0].challengeType, challengeType)
+    }
+  }
+})
+
+test('fails closed for invalid sequence numbers (0, negative, fractional, or non-numeric)', async () => {
+  const invalidSequences = [0, -1, -100, 1.5, 0.25, NaN, Infinity]
+  for (const sequence of invalidSequences) {
+    const invalidItem = makeValidGatewayCatalogItem({ sequence })
+    const mockFetch: typeof fetch = async () =>
+      new Response(JSON.stringify({ ok: true, challenges: [invalidItem] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+
+    const provider = createGatewayCatalogProvider({ fetchImpl: mockFetch })
+    const result = await provider.loadReleasedCatalog()
+
+    assert.equal(result.status, 'validationError', `Should fail for sequence: ${sequence}`)
+    assert.equal(result.source, 'gateway')
+  }
+})
+
+test('fails closed for missing, null, or malformed series', async () => {
+  const invalidSeriesCases = [
+    undefined,
+    null,
+    {},
+    { _id: '', title: 'Valid Title', slug: 'valid-slug' },
+    { _id: 'series-1', title: '', slug: 'valid-slug' },
+    { _id: 'series-1', title: 'Valid Title', slug: '' },
+  ]
+
+  for (const series of invalidSeriesCases) {
+    const item = makeValidGatewayCatalogItem({ series })
+    const mockFetch: typeof fetch = async () =>
+      new Response(JSON.stringify({ ok: true, challenges: [item] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+
+    const provider = createGatewayCatalogProvider({ fetchImpl: mockFetch })
+    const result = await provider.loadReleasedCatalog()
+
+    assert.equal(result.status, 'validationError')
+    assert.equal(result.source, 'gateway')
+  }
+})
+
+test('fails closed for missing, null, or invalid primaryScripture', async () => {
+  const invalidScriptureCases = [
+    undefined,
+    null,
+    {},
+    // Missing reference
+    { translation: 'ESV', textStatus: 'referenceOnly', practiceStatus: 'notConfigured', usageRightsConfirmed: false },
+    // Missing translation
+    { reference: 'John 1:1', textStatus: 'referenceOnly', practiceStatus: 'notConfigured', usageRightsConfirmed: false },
+    // Provided without passage text
+    { reference: 'John 1:1', translation: 'ESV', textStatus: 'provided', passage: '', usageRightsConfirmed: true, practiceStatus: 'notConfigured' },
+    // Reference-only with passage text
+    { reference: 'John 1:1', translation: 'ESV', textStatus: 'referenceOnly', passage: 'In the beginning', usageRightsConfirmed: true, practiceStatus: 'notConfigured' },
+    // Provided passage without confirmed rights
+    { reference: 'John 1:1', translation: 'ESV', textStatus: 'provided', passage: 'In the beginning', usageRightsConfirmed: false, practiceStatus: 'notConfigured' },
+    // Memorization practice configured without provided text
+    { reference: 'John 1:1', translation: 'ESV', textStatus: 'referenceOnly', practiceStatus: 'configured', usageRightsConfirmed: false },
+  ]
+
+  for (const primaryScripture of invalidScriptureCases) {
+    const item = makeValidGatewayCatalogItem({ primaryScripture })
+    const mockFetch: typeof fetch = async () =>
+      new Response(JSON.stringify({ ok: true, challenges: [item] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+
+    const provider = createGatewayCatalogProvider({ fetchImpl: mockFetch })
+    const result = await provider.loadReleasedCatalog()
+
+    assert.equal(result.status, 'validationError')
+    assert.equal(result.source, 'gateway')
+  }
+})
+
+test('fails closed for missing or unreviewed editorialEligibility or malformed reviewedAt', async () => {
+  const invalidEligibilityCases = [
+    undefined,
+    null,
+    { adaptationReviewed: false, reviewedAt: '2026-11-01T07:00:00Z' },
+    { adaptationReviewed: true, reviewedAt: 'invalid-date' },
+    { adaptationReviewed: true, reviewedAt: '2026-11-01' }, // Missing time / explicit offset
+    { adaptationReviewed: true, reviewedAt: '' },
+  ]
+
+  for (const editorialEligibility of invalidEligibilityCases) {
+    const item = makeValidGatewayCatalogItem({ editorialEligibility })
+    const mockFetch: typeof fetch = async () =>
+      new Response(JSON.stringify({ ok: true, challenges: [item] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+
+    const provider = createGatewayCatalogProvider({ fetchImpl: mockFetch })
+    const result = await provider.loadReleasedCatalog()
+
+    assert.equal(result.status, 'validationError')
+    assert.equal(result.source, 'gateway')
+  }
 })
 
 // ---------------------------------------------------------------------------
@@ -568,10 +718,10 @@ test('catalog summaries do not require complete Challenge screens or blocks', as
 })
 
 // ---------------------------------------------------------------------------
-// 9. Selected Summary Slug Resolving Through Existing Detail-Provider Contract
+// 9. Selected Summary Slug & Document Identity Integration (Finding 1 Regression Tests)
 // ---------------------------------------------------------------------------
 
-test('selected summary slug resolves through existing ChallengeDetailProvider preserving participation identity', async () => {
+test('selected summary slug resolves through ChallengeDetailProvider when documentId matches, preserving participation identity', async () => {
   const catalogItem = makeValidGatewayCatalogItem({
     _id: 'canonical-doc-999',
     slug: 'walking-in-the-light',
@@ -623,6 +773,71 @@ test('selected summary slug resolves through existing ChallengeDetailProvider pr
     assert.equal(admitted?.namespace, 'cms')
     assert.equal(admitted?.challengeId, 'cms:canonical-doc-999')
   }
+})
+
+test('fails closed with validationError when resolved detail documentId does not match selected summary documentId', async () => {
+  // Selected catalog summary expects doc-original-A
+  const selectedSummary = {
+    slug: 'walking-in-the-light',
+    documentId: 'doc-original-A',
+  }
+
+  // But detail endpoint resolves to doc-replaced-B (e.g. document recreation or stale cache)
+  const detailDoc = makeValidGatewayDetailDoc({
+    _id: 'doc-replaced-B',
+    slug: 'walking-in-the-light',
+  })
+
+  const mockDetailFetch: typeof fetch = async () =>
+    new Response(JSON.stringify({ ok: true, challenge: detailDoc }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
+
+  const detailProvider = createGatewayChallengeProvider({ fetchImpl: mockDetailFetch })
+
+  const result = await loadChallengeDetailForSummary(selectedSummary, detailProvider)
+
+  assert.equal(result.status, 'validationError')
+  assert.equal(result.source, 'gateway')
+  if (result.status === 'validationError') {
+    assert.ok(result.failures.length > 0)
+    assert.match(result.failures[0].issues[0].message, /does not match selected catalog document ID/)
+  }
+})
+
+test('fails closed with validationError when selected summary has missing or blank documentId', async () => {
+  const detailProvider = createGatewayChallengeProvider()
+
+  for (const docId of ['', '   ', undefined as unknown as string]) {
+    const result = await loadChallengeDetailForSummary(
+      { slug: 'walking-in-the-light', documentId: docId },
+      detailProvider,
+    )
+
+    assert.equal(result.status, 'validationError')
+    assert.equal(result.source, 'gateway')
+  }
+})
+
+test('passes through non-ready detail provider results (notFound, requestError)', async () => {
+  // 404 Not Found
+  const mock404Fetch: typeof fetch = async () => new Response(null, { status: 404 })
+  const detailProvider404 = createGatewayChallengeProvider({ fetchImpl: mock404Fetch })
+  const result404 = await loadChallengeDetailForSummary(
+    { slug: 'walking-in-the-light', documentId: 'doc-123' },
+    detailProvider404,
+  )
+  assert.equal(result404.status, 'notFound')
+
+  // 502 Upstream Error
+  const mock502Fetch: typeof fetch = async () => new Response(null, { status: 502 })
+  const detailProvider502 = createGatewayChallengeProvider({ fetchImpl: mock502Fetch })
+  const result502 = await loadChallengeDetailForSummary(
+    { slug: 'walking-in-the-light', documentId: 'doc-123' },
+    detailProvider502,
+  )
+  assert.equal(result502.status, 'requestError')
 })
 
 // ---------------------------------------------------------------------------

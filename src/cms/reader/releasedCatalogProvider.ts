@@ -24,14 +24,14 @@ export interface ReleasedCatalogSummary {
   readonly documentId: string
   readonly title: string
   readonly summary?: string
-  readonly challengeType: CmsChallengeType | string
+  readonly challengeType: CmsChallengeType
   readonly sequence: number
   /** Authored release timestamp string */
   readonly releaseAt: string
   /** Normalized UTC release timestamp */
   readonly releaseAtUtc: string
-  readonly series?: ReleasedCatalogSeries
-  readonly primaryScripture?: ReleasedCatalogScripture
+  readonly series: ReleasedCatalogSeries
+  readonly primaryScripture: ReleasedCatalogScripture
 }
 
 export type ReleasedCatalogResult =
@@ -144,18 +144,16 @@ const gatewayCatalogItemSchema = z.object({
   ),
   slug: requiredText,
   title: requiredText,
-  challengeType: requiredText,
-  sequence: z.number().finite(),
+  challengeType: z.enum(['teaching', 'discipline', 'reflection', 'memorization']),
+  sequence: z.number().int().positive(),
   releaseAt: explicitInstant,
   summary: optionalText,
-  series: seriesSchema.nullish(),
-  primaryScripture: scriptureSchema.nullish(),
-  editorialEligibility: z
-    .object({
-      adaptationReviewed: z.literal(true),
-      reviewedAt: z.string().optional(),
-    })
-    .optional(),
+  series: seriesSchema,
+  primaryScripture: scriptureSchema,
+  editorialEligibility: z.object({
+    adaptationReviewed: z.literal(true),
+    reviewedAt: explicitInstant,
+  }),
 })
 
 /**
@@ -164,7 +162,7 @@ const gatewayCatalogItemSchema = z.object({
  *
  * When gateway mode is selected:
  * 1. Server release schedule evaluated by Cloudflare Worker is authoritative (no client-clock embargo check).
- * 2. Response is strictly validated; malformed entries fail closed.
+ * 2. Response is strictly validated against reader-ready requirements; malformed entries fail closed.
  * 3. Never silently falls back to direct Sanity queries.
  * 4. Only safe discovery metadata is exposed (strips all internal review notes, provenance, and draft artifacts).
  */
@@ -291,27 +289,23 @@ export function createGatewayCatalogProvider(
       }
       seenSlugs.add(slug)
 
-      const series: ReleasedCatalogSeries | undefined = item.series
-        ? {
-            documentId: item.series._id.trim(),
-            id: item.series.slug.trim(),
-            title: item.series.title.trim(),
-          }
-        : undefined
+      const series: ReleasedCatalogSeries = {
+        documentId: item.series._id.trim(),
+        id: item.series.slug.trim(),
+        title: item.series.title.trim(),
+      }
 
-      const primaryScripture: ReleasedCatalogScripture | undefined = item.primaryScripture
-        ? {
-            id: `${slug}:primary-scripture`,
-            reference: item.primaryScripture.reference.trim(),
-            translation: item.primaryScripture.translation.trim(),
-            textStatus: item.primaryScripture.textStatus,
-            practiceStatus: item.primaryScripture.practiceStatus,
-            usageRightsConfirmed: item.primaryScripture.usageRightsConfirmed,
-            ...(item.primaryScripture.passage?.trim()
-              ? { passage: item.primaryScripture.passage.trim() }
-              : {}),
-          }
-        : undefined
+      const primaryScripture: ReleasedCatalogScripture = {
+        id: `${slug}:primary-scripture`,
+        reference: item.primaryScripture.reference.trim(),
+        translation: item.primaryScripture.translation.trim(),
+        textStatus: item.primaryScripture.textStatus,
+        practiceStatus: item.primaryScripture.practiceStatus,
+        usageRightsConfirmed: item.primaryScripture.usageRightsConfirmed,
+        ...(item.primaryScripture.passage?.trim()
+          ? { passage: item.primaryScripture.passage.trim() }
+          : {}),
+      }
 
       // Deep allowlist projection: strictly expose only safe discovery fields.
       // Excludes internal review notes, editorialEligibility, screens, blocks, unapprovedBlockCount, etc.
@@ -320,13 +314,13 @@ export function createGatewayCatalogProvider(
         slug,
         documentId: docId,
         title: item.title.trim(),
-        challengeType: item.challengeType.trim(),
+        challengeType: item.challengeType,
         sequence: item.sequence,
         releaseAt: item.releaseAt,
         releaseAtUtc: new Date(item.releaseAt).toISOString(),
+        series,
+        primaryScripture,
         ...(item.summary?.trim() ? { summary: item.summary.trim() } : {}),
-        ...(series ? { series } : {}),
-        ...(primaryScripture ? { primaryScripture } : {}),
       }
 
       mappedSummaries.push(summary)
@@ -360,11 +354,56 @@ export const defaultGatewayCatalogProvider = createGatewayCatalogProvider()
 /**
  * Loads the complete reader-safe Challenge document for a selected catalog summary
  * using the provided or default ChallengeDetailProvider.
+ *
+ * Verifies that the resolved Challenge's document ID strictly matches the selected
+ * summary's canonical document ID. If the gateway detail response resolves to a
+ * different document ID (e.g. from upstream document recreation or a stale catalog),
+ * it fails closed with a validationError to prevent admitting the wrong participation identity.
  */
 export async function loadChallengeDetailForSummary(
-  summary: Pick<ReleasedCatalogSummary, 'slug'>,
+  summary: Pick<ReleasedCatalogSummary, 'slug' | 'documentId'>,
   detailProvider: ChallengeDetailProvider = defaultGatewayChallengeProvider,
   options?: ChallengeDetailProviderOptions,
 ): Promise<ChallengeDetailResult> {
-  return detailProvider.loadChallenge(summary.slug, options)
+  const cleanDocumentId = typeof summary?.documentId === 'string' ? summary.documentId.trim() : ''
+  if (!cleanDocumentId) {
+    return {
+      status: 'validationError',
+      failures: [
+        {
+          issues: [
+            {
+              path: 'documentId',
+              message: 'Selected catalog summary is missing a valid document ID',
+            },
+          ],
+        },
+      ],
+      source: 'gateway',
+    }
+  }
+
+  const result = await detailProvider.loadChallenge(summary.slug, options)
+
+  if (result.status === 'ready') {
+    if (result.challenge.documentId !== cleanDocumentId) {
+      return {
+        status: 'validationError',
+        failures: [
+          {
+            documentId: result.challenge.documentId,
+            issues: [
+              {
+                path: 'documentId',
+                message: `Resolved Challenge document ID "${result.challenge.documentId}" does not match selected catalog document ID "${cleanDocumentId}"`,
+              },
+            ],
+          },
+        ],
+        source: result.source,
+      }
+    }
+  }
+
+  return result
 }
