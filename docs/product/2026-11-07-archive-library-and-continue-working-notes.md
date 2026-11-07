@@ -170,7 +170,7 @@ This distinguishes **an evolving acknowledgement of how much teaching the reader
 
 ### View 1: Years, with all 12 months
 
-The Field Notebook can be browsed by **year → 12 month blocks → that month's earned collectibles**. **Every month block appears in its normal presentation, whether or not the reader participated or earned anything.** Empty months are not grayed out, labeled as missing, or framed as a failure. Tapping a month opens its associated monthly commemorative and thematic discovery cards, if earned. Each card opens its illustrated biblical study or monthly-summary detail screen.
+The Field Notebook can be browsed by **year → 12 month blocks → that month's earned collectibles**. **Every month block appears in its normal presentation, whether or not the reader participated or earned anything.** Empty months are not grayed out, labeled as missing, or framed as a failure. Tapping a month opens its associated full-month Scripture collectible and narrower thematic discovery cards, if earned. Each card opens its illustrated Scripture study detail screen.
 
 A month screen also offers relevant ways to access the underlying teaching: **add that month to the Personal Archive (active workspace)** or **explore it in the Past Teaching Library**. Archive capacity remains three historical months plus the separate current teaching. Past or future availability rules must be respected: never imply that unpublished Challenges can already be studied. Exact action placement and behavior when the month is already active are UI questions.
 
