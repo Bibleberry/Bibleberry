@@ -62,6 +62,23 @@ jobs:
       - name: Run CMS adapter and BerryMark preview tests
         run: npm run test:adapter
 
+  release-gateway-tests:
+    name: Verify Release Gateway core
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Release Gateway tests
+        run: npm run test:gateway
+
   sanity-studio:
     name: Verify Sanity Studio
     runs-on: ubuntu-latest
