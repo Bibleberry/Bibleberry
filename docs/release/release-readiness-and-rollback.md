@@ -43,7 +43,7 @@ This is a **planning classification**, not a decision to add or drop features.
 | --- | --- | --- |
 | **Release channel** | **Installed iOS/Android is the primary product direction (Aaron, Nov 6); hosted web supplementary** | Choose native packaging/runtime (not yet selected), confirm actual app-store deployment scope/sequence, signing, testing devices, review lead times, and launch meaning; decide hosted-web scope and coordination |
 | **Accounts and durable progress** | Optional registration; Supabase direction; Google, Apple and passwordless email-code login; durable accomplishments tied to accounts | Whether authenticated cross-device saves, Challenge completions, Scripture and achievement history are part of *initial* launch; the required migration, recovery, access-control and UX rules. **Do not remove them from launch scope without Aaron's decision** |
-| **Achievement system** | Noncompetitive, nonpunitive, dated accomplishments; design still open | Exact initial collection, calculation rules, visual identity, and approval, or an explicitly approved staged introduction |
+| **Field Notebook / achievement system** | The November 7 **product behavior is substantially settled**: Scripture cards for thematic and complete-month accomplishments, evolving lifetime status, historical Library credit, grouped Notebook and optional combined notifications. **Not implemented or approved for launch.** | Exact initial release scope, assets and Alexis's visual/editorial review, CMS/award contract, sync, tests and phased implementation authorization. Consult [current/historical/open decision status](../product/gamification-and-achievements.md#decision-status-at-a-glance--november-7-2026) |
 | **Challenge formats and initial content** | All dated experiences called Challenges; current prototypes cover several formats | Which formats and editorial corpus ship, publishing cadence, content QA and release-time behavior, and Alexis's approvals |
 | **Production hosting and CMS environment strategy** | Reader build exists; Sanity Studio references a `production` dataset | Host, domain, access controls, preview strategy, separate draft/test content strategy, backups and responsible operator |
 
@@ -51,7 +51,7 @@ This is a **planning classification**, not a decision to add or drop features.
 
 ### C. Post-launch *candidates* (not promises)
 
-Possible later work includes optional time-limited **Special Events** (“Praying the Hours”), evolving collectible designs, and full offline-first synchronization. These are exploratory or explicitly future-facing in existing design documents. None should be implemented because it appears in this plan. Additional priorities depend on Aaron/Alexis's approval and the selected launch channel.
+Possible later work includes specific optional time-limited **Special Experiences** (for example, “Praying the Hours”) and full offline-first synchronization. Specific event production is exploratory; the *evolving lifetime participation status* is already current Field Notebook direction, **not** a speculative ladder of collectible badge designs. None of these items is authorized for implementation merely because it appears in this plan. Additional priorities depend on Aaron/Alexis's approval and the selected launch channel.
 
 ## 4. Environment boundaries (target operating model; not configured yet)
 
