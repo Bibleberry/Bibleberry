@@ -44,7 +44,7 @@ A **first-use onboarding/tutorial experience** was proposed to explain this phil
 
 - Preserves the actual accomplishments, including earned dates, without being a duplicate of the Library or an overwhelming backlog dashboard.
 - **Lifetime milestones count distinct completed Challenges from all three study surfaces**, including the Library, even though the Library hides gameful UI. This is the latest direction reached after explicitly reconsidering whether Library completions should count.
-- Monthly commemoratives and content-derived collections remain part of the established direction. The relationship between silent Library completions, automatic background award issuance, an explicit Archive add action, and *when an award's earned date is assigned* is **not settled**. Do not invent those semantics in code.
+- Monthly commemoratives and content-derived collections remain part of the established direction. **All Challenge completions, including those made directly in the Library, contribute to and may complete monthly commemoratives and thematic mini-collections automatically.** Awards are earned and stored even when gameful progress and notifications are hidden in the Library. **Adding a month to the Personal Archive is not a prerequisite for earning its awards.** Earned cards appear in the Field Notebook, with dates earned; exact award timestamp edge cases and delayed notification behavior remain to be specified.
 - Putting away a month never destroys an already earned award.
 
 ## 3. Hub "Continue" — proposed deterministic behavior
@@ -106,7 +106,7 @@ The earlier open question of historical-month eligibility is being reframed: **a
 ## 6. Questions before product approval and engineering
 
 1. **Membership and availability:** Precise first-use/month activation behavior, including anonymous guests, device loss and returning after inactivity. **Month-end placement is automatic where there's capacity; when full, reader engagement has precedence over calendar recency.** A just-ended month can remain in the Library rather than displace a more recently studied historical month. Qualifying activity is **explicit month addition or Challenge completion**, not merely opening/closing. Re-additions, low/no-activity month comparisons, repeat completions and ties need final definitions.
-2. **Completion versus award eligibility:** Do achievements for a historically completed month get *awarded* while studying silently in Library, or only upon adding the month? What date should each award keep? Ensure no loss or rewriting of genuine earned history.
+2. **Award recording and reveal:** Historical-library completions **do earn** the corresponding full-month and thematic awards without the month being added to the Archive. Define exact earned-date/timestamp semantics and delayed out-of-reader notification behavior, without losing or rewriting earned history.
 3. **Progress preservation:** Define `Put Away` as a visibility/workspace operation rather than deletion. Clarify if removing a month affects only Hub suggestions or other views as well.
 4. **Continue selector:** Confirm a deterministic ordering/recency rule for ties, cross-month gaps, the frontier and manual navigation.
 5. **Onboarding:** Explain that Bibleberry is a **live ministry**, the current teaching is primary, older teaching is accessible, and the Personal Archive is a focused workspace. Use the first month-end transition as an opportunity for a contextual introduction to the Archive, because the reader is likely to seek the material they were just following. UX and wording require separate review.
@@ -166,17 +166,31 @@ These milestones count completed **distinct Challenges**, regardless of whether 
 
 **Still open:** Specific art and card design for the lifetime series, notification behavior outside the reader, and exact title/subtitle treatment at 365 and subsequent year-equivalent milestones. **Post-365 threshold cadence is settled at 365-Challenge increments**; do not add intermediate lifetime awards without a new product decision.
 
-## 9. November 7 Field Notebook information architecture: Year → Month → Collectibles
+## 9. November 7 Field Notebook navigation: Year → Month, and All Earned Cards
 
-> **Reader experience direction agreed in discussion.** This is not an approved visual mockup or a final engineering specification.
+> **Reader experience direction agreed in discussion.** This is not an approved visual mockup or final engineering specification.
 
-Aaron proposed a simple organizing model for the Field Notebook: **select a year → see 12 month blocks → open a month to see that month's accomplishments**. Each month is the home for the monthly completion commemorative and all thematic discovery collectibles associated with that month's teaching. Tapping an individual collectible then opens the more detailed illustrated Scripture/theological card already specified above.
+### View 1: Years, with all 12 months
 
-This is a **collection-oriented, year/month navigation**, not primarily a reverse-chronological feed of completed Challenges. It should scale naturally through years of daily publication.
+The Field Notebook can be browsed by **year → 12 month blocks → that month's earned collectibles**. **Every month block appears in its normal presentation, whether or not the reader participated or earned anything.** Empty months are not grayed out, labeled as missing, or framed as a failure. Tapping a month opens its associated monthly commemorative and thematic discovery cards, if earned. Each card opens its illustrated biblical study or monthly-summary detail screen.
 
-Lifetime distinct-Challenge milestone awards (7, 30, 100, 200, 365, then each 365 additional distinct Challenges) are conceptually separate from publication-month teaching collections; their exact placement within the Notebook remains open. Special Experiences remain earned-only and their section stays hidden until the first earned Special Experience collectible under the November 6 decision.
+A month screen also offers relevant ways to access the underlying teaching: **add that month to the Personal Archive (active workspace)** or **explore it in the Past Teaching Library**. Archive capacity remains three historical months plus the separate current teaching. Past or future availability rules must be respected: never imply that unpublished Challenges can already be studied. Exact action placement and behavior when the month is already active are UI questions.
 
-**Open:** Should the 12 month blocks always be visible for a chosen year, including months with no earned collectibles, or should empty months be omitted/deemphasized? The reader should never see a punitive wall of missing awards. Exact layout, month block appearance, navigation, and art need Alexis's approval. No design or implementation is authorized by this note.
+The year/month hierarchy follows the **publication month that the content and collectibles belong to**, **not necessarily the month in which the award was earned**. For example, someone who completes March's teaching from the Library in October earns March's collectibles, which appear under March of that publication year, with the true October earned date shown on their cards.
+
+### View 2: All Earned Cards
+
+Provide a **separate, easily browsable scrolling view of all collectibles actually earned**, independent of year/month navigation. The motivation: readers may remember an illustrated study card (for example, Jacob's Well) but have no idea which publication month it came from. Tapping a card opens the same detail screen reached through the month view. This is another view into **one collection**, not duplicated copies of awards. The exact card sorting, any filters/search, and how lifetime milestones or Special Experiences appear here remain design questions.
+
+### Silent Library awards, visible Notebook records
+
+**The Library hides all in-context gamification, but it does not disable earning.** Challenge completions there count toward lifetime totals, monthly full-completion commemoratives, and thematic mini-collections exactly as they do elsewhere. Qualifying awards are **recorded and visible in the Field Notebook even if the reader never adds that month to the Personal Archive**. The Library should not show reward progress, celebrations or collector prompts during study. Achievement notifications, if shown, occur outside the active Challenge reading session under the existing decision.
+
+### Other collectible families
+
+Lifetime distinct-Challenge milestone awards (7, 30, 100, 200, 365, then annually in 365-Challenge increments) are conceptually separate from a teaching publication month; their exact Notebook placement remains open. Special Experiences remain **earned-only**, and their dedicated section stays hidden until the first earned Special Experience collectible, consistent with the November 6 decision. Do not show gray missed-special-event placeholders just because the 12-month publication grid is always visible.
+
+**Remaining UI questions:** month-screen layout when nothing has been earned; exact ordering of All Earned Cards; whether search/filter is useful; placement of lifetime milestones and earned Special Experiences; treatment of months that have not yet published; and Alexis's approval of the visual design. No new feature or build work is authorized by this record.
 
 ## Status and process
 
