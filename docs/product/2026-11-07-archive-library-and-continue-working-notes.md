@@ -136,6 +136,12 @@ The earlier open question of historical-month eligibility is being reframed: **a
 
 Aaron reaffirmed that the choice is **not** between distinct monthly artwork and a cohesive collection. **All collectible artwork should share an overarching, recognizable Bibleberry visual style**, with Alexis's actual illustrated Bible-study notebooks as the primary stylistic guidance. Individual subjects, symbols, card images and monthly themes can differ while remaining part of the same artistic family. Do not invent an alternate generic botanical style or require each month to repeat the same image. Specific compositions, templates, palette refinements and the finished artwork remain subject to Alexis's ministry-facing visual approval.
 
+### Monthly illustration requirement and editorial flexibility
+
+**Decided:** Every full-month completion commemorative will have a distinct illustration within Bibleberry's established Alexis-notebook-inspired visual language. **The actual illustrated subject is not decided in advance**; it depends on the biblical teaching, theme and season of that month and remains under Alexis's editorial/visual authority.
+
+**Development boundary:** The software should support a per-month illustration and corresponding commemorative card content as ordinary configurable editorial assets. Choosing or producing that illustration is **not a prerequisite to designing the reusable card behavior** and must not constrain the month's Challenges. No specific month's artwork, illustration production plan or final UI has been approved here.
+
 ### Different card types
 
 Lifetime Challenge milestones and Special Experience commemoratives may need their own simpler participation-focused card treatments. **Do not assume they require exegetical summaries or that every collectible has the same card template.** Their details remain open.
