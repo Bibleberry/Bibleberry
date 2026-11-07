@@ -1,8 +1,8 @@
 # November 7, 2026 — Personal Archive, Past Teaching Library and Continue
 
-> **Status: PROVISIONAL WORKING DESIGN, NOT A FINAL PRODUCT APPROVAL OR IMPLEMENTATION SPECIFICATION**
+> **Status as of November 7: MIXED DECISION RECORD.** The **Field Notebook card, browsing, lifetime-status, notification, award-eligibility and routine month-finalization behaviors are settled product direction**, not merely speculative brainstorming. The **Archive/Hub Continue model contains settled principles and still-open edge cases**. This file is a record of reasoning and decisions, **not an implementation specification or authorization**.
 >
-> This note records the direction of Aaron's November 7 product conversation. It preserves examples, reasoning and questions without instructing engineering agents to implement anything. If revised, update the canonical [Gamification and Achievements](gamification-and-achievements.md) register and relevant roadmap/architecture records only after further product decisions.
+> **Use the [canonical decision-status map](gamification-and-achievements.md#decision-status-at-a-glance--november-7-2026)** for the explicit split between **CURRENT WORKING MODEL**, **HISTORICAL / SUPERSEDED**, and **OPEN / NOT YET APPROVED**. Earlier language in this running note (such as “monthly commemorative” and milestone badges) is chronology, not a competing specification; the later November 7 refinements supersede it.
 >
 > **No UI, data model, CMS, account, gamification or launch-scope work is authorized by this document.**
 
