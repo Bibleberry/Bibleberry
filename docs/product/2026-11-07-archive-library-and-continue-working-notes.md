@@ -183,9 +183,16 @@ The year/month hierarchy follows the **publication month that the content and co
 
 This rule concerns **achievements associated with that publication month**, not arbitrary lifetime participation statuses earned on a date within the month. Edge cases such as a month containing no thematic mini-collections can be handled in normal UI specifications.
 
-### View 2: All Earned Cards
+### View 2: All Earned Cards, organized in collectible families
 
-Provide a **separate, easily browsable scrolling view of all collectibles actually earned**, independent of year/month navigation. The motivation: readers may remember an illustrated study card (for example, Jacob's Well) but have no idea which publication month it came from. Tapping a card opens the same detail screen reached through the month view. This is another view into **one collection**, not duplicated copies of awards. **Default gallery order: most recently earned first** (reverse chronological by actual earned date), so the newest accomplishment is at the top, regardless of which publication month its teaching belongs to. Aaron accepted this as a sensible baseline, observing that we cannot predict every way a reader might later want to find a card. Search, filtering and alternate sorts are not required by this decision; their need can be assessed later. **Lifetime participation statuses are not permanent cards and therefore do not accumulate in this gallery.** Placement of earned Special Experiences in the gallery remains open.
+Provide a **separate, browsable scrolling view of every collectible actually earned**, independent of knowing its source month. Aaron clarified that **All Earned Cards should be divided into coherent groups** so related cards stay together:
+
+- **Monthly Challenges** (working group label): includes full-month completion commemoratives and the thematic discovery cards drawn from that month's Challenges.
+- **Special Experiences**: includes only the time-limited special event cards the reader has earned. The group **does not appear until at least one Special Experience card has been earned**, consistent with the existing earned-only rule.
+
+Within each group, default to **newest earned first** (actual earned date), preserving the earlier preference for most recent accomplishments at the top without interleaving special-event cards among monthly cards. This refines the earlier global newest-first ordering. One card opens the same illustrated theological detail from either this gallery or its publication-month view; these are views of the **same earned record**, not duplicates.
+
+Readers can find a remembered illustrated subject without knowing its publication month. Search, filtering and alternative sort controls have not been established as needed. **Lifetime participation statuses are evolving headings/status, not permanent cards**, and therefore do not accumulate in All Earned Cards. The exact section title and visual grouping treatment await design review.
 
 ### Silent Library awards, visible Notebook records
 
@@ -197,7 +204,7 @@ Rather than a dedicated Lifetime Achievements page, a **single current lifetime 
 
 Special Experiences remain **earned-only**, and their dedicated section stays hidden until the first earned Special Experience collectible, consistent with the November 6 decision. Do not show gray missed-special-event placeholders just because the 12-month publication grid is always visible.
 
-**Remaining UI questions:** visual treatment of month details with no earned cards (remaining goals become visible only after earning an achievement associated with the month); whether readers later need search/filter or alternative sorting; exact lifetime status wording and placement, whether to show the current distinct-Challenge total, and placement of earned Special Experiences; treatment of months that have not yet published; and Alexis's approval of the visual design. The default All Earned Cards order is now decided as newest earned first. No new feature or build work is authorized by this record.
+**Remaining UI questions:** visual treatment of month details with no earned cards (remaining goals become visible only after earning an achievement associated with the month); whether readers later need search/filter or alternative sorting; exact lifetime status wording and placement, whether to show the current distinct-Challenge total, and final visual treatment of the grouped earned-card gallery; treatment of months that have not yet published; and Alexis's approval of the visual design. The default All Earned Cards order is now decided as newest earned first. No new feature or build work is authorized by this record.
 
 ## Status and process
 
