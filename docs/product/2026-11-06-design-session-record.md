@@ -1,5 +1,7 @@
 # November 6, 2026 — Bibleberry Product Design Session Record
 
+> **HISTORICAL SNAPSHOT — November 6 positions are preserved as they stood on that date, not as the current Field Notebook specification.** In particular, this document's open mini-collection reward questions, lifetime badge/seal explorations, generic monthly commemorative wording, and listed remaining decisions were **revised or answered on November 7**. Do not interpret them as open or approved now. Consult the [November 7 canonical decision-status map](gamification-and-achievements.md#decision-status-at-a-glance--november-7-2026) and [working notes](2026-11-07-archive-library-and-continue-working-notes.md).
+>
 > **Decision-history archive, not an implementation authorization**
 > **Scope:** Gamification research synthesis, five design divergences, Field Notebook, Hub, Special Experiences, Bible translations, memorization and Biblical Discovery.
 > **Participants:** Aaron Waid with ChatGPT as design/research synthesizer; research supplied by Gemini Argon and an independent ChatGPT evidence audit. Alexis Waid's own notebook examples were provided as visual references but no new approval from Alexis is claimed.
