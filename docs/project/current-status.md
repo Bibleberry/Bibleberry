@@ -11,6 +11,14 @@
 
 > **Read this at the start of a new AI session**, then verify anything relevant against the **current** GitHub branches, Issues, PRs and source code before making decisions or assignments. This is a maintained summary, **not an automatic reflection of GitHub**. It must not be mistaken for proof that tests, access controls, deployments or approvals have occurred. Last reconciled means the date of the documented review, not continuous monitoring.
 
+## November 7, 2026: Field Notebook product-document reconciliation (not an engineering build claim)
+
+The latest Bibleberry **Field Notebook product behaviors** were clarified in [draft PR #51](https://github.com/ContraPhilosophy/Bibleberry/pull/51). Consult the [canonical current/historical/open decision-status map](../product/gamification-and-achievements.md#decision-status-at-a-glance--november-7-2026) **on PR #51's branch until merged**, plus the [November 7 Archive/Hub working notes](../product/2026-11-07-archive-library-and-continue-working-notes.md).
+
+Current direction: historical active Archive capacity is **zero to three months plus current month**; Library Challenges can earn awards without Archive activation; monthly thematic and full-month rewards are **substantive Scripture collectible cards**, not certificates; lifetime completion is **one evolving Notebook status**, not accumulated badges. The year/month Notebook and All Earned Cards grouping are decided. Notification persistence, New indicators, optional announcements, and ordinary finalized-month corrections are also decided. **Some Archive rotation/Hub Continue rules and Alexis's visual review remain open.**
+
+**Authority warning:** The [November 6 decision record](../product/2026-11-06-design-session-record.md), [November 6 A3 handoff](handoffs/2026-11-06-a3-mobile-first.md) and original [Issue #22](https://github.com/ContraPhilosophy/Bibleberry/issues/22) contain accurate *as-of-then* ideas, some superseded. Do not use their older achievements/field-notebook passages to override the November 7 current model. **PR #51 is a draft, unmerged documentation proposal as of this checkpoint**; do not treat its contents as implementation authorization. This addendum does not re-audit or change the engineering baseline dated below.
+
 ## November 6, 2026: end-of-day A3 and native-app-first checkpoint
 
 **Verified GitHub at this scoped check:** Bibleberry main `f2461e4edfdfeff62e2a0578489428b0f8f33a4f`; BerryMark main `d94d5fa01d7b423650527d00f802ee0356362c6f`; **zero open Bibleberry PRs**. A3 branch `feat/46-reader-participation-state` existed at the same SHA as main, so no A3 implementation was yet confirmed remotely. Later branch/PR activity must be rechecked. Bibleberry [A1 PR #42](https://github.com/ContraPhilosophy/Bibleberry/pull/42), [A2 PR #45](https://github.com/ContraPhilosophy/Bibleberry/pull/45), and product docs [#43](https://github.com/ContraPhilosophy/Bibleberry/pull/43)/[#47](https://github.com/ContraPhilosophy/Bibleberry/pull/47) were merged.
@@ -25,7 +33,7 @@
 
 A separate November 6 conversation **resolved all five gamification research divergences**, accepted **Biblical Discovery** in place of dedicated weekly WEBP memorization, and refined the Hub, Field Notebook, Special Experiences, and intentional WEBP translation direction. Those changes are preserved in:
 
-- **[Gamification and Achievements](../product/gamification-and-achievements.md):** lifetime distinct-completion progress, monthly mini-collections/commemoratives, selected visible goals, earned-only time-limited Special Experiences, Hub's temporary “New Discoveries” indicator, Alexis-derived notebook design direction and open rules.
+- **[Gamification and Achievements](../product/gamification-and-achievements.md):** the November 6 position at the time, **later refined by November 7**. For current behavior see the new decision-status map above; former permanent lifetime badge / generic monthly commemorative concepts are not current design.
 - **[Biblical Discovery and Scripture](../product/biblical-discovery-and-scripture.md):** WEBP as a deliberate primary in-app translation, flexible Sunday Biblical Discovery, Argon's 12 candidate approaches, translation-independent reader-owned-Bible explorations as optional concepts, and possible self-directed memorization guidance without an integrated launch memorization engine.
 - **[November 6 Design Session](../product/2026-11-06-design-session-record.md):** durable chronology, research inputs, decisions, exact remaining questions and distinctions between approved direction and exploratory ideas.
 
