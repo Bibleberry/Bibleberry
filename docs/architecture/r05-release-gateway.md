@@ -1,0 +1,243 @@
+# Architecture: Secure CMS Release Gateway (Milestone R05)
+
+**Status:** Approved for Stage 1 Core Implementation  
+**Review Status:** Reviewed and accepted by ChatGPT; authorized by Aaron Waid  
+**Primary Implementation Agent:** Gemini Flash  
+**Parent Roadmap Milestone:** R05 (Secure server-enforced scheduled release)  
+**Parent Issue:** [#25](https://github.com/ContraPhilosophy/Bibleberry/issues/25)  
+
+---
+
+## 1. Overview and Purpose
+
+Bibleberry requires a server-enforced content release gateway to support an advance editorial pipeline (roughly 30 days of queued teaching; minimum 14 days) while ensuring readers receive each Challenge only on or after its intended release date.
+
+In Milestone A4.1, client-side release gating verified that the ordinary reader app shell does not render unreleased or unreviewed Challenges. However, client-side gating controls only presentation; because public dataset queries can be inspected in browser network tooling, client gating cannot provide source confidentiality or true embargo protection.
+
+Milestone R05 introduces a **server-authoritative Cloudflare Worker content gateway** that sits between reader clients and a private Sanity dataset. The gateway:
+1. Retains server-side read credentials (`SANITY_READ_TOKEN`), ensuring no private tokens ever reach client code.
+2. Evaluates release eligibility and editorial review authoritatively on the server using UTC timestamps.
+3. Excludes future-scheduled, unreviewed, or withdrawn Challenges entirely from network responses (zero manuscript leakage).
+4. Projects and sanitizes payloads, stripping internal review notes, provenance, and draft artifacts.
+5. Preserves canonical Challenge identities (`cms:<documentId>`) and screen keys (`_key`) to ensure 100% compatibility with the existing `ChallengePlayer` and A3 guest participation system.
+
+---
+
+## 2. Gateway Endpoints and HTTP Contract
+
+The gateway is a stateless, read-only Cloudflare Worker-compatible request handler accepting only `GET` and `OPTIONS` requests:
+
+- `GET /api/challenges`:
+  - Returns a lightweight array of summary records for all published Challenges that are currently released (i.e. `releaseAt <= now`) and editorially reviewed (`adaptationReviewed === true`).
+  - Used for catalog indexes, discovery, and availability lists.
+  - Future-scheduled, unreviewed, or withdrawn Challenges are strictly omitted from the array.
+
+- `GET /api/challenges/:slug`:
+  - Returns the complete reader-safe document for the single Challenge matching `:slug`.
+  - If the Challenge exists but is future-scheduled (`releaseAt > now`), unreviewed (`adaptationReviewed !== true`), or missing, the gateway returns `404 Not Found`.
+  - Public-facing unavailable responses are deliberately indistinguishable to prevent leaking whether an unreleased slug exists.
+  - Response body on 404:
+    ```json
+    {
+      "ok": false,
+      "error": {
+        "kind": "notFound",
+        "message": "Challenge not found"
+      }
+    }
+    ```
+
+- `OPTIONS`:
+  - Handles CORS preflight requests with appropriate allow headers.
+
+- Unsupported Methods (`POST`, `PUT`, `DELETE`, `PATCH`):
+  - Returns `405 Method Not Allowed` with `Allow: GET, OPTIONS`.
+
+- Unrecognized Paths:
+  - Returns `404 Not Found`.
+
+---
+
+## 3. Server-Enforced Release Eligibility and GROQ Queries
+
+### 3.1 Authoritative Server Clock
+The gateway computes the current UTC instant on the server:
+```ts
+const nowUtc = new Date().toISOString()
+```
+Client-supplied headers (e.g. `Date`, client query parameters) are ignored for release gating.
+
+### 3.2 Parameterized GROQ Queries
+Queries are parameterized to prevent injection and ensure server-side filtering:
+
+**Catalog Query (`GET /api/challenges`):**
+```groq
+*[_type == "challenge"
+  && !(_id in path("drafts.**"))
+  && editorialReview.adaptationReviewed == true
+  && defined(releaseAt)
+  && dateTime(releaseAt) <= dateTime($nowUtc)
+] | order(releaseAt asc) {
+  _id,
+  _type,
+  title,
+  "slug": slug.current,
+  challengeType,
+  "series": series->{
+    _id,
+    title,
+    "slug": slug.current
+  },
+  sequence,
+  releaseAt,
+  summary,
+  primaryScripture{
+    reference,
+    translation,
+    textStatus,
+    passage,
+    usageRightsConfirmed,
+    practiceStatus
+  },
+  "editorialEligibility": {
+    "adaptationReviewed": editorialReview.adaptationReviewed,
+    "reviewedAt": editorialReview.reviewedAt
+  }
+}
+```
+
+**Single Challenge Query (`GET /api/challenges/:slug`):**
+```groq
+*[_type == "challenge"
+  && !(_id in path("drafts.**"))
+  && slug.current == $slug
+  && editorialReview.adaptationReviewed == true
+  && defined(releaseAt)
+  && dateTime(releaseAt) <= dateTime($nowUtc)
+][0] {
+  _id,
+  _type,
+  title,
+  "slug": slug.current,
+  challengeType,
+  "series": series->{
+    _id,
+    title,
+    "slug": slug.current
+  },
+  sequence,
+  releaseAt,
+  summary,
+  primaryScripture{
+    reference,
+    translation,
+    textStatus,
+    passage,
+    usageRightsConfirmed,
+    practiceStatus
+  },
+  "screens": screens[]{
+    _key,
+    _type,
+    screenLabel,
+    heading,
+    "blocks": blocks[]{
+      _key,
+      _type,
+      scripture{
+        reference,
+        translation,
+        textStatus,
+        passage,
+        usageRightsConfirmed,
+        practiceStatus
+      },
+      body,
+      text,
+      label,
+      left{title, body},
+      right{title, body},
+      footer,
+      cards[]{_key, _type, title, body},
+      steps[]{_key, _type, title, body},
+      cycle,
+      returnCaption,
+      conclusion,
+      question,
+      choices[]{_key, _type, label, prompt},
+      closing,
+      title,
+      scriptures[]{
+        _key,
+        _type,
+        reference,
+        translation,
+        textStatus,
+        passage,
+        usageRightsConfirmed,
+        practiceStatus
+      },
+      paragraphs,
+      reviewStatus
+    }
+  },
+  "companionLinks": companionLinks[]{
+    _key,
+    _type,
+    provider,
+    label,
+    description,
+    url,
+    availability
+  },
+  "editorialEligibility": {
+    "adaptationReviewed": editorialReview.adaptationReviewed,
+    "reviewedAt": editorialReview.reviewedAt
+  }
+}
+```
+
+### 3.3 Server-Side Post-Validation and Projection
+Before returning any payload to the client, the gateway performs secondary validation:
+1. Re-verifies `editorialEligibility.adaptationReviewed === true`.
+2. Re-verifies `Date.parse(releaseAt) <= Date.now()`.
+3. Verifies that all structured editorial blocks requiring review (`comparisonBlock`, `visualCardsBlock`, `connectedSequenceBlock`, `reflectionBlock`, `optionalStudyBlock`) have `reviewStatus === 'approved'`. If any unapproved block is present, the Challenge fails closed.
+4. Strips all internal metadata: `editorialReview.reviewNotes`, `editorialReview.sourceRevision`, `editorialReview.reviewedBy`, and `importProvenance`.
+
+---
+
+## 4. Stage 1 Caching Specification
+
+For **Stage 1**, all successful content responses and error responses return:
+```http
+Cache-Control: no-store
+```
+- **Rationale:** Prevents caching of embargo boundaries during initial integration, eliminates stale-release risk, and simplifies testing. Stale-while-revalidate and fixed-window caching are deliberately omitted in Stage 1.
+- **Future Caching Considerations (Post-Stage 1):**
+  - Edge caching with short TTL (e.g. `s-maxage=60`) bounded by `Math.min(60, secondsToNextRelease)`.
+  - Immediate withdrawal mechanism via Sanity webhook or Cloudflare API purge on unpublish/edit.
+  - Upstream query caching (Cloudflare KV or cache API).
+
+---
+
+## 5. Private-Dataset Testing Considerations
+
+- **Sanity Behavior Correction:** An unauthenticated request to a private Sanity dataset does **not** necessarily return HTTP 401 or 403; Sanity documents that private dataset reads without a token or with insufficient permissions may return HTTP 200 with an empty `result: []` array.
+- **Stage 1 Testing Strategy:** Stage 1 tests rely on deterministic, mock upstream responses simulating:
+  - Valid token with released documents.
+  - Valid token with future-scheduled documents.
+  - Token authentication failures / upstream HTTP errors (401, 403, 500, 503).
+  - Empty results.
+  - Upstream network errors and malformed JSON payloads.
+- Testing against the live private dataset is deferred to the authorized infrastructure stage (Stage 3).
+
+---
+
+## 6. Compatibility with Existing Reader and Participation System
+
+The gateway output conforms exactly to the data contract established in Milestone B1 (`src/cms/sanity/`):
+- `_id` is preserved as the canonical Sanity document ID.
+- `slug` is preserved as the reader presentation slug.
+- `screens[]._key` is preserved for step identity.
+- Client mapper `mapPublishedChallengeBatch` and admission helper `admitReleasedCmsChallenge` operate unchanged.
+- Durable participation keys remain `cms:<documentId>` in `bibleberry-reader-participation-v1`.
