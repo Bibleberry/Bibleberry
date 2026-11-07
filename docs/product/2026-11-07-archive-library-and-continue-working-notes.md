@@ -148,24 +148,24 @@ Lifetime Challenge milestones and Special Experience commemoratives may need the
 
 **Open product/editorial questions:** How many reference verses belong on a card, whether quoted WEBP verses are full/partial, whether Scripture saving is available within cards, creation/review process and CMS data shape, how cards display on small screens, and which awards notify readers outside Challenge sessions. These are not approved implementation details.
 
-## 8. November 7 exploration: long-term anniversaries rather than escalating completion ladders
+## 8. November 7 refinement: completed-Challenge equivalents for long-term milestones
 
-> **Exploratory preference; anniversary eligibility is NOT yet decided.**
+> **Explicit clarification of the intended measure; exact final thresholds, names and presentation remain product-design work.**
 
-After discussing substantive thematic discovery cards and monthly commemorative summary cards, Aaron questioned whether a prominent long-term series of distinct Challenge-count milestones would remain poignant or interesting for years. He proposed a smaller **time-based anniversary series** to recognize a reader's relationship with the ongoing Bibleberry ministry:
+Aaron initially suggested evocative labels such as **One Week**, **One Month**, **Three Months**, **Six Months**, **One Year**, and a new annual award for each subsequent year. He then explicitly clarified that **these are NOT calendar anniversaries counted from the day someone first uses the app**.
 
-- One week
-- One month
-- Three months
-- Six months
-- One year
-- A commemorative each subsequent year
+They represent the **cumulative quantity of distinct daily Challenges completed**. For example:
 
-This is an emerging **alternative to emphasizing large lifetime Challenge count ladders**, not yet an approved replacement for the November 6 primary distinct-completions progression decision. The underlying distinct Challenge completion facts still matter irrespective of whether collectible milestones are based on volume.
+- **One Week** = 7 daily Challenges completed.
+- **One Month** = 30 daily Challenges completed.
+- **Three Months** = 90 daily Challenges completed.
+- **Six Months / One Year / later annual equivalents** = longer cumulative Challenge-completion thresholds; determine exact numbers deliberately before implementing, rather than treating month lengths and leap years as settled here.
 
-**Main unresolved product question:** Does the anniversary measure calendar time since the reader's first app use (including absences), cumulative months of actual participation, or some other engagement-based interval? For example, should someone who opened the app once and returns one year later receive the first-year commemorative? Avoid accidentally creating punitive consecutive-day streak requirements while answering this.
+The names evoke the scale of a daily-teaching commitment, **not elapsed membership time, unbroken calendar attendance, or consecutively published dates**. Completing Challenges over a longer period still counts, and a Challenge completed in the historical Library still contributes to lifetime distinct-completion progress even though Library gamification is hidden. Completing the same Challenge twice must not inflate the total.
 
-Artwork, names, card treatment, earned dates, onboarding connection and the precise relationship of anniversary collectibles to lifetime completion records all remain open. Do not implement anniversary eligibility from this note.
+This clarification changes the earlier note about "anniversary" collectibles: **do not design a one-year-of-membership award triggered merely by the passage of a calendar year**. The collectible direction is participation-volume recognition with accessible, meaningful labels rather than an indefinite arbitrary numerical badge ladder.
+
+**Open questions:** exact thresholds for the longer equivalents; whether the daily Challenge publication cadence ever includes zero/multiple Challenges on a date; badge/art direction for these milestones; and how this layer coexists visually with monthly commemoratives and themed discovery collectibles. No implementation authorization is granted.
 
 ## Status and process
 
