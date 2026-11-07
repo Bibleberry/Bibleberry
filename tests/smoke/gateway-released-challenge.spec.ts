@@ -409,4 +409,119 @@ test.describe('Gateway-Backed Released Challenge Integration (R05 Stage 2A)', ()
     await expect(page.locator('.lab-challenge-header h1')).toHaveText('Challenge B (Target)')
     expect(sanityRequestCount).toBe(0)
   })
+
+  test('renders, navigates, saves bookmark, and completes released Challenge when client device clock is set before release date', async ({
+    page,
+  }) => {
+    // Challenge release is scheduled for Nov 2, 2026.
+    // Client device clock is artificially set to Nov 1, 2026 (before release).
+    // Because the secure gateway returned HTTP 200, the server authorization is authoritative
+    // and desynchronized client time must not block the reader.
+    await page.clock.setFixedTime(new Date('2026-11-01T00:00:00Z'))
+
+    await page.route('**/api/challenges/**', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          challenge: makeMockGatewayChallenge({
+            releaseAt: '2026-11-02T09:00:00-05:00',
+          }),
+        }),
+      })
+    })
+
+    await page.addInitScript(storageKey => {
+      localStorage.setItem(
+        storageKey,
+        JSON.stringify({
+          onboarded: true,
+          appearance: 'system',
+          textSize: 'default',
+          reminderEnabled: false,
+          reminderTime: '08:00',
+          explored: [],
+          journey: [],
+          lastOpened: null,
+          resumeDismissedDate: '',
+        }),
+      )
+    }, PROTOTYPE_STORAGE_KEY)
+
+    await page.goto('/#/challenge/walking-in-the-light')
+
+    // Must render the Challenge even though client clock is set prior to releaseAt
+    await expect(page.locator('.lab-challenge-header h1')).toHaveText('Walking in the Light')
+    await expect(page.locator('.lab-screen .eyebrow')).toHaveText('Step 1')
+    await expect(page.locator('.lab-screen h2')).toHaveText('First Step Heading')
+
+    // Bookmark / Save the Challenge
+    await page.locator('.lab-save-challenge').click()
+
+    // Advance to Screen 2
+    await page.locator('.lab-screen-nav button:has-text("Continue")').click()
+    await expect(page.locator('.lab-screen .eyebrow')).toHaveText('Step 2')
+
+    // Complete the Challenge
+    await page.locator('.lab-screen-nav button:has-text("Complete Challenge")').click()
+    await expect(page.locator('.lab-completion')).toBeVisible()
+
+    // Verify stored participation under canonical cms:<documentId>
+    const stored = await page.evaluate(key => {
+      const raw = localStorage.getItem(key)
+      return raw ? JSON.parse(raw) : null
+    }, PARTICIPATION_STORAGE_KEY)
+
+    expect(stored.data.completedChallenges['cms:mock-gateway-challenge-doc-1']).toBeDefined()
+    expect(stored.data.savedChallenges['cms:mock-gateway-challenge-doc-1']).toBeDefined()
+    expect(sanityRequestCount).toBe(0)
+  })
+
+  test('displays neutral unavailable empty state on HTTP 404 even when client device clock is set far in the future', async ({
+    page,
+  }) => {
+    // Client device clock is set far into the future (year 2099)
+    await page.clock.setFixedTime(new Date('2099-01-01T00:00:00Z'))
+
+    await page.route('**/api/challenges/**', async route => {
+      await route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: false,
+          error: { kind: 'notFound', message: 'Challenge not found' },
+        }),
+      })
+    })
+
+    await page.addInitScript(storageKey => {
+      localStorage.setItem(
+        storageKey,
+        JSON.stringify({
+          onboarded: true,
+          appearance: 'system',
+          textSize: 'default',
+          reminderEnabled: false,
+          reminderTime: '08:00',
+          explored: [],
+          journey: [],
+          lastOpened: null,
+          resumeDismissedDate: '',
+        }),
+      )
+    }, PROTOTYPE_STORAGE_KEY)
+
+    await page.goto('/#/challenge/unreleased-future-challenge')
+
+    // Neutral not-found state displayed; must not reveal release dates or say "Not yet released"
+    await expect(page.locator('.empty-state h2')).toHaveText('Challenge not found')
+    await expect(page.locator('.empty-state p')).toContainText('unreleased-future-challenge')
+    await expect(page.locator('.empty-state p')).toContainText('is not available in the catalog')
+
+    // Zero manuscript leakage
+    await expect(page.locator('.lab-challenge-header')).toHaveCount(0)
+    await expect(page.locator('.lab-screen')).toHaveCount(0)
+    expect(sanityRequestCount).toBe(0)
+  })
 })

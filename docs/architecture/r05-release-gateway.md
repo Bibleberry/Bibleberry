@@ -273,4 +273,7 @@ In Milestone R05 Stage 2A, the ordinary reader Challenge route (`#/challenge/:sl
    - `useEffect` in `ReleasedChallengeHost` tracks `slug`, triggers `AbortController.abort()` on slug changes, resets state to loading, and ignores stale promises.
    - `deriveReleasedChallengeDetailState` validates `challenge.id === slug` before admitting.
 4. **Participation Preservation:**
-   - Capability admission (`admitReleasedCmsChallenge`) and `PersistedChallengeHost` continue to store durable records under `cms:<documentId>`.
+   - Capability admission (`admitTrustedCatalogChallenge` on the gateway path, `admitReleasedCmsChallenge` on the catalog path) and `PersistedChallengeHost` continue to store durable records under canonical `cms:<documentId>`.
+5. **Release Clock Authority Distinction:**
+   - **Gateway Source (`source: 'gateway'`): Server-Authoritative Release Gate.** When the Cloudflare Worker responds with HTTP 200, the server's evaluated release schedule is authoritative. The client verifies document mapping, slug match, editorial review confirmation (`adaptationReviewed === true`), release timestamp syntax, and mints capability admission via `admitTrustedCatalogChallenge(challenge)`. A desynchronized or incorrectly set client device clock (e.g. running slow/behind `releaseAtUtc`) cannot veto or delay server-authorized releases.
+   - **Legacy Catalog Source (`source: 'catalog'`): Client-Authoritative Release Gate.** Direct Sanity catalog reads bypass the Worker gateway and continue to evaluate `evaluateChallengeReleaseEligibility(challenge, now)` and `admitReleasedCmsChallenge(challenge, now)` against client device time. Arbitrary catalog results cannot bypass the client release gate.

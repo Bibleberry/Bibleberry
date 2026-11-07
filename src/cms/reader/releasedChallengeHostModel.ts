@@ -4,6 +4,7 @@ import { CMS_EDITORIAL_TIME_ZONE } from '../sanity/presentation.ts'
 import type { CmsChallenge } from '../sanity/types.ts'
 import {
   admitReleasedCmsChallenge,
+  admitTrustedCatalogChallenge,
   type AdmittedChallenge,
 } from '../../participation/admission.ts'
 import type { ChallengeDetailResult } from './challengeDetailProvider.ts'
@@ -140,6 +141,47 @@ export function deriveReleasedChallengeDetailState(
     return { status: 'notFound', slug }
   }
 
+  // Gateway-authorized content: The Cloudflare Worker gateway has already evaluated release
+  // eligibility at query time using the authoritative server clock and GROQ release constraints.
+  // An desynchronized or incorrectly set client device clock must NOT veto a server-authorized release.
+  //
+  // We still enforce:
+  // 1. Editorial review confirmation (adaptationReviewed === true)
+  // 2. Syntactically valid release timestamp
+  // 3. Document identity, screen uniqueness, and capability token minting via admitTrustedCatalogChallenge
+  if (detailResult.source === 'gateway') {
+    if (challenge.editorial?.adaptationReviewed !== true) {
+      return {
+        status: 'ineligible',
+        slug,
+        reason: 'unreviewed',
+      }
+    }
+
+    const releaseMs = Date.parse(challenge.releaseAtUtc)
+    if (Number.isNaN(releaseMs)) {
+      return {
+        status: 'ineligible',
+        slug,
+        reason: 'invalidTimestamp',
+      }
+    }
+
+    const admittedChallenge = admitTrustedCatalogChallenge(challenge)
+    if (!admittedChallenge) {
+      return { status: 'admissionFailed', slug }
+    }
+
+    return {
+      status: 'ready',
+      challenge,
+      admittedChallenge,
+    }
+  }
+
+  // Legacy direct-Sanity catalog path (A4.1 fallback):
+  // Direct client queries to Sanity do not pass through a server release gateway,
+  // so client-side release eligibility (evaluating embargo against `now`) is strictly enforced.
   const eligibility = evaluateChallengeReleaseEligibility(challenge, now)
   if (!eligibility.isEligible) {
     if (eligibility.reason === 'embargoed') {

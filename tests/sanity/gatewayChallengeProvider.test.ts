@@ -77,6 +77,7 @@ test('requests same-origin relative path /api/challenges/:slug when no baseUrl i
 
   assert.equal(capturedUrl, '/api/challenges/walking-in-the-light')
   assert.equal(result.status, 'ready')
+  assert.equal(result.source, 'gateway')
   if (result.status === 'ready') {
     assert.equal(result.challenge.id, 'walking-in-the-light')
     assert.equal(result.challenge.documentId, 'challenge-doc-uuid-1234')
@@ -345,10 +346,12 @@ test('adaptCatalogProviderToDetailProvider translates catalog results accurately
   const adaptedReady = adaptCatalogProviderToDetailProvider(readyCatalog)
   const readyResult = await adaptedReady.loadChallenge('catalog-challenge-1')
   assert.equal(readyResult.status, 'ready')
+  assert.equal(readyResult.source, 'catalog')
 
   // Case B: Catalog ready but slug is missing
   const missingResult = await adaptedReady.loadChallenge('missing-slug')
   assert.equal(missingResult.status, 'notFound')
+  assert.equal(missingResult.source, 'catalog')
 
   // Case C: Catalog empty
   const emptyCatalog: ChallengeCatalogProvider = {
@@ -357,6 +360,7 @@ test('adaptCatalogProviderToDetailProvider translates catalog results accurately
   const adaptedEmpty = adaptCatalogProviderToDetailProvider(emptyCatalog)
   const emptyResult = await adaptedEmpty.loadChallenge('any-slug')
   assert.equal(emptyResult.status, 'notFound')
+  assert.equal(emptyResult.source, 'catalog')
 
   // Case D: Catalog requestError
   const errorCatalog: ChallengeCatalogProvider = {
@@ -365,6 +369,7 @@ test('adaptCatalogProviderToDetailProvider translates catalog results accurately
   const adaptedError = adaptCatalogProviderToDetailProvider(errorCatalog)
   const errorResult = await adaptedError.loadChallenge('any-slug')
   assert.equal(errorResult.status, 'requestError')
+  assert.equal(errorResult.source, 'catalog')
   if (errorResult.status === 'requestError') {
     assert.equal(errorResult.message, 'Sanity network error')
   }
@@ -379,4 +384,5 @@ test('adaptCatalogProviderToDetailProvider translates catalog results accurately
   const adaptedValidation = adaptCatalogProviderToDetailProvider(validationCatalog)
   const validationResult = await adaptedValidation.loadChallenge('any-slug')
   assert.equal(validationResult.status, 'validationError')
+  assert.equal(validationResult.source, 'catalog')
 })

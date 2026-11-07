@@ -5,13 +5,27 @@ import {
   type ChallengeCatalogProvider,
 } from './catalogProvider.ts'
 
+export type ChallengeAuthorizationSource = 'gateway' | 'catalog'
+
 export type ChallengeDetailResult =
-  | { readonly status: 'ready'; readonly challenge: CmsChallenge }
-  | { readonly status: 'notFound' }
-  | { readonly status: 'requestError'; readonly message: string }
+  | {
+      readonly status: 'ready'
+      readonly challenge: CmsChallenge
+      readonly source: ChallengeAuthorizationSource
+    }
+  | {
+      readonly status: 'notFound'
+      readonly source?: ChallengeAuthorizationSource
+    }
+  | {
+      readonly status: 'requestError'
+      readonly message: string
+      readonly source?: ChallengeAuthorizationSource
+    }
   | {
       readonly status: 'validationError'
       readonly failures: readonly ChallengeMappingFailure[]
+      readonly source?: ChallengeAuthorizationSource
     }
 
 export interface ChallengeDetailProviderOptions {
@@ -58,7 +72,7 @@ export function createGatewayChallengeProvider(
     async loadChallenge(slug: string, options?: ChallengeDetailProviderOptions): Promise<ChallengeDetailResult> {
       const cleanSlug = typeof slug === 'string' ? slug.trim() : ''
       if (!cleanSlug) {
-        return { status: 'notFound' }
+        return { status: 'notFound', source: 'gateway' }
       }
 
       const rawBase = options?.baseUrl ?? configuredBaseUrl
@@ -87,13 +101,14 @@ export function createGatewayChallengeProvider(
 
       if (response.status === 404) {
         // Unreleased, embargoed, or nonexistent Challenge: return neutral unavailable state
-        return { status: 'notFound' }
+        return { status: 'notFound', source: 'gateway' }
       }
 
       if (response.status >= 500) {
         return {
           status: 'requestError',
           message: 'Content gateway unavailable',
+          source: 'gateway',
         }
       }
 
@@ -101,6 +116,7 @@ export function createGatewayChallengeProvider(
         return {
           status: 'requestError',
           message: `Gateway returned HTTP ${response.status}`,
+          source: 'gateway',
         }
       }
 
@@ -120,6 +136,7 @@ export function createGatewayChallengeProvider(
               ],
             },
           ],
+          source: 'gateway',
         }
       }
 
@@ -144,6 +161,7 @@ export function createGatewayChallengeProvider(
               ],
             },
           ],
+          source: 'gateway',
         }
       }
 
@@ -154,12 +172,14 @@ export function createGatewayChallengeProvider(
         return {
           status: 'validationError',
           failures: [mapping.failure],
+          source: 'gateway',
         }
       }
 
       return {
         status: 'ready',
         challenge: mapping.challenge,
+        source: 'gateway',
       }
     },
   }
@@ -176,7 +196,7 @@ export function adaptCatalogProviderToDetailProvider(
     async loadChallenge(slug: string, options?: ChallengeDetailProviderOptions): Promise<ChallengeDetailResult> {
       const cleanSlug = typeof slug === 'string' ? slug.trim() : ''
       if (!cleanSlug) {
-        return { status: 'notFound' }
+        return { status: 'notFound', source: 'catalog' }
       }
 
       try {
@@ -185,25 +205,26 @@ export function adaptCatalogProviderToDetailProvider(
         })
 
         if (catalogResult.status === 'requestError') {
-          return { status: 'requestError', message: catalogResult.message }
+          return { status: 'requestError', message: catalogResult.message, source: 'catalog' }
         }
 
         if (catalogResult.status === 'validationError') {
-          return { status: 'validationError', failures: catalogResult.failures }
+          return { status: 'validationError', failures: catalogResult.failures, source: 'catalog' }
         }
 
         if (catalogResult.status === 'empty') {
-          return { status: 'notFound' }
+          return { status: 'notFound', source: 'catalog' }
         }
 
         const challenge = catalogResult.challenges.find(c => c.id === cleanSlug)
         if (!challenge) {
-          return { status: 'notFound' }
+          return { status: 'notFound', source: 'catalog' }
         }
 
         return {
           status: 'ready',
           challenge,
+          source: 'catalog',
         }
       } catch (err: unknown) {
         if (err instanceof DOMException && err.name === 'AbortError') {
@@ -212,6 +233,7 @@ export function adaptCatalogProviderToDetailProvider(
         return {
           status: 'requestError',
           message: err instanceof Error ? err.message : 'Error loading Challenge catalog',
+          source: 'catalog',
         }
       }
     },
