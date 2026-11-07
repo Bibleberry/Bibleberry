@@ -21,6 +21,8 @@ const sharedEntryPoints = [
   'src/components/challenge/challengePlayerModel.ts',
   'src/components/challenge/OrdinaryChallengeHost.tsx',
   'src/components/challenge/ordinaryChallengeHostModel.ts',
+  'src/participation/PersistedChallengeHost.tsx',
+  'src/participation/persistedChallengeHostModel.ts',
 ]
 
 const forbiddenModules = [
@@ -36,6 +38,10 @@ const forbiddenModules = [
   'src/components/DeveloperStudio.tsx',
   'src/data/interactiveChallenges.ts',
   'src/pilot/ordinaryChallengePilot.tsx',
+  'src/pilot/participationPilot.tsx',
+  'src/pilot/participationPilotModel.ts',
+  'src/participation/defaultGuestStore.ts',
+  'src/participation/drivers/webLocalStorageDriver.ts',
   'src/App.tsx',
 ]
 
@@ -185,6 +191,34 @@ test('ordinary-shell pilot module uses OrdinaryChallengeHost without Lab, fixtur
     const target = relative(repositoryRoot, resolve(dirname(resolve(repositoryRoot, pilotFile)), specifier))
     assert.equal(
       forbiddenModules.includes(target),
+      false,
+      `${pilotFile} must not import ${target}`,
+    )
+  }
+})
+
+test('participation persistence pilot module uses PersistedChallengeHost without Lab, fixture, network, or direct browser-storage coupling', () => {
+  const pilotFile = 'src/pilot/participationPilot.tsx'
+  const rawPilot = readFileSync(resolve(repositoryRoot, pilotFile), 'utf8')
+  const executablePilot = stripComments(pilotFile, rawPilot)
+
+  assert.match(rawPilot, /from '\.\.\/participation\/PersistedChallengeHost\.tsx'/)
+  for (const [pattern, description] of forbiddenSourcePatterns) {
+    assert.doesNotMatch(executablePilot, pattern, `${pilotFile} contains ${description}`)
+  }
+
+  const disallowedPilotTargets = forbiddenModules.filter(
+    entry => entry !== 'src/pilot/participationPilotModel.ts',
+  )
+  for (const { specifier } of collectImports(pilotFile, rawPilot)) {
+    if (!specifier.startsWith('.')) {
+      const pkg = specifier.startsWith('@') ? specifier.split('/').slice(0, 2).join('/') : specifier.split('/')[0]
+      assert.ok(allowedPackages.has(pkg), `unexpected package in ${pilotFile}: ${pkg}`)
+      continue
+    }
+    const target = relative(repositoryRoot, resolve(dirname(resolve(repositoryRoot, pilotFile)), specifier))
+    assert.equal(
+      disallowedPilotTargets.includes(target),
       false,
       `${pilotFile} must not import ${target}`,
     )

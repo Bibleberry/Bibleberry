@@ -29,9 +29,9 @@ The current GitHub Actions workflow `.github/workflows/ci.yml` runs on PRs into 
 
 ### Automated Reader Regression Smoke Suite (`npm run test:smoke`)
 
-Enforced in the required `reader-app` CI job and runnable locally, this suite runs automated Playwright Chromium end-to-end tests across three distinct build passes with strict directory cleaning between them:
+Enforced in the required `reader-app` CI job and runnable locally, this suite runs automated Playwright Chromium end-to-end tests across four distinct build passes with strict directory cleaning between them:
 - **Pass 1 (Public Production Bundle):** Builds standard reader via `npm run build` and tests:
-  - `tests/smoke/build-isolation.spec.ts`: Asserts complete absence of Developer Studio and ordinary-shell Challenge pilot navigation, inert `#/pilot/challenge` route fallback, and exclusion of Lab, preview, and pilot code chunks (`InteractiveChallengeLab`, `SanityChallengeLab`, `BerryMarkLocalPreview`, `ordinaryChallengePilot`) and synthetic fixture/pilot payloads from the production bundle (R12 / Section 5).
+  - `tests/smoke/build-isolation.spec.ts`: Asserts complete absence of Developer Studio, ordinary-shell Challenge pilot, and participation persistence pilot navigation, inert `#/pilot/challenge` and `#/pilot/participation` route fallback, local data reset clearing `bibleberry-reader-participation-v1`, and exclusion of Lab, preview, and pilot code chunks (`InteractiveChallengeLab`, `SanityChallengeLab`, `BerryMarkLocalPreview`, `ordinaryChallengePilot`, `participationPilot`) and synthetic fixture/pilot payloads from the production bundle (R12 / Section 5).
   - `tests/smoke/navigation.spec.ts`: Tests onboarding flow (Colossians 3:16 to Today), standard returning reader startup, 4-tab app navigation (Today, Foundations, Archive, More), and direct shared teaching link navigation preserving target entry.
   - `tests/smoke/today-resume.spec.ts`: Tests Today activity recording into `localStorage`, journey activity rendering, and returning reader resume card actions (Return, Continue, Jump to today).
   - `tests/smoke/memorization.spec.ts`: Tests Sunday pilot Scripture memorization phrase-reveal practice, incremental phrase reveals, and clean resets (R08).
@@ -40,6 +40,8 @@ Enforced in the required `reader-app` CI job and runnable locally, this suite ru
   - `tests/smoke/cms-challenge-player.spec.ts`: Tests shared `ChallengePlayer` and all nine CMS content block views against rights-safe synthetic fixture data, developer diagnostic retention, stable screen-ID resume and invalid screen-ID clamping, optional study/reflection non-requirement, reference-only Scripture metadata persistence, idempotent final-screen completion, 3-store namespace isolation (`bibleberry-sanity-challenge-lab-v1`), and narrow portrait layout with large reading text (R04, R05, R09, R10, R12, R13).
 - **Pass 3 (Pilot-Enabled Ordinary Shell Bundle):** Builds ordinary-shell pilot bundle with `VITE_ENABLE_CHALLENGE_PILOT=true npm run build` (without `VITE_ENABLE_DEVELOPER_STUDIO`) and tests:
   - `tests/smoke/ordinary-challenge-pilot.spec.ts`: Tests opening `ChallengePlayer` via `OrdinaryChallengeHost` inside the normal `AppShell` without Developer Studio present, `#/pilot/challenge` deep-linking (including post-onboarding and browser Back/Forward navigation), suppression of CMS/Sanity diagnostics and unavailable-practice notices, optional study non-requirement, separate non-durable in-memory Challenge save / Scripture save / explicit final-screen completion with zero browser-storage writes, return to previous normal app surface, keyboard operation, and narrow portrait (`320px`, `375px`) + tablet landscape (`1024px`) layouts with large reading text (#44, A2).
+- **Pass 4 (Participation-Pilot-Enabled Bundle):** Builds isolated persistence pilot bundle with `VITE_ENABLE_PARTICIPATION_PILOT=true npm run build` (without `VITE_ENABLE_DEVELOPER_STUDIO` or `VITE_ENABLE_CHALLENGE_PILOT`) and tests:
+  - `tests/smoke/participation-pilot.spec.ts`: Tests `PersistedChallengeHost` and the durable participation store across full browser reloads via `#/pilot/participation`, verifying screen-ID resume across reload, `Back` to Screen 1 retaining durable `inProgress` status across reload, independent Challenge bookmarking and normalized reference-only Scripture saving (`'Not configured' -> null`, zero passage text persisted), explicit final-screen completion incrementing distinct completed count once and clearing `inProgress`, reread starting cleanly on Screen 1 without inflating completion count, isolated storage namespace (`bibleberry-participation-pilot-v1` only), and local app data reset (#46, A3).
 - **Restoration:** Restores clean public build in `dist/` upon completion.
 
 Useful local commands from a clean checkout:
@@ -50,10 +52,11 @@ npm ci
 npx playwright install chromium # Install Chromium browser for Playwright tests
 npm run lint                    # ESLint verification (enforced in CI)
 npm run build                   # Standard production build
-npm run test:smoke              # Three-pass automated reader regression smoke suite (enforced in CI)
-npm run test:adapter            # CMS adapter & BerryMark preview tests
-npm run dev                     # Manual browser checks, developer tools available (pilot off)
+npm run test:smoke              # Four-pass automated reader regression smoke suite (enforced in CI)
+npm run test:adapter            # CMS adapter, participation domain/store, & BerryMark preview tests
+npm run dev                     # Manual browser checks, developer tools available (pilots off)
 npm run dev:pilot               # Manual browser checks with ordinary-shell Challenge pilot enabled
+npm run dev:participation-pilot # Manual browser checks with isolated participation persistence pilot enabled
 
 # Studio (run from repository root)
 cd studio

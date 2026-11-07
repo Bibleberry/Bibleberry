@@ -6,11 +6,13 @@ import {
 } from './challengePlayerModel.ts'
 
 /**
- * Pure, storage-free session state model for the ordinary-shell ChallengePlayer host (Issue #44, A2).
+ * Pure, storage-free state & action controller model for the ordinary-shell ChallengePlayer host
+ * (Issue #44 A2, extended in Issue #46 A3 with an explicit external-store `'actions'` mode).
  *
- * Scope boundary: A2 intentionally keeps position, Challenge save, Scripture save, and explicit
- * completion as separate, non-durable in-memory state. Durable canonical Challenge identity,
- * completion timestamps, persistent local storage, and future account sync belong to A3.
+ * Scope boundary: `ordinaryChallengeHostModel` and `OrdinaryChallengeHost` remain completely
+ * storage-free. In-memory callers use `'controlled'` or `'uncontrolled'` session state, while
+ * durable store-backed hosts (`PersistedChallengeHost`) drive `'actions'` mode (`viewState` +
+ * `actions`) without coupling the player host to any persistence adapter.
  */
 
 export type OrdinarySavedScripture = {
@@ -25,8 +27,25 @@ export type OrdinaryChallengeSessionState = {
   screenId: string | undefined
   isSaved: boolean
   isCompleted: boolean
+  isInProgress: boolean
   /** Reference metadata only — passage text is never copied into host state. */
   savedScriptures: OrdinarySavedScripture[]
+}
+
+export type OrdinaryChallengeViewState = {
+  screenId: string | undefined
+  isSaved: boolean
+  isCompleted: boolean
+  isInProgress?: boolean
+  isScriptureSaved: (scripture: CmsScripture) => boolean
+}
+
+export type OrdinaryChallengeActions = {
+  onScreenChange: (screenId: string) => void
+  onToggleSaveChallenge: () => void
+  onToggleSaveScripture: (scripture: CmsScripture) => void
+  onComplete: () => void
+  onStartProgress?: () => void
 }
 
 export type OrdinaryChallengeStateController =
@@ -34,6 +53,11 @@ export type OrdinaryChallengeStateController =
     mode: 'controlled'
     state: OrdinaryChallengeSessionState
     onStateChange: (next: OrdinaryChallengeSessionState) => void
+  }
+  | {
+    mode: 'actions'
+    viewState: OrdinaryChallengeViewState
+    actions: OrdinaryChallengeActions
   }
   | {
     mode: 'uncontrolled'
@@ -45,6 +69,7 @@ export function emptyOrdinaryChallengeSessionState(): OrdinaryChallengeSessionSt
     screenId: undefined,
     isSaved: false,
     isCompleted: false,
+    isInProgress: false,
     savedScriptures: [],
   }
 }
@@ -53,7 +78,29 @@ export function resolveOrdinaryChallengeStateController(input: {
   state?: OrdinaryChallengeSessionState
   onStateChange?: ((next: OrdinaryChallengeSessionState) => void) | undefined
   initialState?: OrdinaryChallengeSessionState
+  viewState?: OrdinaryChallengeViewState
+  actions?: OrdinaryChallengeActions
 }): OrdinaryChallengeStateController {
+  if (input.viewState !== undefined || input.actions !== undefined) {
+    if (input.viewState === undefined || input.actions === undefined) {
+      throw new TypeError('OrdinaryChallengeHost requires both viewState and actions together.')
+    }
+    if (
+      input.state !== undefined
+      || input.onStateChange !== undefined
+      || input.initialState !== undefined
+    ) {
+      throw new TypeError(
+        'OrdinaryChallengeHost does not accept state, onStateChange, or initialState when viewState and actions are provided.',
+      )
+    }
+    return {
+      mode: 'actions',
+      viewState: input.viewState,
+      actions: input.actions,
+    }
+  }
+
   if (input.state !== undefined) {
     if (typeof input.onStateChange !== 'function') {
       throw new TypeError('OrdinaryChallengeHost requires onStateChange when state is provided.')
@@ -108,14 +155,21 @@ export function isOrdinaryScriptureSaved(
   return entries.some(entry => entry.key === key)
 }
 
+export function startOrdinaryChallengeProgress(
+  state: OrdinaryChallengeSessionState,
+): OrdinaryChallengeSessionState {
+  if (state.isCompleted || state.isInProgress) return state
+  return { ...state, isInProgress: true }
+}
+
 export function setOrdinaryChallengeScreen(
   challenge: Pick<ChallengePlayerChallenge, 'screens'>,
   state: OrdinaryChallengeSessionState,
   screenId: string,
 ): OrdinaryChallengeSessionState {
   if (!challenge.screens.some(screen => screen.id === screenId)) return state
-  if (state.screenId === screenId) return state
-  return { ...state, screenId }
+  if (state.screenId === screenId && state.isInProgress) return state
+  return { ...state, screenId, isInProgress: true }
 }
 
 export function toggleOrdinaryChallengeSaved(
@@ -150,5 +204,5 @@ export function completeOrdinaryChallenge(
 ): OrdinaryChallengeSessionState {
   const position = challengePlayerPosition(challenge.screens, state.screenId)
   if (!canCompleteChallenge(position, state.isCompleted)) return state
-  return { ...state, isCompleted: true }
+  return { ...state, isCompleted: true, isInProgress: false }
 }

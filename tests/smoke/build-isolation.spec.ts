@@ -47,9 +47,21 @@ test.describe('Build Isolation and Public Production Verification', () => {
     await expect(devStudioButton).not.toBeVisible();
     await expect(page.locator('.pilot-entry-bar')).toHaveCount(0);
 
-    // Visiting the pilot hash route in the public bundle must be inert on both hash navigation and initial load
+    // Visiting the pilot hash routes in the public bundle must be inert on both hash navigation and initial load
     await page.goto('/#/pilot/challenge');
     await expect(page.locator('.more-page')).toBeVisible();
+    await expect(page.locator('.pilot-entry-bar')).toHaveCount(0);
+    await expect(page.locator('.pilot-disclosure')).toHaveCount(0);
+    await expect(page.locator('.challenge-reader-page')).toHaveCount(0);
+
+    await page.reload();
+    await expect(page.locator('#daily-teaching')).toBeVisible();
+    await expect(page.locator('.pilot-entry-bar')).toHaveCount(0);
+    await expect(page.locator('.pilot-disclosure')).toHaveCount(0);
+    await expect(page.locator('.challenge-reader-page')).toHaveCount(0);
+
+    await page.goto('/#/pilot/participation');
+    await expect(page.locator('#daily-teaching')).toBeVisible();
     await expect(page.locator('.pilot-entry-bar')).toHaveCount(0);
     await expect(page.locator('.pilot-disclosure')).toHaveCount(0);
     await expect(page.locator('.challenge-reader-page')).toHaveCount(0);
@@ -70,7 +82,8 @@ test.describe('Build Isolation and Public Production Verification', () => {
         f.startsWith('InteractiveChallengeLab') ||
         f.startsWith('SanityChallengeLab') ||
         f.startsWith('BerryMarkLocalPreview') ||
-        f.startsWith('ordinaryChallengePilot'),
+        f.startsWith('ordinaryChallengePilot') ||
+        f.startsWith('participationPilot'),
     );
     expect(nonPublicChunk).toBeUndefined();
 
@@ -85,14 +98,20 @@ test.describe('Build Isolation and Public Production Verification', () => {
       'Open Interactive Challenge Lab',
       'bibleberry-interactive-challenge-lab-v1',
       'bibleberry-sanity-challenge-lab-v1',
+      'bibleberry-participation-pilot-v1',
       'Structural Adapter Fixture',
       'Development Fixture Preview',
       'BerryMark Local Preview',
       'Synthetic Player Pilot',
+      'Synthetic Participation Pilot',
       'pilot-synthetic-ordinary-shell-a2',
+      'a3-persistence-sample',
       '#/pilot/challenge',
+      '#/pilot/participation',
       'Open Challenge pilot',
+      'Open participation pilot',
       'TECHNICAL PILOT · NOT PUBLISHED CONTENT',
+      'TECHNICAL PILOT · ISOLATED PERSISTENCE',
     ];
 
     for (const jsFile of jsFiles) {
@@ -101,6 +120,31 @@ test.describe('Build Isolation and Public Production Verification', () => {
         expect(content).not.toContain(marker);
       }
     }
+
+    // 4. Verify Privacy -> Reset local app data also clears durable reader participation storage
+    await page.evaluate(() => {
+      localStorage.setItem('bibleberry-reader-participation-v1', JSON.stringify({
+        schemaVersion: 1,
+        data: {
+          completedChallenges: {
+            'cms:berrymark-challenge-2026-11-02-rejoice-always': { completedOn: '2026-11-05' },
+          },
+          inProgressChallenges: {},
+          savedChallenges: {},
+          savedScriptures: [],
+          lastOpenedChallenge: null,
+        },
+      }));
+    });
+    await page.locator('.app-shell nav button:has-text("More")').first().click();
+    await page.locator('.more-list button:has-text("Privacy & local data")').click();
+    await page.locator('.reset-zone button:has-text("Reset local app data")').click();
+    await page.locator('.confirm-panel button:has-text("Erase & reset")').click();
+    await expect(page.locator('.onboarding')).toBeVisible();
+    const clearedParticipation = await page.evaluate(() =>
+      localStorage.getItem('bibleberry-reader-participation-v1'),
+    );
+    expect(clearedParticipation).toBeNull();
 
     expect(uncaughtErrors).toEqual([]);
   });

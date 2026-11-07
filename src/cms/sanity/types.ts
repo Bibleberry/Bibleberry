@@ -98,8 +98,15 @@ export type CmsCompanionLink = {
 }
 
 export type CmsChallenge = {
-  /** Canonical reader identity. This deliberately remains a string, not a prototype ID union. */
+  /**
+   * Reader route/presentation slug (`slug.current`). Frozen once imported under BerryMark's
+   * create-only Sanity importer (`PR #11`); not used as the durable participation storage key.
+   */
   id: string
+  /**
+   * Published Sanity base document `_id` (without `drafts.`). Canonical durable reader
+   * participation identity in `src/participation/` is derived from this field (`cms:<documentId>`).
+   */
   documentId: string
   title: string
   challengeType: CmsChallengeType

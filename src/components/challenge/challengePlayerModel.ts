@@ -20,6 +20,7 @@ export type ChallengePlayerLabels = {
   progressHeading?: string
   progress?: string
   navigation?: string
+  startChallenge?: string
 }
 
 export type ChallengePlayerCopy = {
@@ -29,6 +30,7 @@ export type ChallengePlayerCopy = {
   navigationAriaLabel: string
   completionMessage: string
   navigationNote: string
+  startChallengeButton: string
 }
 
 export function resolveChallengePlayerCopy(options: {
@@ -47,6 +49,7 @@ export function resolveChallengePlayerCopy(options: {
     navigationNote: diagnostics
       ? 'Optional studies, reflection choices, and companion links never change required progress. Revisiting does not automatically complete a Challenge.'
       : 'Optional studies, reflection choices, and companion links are never required. Revisiting does not automatically complete a Challenge.',
+    startChallengeButton: labels.startChallenge ?? 'Start Challenge',
   }
 }
 

@@ -13,6 +13,7 @@ import { entryTypeLabel, WEEKLY_PILOT_CHALLENGE_ID, type ChallengeEntry, type Te
 import { DisciplineLibraryView, DisciplineResourceView, FormationExperienceView } from './components/FormationViews'
 import { DeveloperStudio } from './components/DeveloperStudio'
 import type { OrdinaryChallengeSessionState } from './components/challenge/ordinaryChallengeHostModel'
+import { defaultGuestParticipationStore } from './participation/defaultGuestStore'
 import './App.css'
 
 type PrimaryView = 'today' | 'foundations' | 'archive' | 'more'
@@ -27,6 +28,7 @@ type Detail =
   | { type: 'developerStudio' }
   | { type: 'challengeLab' }
   | { type: 'challengePilot' }
+  | { type: 'participationPilot' }
   | null
 type Appearance = 'light' | 'dark' | 'system'
 type TextSize = 'compact' | 'default' | 'large'
@@ -47,6 +49,7 @@ type PrototypeState = {
 const STORAGE_KEY = 'bibleberry-prototype-v1'
 const developerStudioEnabled = import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEVELOPER_STUDIO === 'true'
 const challengePilotEnabled = import.meta.env.VITE_ENABLE_CHALLENGE_PILOT === 'true'
+const participationPilotEnabled = import.meta.env.VITE_ENABLE_PARTICIPATION_PILOT === 'true'
 const InteractiveChallengeLab = developerStudioEnabled
   ? lazy(() => import('./components/InteractiveChallengeLab').then(module => ({ default: module.InteractiveChallengeLab })))
   : null
@@ -55,6 +58,12 @@ const OrdinaryChallengePilot = challengePilotEnabled
   : null
 const OrdinaryChallengePilotEntryBar = challengePilotEnabled
   ? lazy(() => import('./pilot/ordinaryChallengePilot').then(module => ({ default: module.OrdinaryChallengePilotEntryBar })))
+  : null
+const ParticipationPilot = participationPilotEnabled
+  ? lazy(() => import('./pilot/participationPilot').then(module => ({ default: module.ParticipationPilot })))
+  : null
+const ParticipationPilotEntryBar = participationPilotEnabled
+  ? lazy(() => import('./pilot/participationPilot').then(module => ({ default: module.ParticipationPilotEntryBar })))
   : null
 const initialState: PrototypeState = {
   onboarded: false,
@@ -598,6 +607,17 @@ function parseInitialRoute(): {
       previewDate: '',
     }
   }
+  if (participationPilotEnabled && hash === '#/pilot/participation') {
+    const originView = typeof window !== 'undefined' && isPrimaryView(window.history.state?.originView)
+      ? window.history.state.originView
+      : 'today'
+    return {
+      view: originView,
+      detail: { type: 'participationPilot' },
+      developmentCollection: 'ordinary',
+      previewDate: '',
+    }
+  }
   if (hash.startsWith('#/teaching/')) {
     const id = hash.replace('#/teaching/', '')
     const item = allEntries.find(entry => entry.id === id && entry.entryType === 'teaching')
@@ -674,7 +694,10 @@ export default function App() {
     setDetail(null)
     if (destination !== 'more') setPreviewDate('')
     setResetConfirm(false)
-    if (challengePilotEnabled && window.location.hash === '#/pilot/challenge') {
+    if (
+      (challengePilotEnabled && window.location.hash === '#/pilot/challenge')
+      || (participationPilotEnabled && window.location.hash === '#/pilot/participation')
+    ) {
       window.history.pushState({ bibleberryView: destination }, '', window.location.pathname)
     } else {
       window.history.replaceState(null, '', window.location.pathname)
@@ -683,15 +706,24 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (!challengePilotEnabled || !state.onboarded) return
+    if ((!challengePilotEnabled && !participationPilotEnabled) || !state.onboarded) return
     const syncPilotRoute = () => {
       const currentHash = window.location.hash
-      if (currentHash === '#/pilot/challenge') {
+      if (challengePilotEnabled && currentHash === '#/pilot/challenge') {
         const originView = isPrimaryView(window.history.state?.originView)
           ? window.history.state.originView
           : undefined
         if (originView) setView(originView)
         setDetail({ type: 'challengePilot' })
+        scrollTop()
+        return
+      }
+      if (participationPilotEnabled && currentHash === '#/pilot/participation') {
+        const originView = isPrimaryView(window.history.state?.originView)
+          ? window.history.state.originView
+          : undefined
+        if (originView) setView(originView)
+        setDetail({ type: 'participationPilot' })
         scrollTop()
         return
       }
@@ -708,7 +740,11 @@ export default function App() {
         ? window.history.state.bibleberryView
         : undefined
       if (historyView) setView(historyView)
-      setDetail(previous => (previous?.type === 'challengePilot' ? null : previous))
+      setDetail(previous =>
+        previous?.type === 'challengePilot' || previous?.type === 'participationPilot'
+          ? null
+          : previous,
+      )
       scrollTop()
     }
     window.addEventListener('popstate', syncPilotRoute)
@@ -765,6 +801,9 @@ export default function App() {
     if (challengePilotEnabled && hash === '#/pilot/challenge') {
       window.history.replaceState({ bibleberryPilot: true, originView: destination }, '', '#/pilot/challenge')
       setDetail({ type: 'challengePilot' })
+    } else if (participationPilotEnabled && hash === '#/pilot/participation') {
+      window.history.replaceState({ bibleberryPilot: true, originView: destination }, '', '#/pilot/participation')
+      setDetail({ type: 'participationPilot' })
     } else if (hash.startsWith('#/teaching/')) {
       const id = hash.replace('#/teaching/', '')
       const item = allEntries.find(entry => entry.id === id && entry.entryType === 'teaching')
@@ -785,7 +824,24 @@ export default function App() {
       }
     }
   }
-  const resetPrototype = () => {
+  const resetPrototype = async () => {
+    let participationCleared = false
+    try {
+      await defaultGuestParticipationStore.clearLocalData()
+      participationCleared = defaultGuestParticipationStore.getSnapshot().health === 'ok'
+    } catch {
+      participationCleared = false
+    }
+
+    if (!participationCleared) {
+      setResetConfirm(false)
+      notify('Unable to reset local app data: storage was unavailable.')
+      return
+    }
+
+    if (participationPilotEnabled) {
+      void import('./pilot/participationPilotModel').then(module => module.resetParticipationPilotData())
+    }
     setState({ ...initialState })
     setDetail(null)
     setPreviewDate('')
@@ -806,7 +862,6 @@ export default function App() {
     if (state.onboarded && !simulatedDate && view === 'today' && !detail && !previewDate && latestTeaching && recordedOpening.current !== latestTeaching.id) {
       recordedOpening.current = latestTeaching.id
       // Synchronize latest teaching view with local journey activity log
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       addActivity(`Opened latest available teaching: ${latestTeaching.title}`)
     }
     if (view !== 'today' || detail || previewDate || simulatedDate) recordedOpening.current = ''
@@ -925,8 +980,24 @@ export default function App() {
     scrollTop()
   }
   const exitChallengePilot = () => {
+    if (!challengePilotEnabled) return
     setDetail(null)
     if (window.location.hash === '#/pilot/challenge') {
+      window.history.pushState({ bibleberryView: view }, '', window.location.pathname)
+    }
+    scrollTop()
+  }
+  const openParticipationPilot = () => {
+    if (!participationPilotEnabled) return
+    window.history.replaceState({ ...(window.history.state ?? {}), bibleberryView: view }, '', window.location.href)
+    window.history.pushState({ bibleberryPilot: true, originView: view }, '', '#/pilot/participation')
+    setDetail({ type: 'participationPilot' })
+    scrollTop()
+  }
+  const exitParticipationPilot = () => {
+    if (!participationPilotEnabled) return
+    setDetail(null)
+    if (window.location.hash === '#/pilot/participation') {
       window.history.pushState({ bibleberryView: view }, '', window.location.pathname)
     }
     scrollTop()
@@ -997,6 +1068,13 @@ export default function App() {
         onExit={exitChallengePilot}
       />
     </Suspense>
+  } else if (detail?.type === 'participationPilot' && participationPilotEnabled && ParticipationPilot) {
+    content = <Suspense fallback={<div className="standard-page"><p>Opening Challenge…</p></div>}>
+      <ParticipationPilot
+        returnLabel={`Return to ${primaryViewLabel(view)}`}
+        onExit={exitParticipationPilot}
+      />
+    </Suspense>
   } else if (detail?.type === 'challengeLab' && developerStudioEnabled && InteractiveChallengeLab) {
     content = <Suspense fallback={<div className="standard-page"><p>Opening Interactive Challenge Lab…</p></div>}>
       <InteractiveChallengeLab onReturnToStudio={openDeveloperStudio} />
@@ -1052,6 +1130,11 @@ export default function App() {
         {challengePilotEnabled && !detail && OrdinaryChallengePilotEntryBar && (
           <Suspense fallback={null}>
             <OrdinaryChallengePilotEntryBar onOpenPilot={openChallengePilot} />
+          </Suspense>
+        )}
+        {participationPilotEnabled && !detail && ParticipationPilotEntryBar && (
+          <Suspense fallback={null}>
+            <ParticipationPilotEntryBar onOpenPilot={openParticipationPilot} />
           </Suspense>
         )}
         {content}

@@ -18,10 +18,22 @@ import {
   ordinaryScriptureKey,
   resolveOrdinaryChallengeStateController,
   setOrdinaryChallengeScreen,
+  startOrdinaryChallengeProgress,
   toggleOrdinaryChallengeSaved,
   toggleOrdinaryScriptureSaved,
+  type OrdinaryChallengeActions,
   type OrdinaryChallengeSessionState,
+  type OrdinaryChallengeViewState,
 } from '../../src/components/challenge/ordinaryChallengeHostModel.ts'
+import {
+  admitPilotSampleChallenge,
+  admitTrustedCatalogChallenge,
+} from '../../src/participation/admission.ts'
+import {
+  assertValidAdmittedChallengeForHost,
+  buildChallengeAliasRecord,
+  resolvePersistedHostScreenId,
+} from '../../src/participation/persistedChallengeHostModel.ts'
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 
@@ -86,8 +98,17 @@ test('keeps Challenge save, Scripture save, position, and explicit completion in
     screenId: undefined,
     isSaved: false,
     isCompleted: false,
+    isInProgress: false,
     savedScriptures: [],
   })
+
+  // Starting progress transitions isInProgress without completing or saving
+  assert.equal(state.isInProgress, false)
+  state = startOrdinaryChallengeProgress(state)
+  assert.equal(state.isInProgress, true)
+  assert.equal(state.isCompleted, false)
+  assert.equal(state.isSaved, false)
+  assert.equal(startOrdinaryChallengeProgress(state), state)
 
   // Completion is rejected on non-final screens
   assert.equal(completeOrdinaryChallenge(sampleChallenge, state), state)
@@ -243,6 +264,34 @@ test('enforces controlled vs. uncontrolled state contract at runtime and keeps u
     { name: 'TypeError', message: /does not accept initialState when state is controlled/ },
   )
 
+  // Valid external actions mode (`viewState` + `actions`) and mixed-mode rejection
+  const viewState: OrdinaryChallengeViewState = {
+    screenId: 'screen-one',
+    isSaved: false,
+    isCompleted: false,
+    isScriptureSaved: () => false,
+  }
+  const actions: OrdinaryChallengeActions = {
+    onScreenChange: () => {},
+    onToggleSaveChallenge: () => {},
+    onToggleSaveScripture: () => {},
+    onComplete: () => {},
+  }
+  const actionsMode = resolveOrdinaryChallengeStateController({ viewState, actions })
+  assert.equal(actionsMode.mode, 'actions')
+  assert.throws(
+    () => resolveOrdinaryChallengeStateController({ viewState }),
+    { name: 'TypeError', message: /requires both viewState and actions together/ },
+  )
+  assert.throws(
+    () => resolveOrdinaryChallengeStateController({ actions }),
+    { name: 'TypeError', message: /requires both viewState and actions together/ },
+  )
+  assert.throws(
+    () => resolveOrdinaryChallengeStateController({ viewState, actions, state: initial, onStateChange }),
+    { name: 'TypeError', message: /does not accept state, onStateChange, or initialState/ },
+  )
+
   // Simulate React <StrictMode> double-invocation on frozen snapshots for every uncontrolled updater
   const frozenStart = Object.freeze({
     ...emptyOrdinaryChallengeSessionState(),
@@ -335,6 +384,11 @@ test('OrdinaryChallengeHostProps discriminated union rejects mismatched state/on
       jsx: '<OrdinaryChallengeHost challengeKey="k" challenge={p.challenge} initialState={p.state} />',
     },
     {
+      name: 'valid-actions',
+      valid: true,
+      jsx: '<OrdinaryChallengeHost challengeKey="k" challenge={p.challenge} viewState={p.viewState} actions={p.actions} />',
+    },
+    {
       name: 'invalid-state-without-callback',
       valid: false,
       jsx: '<OrdinaryChallengeHost challengeKey="k" challenge={p.challenge} state={p.state} />',
@@ -349,13 +403,23 @@ test('OrdinaryChallengeHostProps discriminated union rejects mismatched state/on
       valid: false,
       jsx: '<OrdinaryChallengeHost challengeKey="k" challenge={p.challenge} state={p.state} onStateChange={p.onStateChange} initialState={p.state} />',
     },
+    {
+      name: 'invalid-viewState-without-actions',
+      valid: false,
+      jsx: '<OrdinaryChallengeHost challengeKey="k" challenge={p.challenge} viewState={p.viewState} />',
+    },
+    {
+      name: 'invalid-mixed-actions-and-state',
+      valid: false,
+      jsx: '<OrdinaryChallengeHost challengeKey="k" challenge={p.challenge} viewState={p.viewState} actions={p.actions} state={p.state} onStateChange={p.onStateChange} />',
+    },
   ] as const
 
   const headerLines = [
     "import type { ChallengePlayerChallenge } from './ChallengePlayer.tsx'",
     "import { OrdinaryChallengeHost } from './OrdinaryChallengeHost.tsx'",
-    "import type { OrdinaryChallengeSessionState } from './ordinaryChallengeHostModel.ts'",
-    'type Inputs = { challenge: ChallengePlayerChallenge; state: OrdinaryChallengeSessionState; onStateChange: (next: OrdinaryChallengeSessionState) => void }',
+    "import type { OrdinaryChallengeActions, OrdinaryChallengeSessionState, OrdinaryChallengeViewState } from './ordinaryChallengeHostModel.ts'",
+    'type Inputs = { challenge: ChallengePlayerChallenge; state: OrdinaryChallengeSessionState; onStateChange: (next: OrdinaryChallengeSessionState) => void; viewState: OrdinaryChallengeViewState; actions: OrdinaryChallengeActions }',
   ]
   const caseStartLine = headerLines.length
   const virtualSource = [
@@ -395,4 +459,53 @@ test('OrdinaryChallengeHostProps discriminated union rejects mismatched state/on
       assert.equal(errorLines.has(line), true, `Expected ${entry.name} to fail compile-time typecheck`)
     }
   })
+})
+
+test('PersistedChallengeHost model enforces namespace + screen matching and separates durable resume from completed reread', () => {
+  const cmsAdmitted = admitTrustedCatalogChallenge(
+    {
+      documentId: 'berrymark-challenge-2026-11-02-rejoice-always',
+      screens: sampleChallenge.screens,
+      editorial: { adaptationReviewed: true, reviewedAt: '2026-11-02T12:00:00Z' },
+    },
+    { previousDocumentIds: ['2026-11-02-rejoice-always-v1'] },
+  )!
+  const pilotAdmitted = admitPilotSampleChallenge({
+    sampleId: 'a3-persistence-sample',
+    screens: sampleChallenge.screens,
+  })!
+
+  assert.doesNotThrow(() => assertValidAdmittedChallengeForHost(cmsAdmitted, sampleChallenge, 'cms'))
+  assert.throws(
+    () => assertValidAdmittedChallengeForHost(pilotAdmitted, sampleChallenge, 'cms'),
+    { name: 'TypeError', message: /namespace "cms"/ },
+  )
+  assert.throws(
+    () =>
+      assertValidAdmittedChallengeForHost(
+        cmsAdmitted,
+        { screens: [{ id: 'wrong-screen', stepLabel: '1', title: 'Mismatch', blocks: [] }] },
+        'cms',
+      ),
+    { name: 'TypeError', message: /admittedChallenge\.screens to match/ },
+  )
+
+  assert.deepEqual(buildChallengeAliasRecord(cmsAdmitted), {
+    'cms:2026-11-02-rejoice-always-v1': 'cms:berrymark-challenge-2026-11-02-rejoice-always',
+  })
+  assert.equal(buildChallengeAliasRecord(pilotAdmitted), null)
+
+  // Uncompleted Challenge resolves durable resume screenId; completed Challenge resolves transient reread screenId
+  assert.equal(
+    resolvePersistedHostScreenId({ isCompleted: false, resumeScreenId: 'screen-two' }, undefined),
+    'screen-two',
+  )
+  assert.equal(
+    resolvePersistedHostScreenId({ isCompleted: true, resumeScreenId: undefined }, undefined),
+    undefined,
+  )
+  assert.equal(
+    resolvePersistedHostScreenId({ isCompleted: true, resumeScreenId: undefined }, 'screen-two'),
+    'screen-two',
+  )
 })
