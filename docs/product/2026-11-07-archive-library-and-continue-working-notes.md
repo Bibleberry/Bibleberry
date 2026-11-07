@@ -132,6 +132,10 @@ The earlier open question of historical-month eligibility is being reframed: **a
 - This is distinct from the more narrowly focused **thematic discovery card**: the monthly card recalls the entire month or teaching season, whereas a discovery card explains a specific motif or connection.
 - Suggested language such as "memory stone" was an analogy in discussion, not approved reader-facing terminology.
 
+### Consistent Bibleberry illustration language (reaffirmed)
+
+Aaron reaffirmed that the choice is **not** between distinct monthly artwork and a cohesive collection. **All collectible artwork should share an overarching, recognizable Bibleberry visual style**, with Alexis's actual illustrated Bible-study notebooks as the primary stylistic guidance. Individual subjects, symbols, card images and monthly themes can differ while remaining part of the same artistic family. Do not invent an alternate generic botanical style or require each month to repeat the same image. Specific compositions, templates, palette refinements and the finished artwork remain subject to Alexis's ministry-facing visual approval.
+
 ### Different card types
 
 Lifetime Challenge milestones and Special Experience commemoratives may need their own simpler participation-focused card treatments. **Do not assume they require exegetical summaries or that every collectible has the same card template.** Their details remain open.
