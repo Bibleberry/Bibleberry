@@ -295,12 +295,12 @@ test.describe('Controlled Released CMS Challenge Integration (A4.1)', () => {
     expect(page.url()).not.toContain('#/challenge/')
   })
 
-  test('displays embargoed empty state with scheduled date for future-released Challenges without leaking content', async ({
+  test('displays embargoed empty state with scheduled date for future-released Challenges without rendering player or screen content', async ({
     page,
   }) => {
     const futureChallenge = makeMockChallenge({
-      title: 'Secret Future Challenge',
-      slug: 'secret-future-challenge',
+      title: 'Scheduled Future Challenge',
+      slug: 'scheduled-future-challenge',
       releaseAt: '2099-01-01T09:00:00-05:00',
     })
 
@@ -329,15 +329,17 @@ test.describe('Controlled Released CMS Challenge Integration (A4.1)', () => {
       )
     }, PROTOTYPE_STORAGE_KEY)
 
-    await page.goto('/#/challenge/secret-future-challenge')
+    await page.goto('/#/challenge/scheduled-future-challenge')
 
     await expect(page.locator('.empty-state h2')).toHaveText('Not yet released')
-    await expect(page.locator('.empty-state p')).toContainText('Secret Future Challenge')
+    await expect(page.locator('.empty-state p')).toContainText('Scheduled Future Challenge')
     await expect(page.locator('.empty-state p')).toContainText('January 1, 2099')
 
-    // Zero ChallengePlayer elements rendered
-    await expect(page.locator('.challenge-player')).toHaveCount(0)
-    await expect(page.locator('.challenge-block--statement')).toHaveCount(0)
+    // In A4.1 client-side gating, ChallengePlayer, screens, and blocks are not rendered.
+    // (Note: Source-level content withholding / server-side confidentiality requires R05.)
+    await expect(page.locator('.lab-challenge-header')).toHaveCount(0)
+    await expect(page.locator('.lab-screen')).toHaveCount(0)
+    await expect(page.locator('.lab-statement')).toHaveCount(0)
 
     // Return button works
     await page.locator('.challenge-player__exit').click()
