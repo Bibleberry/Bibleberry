@@ -114,6 +114,7 @@ function ReadyPersistedChallengeHost({
         screenId: effectiveScreenId,
         isSaved: view.isSaved,
         isCompleted: view.isCompleted,
+        isInProgress: view.isInProgress,
         isScriptureSaved: (scripture: CmsScripture) =>
           isParticipationScriptureSaved(snapshot.data, scripture),
       }}
@@ -129,6 +130,16 @@ function ReadyPersistedChallengeHost({
             type: 'saveChallengeProgress',
             challengeId,
             screenId: nextScreenId,
+            updatedOn: getToday(),
+          })
+        },
+        onStartProgress: () => {
+          if (view.isCompleted || view.isInProgress) return
+          const initialScreenId = challenge.screens[0]?.id
+          void store.dispatch({
+            type: 'saveChallengeProgress',
+            challengeId,
+            ...(initialScreenId ? { screenId: initialScreenId } : {}),
             updatedOn: getToday(),
           })
         },

@@ -18,6 +18,7 @@ import {
   ordinaryScriptureKey,
   resolveOrdinaryChallengeStateController,
   setOrdinaryChallengeScreen,
+  startOrdinaryChallengeProgress,
   toggleOrdinaryChallengeSaved,
   toggleOrdinaryScriptureSaved,
   type OrdinaryChallengeActions,
@@ -97,8 +98,17 @@ test('keeps Challenge save, Scripture save, position, and explicit completion in
     screenId: undefined,
     isSaved: false,
     isCompleted: false,
+    isInProgress: false,
     savedScriptures: [],
   })
+
+  // Starting progress transitions isInProgress without completing or saving
+  assert.equal(state.isInProgress, false)
+  state = startOrdinaryChallengeProgress(state)
+  assert.equal(state.isInProgress, true)
+  assert.equal(state.isCompleted, false)
+  assert.equal(state.isSaved, false)
+  assert.equal(startOrdinaryChallengeProgress(state), state)
 
   // Completion is rejected on non-final screens
   assert.equal(completeOrdinaryChallenge(sampleChallenge, state), state)

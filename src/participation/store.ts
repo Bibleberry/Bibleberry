@@ -158,6 +158,7 @@ export function createReaderParticipationStore(
   let committedData: ReaderParticipationData = emptyReaderParticipationData()
   let pendingCommands: TaggedCommand[] = []
   let health: PersistenceHealth = 'ok'
+  let pendingClear = false
   let epoch = 0
   let nextCommandId = 1
   let activeAbortController = new AbortController()
@@ -306,54 +307,97 @@ export function createReaderParticipationStore(
       if (disposed || targetEpoch !== epoch) {
         return
       }
-      const batch = pendingCommands.filter(entry => entry.epoch === targetEpoch)
-      if (batch.length === 0) {
-        return
-      }
 
-      const commandsToFlush = batch.map(entry => entry.command)
-      const flushedIds = new Set(batch.map(entry => entry.id))
-
-      let flushOrPromise: MaybePromise<AdapterFlushResult>
-      try {
-        flushOrPromise = adapter.flushCommands(commandsToFlush, committedData, signal)
-      } catch {
-        flushOrPromise = {
-          ok: false,
-          committedData: null,
-          health: 'writeFailed',
+      if (pendingClear) {
+        // Prior clear failed: retry clearing storage before flushing any commands.
+        let clearOrPromise: MaybePromise<AdapterClearResult>
+        try {
+          clearOrPromise = adapter.clear()
+        } catch {
+          clearOrPromise = {
+            ok: false,
+            health: 'storageUnavailable',
+          }
         }
+
+        const proceedAfterPendingClear = (clearResult: AdapterClearResult) => {
+          if (disposed || targetEpoch !== epoch) return
+          if (!clearResult.ok) {
+            health = clearResult.health
+            updateSnapshot(true)
+            return
+          }
+          pendingClear = false
+          health = 'ok'
+          return performFlush()
+        }
+
+        if (isPromiseLike(clearOrPromise)) {
+          return clearOrPromise.then(proceedAfterPendingClear, () => {
+            if (disposed || targetEpoch !== epoch) return
+            health = 'storageUnavailable'
+            updateSnapshot(true)
+          })
+        }
+
+        return proceedAfterPendingClear(clearOrPromise)
       }
 
-      const applyFlushResult = (result: AdapterFlushResult) => {
+      return performFlush()
+
+      function performFlush(): MaybePromise<void> {
         if (disposed || targetEpoch !== epoch) {
-          // Stale flush from before a `clearLocalData()` reset — never mutate post-reset state.
           return
         }
-        if (result.ok) {
-          committedData = result.committedData
-          pendingCommands = pendingCommands.filter(entry => !flushedIds.has(entry.id))
-          health = 'ok'
-        } else {
-          if (result.committedData !== null) {
-            committedData = result.committedData
-          }
-          health = result.health
+        const batch = pendingCommands.filter(entry => entry.epoch === targetEpoch)
+        if (batch.length === 0) {
+          return
         }
-        updateSnapshot(true)
-      }
 
-      if (isPromiseLike(flushOrPromise)) {
-        return flushOrPromise.then(applyFlushResult, () =>
-          applyFlushResult({
+        const commandsToFlush = batch.map(entry => entry.command)
+        const flushedIds = new Set(batch.map(entry => entry.id))
+
+        let flushOrPromise: MaybePromise<AdapterFlushResult>
+        try {
+          flushOrPromise = adapter.flushCommands(commandsToFlush, committedData, signal)
+        } catch {
+          flushOrPromise = {
             ok: false,
             committedData: null,
             health: 'writeFailed',
-          }),
-        )
-      }
+          }
+        }
 
-      applyFlushResult(flushOrPromise)
+        const applyFlushResult = (result: AdapterFlushResult) => {
+          if (disposed || targetEpoch !== epoch) {
+            // Stale flush from before a `clearLocalData()` reset — never mutate post-reset state.
+            return
+          }
+          if (result.ok) {
+            committedData = result.committedData
+            pendingCommands = pendingCommands.filter(entry => !flushedIds.has(entry.id))
+            health = 'ok'
+          } else {
+            if (result.committedData !== null) {
+              committedData = result.committedData
+            }
+            health = result.health
+          }
+          updateSnapshot(true)
+        }
+
+        if (isPromiseLike(flushOrPromise)) {
+          return flushOrPromise.then(applyFlushResult, () =>
+            applyFlushResult({
+              ok: false,
+              committedData: null,
+              health: 'writeFailed',
+            }),
+          )
+        }
+
+        applyFlushResult(flushOrPromise)
+      }
     })
   }
 
@@ -363,6 +407,43 @@ export function createReaderParticipationStore(
         const refreshEpoch = epoch
         void enqueueIo(() => {
           if (disposed || refreshEpoch !== epoch) return
+
+          if (pendingClear) {
+            let clearOrPromise: MaybePromise<AdapterClearResult>
+            try {
+              clearOrPromise = adapter.clear()
+            } catch {
+              clearOrPromise = {
+                ok: false,
+                health: 'storageUnavailable',
+              }
+            }
+
+            const applyExternalClear = (result: AdapterClearResult) => {
+              if (disposed || refreshEpoch !== epoch) return
+              if (result.ok) {
+                pendingClear = false
+                health = 'ok'
+              } else {
+                health = result.health
+              }
+              status = 'ready'
+              updateSnapshot(true)
+            }
+
+            if (isPromiseLike(clearOrPromise)) {
+              return clearOrPromise.then(applyExternalClear, () => {
+                if (disposed || refreshEpoch !== epoch) return
+                health = 'storageUnavailable'
+                status = 'ready'
+                updateSnapshot(true)
+              })
+            }
+
+            applyExternalClear(clearOrPromise)
+            return
+          }
+
           let loadOrPromise: MaybePromise<AdapterLoadResult>
           try {
             loadOrPromise = adapter.load()
@@ -459,6 +540,7 @@ export function createReaderParticipationStore(
       activeAbortController.abort()
       activeAbortController = new AbortController()
 
+      pendingClear = true
       status = 'ready'
       committedData = emptyReaderParticipationData()
       pendingCommands = []
@@ -480,7 +562,13 @@ export function createReaderParticipationStore(
         const applyClearResult = (result: AdapterClearResult) => {
           if (disposed || clearEpoch !== epoch) return
           committedData = emptyReaderParticipationData()
-          health = result.ok ? 'ok' : result.health
+          if (result.ok) {
+            pendingClear = false
+            health = 'ok'
+          } else {
+            pendingClear = true
+            health = result.health
+          }
           updateSnapshot(true)
         }
 

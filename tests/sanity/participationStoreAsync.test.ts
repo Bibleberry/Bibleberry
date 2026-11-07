@@ -7,6 +7,7 @@ import ts from 'typescript'
 import { admitTrustedCatalogChallenge } from '../../src/participation/admission.ts'
 import { createWebLocalStorageDriver } from '../../src/participation/drivers/webLocalStorageDriver.ts'
 import { parseLocalCalendarDate, parseStoredChallengeId } from '../../src/participation/identity.ts'
+import { selectChallengeParticipationView } from '../../src/participation/model.ts'
 import { derivePersistedHostRenderState } from '../../src/participation/persistedChallengeHostModel.ts'
 import {
   createEnvelopePersistenceAdapter,
@@ -841,6 +842,195 @@ test('PersistedChallengeHost renders accessible hydrating state during async sto
   assert.equal(readyState.view.status, 'inProgress')
 
   store.dispose()
+})
+
+test('regression (ChatGPT issue 1): failed removeItem reset prevents old record resurrection after storage recovers', async () => {
+  const backing = new Map<string, string>()
+  let failRemove = false
+
+  const driver: KeyValueStorageDriver = {
+    getItem: async key => backing.get(key) ?? null,
+    setItem: async (key, val) => {
+      backing.set(key, val)
+    },
+    removeItem: async key => {
+      if (failRemove) {
+        throw new Error('Simulated disk failure during removeItem')
+      }
+      backing.delete(key)
+    },
+  }
+
+  // 1. Seed old completion and save in backend
+  const seedStore = createReaderParticipationStore(
+    createEnvelopePersistenceAdapter({ storageKey: TEST_STORAGE_KEY, driver }),
+  )
+  await seedStore.whenReady()
+  await seedStore.dispatch({
+    type: 'completeChallenge',
+    challengeId: c1,
+    completedOn: day1,
+  })
+  await seedStore.dispatch({
+    type: 'setChallengeSaved',
+    challengeId: c1,
+    saved: true,
+    savedOn: day1,
+  })
+  await seedStore.flushPending()
+  assert.equal(backing.size > 0, true)
+  assert.equal(seedStore.getSnapshot().data.completedChallenges[c1]?.completedOn, day1)
+  seedStore.dispose()
+
+  // 2. Open store with seeded records
+  const store = createReaderParticipationStore(
+    createEnvelopePersistenceAdapter({ storageKey: TEST_STORAGE_KEY, driver }),
+  )
+  await store.whenReady()
+  assert.equal(store.getSnapshot().data.completedChallenges[c1]?.completedOn, day1)
+
+  // 3. Backend failure on removeItem
+  failRemove = true
+
+  // 4. Request reset
+  await store.clearLocalData()
+
+  // 5. Verify reset health indicates failure so UI never falsely claims reset succeeded
+  const failedSnapshot = store.getSnapshot()
+  assert.equal(failedSnapshot.health, 'storageUnavailable')
+  const uiWouldConfirmSuccess = failedSnapshot.health === 'ok'
+  assert.equal(uiWouldConfirmSuccess, false)
+
+  // 6. Backend recovers
+  failRemove = false
+
+  // 7. Dispatch new completion (c2)
+  await store.dispatch({
+    type: 'completeChallenge',
+    challengeId: c2,
+    completedOn: day2,
+  })
+  await store.flushPending()
+
+  // 8. Reload store from storage driver
+  store.dispose()
+  const reloadedStore = createReaderParticipationStore(
+    createEnvelopePersistenceAdapter({ storageKey: TEST_STORAGE_KEY, driver }),
+  )
+  await reloadedStore.whenReady()
+
+  // 9. Verify: old c1 records NEVER returned; only new c2 record exists
+  const reloadedData = reloadedStore.getSnapshot().data
+  assert.equal(reloadedData.completedChallenges[c1], undefined, 'Old c1 completion must not resurrect')
+  assert.equal(reloadedData.savedChallenges[c1], undefined, 'Old c1 saved state must not resurrect')
+  assert.equal(reloadedData.completedChallenges[c2]?.completedOn, day2, 'New c2 completion must be present')
+  assert.equal(reloadedStore.getSnapshot().health, 'ok')
+  reloadedStore.dispose()
+})
+
+test('regression (ChatGPT issue 2): single-screen Challenge started -> leave -> reload/resume -> complete without timer or optional study', async () => {
+  const backing = new Map<string, string>()
+  const driver: KeyValueStorageDriver = {
+    getItem: key => backing.get(key) ?? null,
+    setItem: (key, val) => {
+      backing.set(key, val)
+    },
+    removeItem: key => {
+      backing.delete(key)
+    },
+  }
+
+  const singleScreenChallenge = admitTrustedCatalogChallenge({
+    documentId: 'single-screen-doc-001',
+    editorial: { adaptationReviewed: true },
+    screens: [{ id: 'screen-only' }],
+  })!
+  const singleChallengeId = singleScreenChallenge.challengeId
+
+  // 1. First visit: reader merely opens the Challenge
+  const storeSession1 = createReaderParticipationStore(
+    createEnvelopePersistenceAdapter({ storageKey: TEST_STORAGE_KEY, driver }),
+  )
+  await storeSession1.whenReady()
+
+  // Host onMount records open and reconciles aliases
+  await storeSession1.dispatch({
+    type: 'recordChallengeOpened',
+    challengeId: singleChallengeId,
+    openedOn: day1,
+  })
+
+  // Verify: merely opening does NOT mark the Challenge in progress
+  const openView = selectChallengeParticipationView(
+    storeSession1.getSnapshot().data,
+    singleChallengeId,
+  )
+  assert.equal(openView.status, 'notStarted')
+  assert.equal(openView.isInProgress, false)
+  assert.equal(openView.isCompleted, false)
+  assert.equal(storeSession1.getSnapshot().data.inProgressChallenges[singleChallengeId], undefined)
+
+  // 2. Reader engages / starts reading (host-level onStartProgress trigger, zero timers, no optional study)
+  await storeSession1.dispatch({
+    type: 'saveChallengeProgress',
+    challengeId: singleChallengeId,
+    screenId: 'screen-only',
+    updatedOn: day1,
+  })
+
+  // Verify: now in progress
+  const startedView = selectChallengeParticipationView(
+    storeSession1.getSnapshot().data,
+    singleChallengeId,
+  )
+  assert.equal(startedView.status, 'inProgress')
+  assert.equal(startedView.isInProgress, true)
+  assert.equal(startedView.isCompleted, false)
+  assert.equal(startedView.resumeScreenId, 'screen-only')
+
+  // 3. Reader leaves without completing (session unmounts)
+  await storeSession1.flushPending()
+  storeSession1.dispose()
+
+  // 4. Reader returns / reloads: store re-hydrates from storage
+  const storeSession2 = createReaderParticipationStore(
+    createEnvelopePersistenceAdapter({ storageKey: TEST_STORAGE_KEY, driver }),
+  )
+  await storeSession2.whenReady()
+
+  // Verify: resumes as inProgress on Screen 1
+  const resumedView = selectChallengeParticipationView(
+    storeSession2.getSnapshot().data,
+    singleChallengeId,
+  )
+  assert.equal(resumedView.status, 'inProgress')
+  assert.equal(resumedView.isInProgress, true)
+  assert.equal(resumedView.resumeScreenId, 'screen-only')
+
+  // 5. Reader finishes and clicks Complete Challenge
+  await storeSession2.dispatch({
+    type: 'completeChallenge',
+    challengeId: singleChallengeId,
+    completedOn: day2,
+  })
+  await storeSession2.flushPending()
+
+  // Verify: now completed, inProgress cleared, repeat completions idempotent
+  const completedView = selectChallengeParticipationView(
+    storeSession2.getSnapshot().data,
+    singleChallengeId,
+  )
+  assert.equal(completedView.status, 'completed')
+  assert.equal(completedView.isCompleted, true)
+  assert.equal(completedView.isInProgress, false)
+  assert.equal(completedView.completedOn, day2)
+  assert.equal(storeSession2.getSnapshot().data.inProgressChallenges[singleChallengeId], undefined)
+  assert.equal(
+    storeSession2.getSnapshot().data.completedChallenges[singleChallengeId]?.completedOn,
+    day2,
+  )
+
+  storeSession2.dispose()
 })
 
 test('platform-neutral participation domain and store modules have zero browser storage or window globals', () => {

@@ -297,6 +297,7 @@ export function createEnvelopePersistenceAdapter(
 
   let cachedRaw: string | null | undefined
   let cachedLoadResult: AdapterLoadResult | undefined
+  let pendingClear = false
 
   function parseCached(raw: string | null): AdapterLoadResult {
     if (cachedLoadResult !== undefined && raw === cachedRaw) {
@@ -309,6 +310,41 @@ export function createEnvelopePersistenceAdapter(
   }
 
   function load(): MaybePromise<AdapterLoadResult> {
+    if (pendingClear) {
+      // A prior clear failed: retry removing stored data before reading anything.
+      let removeOrPromise: MaybePromise<void>
+      try {
+        removeOrPromise = driver.removeItem(storageKey)
+      } catch {
+        return {
+          data: emptyReaderParticipationData(),
+          health: 'storageUnavailable',
+        }
+      }
+
+      const applyPendingClearOnLoad = (): AdapterLoadResult => {
+        pendingClear = false
+        cachedRaw = null
+        cachedLoadResult = {
+          data: emptyReaderParticipationData(),
+          health: 'ok',
+        }
+        return cachedLoadResult
+      }
+
+      if (isPromiseLike(removeOrPromise)) {
+        return removeOrPromise.then(
+          applyPendingClearOnLoad,
+          () => ({
+            data: emptyReaderParticipationData(),
+            health: 'storageUnavailable' as const,
+          }),
+        )
+      }
+
+      return applyPendingClearOnLoad()
+    }
+
     let rawOrPromise: MaybePromise<string | null>
     try {
       rawOrPromise = driver.getItem(storageKey)
@@ -423,6 +459,43 @@ export function createEnvelopePersistenceAdapter(
       }
     }
 
+    if (pendingClear) {
+      // A prior clear failed: confirm storage is cleared before flushing new commands.
+      let removeOrPromise: MaybePromise<void>
+      try {
+        removeOrPromise = driver.removeItem(storageKey)
+      } catch {
+        return {
+          ok: false,
+          committedData: null,
+          health: 'storageUnavailable',
+        }
+      }
+
+      const proceedAfterClear = (): MaybePromise<AdapterFlushResult> => {
+        pendingClear = false
+        cachedRaw = null
+        cachedLoadResult = {
+          data: emptyReaderParticipationData(),
+          health: 'ok',
+        }
+        return flushAfterRead(null, commands, signal)
+      }
+
+      if (isPromiseLike(removeOrPromise)) {
+        return removeOrPromise.then(
+          proceedAfterClear,
+          () => ({
+            ok: false as const,
+            committedData: null,
+            health: 'storageUnavailable' as const,
+          }),
+        )
+      }
+
+      return proceedAfterClear()
+    }
+
     let rawOrPromise: MaybePromise<string | null>
     try {
       rawOrPromise = driver.getItem(storageKey)
@@ -449,6 +522,7 @@ export function createEnvelopePersistenceAdapter(
   }
 
   function clear(): MaybePromise<AdapterClearResult> {
+    pendingClear = true
     let removeOrPromise: MaybePromise<void>
     try {
       removeOrPromise = driver.removeItem(storageKey)
@@ -462,6 +536,7 @@ export function createEnvelopePersistenceAdapter(
     if (isPromiseLike(removeOrPromise)) {
       return removeOrPromise.then(
         () => {
+          pendingClear = false
           cachedRaw = null
           cachedLoadResult = {
             data: emptyReaderParticipationData(),
@@ -479,6 +554,7 @@ export function createEnvelopePersistenceAdapter(
       )
     }
 
+    pendingClear = false
     cachedRaw = null
     cachedLoadResult = {
       data: emptyReaderParticipationData(),

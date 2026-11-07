@@ -824,8 +824,21 @@ export default function App() {
       }
     }
   }
-  const resetPrototype = () => {
-    void defaultGuestParticipationStore.clearLocalData()
+  const resetPrototype = async () => {
+    let participationCleared = false
+    try {
+      await defaultGuestParticipationStore.clearLocalData()
+      participationCleared = defaultGuestParticipationStore.getSnapshot().health === 'ok'
+    } catch {
+      participationCleared = false
+    }
+
+    if (!participationCleared) {
+      setResetConfirm(false)
+      notify('Unable to reset local app data: storage was unavailable.')
+      return
+    }
+
     if (participationPilotEnabled) {
       void import('./pilot/participationPilotModel').then(module => module.resetParticipationPilotData())
     }
@@ -849,7 +862,6 @@ export default function App() {
     if (state.onboarded && !simulatedDate && view === 'today' && !detail && !previewDate && latestTeaching && recordedOpening.current !== latestTeaching.id) {
       recordedOpening.current = latestTeaching.id
       // Synchronize latest teaching view with local journey activity log
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       addActivity(`Opened latest available teaching: ${latestTeaching.title}`)
     }
     if (view !== 'today' || detail || previewDate || simulatedDate) recordedOpening.current = ''

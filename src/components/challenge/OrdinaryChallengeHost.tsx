@@ -12,6 +12,7 @@ import {
   isOrdinaryScriptureSaved,
   resolveOrdinaryChallengeStateController,
   setOrdinaryChallengeScreen,
+  startOrdinaryChallengeProgress,
   toggleOrdinaryChallengeSaved,
   toggleOrdinaryScriptureSaved,
   type OrdinaryChallengeActions,
@@ -93,11 +94,13 @@ function OrdinaryChallengeHostFrame({
         screenId={viewState.screenId}
         isSaved={viewState.isSaved}
         isCompleted={viewState.isCompleted}
+        isInProgress={viewState.isInProgress}
         isScriptureSaved={viewState.isScriptureSaved}
         onScreenChange={actions.onScreenChange}
         onToggleSaveChallenge={actions.onToggleSaveChallenge}
         onToggleSaveScripture={actions.onToggleSaveScripture}
         onComplete={actions.onComplete}
+        onStartProgress={actions.onStartProgress}
         onExit={onExit}
         exitLabel={exitLabel}
         eyebrow={eyebrow}
@@ -127,6 +130,7 @@ function OrdinaryChallengeHostView({
         screenId: session.screenId,
         isSaved: session.isSaved,
         isCompleted: session.isCompleted,
+        isInProgress: session.isInProgress,
         isScriptureSaved: (scripture: CmsScripture) =>
           isOrdinaryScriptureSaved(session.savedScriptures, scripture),
       }}
@@ -137,6 +141,7 @@ function OrdinaryChallengeHostView({
         onToggleSaveScripture: scripture =>
           applyChange(current => toggleOrdinaryScriptureSaved(current, scripture)),
         onComplete: () => applyChange(current => completeOrdinaryChallenge(challenge, current)),
+        onStartProgress: () => applyChange(startOrdinaryChallengeProgress),
       }}
     />
   )

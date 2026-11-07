@@ -35,12 +35,14 @@ export type ChallengePlayerProps = {
   screenId: string | undefined
   isSaved: boolean
   isCompleted: boolean
+  isInProgress?: boolean
   isScriptureSaved: (scripture: CmsScripture) => boolean
   onScreenChange: (screenId: string) => void
   onToggleSaveChallenge: () => void
   onToggleSaveScripture: (scripture: CmsScripture) => void
   /** Called only from the final screen and only while the Challenge is not yet completed. */
   onComplete: () => void
+  onStartProgress?: () => void
   /**
    * Optional exit signal. When supplied, the player renders a return control; route choice
    * remains entirely with the host.
@@ -71,11 +73,13 @@ export function ChallengePlayer({
   screenId,
   isSaved,
   isCompleted,
+  isInProgress = false,
   isScriptureSaved,
   onScreenChange,
   onToggleSaveChallenge,
   onToggleSaveScripture,
   onComplete,
+  onStartProgress,
   onExit,
   exitLabel = 'Return',
   eyebrow,
@@ -123,10 +127,46 @@ export function ChallengePlayer({
       </article>
       {isCompleted && position.isLast && <section className="lab-completion" role="status" aria-live="polite"><Check size={22} aria-hidden="true" /><div><h2>Challenge complete</h2><p>{copy.completionMessage}</p></div></section>}
       <nav className="lab-screen-nav" aria-label={copy.navigationAriaLabel}>
-        <button type="button" className="button button--secondary" disabled={!position.previousScreenId} onClick={() => position.previousScreenId && onScreenChange(position.previousScreenId)}><ArrowLeft size={17} /> Back</button>
-        {position.nextScreenId
-          ? <button type="button" className="button button--primary" onClick={() => position.nextScreenId && onScreenChange(position.nextScreenId)}>Continue <ArrowRight size={17} /></button>
-          : <button type="button" className="button button--primary" disabled={isCompleted} onClick={complete}>{isCompleted && <Check size={17} />}{isCompleted ? 'Challenge complete' : 'Complete Challenge'}</button>}
+        {position.previousScreenId ? (
+          <button
+            type="button"
+            className="button button--secondary"
+            onClick={() => onScreenChange(position.previousScreenId!)}
+          >
+            <ArrowLeft size={17} /> Back
+          </button>
+        ) : position.total === 1 && !isCompleted && !isInProgress && onStartProgress ? (
+          <button
+            type="button"
+            className="button button--secondary"
+            onClick={onStartProgress}
+          >
+            {copy.startChallengeButton}
+          </button>
+        ) : (
+          <button type="button" className="button button--secondary" disabled>
+            <ArrowLeft size={17} /> Back
+          </button>
+        )}
+        {position.nextScreenId ? (
+          <button
+            type="button"
+            className="button button--primary"
+            onClick={() => onScreenChange(position.nextScreenId!)}
+          >
+            Continue <ArrowRight size={17} />
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="button button--primary"
+            disabled={isCompleted}
+            onClick={complete}
+          >
+            {isCompleted && <Check size={17} />}
+            {isCompleted ? 'Challenge complete' : 'Complete Challenge'}
+          </button>
+        )}
       </nav>
       <p className="lab-navigation-note">{copy.navigationNote}</p>
       <CmsCompanionLinks links={challenge.companionLinks} />

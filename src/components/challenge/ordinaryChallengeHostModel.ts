@@ -27,6 +27,7 @@ export type OrdinaryChallengeSessionState = {
   screenId: string | undefined
   isSaved: boolean
   isCompleted: boolean
+  isInProgress: boolean
   /** Reference metadata only — passage text is never copied into host state. */
   savedScriptures: OrdinarySavedScripture[]
 }
@@ -35,6 +36,7 @@ export type OrdinaryChallengeViewState = {
   screenId: string | undefined
   isSaved: boolean
   isCompleted: boolean
+  isInProgress?: boolean
   isScriptureSaved: (scripture: CmsScripture) => boolean
 }
 
@@ -43,6 +45,7 @@ export type OrdinaryChallengeActions = {
   onToggleSaveChallenge: () => void
   onToggleSaveScripture: (scripture: CmsScripture) => void
   onComplete: () => void
+  onStartProgress?: () => void
 }
 
 export type OrdinaryChallengeStateController =
@@ -66,6 +69,7 @@ export function emptyOrdinaryChallengeSessionState(): OrdinaryChallengeSessionSt
     screenId: undefined,
     isSaved: false,
     isCompleted: false,
+    isInProgress: false,
     savedScriptures: [],
   }
 }
@@ -151,14 +155,21 @@ export function isOrdinaryScriptureSaved(
   return entries.some(entry => entry.key === key)
 }
 
+export function startOrdinaryChallengeProgress(
+  state: OrdinaryChallengeSessionState,
+): OrdinaryChallengeSessionState {
+  if (state.isCompleted || state.isInProgress) return state
+  return { ...state, isInProgress: true }
+}
+
 export function setOrdinaryChallengeScreen(
   challenge: Pick<ChallengePlayerChallenge, 'screens'>,
   state: OrdinaryChallengeSessionState,
   screenId: string,
 ): OrdinaryChallengeSessionState {
   if (!challenge.screens.some(screen => screen.id === screenId)) return state
-  if (state.screenId === screenId) return state
-  return { ...state, screenId }
+  if (state.screenId === screenId && state.isInProgress) return state
+  return { ...state, screenId, isInProgress: true }
 }
 
 export function toggleOrdinaryChallengeSaved(
@@ -193,5 +204,5 @@ export function completeOrdinaryChallenge(
 ): OrdinaryChallengeSessionState {
   const position = challengePlayerPosition(challenge.screens, state.screenId)
   if (!canCompleteChallenge(position, state.isCompleted)) return state
-  return { ...state, isCompleted: true }
+  return { ...state, isCompleted: true, isInProgress: false }
 }
