@@ -63,6 +63,8 @@ A simple relational/record-based approach using the existing Supabase working di
 
 See [User Accounts & Sync](../architecture/user-accounts-and-sync.md) for the separate working architecture and its unresolved technical questions.
 
+> **November 7 working-design discussion (provisional, not approved for implementation):** [Personal Archive, Past Teaching Library and Hub Continue](2026-11-07-archive-library-and-continue-working-notes.md). This captures Aaron's emerging active-workspace versus historical-library distinction, silent Library completion tracking and single Hub Continue behavior. Concrete rules and edge cases remain open; do not treat the examples as a finalized algorithm.
+
 ## C. Participation model: decided direction, not final catalogue
 
 ### C1. Lifetime Challenge completion is the primary enduring progression
