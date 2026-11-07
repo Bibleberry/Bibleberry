@@ -15,6 +15,8 @@
 
 Bibleberry is the working name for a mobile-first Christian biblical-formation application led by Alexis Waid's substantive biblical teaching. It should deliver carefully authored, flexible **Challenges**, not simply present daily devotional text in a conventional reader. The broader ministry includes Realigned; Spiritually Hungry is the business entity.
 
+**Installed-app-first channel decision (Aaron, November 6):** The primary intended experience is an **installed iOS/Android app**, with a hosted web version available as an additional channel. React/TypeScript/Vite is the shared UI implementation, not a browser-first product promise. Choose the eventual native packaging and persistence technology deliberately; A3 participation storage must remain platform-neutral and async-capable. See [Issue #46](https://github.com/ContraPhilosophy/Bibleberry/issues/46) and [the November 6 handoff](../project/handoffs/2026-11-06-a3-mobile-first.md).
+
 **Device reach is a product requirement.** Bibleberry must provide a reliable, readable and responsive core experience on inexpensive and older Android phones, including under constrained CPU, memory and network conditions. A high-end iPhone or development laptop is not the acceptance baseline. Design for low-end devices from the beginning, then verify on representative hardware before launch. This cross-cutting decision was approved by Aaron on November 5, 2026; see [R21 / Issue #37](https://github.com/ContraPhilosophy/Bibleberry/issues/37).
 
 **The teaching determines the experience.** The reader, its component registry and its CMS must accommodate the argument Alexis needs to communicate. Do not impose arbitrary lesson length, a fixed number of screens, a mandatory generic devotional template, or limits that force theological content to be shortened. Preserve original manuscripts apart from adaptations, uphold recognizable teaching voice and prayers, and do not invent editorial approvals or theological conclusions.
@@ -223,8 +225,8 @@ The following twenty-one work areas describe **capabilities and dependencies**, 
 #### R20. Release engineering and operations
 - **Engineering term:** Release-channel decision, production CI/CD, observability, privacy and incident recovery.
 - **In everyday language:** Decide how people get Bibleberry, how updates go out, what happens when something fails, and how it is restored.
-- **Current state:** Internal Cloudflare Lab and a release runbook **plan** exist. Public launch mechanism, production rollback rehearsal and app-store/native scope are not fully decided.
-- **Deliverable / evidence:** Approve web/PWA/native scope, production deployment and domain, error monitoring, data backup/restore when accounts are shipped, incident ownership, privacy, controlled beta and go/no-go evidence.
+- **Current state:** Internal Cloudflare Lab and a release runbook **plan** exist. The primary intended delivery is now explicitly **installed iOS/Android**, with hosted web supplementary; the final native packaging technology, store distribution, production rollback rehearsal and initial channel timing remain undecided.
+- **Deliverable / evidence:** **Bring the native runtime/packaging choice forward** (e.g. evaluate Capacitor without presuming it has been selected); define iOS/Android signing, store distribution, deep links, native storage integration, app lifecycle and notifications as applicable; then approve hosted-web scope, production deployment/domain, error monitoring, account backup/restore when shipped, incident ownership, privacy, controlled beta and go/no-go evidence.
 - **Dependencies:** Approved launch scope, R05 release policy, R13 if account-backed durability is promised, R18/R19 checks **and R21 low-end Android acceptance**. See [release readiness and rollback](../release/release-readiness-and-rollback.md).
 
 #### R21. Low-end Android performance and inclusive delivery
