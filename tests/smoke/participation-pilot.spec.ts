@@ -359,4 +359,92 @@ test.describe('Participation Persistence Reload Pilot (A3 / Issue #46)', () => {
     await expect(page.locator('#a3-pilot-screen-one-title')).toBeVisible();
     await expect(page.locator('.pilot-disclosure__status')).toContainText('Distinct completed: 0 · Status: notStarted');
   });
+
+  test('single-screen Challenge UI exercises Start Challenge button, durable resume, and explicit completion without timers or optional study', async ({ page }) => {
+    await page.addInitScript(storageKey => {
+      if (!localStorage.getItem(storageKey)) {
+        localStorage.setItem(storageKey, JSON.stringify({
+          onboarded: true,
+          appearance: 'system',
+          textSize: 'default',
+          reminderEnabled: false,
+          reminderTime: '08:00',
+          explored: [],
+          journey: [],
+          lastOpened: null,
+          resumeDismissedDate: '',
+        }));
+      }
+    }, PROTOTYPE_STORAGE_KEY);
+
+    // 1. Opening a single-screen Challenge does NOT automatically mark it inProgress
+    await page.goto('/?pilotSingleScreen=true#/pilot/participation');
+    const statusLine = page.locator('.pilot-disclosure__status');
+    const nav = page.getByRole('navigation', { name: 'Challenge screen navigation' });
+    const startBtn = nav.getByRole('button', { name: 'Start Challenge' });
+    const completeBtn = nav.getByRole('button', { name: 'Complete Challenge' });
+
+    await expect(page.locator('#a3-pilot-screen-one-title')).toBeVisible();
+    await expect(statusLine).toContainText('Distinct completed: 0 · Status: notStarted');
+    await expect(startBtn).toBeVisible();
+    await expect(startBtn).toBeEnabled();
+    await expect(completeBtn).toBeVisible();
+    await expect(completeBtn).toBeEnabled();
+
+    // Verify localStorage has no inProgress record for this single-screen Challenge
+    const storedEnvelopeAtOpen = await page.evaluate(pilotKey => {
+      const raw = localStorage.getItem(pilotKey);
+      return raw ? JSON.parse(raw) : null;
+    }, PARTICIPATION_PILOT_KEY);
+    expect(storedEnvelopeAtOpen.data.inProgressChallenges['pilot:a3-single-screen-sample']).toBeUndefined();
+
+    // 2. Clicking "Start Challenge" changes its persisted participation status to inProgress
+    await startBtn.click();
+    await expect(statusLine).toContainText('Distinct completed: 0 · Status: inProgress (a3-pilot-screen-one)');
+    await expect(startBtn).toHaveCount(0);
+    await expect(nav.getByRole('button', { name: 'Back' })).toBeDisabled();
+
+    const storedEnvelopeAfterStart = await page.evaluate(pilotKey => {
+      const raw = localStorage.getItem(pilotKey);
+      return raw ? JSON.parse(raw) : null;
+    }, PARTICIPATION_PILOT_KEY);
+    expect(storedEnvelopeAfterStart.data.inProgressChallenges['pilot:a3-single-screen-sample']).toEqual({
+      screenId: 'a3-pilot-screen-one',
+      updatedOn: '2026-11-05',
+    });
+
+    // 3. Leaving and reloading restores the inProgress state
+    await page.reload();
+    await expect(page.locator('#a3-pilot-screen-one-title')).toBeVisible();
+    await expect(statusLine).toContainText('Distinct completed: 0 · Status: inProgress (a3-pilot-screen-one)');
+    await expect(nav.getByRole('button', { name: 'Back' })).toBeDisabled();
+    await expect(completeBtn).toBeEnabled();
+
+    // 4. Explicitly completing the Challenge changes its status to completed and clears inProgress
+    await completeBtn.click();
+    await expect(statusLine).toContainText('Distinct completed: 1 · Status: completed (2026-11-05)');
+    await expect(nav.getByRole('button', { name: 'Challenge complete' })).toBeDisabled();
+
+    const storedEnvelopeAfterComplete = await page.evaluate(pilotKey => {
+      const raw = localStorage.getItem(pilotKey);
+      return raw ? JSON.parse(raw) : null;
+    }, PARTICIPATION_PILOT_KEY);
+    expect(storedEnvelopeAfterComplete.data.completedChallenges['pilot:a3-single-screen-sample']).toEqual({
+      completedOn: '2026-11-05',
+    });
+    expect(storedEnvelopeAfterComplete.data.inProgressChallenges['pilot:a3-single-screen-sample']).toBeUndefined();
+
+    // 5. Repeat completion on a later date does NOT increase distinct completed count or alter completion date
+    await page.clock.setFixedTime(new Date('2026-11-06T12:00:00Z'));
+    await page.reload();
+    await expect(page.locator('#a3-pilot-screen-one-title')).toBeVisible();
+    await expect(statusLine).toContainText('Distinct completed: 1 · Status: completed (2026-11-05)');
+    await expect(nav.getByRole('button', { name: 'Challenge complete' })).toBeDisabled();
+
+    const storedEnvelopeAfterReload = await page.evaluate(pilotKey => {
+      const raw = localStorage.getItem(pilotKey);
+      return raw ? JSON.parse(raw) : null;
+    }, PARTICIPATION_PILOT_KEY);
+    expect(storedEnvelopeAfterReload.data.completedChallenges['pilot:a3-single-screen-sample'].completedOn).toBe('2026-11-05');
+  });
 });

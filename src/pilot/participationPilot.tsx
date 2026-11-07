@@ -6,6 +6,8 @@ import {
   admittedParticipationPilotChallenge,
   participationPilotStore,
   resetParticipationPilotData,
+  singleScreenAdmittedParticipationPilotChallenge,
+  singleScreenParticipationPilotChallenge,
   syntheticParticipationPilotChallenge,
 } from './participationPilotModel.ts'
 
@@ -46,10 +48,22 @@ export type ParticipationPilotProps = {
 }
 
 export function ParticipationPilot({ returnLabel, onExit }: ParticipationPilotProps) {
+  const isSingleScreen =
+    typeof window !== 'undefined'
+    && new URLSearchParams(window.location.search).get('pilotSingleScreen') === 'true'
+
+  const admitted = isSingleScreen
+    ? singleScreenAdmittedParticipationPilotChallenge
+    : admittedParticipationPilotChallenge
+
+  const challenge = isSingleScreen
+    ? singleScreenParticipationPilotChallenge
+    : syntheticParticipationPilotChallenge
+
   const snapshot = useReaderParticipation(participationPilotStore)
   const view = selectChallengeParticipationView(
     snapshot.data,
-    admittedParticipationPilotChallenge.challengeId,
+    admitted.challengeId,
   )
 
   const savedScriptureSummary = snapshot.data.savedScriptures.length === 0
@@ -66,18 +80,27 @@ export function ParticipationPilot({ returnLabel, onExit }: ParticipationPilotPr
 
   return (
     <PersistedChallengeHost
+      key={admitted.challengeId}
       store={participationPilotStore}
-      admittedChallenge={admittedParticipationPilotChallenge}
-      challenge={syntheticParticipationPilotChallenge}
+      admittedChallenge={admitted}
+      challenge={challenge}
       expectedNamespace="pilot"
       onExit={onExit}
       exitLabel={returnLabel}
-      eyebrow="TECHNICAL PILOT · SYNTHETIC PERSISTENCE SAMPLE · NOT PUBLISHED CONTENT"
+      eyebrow={
+        isSingleScreen
+          ? 'TECHNICAL PILOT · SINGLE-SCREEN PERSISTENCE SAMPLE · NOT PUBLISHED CONTENT'
+          : 'TECHNICAL PILOT · SYNTHETIC PERSISTENCE SAMPLE · NOT PUBLISHED CONTENT'
+      }
       banner={
         <aside className="pilot-disclosure" aria-label="Persistence pilot disclosure">
           <FlaskConical size={18} aria-hidden="true" />
           <div>
-            <strong>Synthetic persistence pilot · Isolated local participation store</strong>
+            <strong>
+              {isSingleScreen
+                ? 'Synthetic single-screen pilot · Isolated local participation store'
+                : 'Synthetic persistence pilot · Isolated local participation store'}
+            </strong>
             <p>
               This non-editorial sample verifies durable participation state across reloads in an isolated pilot namespace (never written to production reader history or Lab storage).
             </p>

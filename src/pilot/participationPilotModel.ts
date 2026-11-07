@@ -18,6 +18,7 @@ import { createReaderParticipationStore } from '../participation/store.ts'
 
 export const PARTICIPATION_PILOT_STORAGE_KEY = 'bibleberry-participation-pilot-v1'
 export const PARTICIPATION_PILOT_SAMPLE_ID = 'a3-persistence-sample'
+export const PARTICIPATION_PILOT_SINGLE_SCREEN_SAMPLE_ID = 'a3-single-screen-sample'
 
 function portableParagraph(key: string, text: string): CmsPortableText[number] {
   return {
@@ -132,6 +133,26 @@ if (!admitted) {
 }
 
 export const admittedParticipationPilotChallenge = admitted
+
+export const singleScreenParticipationPilotChallenge: ChallengePlayerChallenge = {
+  title: 'Synthetic Single-Screen Participation Pilot',
+  summary:
+    'Standalone single-screen demonstration verifying host-level Start Challenge, durable resume, and explicit completion.',
+  primaryScripture: syntheticParticipationPilotChallenge.primaryScripture,
+  screens: [syntheticParticipationPilotChallenge.screens[0]!],
+  companionLinks: [],
+}
+
+const admittedSingle = admitPilotSampleChallenge({
+  sampleId: PARTICIPATION_PILOT_SINGLE_SCREEN_SAMPLE_ID,
+  screens: singleScreenParticipationPilotChallenge.screens,
+})
+
+if (!admittedSingle) {
+  throw new Error('Failed to initialize synthetic single-screen participation pilot admission.')
+}
+
+export const singleScreenAdmittedParticipationPilotChallenge = admittedSingle
 
 function createPilotStorageDriver(): KeyValueStorageDriver {
   const baseDriver = createWebLocalStorageDriver()
