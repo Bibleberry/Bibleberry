@@ -44,7 +44,7 @@ A **first-use onboarding/tutorial experience** was proposed to explain this phil
 
 - Preserves the actual accomplishments, including earned dates, without being a duplicate of the Library or an overwhelming backlog dashboard.
 - **Lifetime milestones count distinct completed Challenges from all three study surfaces**, including the Library, even though the Library hides gameful UI. This is the latest direction reached after explicitly reconsidering whether Library completions should count.
-- Monthly commemoratives and content-derived collections remain part of the established direction. **All Challenge completions, including those made directly in the Library, contribute to and may complete monthly commemoratives and thematic mini-collections automatically.** Awards are earned and stored even when gameful progress and notifications are hidden in the Library. **Adding a month to the Personal Archive is not a prerequisite for earning its awards.** Earned cards appear in the Field Notebook, with dates earned; exact award timestamp edge cases and delayed notification behavior remain to be specified.
+- Monthly commemoratives and content-derived collections remain part of the established direction. **All Challenge completions, including those made directly in the Library, contribute to and may complete monthly commemoratives and thematic mini-collections automatically.** Awards are earned and stored even when gameful progress and notifications are hidden in the Library. **Adding a month to the Personal Archive is not a prerequisite for earning its awards.** Earned cards appear in the Field Notebook, with dates earned; earned-date technical details remain for implementation, while next-visit announcement behavior is decided below.
 - Putting away a month never destroys an already earned award.
 
 ## 3. Hub "Continue" — proposed deterministic behavior
@@ -88,13 +88,28 @@ Aaron explicitly confirmed that the **entire Challenge reading session remains d
 
 An achievement may be recorded when earned, but its **in-app notification is deferred until outside the Challenge reader**. The reader may first encounter it after returning to the Hub. The notification can inform them of the earned award and offer a way to visit the Field Notebook.
 
-**Multiple simultaneous awards (decided):** If a single Challenge completion earns more than one collectible, show **one combined announcement outside the Challenge reader**, such as “You've earned 3 new Scripture cards!”, with a way to open the Field Notebook and view them. Do **not** queue separate reward reveal animations/announcements for each card. **Location-independent rule clarified (November 7):** The same post-reader announcement applies whether the award was earned from current teaching, Personal Archive, or directly inside the Past Teaching Library. **All three study locations are quiet while reading**; once the reader leaves the reading experience, there is no special reason to suppress an earned-card announcement merely because the Challenge was opened from the Library. Multiple awards are announced together, and the Hub's **New Discoveries** indicator may also signal unviewed cards. Exact visuals, dismissal behavior, timing when leaving a Library surface versus an individual Challenge, and Quiet Reading Mode interaction remain open. This does **not** authorize engineering to implement a notification system.
+**Multiple simultaneous awards (decided):** If a single Challenge completion earns more than one collectible, show **one combined announcement outside the Challenge reader**, such as “You've earned 3 new Scripture cards!”, with a way to open the Field Notebook and view them. Do **not** queue separate reward reveal animations/announcements for each card. **Location-independent rule clarified (November 7):** The same post-reader announcement applies whether the award was earned from current teaching, Personal Archive, or directly inside the Past Teaching Library. **All three study locations are quiet while reading**; once the reader leaves the reading experience, there is no special reason to suppress an earned-card announcement merely because the Challenge was opened from the Library. Multiple awards are announced together, and the Hub's **New Discoveries** indicator may also signal unviewed cards. Next-session announcements, dismissal and acknowledgment are settled below; exact visuals, presentation surface and broader Quiet Reading UX remain open. This does **not** authorize engineering to implement a notification system.
 
 ### Unannounced awards across app sessions (approved November 7)
 
-**Decision: Option A.** If a reader earns one or more Scripture collectible cards and closes Bibleberry before the out-of-reader earned-card announcement is displayed, keep those awards eligible for a **single delayed combined announcement on the next app visit**, outside the Challenge reader. For example, two cards earned immediately before closing result in one announcement such as “You've earned 2 new Scripture cards!” after returning, not two separate announcements. This applies regardless of whether the triggering Challenge was opened from current teaching, Personal Archive or Past Teaching Library.
+**Option A is approved.** A reader who earns one or more Scripture cards and closes Bibleberry before seeing the post-reader announcement receives **one combined announcement on the next visit**, outside the Challenge reader. A batch is announced **once**, not repeatedly on future visits, regardless of dismissal. This applies to cards earned in current teaching, Personal Archive, or Past Teaching Library.
 
-The delayed announcement for that batch should **appear only once**, not repeat on every subsequent visit. The existing Hub **New Discoveries** indicator remains part of the experience. **Still to decide separately:** exactly when an announcement is treated as delivered/acknowledged, what dismissing it means, and when the New Discoveries indicator clears. Quiet Reading Mode interaction also remains open. This decision does not authorize implementation.
+### New Discoveries and individual card New labels (approved November 7)
+
+- The Hub's **New Discoveries** indicator clears **when the reader opens the Field Notebook**, without requiring them to open every card.
+- Each earned card keeps a separate **New** label until **that individual card is opened**, whether from its publication month or All Earned Cards.
+- **Dismissing the combined announcement clears neither** the Hub's New Discoveries indicator nor any card's New label.
+- The reader is not required to open each card to clear the Hub-level indicator.
+
+### Optional earned-card announcements (approved November 7)
+
+The reader may **disable earned-achievement announcements**, but **cannot disable the Field Notebook or achievement earning**. Scripture cards are automatically earned, dated, retained and browsable irrespective of the announcement setting. The Hub's New Discoveries indicator and individual card New labels continue functioning when announcements are off. No award announcements interrupt a Challenge reader under any setting. The broader Quiet Reading presentation setting remains a separate UX question.
+
+### Finalized publication months and ordinary corrections (approved November 7)
+
+The month's eligible Challenge collection is stable **once that publication month is finalized**. A full-month Scripture card is earned only when **all Challenges of the finalized published month are available and complete**, never midway through a month just because the reader is current with releases. Routine typo, Scripture-reference or similar editorial corrections do **not** change the eligible set, reset Challenge completions or revoke awards. Retrospectively changing a finalized month's eligible set is not normal editorial practice and is not an anticipated routine rule.
+
+These decisions complete the remaining Field Notebook announcement, acknowledgment and ordinary monthly-finalization questions. Artwork and exact UI, engineering contracts, and the broader Archive/Hub Continue edge cases remain outside this approval.
 
 ## 5. Relationship to existing November 6 decisions
 
@@ -112,11 +127,11 @@ The earlier open question of historical-month eligibility is being reframed: **a
 ## 6. Questions before product approval and engineering
 
 1. **Membership and availability:** Precise first-use/month activation behavior, including anonymous guests, device loss and returning after inactivity. **Month-end placement is automatic where there's capacity; when full, reader engagement has precedence over calendar recency.** A just-ended month can remain in the Library rather than displace a more recently studied historical month. Qualifying activity is **explicit month addition or Challenge completion**, not merely opening/closing. Re-additions, low/no-activity month comparisons, repeat completions and ties need final definitions.
-2. **Award recording and reveal:** Historical-library completions **do earn** the corresponding full-month and thematic awards without the month being added to the Archive. Define exact earned-date/timestamp semantics and delayed out-of-reader notification behavior, without losing or rewriting earned history.
+2. **Award recording and reveal:** Historical-library completions **do earn** the corresponding full-month and thematic awards without the month being added to the Archive. Preserve earned dates without losing or rewriting earned history; delayed notification behavior is decided in Section 4.
 3. **Progress preservation:** Define `Put Away` as a visibility/workspace operation rather than deletion. Clarify if removing a month affects only Hub suggestions or other views as well.
 4. **Continue selector:** Confirm a deterministic ordering/recency rule for ties, cross-month gaps, the frontier and manual navigation.
 5. **Onboarding:** Explain that Bibleberry is a **live ministry**, the current teaching is primary, older teaching is accessible, and the Personal Archive is a focused workspace. Use the first month-end transition as an opportunity for a contextual introduction to the Archive, because the reader is likely to seek the material they were just following. UX and wording require separate review.
-6. **Award notifications:** Define post-reader notice timing (possibly on the Hub), multiple awards, dismissal and Quiet Reading Mode, without interrupting Challenge reading.
+6. **Award notifications:** Combined announcements, next-session persistence, acknowledgment and announcement opt-out are decided in Section 4; visual presentation and broader Quiet Reading UX remain open.
 7. **Scope/timing:** Decide what can ship at launch and what should be deferred; validate against A3 durable participation identity/persistence without prematurely expanding A3's authorized engineering scope.
 
 ## 7. November 7 Field Notebook collectible card directions
@@ -140,7 +155,7 @@ The earlier open question of historical-month eligibility is being reframed: **a
 - The publication month, completion mechanism and earned date remain **metadata** that allow it to appear in the correct month within the Notebook without dictating its biblical title or subject. A simple provenance line on the collectible can explicitly read **“Earned by completing Nov. 2026”** (illustrative month/year). Keep that distinct from the **actual date earned**, which can be months or years later if completed in the Library. This makes the card itself useful and Scripture-centered even when viewed amid **All Earned Cards**, with its unlock basis clear but secondary.
 - As with other thematic Scripture collectibles, the card can include approved Bibleberry-style illustration, relevant Scripture references / WEBP passage text and a concise biblical/theological explanation derived from Alexis's teaching.
 - This is the **final monthly reward**: it cannot be earned merely by completing all Challenges published so far while future Challenges in that month remain scheduled. All Challenges belonging to the month's final published set must actually be available and completed first. Thematic discovery cards may be earned earlier. Completion through the historical Library also earns the full-month card, without interruptive gamification there.
-- Editorial additions, withdrawals or changes to an already-published month's eligible Challenge set still require an explicit rule.
+- After month finalization, ordinary editorial corrections do not change the eligible set or affect already-earned cards. Exceptional retrospective set changes would need a separate editorial decision.
 
 ### Consistent Bibleberry illustration language (reaffirmed)
 
@@ -156,7 +171,7 @@ Aaron reaffirmed that the choice is **not** between distinct monthly artwork and
 
 **Both thematic discovery cards and the full-month completion reward are Scripture-focused collectible cards**, not two radically different classes of artifact. Their *earning conditions* differ, and their artwork/content differ according to Alexis's teaching. Special Experience commemoratives may need another treatment; do not force every special event into the same editorial template. Lifetime Challenge recognition is now an evolving Notebook status, not a series of separate collectible cards (see Section 8).
 
-**Open product/editorial questions:** How many reference verses belong on a card, whether quoted WEBP verses are full/partial, whether Scripture saving is available within cards, creation/review process and CMS data shape, how cards display on small screens, and which awards notify readers outside Challenge sessions. These are not approved implementation details.
+**Open product/editorial questions:** How many reference verses belong on a card, whether quoted WEBP verses are full/partial, whether Scripture saving is available within cards, creation/review process and CMS data shape, how cards display on small screens, and the presentation of approved out-of-reader earned-card announcements. These are not approved implementation details.
 
 ## 8. November 7 latest direction: one evolving lifetime participation status, not permanent milestone cards
 
