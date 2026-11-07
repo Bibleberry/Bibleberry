@@ -22,6 +22,21 @@ export type GatewayFetch = (
   init?: RequestInit,
 ) => Promise<Response>
 
+/**
+ * Cloudflare Workers Static Assets binding interface.
+ */
+export interface WorkerAssetsBinding {
+  readonly fetch: (request: Request | string, init?: RequestInit) => Promise<Response>
+}
+
+/**
+ * Environment bindings for the Cloudflare Worker runtime,
+ * including GatewayEnv and optional static assets binding.
+ */
+export interface WorkerEnv extends GatewayEnv {
+  readonly ASSETS?: WorkerAssetsBinding
+}
+
 export interface GatewayOptions {
   /**
    * Injectable server clock for deterministic testing of exact release boundaries.
