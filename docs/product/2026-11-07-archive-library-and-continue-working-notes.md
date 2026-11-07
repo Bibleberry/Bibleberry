@@ -125,15 +125,16 @@ The earlier open question of historical-month eligibility is being reframed: **a
 - The explanation should go beyond word-matching. It can show the theological, narrative, symbolic or semiotic relationships that Alexis draws across the passages. A discussed illustrative card topic was **"Jacob's Well"**, connecting the Jacob traditions to Jesus' encounter with the Samaritan woman in John 4. **Exact historical/OT references and wording still require editorial verification**; no final claim or published copy has been approved.
 - This is a miniature study artifact rather than a badge with a decorative tooltip. It remains concise and should be composed from Alexis's actual teaching, never requiring her to produce a separate curriculum to satisfy an award.
 
-### Monthly full-completion commemorative card
+### Full-month completion Scripture collectible (November 7 clarification supersedes "monthly summary" treatment)
 
-- Aaron explicitly chose **a substantive monthly summary card (Option B)** rather than a mostly decorative record.
-- A monthly commemorative can open to a card showing its art, month and theme, earned date, **key passages**, and a **short account of what that month's teaching emphasized**.
-- This is distinct from the more narrowly focused **thematic discovery card**: the monthly card recalls the entire month or teaching season, whereas a discovery card explains a specific motif or connection.
-- Suggested language such as "memory stone" was an analogy in discussion, not approved reader-facing terminology.
+**Decided:** Completing every published Challenge assigned to a month earns **one more illustrated, Scripture-related collectible card**, just like the other thematic cards in the Field Notebook. The **unlock requirement** differs: complete the whole month's teaching instead of fulfilling a narrower topic- or motif-based discovery goal.
 
-
-**Completion timing clarified (November 7):** The **full-month commemorative is the final reward for completing the entire month's teaching**, never an early reward for finishing only the Challenges published so far. A reader earns it only after the full monthly Challenge set has actually been published and each required Challenge in that set has been completed. Thematic discovery mini-collections may be earned earlier during the month as their own requirements are met. Completing the month later through the Past Teaching Library earns the same final commemorative; award presentation remains outside the distraction-free Challenge reading session. Rules for post-publication editorial additions or removals still need an explicit decision.
+- **Do not title or present the card merely as "November 2026", "Month Completed", or a month-completion certificate.** Its reader-facing title and illustrated subject are a meaningful biblical concept, image, passage or connection chosen in light of Alexis's actual teaching that month.
+- **Do not force the card to be a generic recap of the month's contents.** The prior proposal for a monthly-summary-card *as a separate type of card* is superseded by Aaron's clarification: the reward itself is another substantive Scripture card. Alexis may select a theme that helps synthesize the month, but that's an editorial choice, not a template constraint.
+- The publication month, completion mechanism and earned date can remain **metadata** that allow it to appear in the correct month within the Notebook and be distinguished from narrower thematic mini-collections, without dictating its title or subject.
+- As with other thematic Scripture collectibles, the card can include approved Bibleberry-style illustration, relevant Scripture references / WEBP passage text and a concise biblical/theological explanation derived from Alexis's teaching.
+- This is the **final monthly reward**: it cannot be earned merely by completing all Challenges published so far while future Challenges in that month remain scheduled. All Challenges belonging to the month's final published set must actually be available and completed first. Thematic discovery cards may be earned earlier. Completion through the historical Library also earns the full-month card, without interruptive gamification there.
+- Editorial additions, withdrawals or changes to an already-published month's eligible Challenge set still require an explicit rule.
 
 ### Consistent Bibleberry illustration language (reaffirmed)
 
@@ -147,7 +148,7 @@ Aaron reaffirmed that the choice is **not** between distinct monthly artwork and
 
 ### Different card types
 
-Lifetime Challenge milestones and Special Experience commemoratives may need their own simpler participation-focused card treatments. **Do not assume they require exegetical summaries or that every collectible has the same card template.** Their details remain open.
+**Both thematic discovery cards and the full-month completion reward are Scripture-focused collectible cards**, not two radically different classes of artifact. Their *earning conditions* differ, and their artwork/content differ according to Alexis's teaching. Special Experience commemoratives may need another treatment; do not force every special event into the same editorial template. Lifetime Challenge recognition is now an evolving Notebook status, not a series of separate collectible cards (see Section 8).
 
 **Open product/editorial questions:** How many reference verses belong on a card, whether quoted WEBP verses are full/partial, whether Scripture saving is available within cards, creation/review process and CMS data shape, how cards display on small screens, and which awards notify readers outside Challenge sessions. These are not approved implementation details.
 
