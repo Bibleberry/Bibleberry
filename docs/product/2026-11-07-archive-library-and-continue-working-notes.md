@@ -180,7 +180,7 @@ The year/month hierarchy follows the **publication month that the content and co
 
 ### View 2: All Earned Cards
 
-Provide a **separate, easily browsable scrolling view of all collectibles actually earned**, independent of year/month navigation. The motivation: readers may remember an illustrated study card (for example, Jacob's Well) but have no idea which publication month it came from. Tapping a card opens the same detail screen reached through the month view. This is another view into **one collection**, not duplicated copies of awards. The exact card sorting, any filters/search, and how lifetime milestones or Special Experiences appear here remain design questions.
+Provide a **separate, easily browsable scrolling view of all collectibles actually earned**, independent of year/month navigation. The motivation: readers may remember an illustrated study card (for example, Jacob's Well) but have no idea which publication month it came from. Tapping a card opens the same detail screen reached through the month view. This is another view into **one collection**, not duplicated copies of awards. **Default gallery order: most recently earned first** (reverse chronological by actual earned date), so the newest accomplishment is at the top, regardless of which publication month its teaching belongs to. Aaron accepted this as a sensible baseline, observing that we cannot predict every way a reader might later want to find a card. Search, filtering and alternate sorts are not required by this decision; their need can be assessed later. Placement of lifetime milestones and Special Experiences in the gallery remains open.
 
 ### Silent Library awards, visible Notebook records
 
@@ -190,7 +190,7 @@ Provide a **separate, easily browsable scrolling view of all collectibles actual
 
 Lifetime distinct-Challenge milestone awards (7, 30, 100, 200, 365, then annually in 365-Challenge increments) are conceptually separate from a teaching publication month; their exact Notebook placement remains open. Special Experiences remain **earned-only**, and their dedicated section stays hidden until the first earned Special Experience collectible, consistent with the November 6 decision. Do not show gray missed-special-event placeholders just because the 12-month publication grid is always visible.
 
-**Remaining UI questions:** month-screen layout when nothing has been earned; exact ordering of All Earned Cards; whether search/filter is useful; placement of lifetime milestones and earned Special Experiences; treatment of months that have not yet published; and Alexis's approval of the visual design. No new feature or build work is authorized by this record.
+**Remaining UI questions:** month-screen layout when nothing has been earned; whether readers later need search/filter or alternative sorting; placement of lifetime milestones and earned Special Experiences; treatment of months that have not yet published; and Alexis's approval of the visual design. The default All Earned Cards order is now decided as newest earned first. No new feature or build work is authorized by this record.
 
 ## Status and process
 
