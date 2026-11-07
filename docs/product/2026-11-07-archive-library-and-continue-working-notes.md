@@ -166,6 +166,18 @@ These milestones count completed **distinct Challenges**, regardless of whether 
 
 **Still open:** Specific art and card design for the lifetime series, notification behavior outside the reader, and exact title/subtitle treatment at 365 and subsequent year-equivalent milestones. **Post-365 threshold cadence is settled at 365-Challenge increments**; do not add intermediate lifetime awards without a new product decision.
 
+## 9. November 7 Field Notebook information architecture: Year → Month → Collectibles
+
+> **Reader experience direction agreed in discussion.** This is not an approved visual mockup or a final engineering specification.
+
+Aaron proposed a simple organizing model for the Field Notebook: **select a year → see 12 month blocks → open a month to see that month's accomplishments**. Each month is the home for the monthly completion commemorative and all thematic discovery collectibles associated with that month's teaching. Tapping an individual collectible then opens the more detailed illustrated Scripture/theological card already specified above.
+
+This is a **collection-oriented, year/month navigation**, not primarily a reverse-chronological feed of completed Challenges. It should scale naturally through years of daily publication.
+
+Lifetime distinct-Challenge milestone awards (7, 30, 100, 200, 365, then each 365 additional distinct Challenges) are conceptually separate from publication-month teaching collections; their exact placement within the Notebook remains open. Special Experiences remain earned-only and their section stays hidden until the first earned Special Experience collectible under the November 6 decision.
+
+**Open:** Should the 12 month blocks always be visible for a chosen year, including months with no earned collectibles, or should empty months be omitted/deemphasized? The reader should never see a punitive wall of missing awards. Exact layout, month block appearance, navigation, and art need Alexis's approval. No design or implementation is authorized by this note.
+
 ## Status and process
 
 The discussion generated a coherent **working hypothesis** for organizing personal participation. Aaron explicitly encouraged recording this level of detail even where final decisions have **not** been made. Keep proposals labeled as provisional until reviewed and accepted. Do not issue implementation tasks, alter participation stores or merge this documentation without Aaron's review.
