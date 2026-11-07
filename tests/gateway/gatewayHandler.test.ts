@@ -1143,6 +1143,60 @@ test('withholds Scripture passage text and fails closed (404) when usage rights 
     assert.equal(text.includes('RESTRICTED_CATALOG_PASSAGE_TEXT'), false)
     assert.equal(text.includes('Unlicensed Primary Title'), false)
   }
+
+  // Case F: Challenge detail with non-boolean truthy usageRightsConfirmed ("false", 1) fails closed (404)
+  for (const nonBooleanTruthy of ['false', 1, 'no', 'true'] as const) {
+    const detailDoc = makeValidChallengeDoc({
+      primaryScripture: {
+        reference: 'John 3:16',
+        translation: 'ESV',
+        textStatus: 'provided',
+        passage: `RESTRICTED_TRUTHY_DETAIL_${String(nonBooleanTruthy)}`,
+        usageRightsConfirmed: nonBooleanTruthy as unknown as boolean,
+        practiceStatus: 'notConfigured',
+      },
+    })
+    const mockFetch = createMockFetch(() => new Response(JSON.stringify({ result: detailDoc }), { status: 200 }))
+    const req = new Request('http://localhost/api/challenges/test-published-challenge')
+    const res = await handleGatewayRequest(req, TEST_ENV, {
+      getNow: () => new Date('2026-11-07T12:00:00Z'),
+      fetchImpl: mockFetch,
+    })
+    assert.equal(res.status, 404)
+    const text = await res.text()
+    assert.equal(text.includes(`RESTRICTED_TRUTHY_DETAIL_${String(nonBooleanTruthy)}`), false)
+  }
+
+  // Case G: Catalog endpoint with non-boolean truthy usageRightsConfirmed ("false", 1) fails closed (excluded)
+  for (const nonBooleanTruthy of ['false', 1, 'no', 'true'] as const) {
+    const catalogDoc = makeValidChallengeDoc({
+      _id: `doc-truthy-rights-${String(nonBooleanTruthy)}`,
+      slug: `truthy-rights-${String(nonBooleanTruthy)}`,
+      title: `Truthy Rights Title ${String(nonBooleanTruthy)}`,
+      unapprovedBlockCount: 0,
+      primaryScripture: {
+        reference: 'Romans 8:28',
+        translation: 'ESV',
+        textStatus: 'provided',
+        passage: `RESTRICTED_TRUTHY_CATALOG_${String(nonBooleanTruthy)}`,
+        usageRightsConfirmed: nonBooleanTruthy as unknown as boolean,
+        practiceStatus: 'notConfigured',
+      },
+    })
+    const mockFetch = createMockFetch(() => new Response(JSON.stringify({ result: [catalogDoc] }), { status: 200 }))
+    const req = new Request('http://localhost/api/challenges')
+    const res = await handleGatewayRequest(req, TEST_ENV, {
+      getNow: () => new Date('2026-11-07T12:00:00Z'),
+      fetchImpl: mockFetch,
+    })
+    assert.equal(res.status, 200)
+    const body = await res.json() as { ok: boolean; challenges: unknown[] }
+    assert.equal(body.ok, true)
+    assert.equal(body.challenges.length, 0) // Excluded!
+    const text = JSON.stringify(body)
+    assert.equal(text.includes(`RESTRICTED_TRUTHY_CATALOG_${String(nonBooleanTruthy)}`), false)
+    assert.equal(text.includes(`Truthy Rights Title ${String(nonBooleanTruthy)}`), false)
+  }
 })
 
 // ---------------------------------------------------------------------------

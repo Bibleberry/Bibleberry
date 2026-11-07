@@ -54,7 +54,7 @@ function validateAndSanitizeScriptureCore(
   const reference = typeof s.reference === 'string' ? s.reference.trim() : ''
   const translation = typeof s.translation === 'string' ? s.translation.trim() : ''
   const textStatus = s.textStatus
-  const usageRightsConfirmed = Boolean(s.usageRightsConfirmed)
+  const usageRightsConfirmed = s.usageRightsConfirmed === true
   const practiceStatus = s.practiceStatus
 
   if (!reference || !translation) return { valid: false }
