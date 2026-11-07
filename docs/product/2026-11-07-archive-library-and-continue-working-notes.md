@@ -88,7 +88,7 @@ Aaron explicitly confirmed that the **entire Challenge reading session remains d
 
 An achievement may be recorded when earned, but its **in-app notification is deferred until outside the Challenge reader**. The reader may first encounter it after returning to the Hub. The notification can inform them of the earned award and offer a way to visit the Field Notebook.
 
-Exact visual treatment, aggregation of multiple simultaneous awards, dismissal behavior and interaction with Quiet Reading Mode are still open. This does **not** authorize engineering to implement a notification system.
+**Multiple simultaneous awards (decided):** If a single Challenge completion earns more than one collectible, show **one combined announcement outside the Challenge reader**, such as “You've earned 3 new Scripture cards!”, with a way to open the Field Notebook and view them. Do **not** queue separate reward reveal animations/announcements for each card. Exact visuals, dismissal behavior and Quiet Reading Mode interaction remain open. This does **not** authorize engineering to implement a notification system.
 
 ## 5. Relationship to existing November 6 decisions
 
