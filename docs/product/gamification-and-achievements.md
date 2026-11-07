@@ -21,6 +21,43 @@ The participation system should make reading and learning satisfying, recognize 
 - **Exploratory/open:** Discussed, but **not** an engineering requirement or a finalized design.
 - **Historical/superseded:** Preserved for context and rationale, not instructions to implement.
 
+## Decision status at a glance — November 7, 2026
+
+**Read this section before reusing any earlier gamification proposal.** The labels below distinguish **settled current product behavior**, **historical/superseded ideas**, and **genuinely open choices**. “Settled” means Aaron selected the product behavior; it does **not** mean the interface is built, Alexis has approved artwork, or an agent has permission to implement it. The detailed current direction appears in Sections A–E and the linked [November 7 working notes](2026-11-07-archive-library-and-continue-working-notes.md). The [November 6 session record](2026-11-06-design-session-record.md) is a *dated history*, not a parallel current specification.
+
+### CURRENT WORKING MODEL — settled product behavior
+
+- **Teaching environments:** The current publication month stays distinct from a reader-selected Personal Archive of **zero to three** historical months. The Past Teaching Library holds earlier teaching whether or not a month is active in the Archive. Putting a month away does not erase completion or awards.
+- **Award eligibility:** Distinct Challenge completions count wherever the reader studies, **including directly in the Library**. Library gamification presentation is hidden while reading, not disabled. No attendance penalties, competitive metrics, or universal reading timer.
+- **Field Notebook:** A permanent part of the app, with browsing by publication year → all twelve ordinary month entries, and a separate **All Earned Cards** gallery (Monthly Challenges, plus Special Experiences only after a first event card is earned). A month reveals remaining thematic goals only after the reader first earns an achievement associated with that month's teaching. Within gallery groups, newest earned comes first.
+- **Collectibles:** Both thematic discovery completion **and completion of an entire finalized month's eligible Challenges** earn permanent, dated, substantive illustrated **Scripture cards**. The full-month reward is the month's final card, not a certificate. Cards belong to the *publication month* even if earned much later; the actual earned date is preserved.
+- **Lifetime participation:** One evolving status derived from **distinct completed Challenges** replaces prior statuses. Lifetime milestone badges do not accumulate. No obligatory next-tier progress bar or separate lifetime-awards page.
+- **New awards:** Never interrupt the Challenge reader. Combine awards into one post-reader announcement, carry unannounced awards to the next visit and announce that batch once. Readers may disable award *announcements*, but **not** earning or the Field Notebook. Hub **New Discoveries** clears when the Notebook opens; each card's **New** label persists until that individual card is opened. Dismissing an announcement does not clear either marker.
+- **Monthly finalization:** Once a month's eligible Challenge set is finalized, ordinary editorial typo/reference corrections do not change its requirements, reset completion or revoke earned cards. Future unpublished Challenges prevent premature full-month awards.
+- **Special Experiences:** The *category principle* (optional time-limited experiences, permanent dated earned-only cards, no gray missed-event placeholders) is decided; **no specific event is approved or scheduled**.
+
+### HISTORICAL / SUPERSEDED — preserved as decision history, not requirements
+
+- Large gray/locked walls of all possible achievements, or conversely a surprise-only collection.
+- Permanent collectible badges for each lifetime threshold, old tier ladders, seals that accumulate for every lifetime level, and visible lifetime goal progress bars.
+- Generic monthly completion certificates or summary-only monthly cards; thematic mini-collections with no permanent card.
+- The old **7/14/30/60/90/120 consecutive publication-date ladder** as the core participation system; punitive attendance streaks, rewards for missing days, or mandatory dwell timers.
+- Unlimited active historical Archive months, or automatically retaining months simply because they are the most recent/unfinished.
+- Full append-only event sourcing as a requirement, or mandatory integrated weekly memorization as the launch plan.
+- November 6's unanswered questions about *whether* thematic discoveries give cards or *whether* the Library can award them. Those were resolved November 7.
+
+Historical discussions, older Issue bodies, dated handoffs, and research reports may accurately describe **what was proposed at that time**. Their old prescriptions do not override the current model. See the [repository audit](2026-11-07-gamification-repository-audit.md) for locations and remaining external references.
+
+### OPEN / NOT YET APPROVED — do not silently choose in engineering
+
+- **Archive/Hub behavior:** Exact month-rollover comparison/ties, re-add behavior, repeat-completion recency treatment, deterministic Hub **Continue** routing, and onboarding details. The principle of three historical active slots and preserving meaningful reader work is decided; its full edge-case algorithm is not.
+- **Visual/editorial:** Alexis's approval of layouts and actual Scripture card artwork/copy, lifetime-status naming/placement, mobile treatments and other reader-facing labels. Her real notebooks are the required visual reference, not a finished mockup.
+- **Presentation preferences:** The specific earned-card *announcement opt-out is decided*; broader Quiet Reading Mode presentation behavior and exact setting placement remain open.
+- **Implementation/release:** Idempotent completion/award data contracts, CMS card modeling, sync, technical notification state, per-format completion contracts, testing and launch scope. These are implementation specifications and approvals, not a reason to reopen the settled product model.
+- **Optional future features:** Specific Special Experiences and exploratory real-calendar-day surprise encouragement are not production commitments.
+
+**Implementation gate:** Neither this register nor the November 7 notes authorizes code, artwork, CMS changes or a launch commitment. Scope work through the normal Issue/PR and Aaron/Alexis review process.
+
 ## A. Nine adopted foundational principles (November 6, 2026)
 
 These are the nine areas of substantial agreement across the Gemini Argon report and independent evidence audit, which Aaron explicitly accepted as Bibleberry product principles. Agreement between reports is not by itself scientific proof; research support varies by question.
