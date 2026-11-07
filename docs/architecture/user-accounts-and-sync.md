@@ -14,6 +14,14 @@ The guiding requirement is: **A reader's durable accomplishments must belong to 
 
 This document captures the **working decisions made so far**, why they were made, and what remains open. It is not authorization to implement or redesign existing working components.
 
+## November 6, 2026: installed-mobile-first storage clarification
+
+**Product owner decision:** Bibleberry is intended primarily as an **installed iOS and Android application**, with a hosted web version as an additional channel. The existing React/TypeScript/Vite UI is not a browser-only delivery commitment.
+
+For A3, reader participation identity, completion semantics, optimistic state and React-facing store must be **independent of the physical persistence technology**. A web localStorage adapter is suitable for hosted-web guest mode and development tests, but **must not be treated as the permanent native-device storage contract**. The store must support asynchronous hydration, queued early actions, serialized writes, failure/retry reconciliation and safe reset during pending writes. Capacitor/native Preferences, SQLite, and other native packaging/storage choices remain **unselected**; no native dependency or packaging work is authorized by A3.
+
+A future authenticated Supabase account remains the working route to **recoverable multi-device accomplishments**. Guest records in a native app can still be lost on uninstall or device loss. See [A3 Issue #46](https://github.com/ContraPhilosophy/Bibleberry/issues/46) and [November 6 handoff](../project/handoffs/2026-11-06-a3-mobile-first.md). The native packaging choice should be resolved earlier in [R20](../product/application-development-roadmap.md) planning, before committing to authentication, device notifications or app-store release details.
+
 ## November 6, 2026: approved scope for participation records
 
 Aaron resolved the gamification research architecture disagreement in favor of the **simpler durable-record approach**, rather than a comprehensive append-only event log. This is a product-scope decision, not a finalized database schema.
