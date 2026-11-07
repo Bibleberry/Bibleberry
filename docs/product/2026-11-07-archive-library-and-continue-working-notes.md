@@ -148,6 +148,25 @@ Lifetime Challenge milestones and Special Experience commemoratives may need the
 
 **Open product/editorial questions:** How many reference verses belong on a card, whether quoted WEBP verses are full/partial, whether Scripture saving is available within cards, creation/review process and CMS data shape, how cards display on small screens, and which awards notify readers outside Challenge sessions. These are not approved implementation details.
 
+## 8. November 7 exploration: long-term anniversaries rather than escalating completion ladders
+
+> **Exploratory preference; anniversary eligibility is NOT yet decided.**
+
+After discussing substantive thematic discovery cards and monthly commemorative summary cards, Aaron questioned whether a prominent long-term series of distinct Challenge-count milestones would remain poignant or interesting for years. He proposed a smaller **time-based anniversary series** to recognize a reader's relationship with the ongoing Bibleberry ministry:
+
+- One week
+- One month
+- Three months
+- Six months
+- One year
+- A commemorative each subsequent year
+
+This is an emerging **alternative to emphasizing large lifetime Challenge count ladders**, not yet an approved replacement for the November 6 primary distinct-completions progression decision. The underlying distinct Challenge completion facts still matter irrespective of whether collectible milestones are based on volume.
+
+**Main unresolved product question:** Does the anniversary measure calendar time since the reader's first app use (including absences), cumulative months of actual participation, or some other engagement-based interval? For example, should someone who opened the app once and returns one year later receive the first-year commemorative? Avoid accidentally creating punitive consecutive-day streak requirements while answering this.
+
+Artwork, names, card treatment, earned dates, onboarding connection and the precise relationship of anniversary collectibles to lifetime completion records all remain open. Do not implement anniversary eligibility from this note.
+
 ## Status and process
 
 The discussion generated a coherent **working hypothesis** for organizing personal participation. Aaron explicitly encouraged recording this level of detail even where final decisions have **not** been made. Keep proposals labeled as provisional until reviewed and accepted. Do not issue implementation tasks, alter participation stores or merge this documentation without Aaron's review.
