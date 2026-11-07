@@ -1,8 +1,8 @@
 # Bibleberry — Gamification, Achievements & Participation
 
 > **Product vision and decision register, not an implementation specification**
-> **Updated:** 2026-11-06
-> **Status:** All five research divergences now discussed, with decided principles, chosen visual directions and unresolved implementation details explicitly separated.
+> **Updated:** 2026-11-07
+> **Status:** November 6 principles and November 7 Field Notebook decisions reconciled; Archive/Hub edge cases, artwork and engineering contracts remain open. Documentation only.
 > **Project:** Bibleberry AppDev | **Target launch:** 2027-01-01
 > **Product lead:** Aaron Waid | **Content/ministry authority:** Alexis Waid
 
@@ -32,18 +32,18 @@ These are the nine areas of substantial agreement across the Gemini Argon report
 5. **Permanent earned history.** Readers keep earned accomplishments, including the **date an achievement was earned**, and records of which Challenges they have completed. An earned award does not disappear when participation lapses.
 6. **Avoid artificial scarcity and fear of missing out.** Do not manufacture permanent shame or collectible gaps around missed dates. Seasonal material may be featured seasonally. Availability of past content and monthly goals is a separate product decision (see open questions).
 7. **Scripture saving and future memorization guidance.** App-wide saving of Scripture references remains important. Biblical Discovery replaces weekly memorization in the launch direction; integrated memorization is deferred. An optional honor-system learned declaration and personal-Bible guidance remain possible, but are not automatically launch scope. See [Biblical Discovery and Scripture](biblical-discovery-and-scripture.md).
-8. **Reader-controlled quiet presentation.** Provide a lightweight Quiet Reading option that hides achievement/milestone prompts and counters while preserving actual completion and award history. It should not hide essential navigation or Scripture tools. Exact UI design and release scope remain to be defined.
+8. **Reader-controlled achievement announcements and quiet presentation.** Earned-card announcements may be disabled, but earning, the Field Notebook, the Hub's New Discoveries indicator and each card's New label remain. A broader Quiet Reading presentation option is conceptually supported without hiding navigation or Scripture tools; its details and release scope are open.
 9. **Durable, minimal personal records.** Stable Challenge identities, reliable completion tracking, permanent award records and account-based continuity matter. Use only the data needed to support product functions; do not presume a comprehensive interaction log.
 
 ## B. Three resolved research conflicts (November 6, 2026)
 
 ### B1. Achievement visibility: choose a hybrid Field Notebook
 
-**Decided:** Readers may anticipate selected future achievements, see understandable requirements, and view progress toward them. Symbols are acknowledgments of meaningful participation, not the reason or measure of Christian formation. A blanket grid of every unearned achievement is **not required**, nor is a surprise-only system.
+**Refined November 7:** The Field Notebook is a permanent illustrated personal record of Scripture discoveries and participation, not an optional gamification switch or a wall of gray badges. A year displays all twelve publication months normally, without empty months appearing as failures. Month-associated unearned thematic goals stay out of view **until the reader earns at least one achievement associated with that month's teaching**. Then remaining available thematic discoveries, requirements and progress may appear beside earned cards. Earning the first card through the Past Teaching Library qualifies.
 
-The **Personal Field Notebook** is the working concept for a combined reading history and collection: earned illustrated entries, dated accomplishments, and a restrained number of visible goals. Some monthly commemoratives or discoveries may be revealed only when earned. **Actual examples of Alexis's hand-illustrated Bible-study notebooks**, shared during the November 6 conversation, now anchor the chosen *visual direction*; exact artwork, terminology, number of visible goals and final layout still require Alexis's approval. See §E.
+The selected aesthetic derives from **Alexis's actual illustrated Bible-study notebooks**, subject to her editorial and visual approval. The Field Notebook can show earned cards by publication month or in All Earned Cards; see §C and §D.
 
-**Reasoning:** Research on expected rewards and digital gamification does not establish that every visible, self-directed symbolic goal undermines intrinsic motivation. Aaron drew an analogy to milestone sobriety coins: the token recognizes an accomplishment without necessarily causing the underlying commitment.
+**Reasoning:** Evidence supports neither universal suppression of visible goals nor a compulsory grid of missing achievements. The hybrid recognizes genuine participation without creating absence-driven pressure.
 
 ### B2. Completion: no mandatory timer or sincerity test
 
@@ -63,31 +63,33 @@ A simple relational/record-based approach using the existing Supabase working di
 
 See [User Accounts & Sync](../architecture/user-accounts-and-sync.md) for the separate working architecture and its unresolved technical questions.
 
-> **November 7 working-design discussion (provisional, not approved for implementation):** [Personal Archive, Past Teaching Library and Hub Continue](2026-11-07-archive-library-and-continue-working-notes.md). This captures Aaron's emerging active-workspace versus historical-library distinction, silent Library completion tracking and single Hub Continue behavior. Concrete rules and edge cases remain open; do not treat the examples as a finalized algorithm.
+> **November 7 working notes:** [Personal Archive, Past Teaching Library, Hub Continue and Field Notebook](2026-11-07-archive-library-and-continue-working-notes.md) contain the detailed history and approved Field Notebook refinements. Archive rollover tie-breaking and Hub Continue routing remain provisional; illustrative examples are not a finalized algorithm.
 
 ## C. Participation model: decided direction, not final catalogue
 
-### C1. Lifetime Challenge completion is the primary enduring progression
+### C1. Lifetime completion: one evolving Field Notebook status
 
-**Decided:** The principal cumulative progression is the total number of **distinct Challenges completed**, irrespective of the order or dates on which they were read. Completing the same Challenge again should not inflate the lifetime total. Selected lifetime milestones can have visible progress and permanent collectibles.
+**Decided November 7:** The total count of **distinct Challenges completed** advances a **single evolving participation status** in the Field Notebook. It measures completed teaching across current, Archive and Library sources, **not** elapsed membership time or consecutive real-world days. A reread cannot inflate the distinct count.
 
-Thresholds (for example, 10, 25, 50, 100), exact names, tiers, and artwork remain **unapproved examples**, not a finalized catalogue. A completion total alone may be insufficiently interesting; the monthly system below provides variety.
+The updated status **replaces earlier stages**; former stages do not remain as collectible badges. No Lifetime Achievements page, collection of permanent seven-/thirty-/hundred-Challenge badges, or required bar to the next tier. A modest total completed count may be displayed.
 
-### C2. Monthly completion commemoratives
+Conceptual thresholds previously considered: **7, 30, 100, 200, 365, 730, 1,095** and subsequent increments of 365. These are possible status levels, **not approved titles or a required final tier catalogue**. Final wording and visual heading treatment await editorial/design review.
 
-**Decided in concept:** Bibleberry's editorial planning naturally works in months as well as weeks, as it has in Forevergreen. Completing **all Challenges belonging to a given month's published set** should earn that month's commemorative recognition or collectible, representing the month in the reader's personal history.
+### C2. Full-month completion earns a substantive Scripture collectible
 
-The monthly reward is not intended as a permanently gray missing slot in a collection before it is earned. Its precise artwork, reveal, naming and publication/availability rules are not decided. Earned collectibles remain earned.
+**Decided November 7:** Completing **every Challenge in a finalized publication month's eligible set** earns **one illustrated Scripture-related card**. It has the same substantive theological character as thematic discovery cards, not a separate certificate, generic monthly summary, or card titled simply “November 2026.”
 
-**Open implementation semantics:** Define a month's eligible Challenge set, what happens if publication schedules change, whether missed/unpublished dates count, how late additions are handled, and how long monthly goals remain earnable while their content is accessible. Do not invent these rules in code.
+Alexis chooses a meaningful biblical subject related to that month's teaching, with its own illustration in Bibleberry's recognizable notebook visual language. The publication month and unlocking basis can be metadata such as “Earned by completing November 2026,” while the card displays the **actual earned date** separately. An award earned years later from the Library still belongs under its **original publication month**.
 
-### C3. Content-derived monthly mini-collections
+The full-month card is the **final monthly reward**: it cannot be earned merely by finishing everything currently released if unpublished Challenges remain. When the month is editorially finalized, its eligible Challenge set is stable. **Ordinary content corrections do not change completion requirements or revoke awards.** Exceptional changes to a finalized month's membership are not a routine scenario and require a separate editorial decision if they arise. Completion in the historical Library earns the same card without Archive activation.
 
-**Decided in concept:** After Alexis's material for the month is planned, editors may notice recurring Scripture topics, images or themes and offer playful small monthly goals tied **only** to those existing Challenges. Examples discussed: two Challenges involving lions, four about Psalms, or several about parables. The content need not be specially produced to meet a goal.
+### C3. Thematic discoveries earn permanent Scripture cards
 
-The reader might see **“Lions in Scripture — 1 of 2”** during that month. This gives anticipation, novelty, and a reason to notice connections across the teaching. Completing the entire month's eligible Challenge set would also complete any mini-collections drawn exclusively from it.
+**Decided November 7:** After Alexis plans content, editors may identify naturally recurring biblical images, motifs, narratives or theological connections. This must never dictate what Alexis writes. **Each completed thematic mini-collection awards a permanent illustrated Scripture collectible**, with an actual earned date, meaningful title, Scripture references / selected WEBP text, and a concise substantive explanation based on her teaching.
 
-**Still open:** Whether each mini-collection gives a permanent collectible, a temporary completion mark, or both; how monthly goals appear after the calendar month; whether all are known beforehand; exact art, naming and editorial workload. A visible **progress teaser** does not require a permanent gray unearned reward slot.
+**Visibility:** A month's Notebook entry appears normally without advertising all its unearned goals. Once a reader earns at least one achievement associated with that month, the month detail may reveal other available thematic discoveries, their clear requirements and completion progress (for example, “2 of 4 Challenges completed”).
+
+**Eligibility:** Completions from current teaching, Personal Archive or Past Teaching Library count identically. Library completion records and awards accrue even though the Library itself shows no gameful prompts or reward progress. Collected cards stay available regardless of whether a month is subsequently put away.
 
 ### C4. Real-day consistency: optional spontaneous encouragement, not a core streak
 
@@ -95,9 +97,13 @@ The reader might see **“Lions in Scripture — 1 of 2”** during that month. 
 
 If pursued, the acknowledgment is **not** an ongoing streak obligation, a permanent missing collectible, a warning, or the foundation of lifetime progress. There should be no streak-maintenance pressure. Recognition triggers, whether it ships, and any minimum date-only tracking needed remain open.
 
-### C5. Archive and earned-history boundaries
+### C5. Current teaching, Personal Archive and Past Teaching Library
 
-Users may revisit and complete archived Challenges when they are available. Retrospective completion counts toward distinct lifetime totals and content-derived mini-collections if the relevant goal is still available. **Do not assume all historical months or monthly goals remain available forever:** the content availability model and eligibility window still require a decision. Never take away an accomplishment already earned.
+The **Hub prioritizes the current publication month**, where Challenges become available as published. The **Personal Archive** is an active study workspace with **zero to three reader-selected historical months**, plus the separate current month. Readers may add or put away past months without losing progress, saved position or earned awards. A just-ended month may enter an available historical slot, but does not automatically evict a more recently and meaningfully studied month if all three are occupied. Qualifying activity is explicitly adding a historical month or completing a Challenge, **not simply opening one**. Detailed rollover ties and Hub Continue routing still require their own specification.
+
+The **Past Teaching Library** holds previously published teaching not necessarily active in the Archive. Readers may finish a Challenge there directly, and receive **all qualifying distinct lifetime credit, thematic collectibles and full-month cards** without activating that month. Its gameful affordances remain hidden while studying. After leaving the quiet Challenge reader, the same optional combined announcement rules apply as elsewhere.
+
+Cards are grouped in the Field Notebook under their **publication year/month**, even when earned later, and display the real date earned. Earned history is permanent, and returning to older teaching does not entail punitive streak resets.
 
 ## D. The five research divergences: November 6 outcomes
 
@@ -105,23 +111,40 @@ The five smaller disagreements have now all been **discussed**. One led to a mat
 
 | Area | Outcome / product decision | Open details |
 | --- | --- | --- |
-| **1. Progress hierarchy** | **Decided:** Total distinct completed Challenges is the primary progression; full-month commemoratives and content-derived mini-collections provide variety. Publication-date chains are not the primary game. | Exact lifetime thresholds, monthly eligibility/availability, mini-collection award rules. |
+| **1. Progress hierarchy** | **Refined November 7:** Distinct completions advance one evolving lifetime status; thematic and full-month completion earn permanent Scripture cards. Publication-date chains are not primary. | Status wording, card art and Archive/Hub implementation details. |
 | **2. Weekly memorization** | **Decided direction:** Replace dedicated weekly WEBP memorization with **Biblical Discovery**, currently envisioned for Sunday. Maintain Scripture saving. Do not launch a full memorization app or impose a fixed four-week Discovery rotation. | Alexis's editorial review, first Discovery interactions, optional self-directed **Memorize with Your Bible** guidance and any learned-state UI. |
-| **3. Hub progress presentation** | **Decided:** **Hub is for discovery**, with useful Bibleberry resources/media and a permanent **Field Notebook** destination. Personal achievement progress lives inside the Notebook. A temporary **“New Discoveries”** indicator can overlay its Hub entry when newly earned items await viewing, clearing when the Notebook is opened. **Challenge readers** remain the distraction-free zone. | Final Hub IA, visual design, exact new-item state. |
+| **3. Hub progress presentation** | **Refined November 7:** Hub retains Field Notebook New Discoveries until the Notebook is opened; each individual earned card stays New until opened. Dismissing an announcement does not clear either. | Visual treatment and broader Quiet Reading UX. |
 | **4. Special Experiences** | **Decided principle:** Genuine time-limited special experiences may award permanent dated commemoratives. The **Special Experiences** Notebook category remains entirely **hidden until the reader earns the first such collectible**. No missing gray slots for missed events. | Individual events, eligibility, cadence, publication/scheduling, launch scope. |
 | **5. Field Notebook visual identity** | **Chosen direction:** A mature, illustrated personal archive inspired by **Alexis's real Bible-study notebook pages**, not a generic botanical moodboard or a conventional gaming badge grid. | Actual artwork, information design, accessibility and Alexis's review/approval. |
 
-### Hub, Notebook and Challenge reader are distinct experiences
+### Hub, Notebook, Library and Challenge reader are distinct experiences
 
-- **Hub:** discovery of available teaching, **Latest from Bibleberry**, videos and formation resources, presented tastefully as useful ministry content rather than personal advertising or an Alexis-face promotional feed. Not an achievement dashboard.
-- **Field Notebook:** progress toward selected visible goals, earned monthly discoveries, lifetime recognition and other collected accomplishments. It remains accessible even when there is no new award. The **“New Discoveries”** indicator belongs *on the Notebook Hub entry*, **not** in a separate permanent card.
-- **Challenge reader:** teach faithfully and without unrelated badge prompts, counters or interruption. Useful instructional progress stays available. Quiet Reading Mode's exact controls are still open.
+- **Hub:** Latest current published Challenge and Bibleberry resources; may offer one unobtrusive active-Archive Continue entry (routing details remain open). A Field Notebook destination carries the temporary **New Discoveries** indicator.
+- **Personal Archive:** Focused reader-selected active workspace of at most three historical months plus current teaching.
+- **Past Teaching Library:** Historical catalogue with ordinary completion and earning but no in-context achievement UI.
+- **Field Notebook, year/month:** Select a publication year and see all twelve months normally. Each month contains its earned cards; remaining thematic goals become visible after the first achievement from that month's teaching. Links can take readers to historical teaching or add it to the Archive.
+- **Field Notebook, All Earned Cards:** Separate scrolling gallery grouped into **Monthly Challenges** (thematic and full-month cards) and **Special Experiences** (category hidden until first earned event card). Within each group, show **newest earned first**, not publication-order. The gallery and monthly pages point to the same award records. No complex filters are currently required.
+- **Field Notebook lifetime status:** One status that evolves with distinct Challenge completion, not accumulating badges.
+- **Challenge reader:** No earned-card announcements, collectible popups, reward counters or unrelated gamification during teaching, including when opened directly from the Library. Ordinary navigation, screen progress and content-specific interactions remain.
+
+**Card details:** Each earned Scripture collectible may show a title, Alexis-notebook-inspired illustration, Scripture references, selected **WEBP** text, a substantive short biblical/theological explanation, actual earned date and earning condition. Full-month cards are also genuine Scripture study artifacts, not completion certificates. Example card themes such as Jacob's Well remain illustrative and require editorial verification.
 
 ### Special Experiences: approved category principle, not an event production assignment
 
 Aaron explicitly accepted **limited-time experiences** such as a potential **Holy Week 2027**, **Advent Calendar 2026** or **Praying the Hours**. These names are illustrative, not scheduled productions. Their event-specific dated collectibles are **only shown when earned**. A reader who never completes a Special Experience does **not** see that section at all.
 
 Ordinary Challenge completion and retrospective archive access are separate from event participation windows. Both types of earned accomplishments are permanent; event availability may genuinely end. The presence of the **Special Experiences** concept **does not authorize building or launching a specific event**.
+
+
+### Earned-card announcements and acknowledgment (approved November 7)
+
+- Earned cards are automatically awarded, dated and kept forever, no matter which study space is used and regardless of announcement preferences.
+- No awards interrupt the Challenge reader. After leaving it, one **combined** earned-card announcement may report several cards and link to the Field Notebook.
+- If an award is earned but not yet announced when the app closes, **carry that unannounced batch across sessions** and show one combined announcement on the next visit outside the reader. A batch is announced **only once**, even if the announcement is dismissed.
+- Dismissing the announcement **does not clear** the Hub **New Discoveries** indicator or the **New** label on an individual card.
+- The Hub indicator clears **when the Field Notebook opens**; each card stays **New until that specific card is opened**, regardless of whether the reader uses the month view or All Earned Cards.
+- Readers may **turn off earned-achievement announcements**. They cannot switch off the Field Notebook or earning. New Discoveries and card-level New labels still operate with announcements disabled.
+- Broader Quiet Reading UX, exact visual form and implementation semantics are outside these behavioral approvals.
 
 ### Scripture collection and memorization boundaries
 
@@ -137,7 +160,7 @@ Ordinary Challenge completion and retrospective archive access are separate from
 
 Characteristics to draw from: illustrative biblical motifs and objects, handwritten or hand-labeled annotation energy, meaningful Scripture references, topical visual clustering, visual connections, warmth, and a composed study-page feel. The digital notebook should preserve legibility and accessibility; it need not mimic the density of a photographed paper notebook.
 
-**Collectible + record:** A reader is developing an illustrated archive of participation and discoveries, not merely a shelf of identical badges. Possible treatments include illustrated monthly-themed pages, stamps or seals for lifetime milestones, and event-specific commemorative inserts. These are **design explorations**, not a committed style taxonomy or finished assets.
+**Collectible + record:** A reader is developing an illustrated archive of participation and discoveries, not merely a shelf of identical badges. The chosen product direction uses substantive illustrated Scripture cards, a year/month Field Notebook, a grouped earned-card gallery, an evolving lifetime participation status and earned-only special-event collectibles. Exact layout and visuals await Alexis's review.
 
 The two notebook reference images were shared as conversation attachments; **they are not included as image assets in this GitHub documentation update**. Their descriptions and the chosen direction are preserved here; retrieve the actual references from the original conversation before preparing mockups.
 
@@ -147,7 +170,7 @@ The two notebook reference images were shared as conversation attachments; **the
 
 - **Consecutive publication-date achievement ladder:** The former 7/14/30/60/90/120 sequence counted Challenge *release dates* and allowed archive catch-up. It remains historical brainstorming, **not** the primary progression model or an approved launch requirement.
 - **Specific Special Event production:** The **principle** of time-limited Special Experiences with permanent earned-only collectibles **is approved**. But *Praying the Hours*, an Advent calendar, a Holy Week experience or any other particular event is **not approved or scheduled for launch**. There must be no wall of gray missing rewards.
-- **Evolving collectible tiers:** A visually changing achievement with separate historic earned dates was proposed, but remains exploratory.
+- **Lifetime collectible badge ladder:** Keeping separate seven-, thirty-, hundred- and later milestone cards permanently visible is superseded; the decided direction is one evolving lifetime status. Exact titles and artwork are still open.
 - **Old Bookmarks/Keys, gated downloads and Greek-lesson prizes:** Historical brainstorming only, not a requirement.
 - **Punishing lapse, rewarding missed days, theological exams and competitive rankings:** Explicitly rejected.
 
@@ -172,7 +195,7 @@ The October 31 snapshot [remains in Git history](https://github.com/ContraPhilos
 - **Conflict 1:** hybrid Field Notebook with anticipated selected achievements, not surprise-only or a mandatory wall of gray awards.
 - **Conflict 2:** no mandatory reading-time thresholds or compulsory optional reflections.
 - **Conflict 3:** simple durable personal records instead of full event sourcing.
-- **Divergence 1:** cumulative distinct Challenges as primary progression, plus monthly completion commemoratives and content-derived mini-collections. Actual-day consistency recognition remains a modest optional concept, not a punitive streak.
+- **Divergence 1:** Cumulative distinct Challenges measure one evolving lifetime status; full-month and thematic discoveries award permanent Scripture cards. Actual-day consistency recognition remains optional and is not a punitive streak.
 - **Divergence 2:** Sunday **Biblical Discovery** replaces the dedicated memorization Challenge in the intended launch lineup; self-directed own-Bible memorization guidance remains exploratory.
 - **Divergence 3:** Hub discovery orientation with Field Notebook destination and a temporary **New Discoveries** overlay; progress details inside the Notebook.
 - **Divergence 4:** Time-limited **Special Experiences** are acceptable with earned-only, permanently dated event collectibles; the Notebook category is hidden until first earned.
@@ -182,6 +205,6 @@ The October 31 snapshot [remains in Git history](https://github.com/ContraPhilos
 
 This file is a **product vision/decision record**, not permission for an AI coding assistant to implement its entire contents. Any engineering work must begin with scoped, approved assignments and repository/codebase review. Changes should go through branches and pull requests for Aaron to review and merge.
 
-Before building achievement mechanics, resolve eligibility details for monthly sets and mini-collections, the meaning of completion across Challenge formats, the exact Hub/Notebook UX and art, and privacy/sync semantics. The placement *principle* is settled; its production UI is not. Preserve existing app prototypes and the separation of Sanity editorial content from private reader records.
+Before building achievement mechanics, specify per-format completion semantics, idempotent award issuance, eligible finalized monthly sets, the exact Hub/Notebook UI and artwork, and privacy/sync semantics. Field Notebook behavior is substantially settled, but Archive/Continue edge cases and production design remain open. Preserve existing app prototypes and the separation of Sanity editorial content from private reader records.
 
 **No application changes, artwork approval, Special Event implementation, or production data schema are authorized by this document alone.**
