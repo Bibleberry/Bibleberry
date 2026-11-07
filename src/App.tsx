@@ -29,6 +29,7 @@ type Detail =
   | { type: 'challengeLab' }
   | { type: 'challengePilot' }
   | { type: 'participationPilot' }
+  | { type: 'releasedChallenge'; slug: string }
   | null
 type Appearance = 'light' | 'dark' | 'system'
 type TextSize = 'compact' | 'default' | 'large'
@@ -64,6 +65,10 @@ const ParticipationPilot = participationPilotEnabled
   : null
 const ParticipationPilotEntryBar = participationPilotEnabled
   ? lazy(() => import('./pilot/participationPilot').then(module => ({ default: module.ParticipationPilotEntryBar })))
+  : null
+const releasedChallengeRouteEnabled = import.meta.env.VITE_ENABLE_RELEASED_CHALLENGE_ROUTE === 'true'
+const ReleasedChallengeHost = releasedChallengeRouteEnabled
+  ? lazy(() => import('./cms/reader/ReleasedChallengeHost').then(module => ({ default: module.ReleasedChallengeHost })))
   : null
 const initialState: PrototypeState = {
   onboarded: false,
@@ -618,6 +623,20 @@ function parseInitialRoute(): {
       previewDate: '',
     }
   }
+  if (releasedChallengeRouteEnabled && hash.startsWith('#/challenge/')) {
+    const slug = hash.replace('#/challenge/', '').trim()
+    if (slug.length > 0) {
+      const originView = typeof window !== 'undefined' && isPrimaryView(window.history.state?.originView)
+        ? window.history.state.originView
+        : 'today'
+      return {
+        view: originView,
+        detail: { type: 'releasedChallenge', slug },
+        developmentCollection: 'ordinary',
+        previewDate: '',
+      }
+    }
+  }
   if (hash.startsWith('#/teaching/')) {
     const id = hash.replace('#/teaching/', '')
     const item = allEntries.find(entry => entry.id === id && entry.entryType === 'teaching')
@@ -697,6 +716,7 @@ export default function App() {
     if (
       (challengePilotEnabled && window.location.hash === '#/pilot/challenge')
       || (participationPilotEnabled && window.location.hash === '#/pilot/participation')
+      || (releasedChallengeRouteEnabled && window.location.hash.startsWith('#/challenge/'))
     ) {
       window.history.pushState({ bibleberryView: destination }, '', window.location.pathname)
     } else {
@@ -706,7 +726,11 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if ((!challengePilotEnabled && !participationPilotEnabled) || !state.onboarded) return
+    if (
+      (!challengePilotEnabled && !participationPilotEnabled && !releasedChallengeRouteEnabled) ||
+      !state.onboarded
+    )
+      return
     const syncPilotRoute = () => {
       const currentHash = window.location.hash
       if (challengePilotEnabled && currentHash === '#/pilot/challenge') {
@@ -727,6 +751,18 @@ export default function App() {
         scrollTop()
         return
       }
+      if (releasedChallengeRouteEnabled && currentHash.startsWith('#/challenge/')) {
+        const slug = currentHash.replace('#/challenge/', '').trim()
+        if (slug.length > 0) {
+          const originView = isPrimaryView(window.history.state?.originView)
+            ? window.history.state.originView
+            : undefined
+          if (originView) setView(originView)
+          setDetail({ type: 'releasedChallenge', slug })
+          scrollTop()
+          return
+        }
+      }
       const restored = parseInitialRoute()
       if (restored.detail) {
         setView(restored.view)
@@ -741,7 +777,9 @@ export default function App() {
         : undefined
       if (historyView) setView(historyView)
       setDetail(previous =>
-        previous?.type === 'challengePilot' || previous?.type === 'participationPilot'
+        previous?.type === 'challengePilot' ||
+        previous?.type === 'participationPilot' ||
+        previous?.type === 'releasedChallenge'
           ? null
           : previous,
       )
@@ -804,6 +842,12 @@ export default function App() {
     } else if (participationPilotEnabled && hash === '#/pilot/participation') {
       window.history.replaceState({ bibleberryPilot: true, originView: destination }, '', '#/pilot/participation')
       setDetail({ type: 'participationPilot' })
+    } else if (releasedChallengeRouteEnabled && hash.startsWith('#/challenge/')) {
+      const slug = hash.replace('#/challenge/', '').trim()
+      if (slug.length > 0) {
+        window.history.replaceState({ originView: destination }, '', hash)
+        setDetail({ type: 'releasedChallenge', slug })
+      }
     } else if (hash.startsWith('#/teaching/')) {
       const id = hash.replace('#/teaching/', '')
       const item = allEntries.find(entry => entry.id === id && entry.entryType === 'teaching')
@@ -1002,6 +1046,14 @@ export default function App() {
     }
     scrollTop()
   }
+  const exitReleasedChallenge = () => {
+    if (!releasedChallengeRouteEnabled) return
+    setDetail(null)
+    if (window.location.hash.startsWith('#/challenge/')) {
+      window.history.pushState({ bibleberryView: view }, '', window.location.pathname)
+    }
+    scrollTop()
+  }
 
   const todayKey = simulatedDate || localDateKey()
   const yesterday = simulatedDate ? new Date(`${simulatedDate}T12:00:00`) : new Date()
@@ -1073,6 +1125,14 @@ export default function App() {
       <ParticipationPilot
         returnLabel={`Return to ${primaryViewLabel(view)}`}
         onExit={exitParticipationPilot}
+      />
+    </Suspense>
+  } else if (detail?.type === 'releasedChallenge' && releasedChallengeRouteEnabled && ReleasedChallengeHost) {
+    content = <Suspense fallback={<div className="standard-page"><p role="status" aria-live="polite">Loading Challenge…</p></div>}>
+      <ReleasedChallengeHost
+        slug={detail.slug}
+        returnLabel={`Return to ${primaryViewLabel(view)}`}
+        onExit={exitReleasedChallenge}
       />
     </Suspense>
   } else if (detail?.type === 'challengeLab' && developerStudioEnabled && InteractiveChallengeLab) {
