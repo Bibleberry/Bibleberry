@@ -142,6 +142,24 @@ async function main() {
     } finally {
       await stopPreviewServer(server3);
     }
+
+    // ---------------------------------------------------------
+    // PASS 4: Participation-Pilot-Enabled Bundle (Isolated A3 Persistence Pilot)
+    // ---------------------------------------------------------
+    console.log('\n>>> [Pass 4] Building and testing Participation-Pilot-Enabled Bundle...');
+    cleanDist();
+    await runCommand('npm run build', { VITE_ENABLE_PARTICIPATION_PILOT: 'true' });
+
+    console.log('>>> Starting preview server for Participation-Pilot-Enabled Bundle...');
+    const server4 = await startPreviewServer();
+    try {
+      console.log('>>> Running Playwright smoke tests against Participation-Pilot-Enabled Bundle...');
+      await runCommand('npx playwright test tests/smoke/participation-pilot.spec.ts', {
+        PLAYWRIGHT_TEST_BASE_URL: `http://localhost:${PORT}`,
+      });
+    } finally {
+      await stopPreviewServer(server4);
+    }
   } catch (err) {
     executionError = err as Error;
   } finally {

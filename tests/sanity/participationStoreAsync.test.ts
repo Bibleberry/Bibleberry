@@ -4,8 +4,10 @@ import { dirname, resolve } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
+import { admitTrustedCatalogChallenge } from '../../src/participation/admission.ts'
 import { createWebLocalStorageDriver } from '../../src/participation/drivers/webLocalStorageDriver.ts'
 import { parseLocalCalendarDate, parseStoredChallengeId } from '../../src/participation/identity.ts'
+import { derivePersistedHostRenderState } from '../../src/participation/persistedChallengeHostModel.ts'
 import {
   createEnvelopePersistenceAdapter,
   serializeParticipationEnvelope,
@@ -760,6 +762,83 @@ test('serializes and coalesces rapid concurrent dispatches over slow async stora
   assert.equal(snap.data.savedScriptures.length, 1)
   // Subsequent queued commands coalesce behind the first active write (<= 2 writes instead of 4)
   assert.ok(writeCount >= 1 && writeCount <= 2)
+
+  store.dispose()
+})
+
+test('PersistedChallengeHost renders accessible hydrating state during async storage load and mounts at resumed screen once ready', async () => {
+  const sampleChallenge = {
+    title: 'Async Hydration Host Sample',
+    summary: 'Verifies hydrating -> ready transition.',
+    primaryScripture: {
+      id: 's-primary',
+      reference: 'Psalm 23:1',
+      translation: 'WEBP',
+      textStatus: 'referenceOnly' as const,
+      practiceStatus: 'notConfigured' as const,
+      usageRightsConfirmed: false,
+    },
+    screens: [
+      { id: 'screen-one', stepLabel: 'Screen 1', title: 'First Host Screen', blocks: [] },
+      { id: 'screen-two', stepLabel: 'Screen 2', title: 'Second Resumed Screen', blocks: [] },
+    ],
+    companionLinks: [],
+  }
+  const admitted = admitTrustedCatalogChallenge({
+    documentId: 'berrymark-challenge-2026-11-02-rejoice-always',
+    screens: sampleChallenge.screens,
+    editorial: { adaptationReviewed: true, reviewedAt: '2026-11-02T12:00:00Z' },
+  })!
+
+  const seededJson = JSON.stringify({
+    schemaVersion: 1,
+    data: {
+      completedChallenges: {},
+      inProgressChallenges: {
+        [admitted.challengeId]: { screenId: 'screen-two', updatedOn: day1 },
+      },
+      savedChallenges: {
+        [admitted.challengeId]: { savedOn: day1 },
+      },
+      savedScriptures: [],
+      lastOpenedChallenge: null,
+    },
+  })
+
+  const loadGate = createDeferred<string | null>()
+  const asyncDriver: KeyValueStorageDriver = {
+    getItem: () => loadGate.promise,
+    setItem: async () => {},
+    removeItem: async () => {},
+  }
+  const store = createReaderParticipationStore(
+    createEnvelopePersistenceAdapter({ storageKey: TEST_STORAGE_KEY, driver: asyncDriver }),
+  )
+
+  // While hydrating, host render state withholds ChallengePlayer and exposes accessible status copy
+  const hydratingState = derivePersistedHostRenderState(
+    store.getSnapshot(),
+    admitted.challengeId,
+    undefined,
+  )
+  assert.deepEqual(hydratingState, {
+    mode: 'hydrating',
+    statusMessage: 'Loading reading progress…',
+  })
+
+  // Resolve async hydration -> transitions directly to resumed Screen 2 with saved Challenge active
+  loadGate.resolve(seededJson)
+  await store.whenReady()
+
+  const readyState = derivePersistedHostRenderState(
+    store.getSnapshot(),
+    admitted.challengeId,
+    undefined,
+  )
+  assert.equal(readyState.mode, 'ready')
+  assert.equal(readyState.effectiveScreenId, 'screen-two')
+  assert.equal(readyState.view.isSaved, true)
+  assert.equal(readyState.view.status, 'inProgress')
 
   store.dispose()
 })

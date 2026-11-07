@@ -55,7 +55,7 @@ Opening, starting, resuming, saving and completing a Challenge are different act
 
 ### B3. Persistence: choose the simpler durable-record approach
 
-**Decided:** Track important accomplishments rather than maintaining a comprehensive diary of user interactions. The minimal model must preserve distinct completed Challenge IDs, saved Scripture and memorization state, and earned achievement IDs with **earned dates**. Signed-in records should survive device changes; guest records may be local to one device.
+**Decided:** Track important accomplishments rather than maintaining a comprehensive diary of user interactions. The minimal model must preserve distinct completed Challenge IDs, saved Scripture, and earned achievement IDs with **earned dates**. Signed-in records should survive device changes; guest records may be local to one device.
 
 A simple relational/record-based approach using the existing Supabase working direction is preferred. **Full event sourcing, a complete append-only behavioral ledger, and sophisticated offline-first replication are not product requirements.** Technical timestamps or deduplication fields may be used if needed for safe syncing, but granular activity histories are not product goals.
 

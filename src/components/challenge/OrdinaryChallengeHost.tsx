@@ -14,19 +14,22 @@ import {
   setOrdinaryChallengeScreen,
   toggleOrdinaryChallengeSaved,
   toggleOrdinaryScriptureSaved,
+  type OrdinaryChallengeActions,
   type OrdinaryChallengeSessionState,
+  type OrdinaryChallengeViewState,
 } from './ordinaryChallengeHostModel.ts'
 
 /**
- * Reusable ordinary-shell host adapter for `ChallengePlayer` (Issue #44, A2).
+ * Reusable ordinary-shell host adapter for `ChallengePlayer` (Issue #44 A2, extended in Issue #46 A3).
  *
  * Renders inside the normal `AppShell` reading column with reader-appropriate labels and no
- * dependency on Developer Studio, either Lab, CMS catalog fetching, or browser storage.
+ * dependency on Developer Studio, either Lab, CMS catalog fetching, or storage adapters.
  *
  * State contract:
- * - Controlled mode requires `state` and `onStateChange` together.
- * - Uncontrolled mode omits both `state` and `onStateChange` (optionally seeding `initialState`)
- *   and owns isolated in-memory session state with pure React state updaters.
+ * - Controlled session mode requires `state` and `onStateChange` together.
+ * - External actions mode requires `viewState` and `actions` together (used by `PersistedChallengeHost`).
+ * - Uncontrolled mode omits both (optionally seeding `initialState`) and owns isolated in-memory
+ *   session state with pure React state updaters.
  */
 type OrdinaryChallengeHostBaseProps = {
   challengeKey: string
@@ -44,46 +47,57 @@ export type OrdinaryChallengeHostStateProps =
     state: OrdinaryChallengeSessionState
     onStateChange: (next: OrdinaryChallengeSessionState) => void
     initialState?: never
+    viewState?: never
+    actions?: never
+  }
+  | {
+    viewState: OrdinaryChallengeViewState
+    actions: OrdinaryChallengeActions
+    state?: never
+    onStateChange?: never
+    initialState?: never
   }
   | {
     state?: undefined
     onStateChange?: never
     initialState?: OrdinaryChallengeSessionState
+    viewState?: never
+    actions?: never
   }
 
 export type OrdinaryChallengeHostProps = OrdinaryChallengeHostBaseProps & OrdinaryChallengeHostStateProps
 
-type OrdinaryChallengeHostViewProps = OrdinaryChallengeHostBaseProps & {
-  session: OrdinaryChallengeSessionState
-  applyChange: (updater: (current: OrdinaryChallengeSessionState) => OrdinaryChallengeSessionState) => void
+type OrdinaryChallengeHostFrameProps = OrdinaryChallengeHostBaseProps & {
+  viewState: OrdinaryChallengeViewState
+  actions: OrdinaryChallengeActions
 }
 
-function OrdinaryChallengeHostView({
+function OrdinaryChallengeHostFrame({
   challengeKey,
   challenge,
-  session,
-  applyChange,
+  viewState,
+  actions,
   onExit,
   exitLabel,
   eyebrow,
   banner,
   footer,
   labels,
-}: OrdinaryChallengeHostViewProps) {
+}: OrdinaryChallengeHostFrameProps) {
   return (
     <div className="standard-page challenge-reader-page">
       {banner}
       <ChallengePlayer
         key={challengeKey}
         challenge={challenge}
-        screenId={session.screenId}
-        isSaved={session.isSaved}
-        isCompleted={session.isCompleted}
-        isScriptureSaved={(scripture: CmsScripture) => isOrdinaryScriptureSaved(session.savedScriptures, scripture)}
-        onScreenChange={screenId => applyChange(current => setOrdinaryChallengeScreen(challenge, current, screenId))}
-        onToggleSaveChallenge={() => applyChange(toggleOrdinaryChallengeSaved)}
-        onToggleSaveScripture={scripture => applyChange(current => toggleOrdinaryScriptureSaved(current, scripture))}
-        onComplete={() => applyChange(current => completeOrdinaryChallenge(challenge, current))}
+        screenId={viewState.screenId}
+        isSaved={viewState.isSaved}
+        isCompleted={viewState.isCompleted}
+        isScriptureSaved={viewState.isScriptureSaved}
+        onScreenChange={actions.onScreenChange}
+        onToggleSaveChallenge={actions.onToggleSaveChallenge}
+        onToggleSaveScripture={actions.onToggleSaveScripture}
+        onComplete={actions.onComplete}
         onExit={onExit}
         exitLabel={exitLabel}
         eyebrow={eyebrow}
@@ -91,6 +105,40 @@ function OrdinaryChallengeHostView({
       />
       {footer}
     </div>
+  )
+}
+
+type OrdinaryChallengeHostSessionViewProps = OrdinaryChallengeHostBaseProps & {
+  session: OrdinaryChallengeSessionState
+  applyChange: (updater: (current: OrdinaryChallengeSessionState) => OrdinaryChallengeSessionState) => void
+}
+
+function OrdinaryChallengeHostView({
+  challenge,
+  session,
+  applyChange,
+  ...restProps
+}: OrdinaryChallengeHostSessionViewProps) {
+  return (
+    <OrdinaryChallengeHostFrame
+      {...restProps}
+      challenge={challenge}
+      viewState={{
+        screenId: session.screenId,
+        isSaved: session.isSaved,
+        isCompleted: session.isCompleted,
+        isScriptureSaved: (scripture: CmsScripture) =>
+          isOrdinaryScriptureSaved(session.savedScriptures, scripture),
+      }}
+      actions={{
+        onScreenChange: screenId =>
+          applyChange(current => setOrdinaryChallengeScreen(challenge, current, screenId)),
+        onToggleSaveChallenge: () => applyChange(toggleOrdinaryChallengeSaved),
+        onToggleSaveScripture: scripture =>
+          applyChange(current => toggleOrdinaryScriptureSaved(current, scripture)),
+        onComplete: () => applyChange(current => completeOrdinaryChallenge(challenge, current)),
+      }}
+    />
   )
 }
 
@@ -112,12 +160,24 @@ function UncontrolledOrdinaryChallengeHost({
 }
 
 export function OrdinaryChallengeHost(props: OrdinaryChallengeHostProps) {
-  const { state, onStateChange, initialState, ...baseProps } = props
+  const { state, onStateChange, initialState, viewState, actions, ...baseProps } = props
   const controller = resolveOrdinaryChallengeStateController({
     state,
     onStateChange,
     initialState,
+    viewState,
+    actions,
   })
+
+  if (controller.mode === 'actions') {
+    return (
+      <OrdinaryChallengeHostFrame
+        {...baseProps}
+        viewState={controller.viewState}
+        actions={controller.actions}
+      />
+    )
+  }
 
   if (controller.mode === 'controlled') {
     return (
