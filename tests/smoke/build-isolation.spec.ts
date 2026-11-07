@@ -72,7 +72,16 @@ test.describe('Build Isolation and Public Production Verification', () => {
     await expect(page.locator('.pilot-disclosure')).toHaveCount(0);
     await expect(page.locator('.challenge-reader-page')).toHaveCount(0);
 
-    // 2. Check filesystem: dist/ directory must NOT contain Lab, Preview, or Pilot chunks
+    // Visiting the released Challenge hash route without feature flag in public bundle must also be inert
+    await page.goto('/#/challenge/bibleberry-cms-integration-test');
+    await expect(page.locator('#daily-teaching')).toBeVisible();
+    await expect(page.locator('.challenge-reader-page')).toHaveCount(0);
+
+    await page.reload();
+    await expect(page.locator('#daily-teaching')).toBeVisible();
+    await expect(page.locator('.challenge-reader-page')).toHaveCount(0);
+
+    // 2. Check filesystem: dist/ directory must NOT contain Lab, Preview, Pilot, or Controlled-Route chunks
     const distDir = path.resolve(process.cwd(), 'dist', 'assets');
     expect(fs.existsSync(distDir)).toBe(true);
 
@@ -83,7 +92,8 @@ test.describe('Build Isolation and Public Production Verification', () => {
         f.startsWith('SanityChallengeLab') ||
         f.startsWith('BerryMarkLocalPreview') ||
         f.startsWith('ordinaryChallengePilot') ||
-        f.startsWith('participationPilot'),
+        f.startsWith('participationPilot') ||
+        f.startsWith('ReleasedChallengeHost'),
     );
     expect(nonPublicChunk).toBeUndefined();
 
