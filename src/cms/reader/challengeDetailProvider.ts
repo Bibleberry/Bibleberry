@@ -221,6 +221,10 @@ export function adaptCatalogProviderToDetailProvider(
 /** Default singleton gateway detail provider instance */
 export const defaultGatewayChallengeProvider = createGatewayChallengeProvider()
 
+/** Default singleton catalog-adapted detail provider instance */
+export const defaultPublishedCatalogDetailProvider =
+  adaptCatalogProviderToDetailProvider(defaultPublishedCatalogProvider)
+
 /**
  * Resolves the default Challenge detail provider according to the build-time feature flag.
  * - When `VITE_ENABLE_RELEASE_GATEWAY_SOURCE === 'true'`: uses `defaultGatewayChallengeProvider`.
@@ -230,5 +234,5 @@ export function resolveDefaultChallengeProvider(): ChallengeDetailProvider {
   if (releaseGatewaySourceEnabled) {
     return defaultGatewayChallengeProvider
   }
-  return adaptCatalogProviderToDetailProvider(defaultPublishedCatalogProvider)
+  return defaultPublishedCatalogDetailProvider
 }

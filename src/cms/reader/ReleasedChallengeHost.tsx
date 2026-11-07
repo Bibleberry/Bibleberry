@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ArrowLeft, RotateCcw } from 'lucide-react'
 import { defaultGuestParticipationStore } from '../../participation/defaultGuestStore.ts'
 import { PersistedChallengeHost } from '../../participation/PersistedChallengeHost.tsx'
@@ -49,9 +49,11 @@ export function ReleasedChallengeHost({
   footer,
 }: ReleasedChallengeHostProps) {
   const effectiveExitLabel = returnLabel ?? exitLabel ?? 'Return'
-  const effectiveProvider =
-    challengeProvider ??
-    (catalogProvider ? adaptCatalogProviderToDetailProvider(catalogProvider) : resolveDefaultChallengeProvider())
+  const effectiveProvider = useMemo(() => {
+    if (challengeProvider) return challengeProvider
+    if (catalogProvider) return adaptCatalogProviderToDetailProvider(catalogProvider)
+    return resolveDefaultChallengeProvider()
+  }, [challengeProvider, catalogProvider])
 
   const [detailResult, setDetailResult] = useState<ChallengeDetailResult | null>(null)
   const [loadAttempt, setLoadAttempt] = useState<number>(0)
