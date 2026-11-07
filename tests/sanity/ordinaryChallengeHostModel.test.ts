@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
 import { test } from 'node:test'
+import { fileURLToPath } from 'node:url'
+import ts from 'typescript'
 import type { CmsScripture } from '../../src/cms/sanity/types.ts'
 import {
   resolveChallengePlayerCopy,
@@ -7,14 +11,19 @@ import {
   type ChallengePlayerChallenge,
 } from '../../src/components/challenge/challengePlayerModel.ts'
 import {
+  applyControlledOrdinaryChallengeChange,
   completeOrdinaryChallenge,
   emptyOrdinaryChallengeSessionState,
   isOrdinaryScriptureSaved,
   ordinaryScriptureKey,
+  resolveOrdinaryChallengeStateController,
   setOrdinaryChallengeScreen,
   toggleOrdinaryChallengeSaved,
   toggleOrdinaryScriptureSaved,
+  type OrdinaryChallengeSessionState,
 } from '../../src/components/challenge/ordinaryChallengeHostModel.ts'
+
+const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 
 const primaryScripture: CmsScripture = {
   id: 'scripture-primary',
@@ -186,4 +195,204 @@ test('suppresses CMS/Sanity diagnostics and unavailable-practice notices in ordi
     previewConfiguredCopy.practiceNote,
     'Practice configured in the local file · CMS memorization practice is not available in this view',
   )
+})
+
+test('enforces controlled vs. uncontrolled state contract at runtime and keeps updaters StrictMode-pure', () => {
+  const initial = emptyOrdinaryChallengeSessionState()
+  const changes: OrdinaryChallengeSessionState[] = []
+  const onStateChange = (next: OrdinaryChallengeSessionState) => {
+    changes.push(next)
+  }
+
+  // Valid controlled mode
+  const controlled = resolveOrdinaryChallengeStateController({
+    state: initial,
+    onStateChange,
+  })
+  assert.equal(controlled.mode, 'controlled')
+
+  // Controlled transitions notify once per real change and skip no-op transitions
+  applyControlledOrdinaryChallengeChange(initial, onStateChange, current =>
+    completeOrdinaryChallenge(sampleChallenge, current),
+  )
+  assert.equal(changes.length, 0)
+
+  applyControlledOrdinaryChallengeChange(initial, onStateChange, toggleOrdinaryChallengeSaved)
+  assert.equal(changes.length, 1)
+  assert.equal(changes[0].isSaved, true)
+
+  // Valid uncontrolled modes (empty and seeded)
+  const uncontrolledDefault = resolveOrdinaryChallengeStateController({})
+  assert.deepEqual(uncontrolledDefault, { mode: 'uncontrolled', initialState: undefined })
+
+  const seeded = { ...initial, screenId: 'screen-two' }
+  const uncontrolledSeeded = resolveOrdinaryChallengeStateController({ initialState: seeded })
+  assert.deepEqual(uncontrolledSeeded, { mode: 'uncontrolled', initialState: seeded })
+
+  // Reject half-configured or conflicting state props instead of rendering inert controls
+  assert.throws(
+    () => resolveOrdinaryChallengeStateController({ state: initial }),
+    { name: 'TypeError', message: /requires onStateChange when state is provided/ },
+  )
+  assert.throws(
+    () => resolveOrdinaryChallengeStateController({ onStateChange }),
+    { name: 'TypeError', message: /does not accept onStateChange without controlled state/ },
+  )
+  assert.throws(
+    () => resolveOrdinaryChallengeStateController({ state: initial, onStateChange, initialState: seeded }),
+    { name: 'TypeError', message: /does not accept initialState when state is controlled/ },
+  )
+
+  // Simulate React <StrictMode> double-invocation on frozen snapshots for every uncontrolled updater
+  const frozenStart = Object.freeze({
+    ...emptyOrdinaryChallengeSessionState(),
+    savedScriptures: Object.freeze([] as OrdinaryChallengeSessionState['savedScriptures']) as OrdinaryChallengeSessionState['savedScriptures'],
+  })
+  const savedPass1 = toggleOrdinaryChallengeSaved(frozenStart)
+  const savedPass2 = toggleOrdinaryChallengeSaved(frozenStart)
+  assert.deepEqual(savedPass1, savedPass2)
+  assert.equal(frozenStart.isSaved, false)
+
+  const scripturePass1 = toggleOrdinaryScriptureSaved(frozenStart, providedScripture)
+  const scripturePass2 = toggleOrdinaryScriptureSaved(frozenStart, providedScripture)
+  assert.deepEqual(scripturePass1, scripturePass2)
+  assert.equal(frozenStart.savedScriptures.length, 0)
+
+  const screenPass1 = setOrdinaryChallengeScreen(sampleChallenge, frozenStart, 'screen-two')
+  const screenPass2 = setOrdinaryChallengeScreen(sampleChallenge, frozenStart, 'screen-two')
+  assert.deepEqual(screenPass1, screenPass2)
+  assert.equal(frozenStart.screenId, undefined)
+
+  const frozenFinalScreen = Object.freeze({
+    ...screenPass1,
+    savedScriptures: Object.freeze([...screenPass1.savedScriptures]),
+  })
+  const completePass1 = completeOrdinaryChallenge(sampleChallenge, frozenFinalScreen)
+  const completePass2 = completeOrdinaryChallenge(sampleChallenge, frozenFinalScreen)
+  assert.deepEqual(completePass1, completePass2)
+  assert.equal(frozenFinalScreen.isCompleted, false)
+
+  // Verify OrdinaryChallengeHost.tsx never invokes onStateChange inside a React state updater
+  const hostPath = resolve(repositoryRoot, 'src/components/challenge/OrdinaryChallengeHost.tsx')
+  const hostAst = ts.createSourceFile(
+    hostPath,
+    readFileSync(hostPath, 'utf8'),
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
+  )
+
+  let foundUncontrolledComponent = false
+  function inspectNode(node: ts.Node) {
+    if (ts.isFunctionDeclaration(node) && node.name?.text === 'UncontrolledOrdinaryChallengeHost') {
+      foundUncontrolledComponent = true
+      assert.equal(
+        /\bonStateChange\b/.test(node.getText(hostAst)),
+        false,
+        'UncontrolledOrdinaryChallengeHost must not reference or invoke onStateChange',
+      )
+    }
+    if (
+      ts.isCallExpression(node)
+      && ts.isIdentifier(node.expression)
+      && node.expression.text === 'setSession'
+    ) {
+      for (const arg of node.arguments) {
+        assert.equal(
+          /\bonStateChange\b/.test(arg.getText(hostAst)),
+          false,
+          'setSession updater must remain pure and free of onStateChange side effects',
+        )
+      }
+    }
+    ts.forEachChild(node, inspectNode)
+  }
+  inspectNode(hostAst)
+  assert.equal(foundUncontrolledComponent, true)
+})
+
+test('OrdinaryChallengeHostProps discriminated union rejects mismatched state/onStateChange at compile time', () => {
+  const configPath = resolve(repositoryRoot, 'tsconfig.app.json')
+  const configFile = ts.readConfigFile(configPath, ts.sys.readFile)
+  assert.equal(configFile.error, undefined)
+  const parsedConfig = ts.parseJsonConfigFileContent(configFile.config, ts.sys, repositoryRoot)
+
+  const virtualFile = resolve(repositoryRoot, 'src/components/challenge/__hostContractCheck__.tsx')
+  const cases = [
+    {
+      name: 'valid-controlled',
+      valid: true,
+      jsx: '<OrdinaryChallengeHost challengeKey="k" challenge={p.challenge} state={p.state} onStateChange={p.onStateChange} />',
+    },
+    {
+      name: 'valid-uncontrolled',
+      valid: true,
+      jsx: '<OrdinaryChallengeHost challengeKey="k" challenge={p.challenge} />',
+    },
+    {
+      name: 'valid-seeded',
+      valid: true,
+      jsx: '<OrdinaryChallengeHost challengeKey="k" challenge={p.challenge} initialState={p.state} />',
+    },
+    {
+      name: 'invalid-state-without-callback',
+      valid: false,
+      jsx: '<OrdinaryChallengeHost challengeKey="k" challenge={p.challenge} state={p.state} />',
+    },
+    {
+      name: 'invalid-callback-without-state',
+      valid: false,
+      jsx: '<OrdinaryChallengeHost challengeKey="k" challenge={p.challenge} onStateChange={p.onStateChange} />',
+    },
+    {
+      name: 'invalid-mixed-controlled-and-initialState',
+      valid: false,
+      jsx: '<OrdinaryChallengeHost challengeKey="k" challenge={p.challenge} state={p.state} onStateChange={p.onStateChange} initialState={p.state} />',
+    },
+  ] as const
+
+  const headerLines = [
+    "import type { ChallengePlayerChallenge } from './ChallengePlayer.tsx'",
+    "import { OrdinaryChallengeHost } from './OrdinaryChallengeHost.tsx'",
+    "import type { OrdinaryChallengeSessionState } from './ordinaryChallengeHostModel.ts'",
+    'type Inputs = { challenge: ChallengePlayerChallenge; state: OrdinaryChallengeSessionState; onStateChange: (next: OrdinaryChallengeSessionState) => void }',
+  ]
+  const caseStartLine = headerLines.length
+  const virtualSource = [
+    ...headerLines,
+    ...cases.map((entry, idx) => `export const case${idx} = (p: Inputs) => (${entry.jsx})`),
+  ].join('\n')
+
+  const baseHost = ts.createCompilerHost(parsedConfig.options, true)
+  const host: ts.CompilerHost = {
+    ...baseHost,
+    fileExists: fileName => fileName === virtualFile || baseHost.fileExists(fileName),
+    readFile: fileName => (fileName === virtualFile ? virtualSource : baseHost.readFile(fileName)),
+    getSourceFile: (fileName, languageVersion, onError, shouldCreateNewSourceFile) => {
+      if (fileName === virtualFile) {
+        return ts.createSourceFile(fileName, virtualSource, languageVersion, true, ts.ScriptKind.TSX)
+      }
+      return baseHost.getSourceFile(fileName, languageVersion, onError, shouldCreateNewSourceFile)
+    },
+  }
+
+  const program = ts.createProgram([virtualFile], parsedConfig.options, host)
+  const sourceFile = program.getSourceFile(virtualFile)
+  assert.ok(sourceFile)
+
+  const diagnostics = ts.getPreEmitDiagnostics(program, sourceFile)
+  const errorLines = new Set(
+    diagnostics
+      .filter(diag => diag.start !== undefined)
+      .map(diag => sourceFile.getLineAndCharacterOfPosition(diag.start!).line),
+  )
+
+  cases.forEach((entry, idx) => {
+    const line = caseStartLine + idx
+    if (entry.valid) {
+      assert.equal(errorLines.has(line), false, `Expected ${entry.name} to typecheck without errors`)
+    } else {
+      assert.equal(errorLines.has(line), true, `Expected ${entry.name} to fail compile-time typecheck`)
+    }
+  })
 })

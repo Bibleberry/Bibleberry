@@ -29,12 +29,63 @@ export type OrdinaryChallengeSessionState = {
   savedScriptures: OrdinarySavedScripture[]
 }
 
+export type OrdinaryChallengeStateController =
+  | {
+    mode: 'controlled'
+    state: OrdinaryChallengeSessionState
+    onStateChange: (next: OrdinaryChallengeSessionState) => void
+  }
+  | {
+    mode: 'uncontrolled'
+    initialState: OrdinaryChallengeSessionState | undefined
+  }
+
 export function emptyOrdinaryChallengeSessionState(): OrdinaryChallengeSessionState {
   return {
     screenId: undefined,
     isSaved: false,
     isCompleted: false,
     savedScriptures: [],
+  }
+}
+
+export function resolveOrdinaryChallengeStateController(input: {
+  state?: OrdinaryChallengeSessionState
+  onStateChange?: ((next: OrdinaryChallengeSessionState) => void) | undefined
+  initialState?: OrdinaryChallengeSessionState
+}): OrdinaryChallengeStateController {
+  if (input.state !== undefined) {
+    if (typeof input.onStateChange !== 'function') {
+      throw new TypeError('OrdinaryChallengeHost requires onStateChange when state is provided.')
+    }
+    if (input.initialState !== undefined) {
+      throw new TypeError('OrdinaryChallengeHost does not accept initialState when state is controlled.')
+    }
+    return {
+      mode: 'controlled',
+      state: input.state,
+      onStateChange: input.onStateChange,
+    }
+  }
+
+  if (input.onStateChange !== undefined) {
+    throw new TypeError('OrdinaryChallengeHost does not accept onStateChange without controlled state.')
+  }
+
+  return {
+    mode: 'uncontrolled',
+    initialState: input.initialState,
+  }
+}
+
+export function applyControlledOrdinaryChallengeChange(
+  current: OrdinaryChallengeSessionState,
+  onStateChange: (next: OrdinaryChallengeSessionState) => void,
+  updater: (state: OrdinaryChallengeSessionState) => OrdinaryChallengeSessionState,
+): void {
+  const next = updater(current)
+  if (next !== current) {
+    onStateChange(next)
   }
 }
 

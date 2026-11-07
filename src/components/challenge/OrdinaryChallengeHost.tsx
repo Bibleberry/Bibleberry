@@ -6,9 +6,11 @@ import {
   type ChallengePlayerProps,
 } from './ChallengePlayer.tsx'
 import {
+  applyControlledOrdinaryChallengeChange,
   completeOrdinaryChallenge,
   emptyOrdinaryChallengeSessionState,
   isOrdinaryScriptureSaved,
+  resolveOrdinaryChallengeStateController,
   setOrdinaryChallengeScreen,
   toggleOrdinaryChallengeSaved,
   toggleOrdinaryScriptureSaved,
@@ -19,14 +21,16 @@ import {
  * Reusable ordinary-shell host adapter for `ChallengePlayer` (Issue #44, A2).
  *
  * Renders inside the normal `AppShell` reading column with reader-appropriate labels and no
- * dependency on Developer Studio, either Lab, CMS catalog fetching, or browser storage. Hosts
- * may pass controlled session state or let the adapter manage isolated in-memory state.
+ * dependency on Developer Studio, either Lab, CMS catalog fetching, or browser storage.
+ *
+ * State contract:
+ * - Controlled mode requires `state` and `onStateChange` together.
+ * - Uncontrolled mode omits both `state` and `onStateChange` (optionally seeding `initialState`)
+ *   and owns isolated in-memory session state with pure React state updaters.
  */
-export type OrdinaryChallengeHostProps = {
+type OrdinaryChallengeHostBaseProps = {
   challengeKey: string
   challenge: ChallengePlayerChallenge
-  state?: OrdinaryChallengeSessionState
-  onStateChange?: (next: OrdinaryChallengeSessionState) => void
   onExit?: () => void
   exitLabel?: string
   eyebrow?: ReactNode
@@ -35,34 +39,37 @@ export type OrdinaryChallengeHostProps = {
   labels?: ChallengePlayerProps['labels']
 }
 
-export function OrdinaryChallengeHost({
+export type OrdinaryChallengeHostStateProps =
+  | {
+    state: OrdinaryChallengeSessionState
+    onStateChange: (next: OrdinaryChallengeSessionState) => void
+    initialState?: never
+  }
+  | {
+    state?: undefined
+    onStateChange?: never
+    initialState?: OrdinaryChallengeSessionState
+  }
+
+export type OrdinaryChallengeHostProps = OrdinaryChallengeHostBaseProps & OrdinaryChallengeHostStateProps
+
+type OrdinaryChallengeHostViewProps = OrdinaryChallengeHostBaseProps & {
+  session: OrdinaryChallengeSessionState
+  applyChange: (updater: (current: OrdinaryChallengeSessionState) => OrdinaryChallengeSessionState) => void
+}
+
+function OrdinaryChallengeHostView({
   challengeKey,
   challenge,
-  state: controlledState,
-  onStateChange,
+  session,
+  applyChange,
   onExit,
   exitLabel,
   eyebrow,
   banner,
   footer,
   labels,
-}: OrdinaryChallengeHostProps) {
-  const [internalState, setInternalState] = useState<OrdinaryChallengeSessionState>(
-    emptyOrdinaryChallengeSessionState,
-  )
-  const session = controlledState ?? internalState
-  const applyChange = (updater: (current: OrdinaryChallengeSessionState) => OrdinaryChallengeSessionState) => {
-    if (controlledState && onStateChange) {
-      onStateChange(updater(controlledState))
-    } else {
-      setInternalState(previous => {
-        const next = updater(previous)
-        onStateChange?.(next)
-        return next
-      })
-    }
-  }
-
+}: OrdinaryChallengeHostViewProps) {
   return (
     <div className="standard-page challenge-reader-page">
       {banner}
@@ -84,5 +91,51 @@ export function OrdinaryChallengeHost({
       />
       {footer}
     </div>
+  )
+}
+
+function UncontrolledOrdinaryChallengeHost({
+  initialState,
+  ...baseProps
+}: OrdinaryChallengeHostBaseProps & { initialState: OrdinaryChallengeSessionState | undefined }) {
+  const [session, setSession] = useState<OrdinaryChallengeSessionState>(
+    () => initialState ?? emptyOrdinaryChallengeSessionState(),
+  )
+
+  return (
+    <OrdinaryChallengeHostView
+      {...baseProps}
+      session={session}
+      applyChange={setSession}
+    />
+  )
+}
+
+export function OrdinaryChallengeHost(props: OrdinaryChallengeHostProps) {
+  const { state, onStateChange, initialState, ...baseProps } = props
+  const controller = resolveOrdinaryChallengeStateController({
+    state,
+    onStateChange,
+    initialState,
+  })
+
+  if (controller.mode === 'controlled') {
+    return (
+      <OrdinaryChallengeHostView
+        {...baseProps}
+        session={controller.state}
+        applyChange={updater =>
+          applyControlledOrdinaryChallengeChange(controller.state, controller.onStateChange, updater)
+        }
+      />
+    )
+  }
+
+  return (
+    <UncontrolledOrdinaryChallengeHost
+      key={baseProps.challengeKey}
+      {...baseProps}
+      initialState={controller.initialState}
+    />
   )
 }
