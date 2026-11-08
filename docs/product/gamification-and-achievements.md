@@ -1,8 +1,8 @@
 # Bibleberry — Gamification, Achievements & Participation
 
 > **Product vision and decision register, not an implementation specification**
-> **Updated:** 2026-11-07
-> **Status:** November 6 principles and November 7 Field Notebook decisions reconciled; Archive/Hub edge cases, artwork and engineering contracts remain open. Documentation only.
+> **Updated:** 2026-11-08
+> **Status:** November 8 approved product direction. **Read the [Nov 8 authoritative reader-experience and Month Screen decisions](2026-11-08-approved-reader-experience-and-month-screen.md) first.** Earlier sections retained here are superseded wherever they conflict. Documentation, not implementation authorization.
 > **Project:** Bibleberry AppDev | **Target launch:** 2027-01-01
 > **Product lead:** Aaron Waid | **Content/ministry authority:** Alexis Waid
 
@@ -14,6 +14,8 @@ The participation system should make reading and learning satisfying, recognize 
 
 **Editorial content comes first.** Alexis's teaching is not shortened, rewritten, themed, or scheduled to satisfy an achievement requirement. Goals can be identified **after** a month's material has been planned.
 
+**Authority override (November 8, 2026):** Aaron explicitly approved the design direction in [November 8 approved reader experience](2026-11-08-approved-reader-experience-and-month-screen.md), including the new Month Screen, Shelf/Library naming, monthly discovery visibility, Challenge Finish and Hub-only announcements, and monthly previews/introductions. That record takes precedence over conflicting November 6–7 wording here, historic Issues, and unmerged plans. Aaron may approve product/card designs; do not impose a separate automatic Alexis sign-off on each product decision. Alexis's source teaching and theological/editorial authority remain protected.
+
 ### Decision authority and labels
 
 - **Adopted principle:** Aaron accepted the research-informed product direction on November 6, 2026.
@@ -21,20 +23,20 @@ The participation system should make reading and learning satisfying, recognize 
 - **Exploratory/open:** Discussed, but **not** an engineering requirement or a finalized design.
 - **Historical/superseded:** Preserved for context and rationale, not instructions to implement.
 
-## Decision status at a glance — November 7, 2026
+## Decision status at a glance — updated November 8, 2026
 
-**Read this section before reusing any earlier gamification proposal.** The labels below distinguish **settled current product behavior**, **historical/superseded ideas**, and **genuinely open choices**. “Settled” means Aaron selected the product behavior; it does **not** mean the interface is built, Alexis has approved artwork, or an agent has permission to implement it. The detailed current direction appears in Sections A–E and the linked [November 7 working notes](2026-11-07-archive-library-and-continue-working-notes.md). The [November 6 session record](2026-11-06-design-session-record.md) is a *dated history*, not a parallel current specification.
+**Read the [November 8 authority record](2026-11-08-approved-reader-experience-and-month-screen.md) before reusing any earlier gamification proposal.** The labels below distinguish **settled current product behavior**, **historical/superseded ideas**, and **genuinely open choices**. “Settled” means Aaron selected the product behavior; it does **not** mean the interface is built, Alexis has approved artwork, or an agent has permission to implement it. The detailed current direction appears in Sections A–E and the linked [November 7 working notes](2026-11-07-archive-library-and-continue-working-notes.md). The [November 6 session record](2026-11-06-design-session-record.md) is a *dated history*, not a parallel current specification.
 
 ### CURRENT WORKING MODEL — settled product behavior
 
-- **Teaching environments:** The current publication month stays distinct from a reader-selected Personal Archive of **zero to three** historical months. The Past Teaching Library holds earlier teaching whether or not a month is active in the Archive. Putting a month away does not erase completion or awards.
+- **Teaching environments:** Current month is separate from the focused **Shelf** with **zero to three** historical months and complete historical **Library**. Explicitly selected/protected Shelf months are never automatically evicted. Qualified just-ended months can take an empty slot or replace the oldest auto-admitted month. **Month Screen** is a new first-class calendar with completion and Monthly Discoveries for current and historic months. See the November 8 authority record.
 - **Award eligibility:** Distinct Challenge completions count wherever the reader studies, **including directly in the Library**. Library gamification presentation is hidden while reading, not disabled. No attendance penalties, competitive metrics, or universal reading timer.
-- **Field Notebook:** A permanent part of the app, with browsing by publication year → all twelve ordinary month entries, and a separate **All Earned Cards** gallery (Monthly Challenges, plus Special Experiences only after a first event card is earned). A month reveals remaining thematic goals only after the reader first earns an achievement associated with that month's teaching. Within gallery groups, newest earned comes first.
+- **Field Notebook:** Permanent **earned-card** collection by publication year/month and **All Earned Cards**. **Monthly Discoveries are visible in the Month Screen once a reader begins the month**, without a first-earned-card prerequisite. Unearned goals show **title and numeric progress only**, no art or tap target; earned badges open their full Scripture cards directly from Month Screen. Monthly completion reward is last. Special Experiences appear only when earned.
 - **Collectibles:** Both thematic discovery completion **and completion of an entire finalized month's eligible Challenges** earn permanent, dated, substantive illustrated **Scripture cards**. The full-month reward is the month's final card, not a certificate. Cards belong to the *publication month* even if earned much later; the actual earned date is preserved.
 - **Lifetime participation:** One evolving status derived from **distinct completed Challenges** replaces prior statuses. Lifetime milestone badges do not accumulate. No obligatory next-tier progress bar or separate lifetime-awards page.
-- **New awards:** Never interrupt the Challenge reader. Combine awards into one post-reader announcement, carry unannounced awards to the next visit and announce that batch once. Readers may disable award *announcements*, but **not** earning or the Field Notebook. Hub **New Discoveries** clears when the Notebook opens; each card's **New** label persists until that individual card is opened. Dismissing an announcement does not clear either marker.
+- **New awards and Finish:** The final teaching button says **Finish**; only tapping Finish completes the Challenge (not simply reaching the last screen). The reader returns to the **origin context**. Partial discovery progress updates silently on Month Screen. Newly earned cards are announced as **one combined notice on the next Hub visit only**, including after closing and reopening the app. Optional opt-out suppresses presentation but not earning; re-enable produces one combined catch-up. Hub **New Discoveries** clears when Notebook opens; individual card **New** clears when that card opens.
 - **Monthly finalization:** Once a month's eligible Challenge set is finalized, ordinary editorial typo/reference corrections do not change its requirements, reset completion or revoke earned cards. Future unpublished Challenges prevent premature full-month awards.
-- **Special Experiences:** The *category principle* (optional time-limited experiences, permanent dated earned-only cards, no gray missed-event placeholders) is decided; **no specific event is approved or scheduled**.
+- **Special Experiences:** Optional time-limited, **not archived for retrospective participation**. Starting during the event window qualifies for an **event-specific grace period** (one-day example: no later than noon the next local day). No new starts after cutoff, no missed-event placeholders. Permanent earned-only dated cards. No particular event approved/scheduled.
 
 ### HISTORICAL / SUPERSEDED — preserved as decision history, not requirements
 
@@ -74,9 +76,9 @@ These are the nine areas of substantial agreement across the Gemini Argon report
 
 ## B. Three resolved research conflicts (November 6, 2026)
 
-### B1. Achievement visibility: choose a hybrid Field Notebook
+### B1. Achievement visibility: monthly treasure hunt + permanent earned collection
 
-**Refined November 7:** The Field Notebook is a permanent illustrated personal record of Scripture discoveries and participation, not an optional gamification switch or a wall of gray badges. A year displays all twelve publication months normally, without empty months appearing as failures. Month-associated unearned thematic goals stay out of view **until the reader earns at least one achievement associated with that month's teaching**. Then remaining available thematic discoveries, requirements and progress may appear beside earned cards. Earning the first card through the Past Teaching Library qualifies.
+**Superseded November 8:** The Field Notebook is the permanent record of *earned* cards, not a wall of gray unearned badges. The **Month Screen** displays available thematic discovery **titles and progress from the beginning of participation**, no first-earned-card unlock prerequisite. **Never reveal the qualifying Challenges or future card artwork/text.** Unearned discoveries are not tappable; earned illustrated badges open the complete Scripture card. The larger Notebook collection contains earned cards only. A publication year continues to show all twelve months without treating unstudied months as failures.
 
 The selected aesthetic derives from **Alexis's actual illustrated Bible-study notebooks**, subject to her editorial and visual approval. The Field Notebook can show earned cards by publication month or in All Earned Cards; see §C and §D.
 
@@ -100,7 +102,7 @@ A simple relational/record-based approach using the existing Supabase working di
 
 See [User Accounts & Sync](../architecture/user-accounts-and-sync.md) for the separate working architecture and its unresolved technical questions.
 
-> **November 7 working notes:** [Personal Archive, Past Teaching Library, Hub Continue and Field Notebook](2026-11-07-archive-library-and-continue-working-notes.md) contain the detailed history and approved Field Notebook refinements. Archive rollover tie-breaking and Hub Continue routing remain provisional; illustrative examples are not a finalized algorithm.
+> **November 7 working notes:** [Shelf, Library, Hub Continue and Field Notebook](2026-11-07-archive-library-and-continue-working-notes.md) contain the detailed history and approved Field Notebook refinements. Archive rollover tie-breaking and Hub Continue routing remain provisional; illustrative examples are not a finalized algorithm.
 
 ## C. Participation model: decided direction, not final catalogue
 
@@ -116,7 +118,7 @@ Conceptual thresholds previously considered: **7, 30, 100, 200, 365, 730, 1,095*
 
 **Decided November 7:** Completing **every Challenge in a finalized publication month's eligible set** earns **one illustrated Scripture-related card**. It has the same substantive theological character as thematic discovery cards, not a separate certificate, generic monthly summary, or card titled simply “November 2026.”
 
-Alexis chooses a meaningful biblical subject related to that month's teaching, with its own illustration in Bibleberry's recognizable notebook visual language. The publication month and unlocking basis can be metadata such as “Earned by completing November 2026,” while the card displays the **actual earned date** separately. An award earned years later from the Library still belongs under its **original publication month**.
+The card's meaningful biblical subject is derived from Alexis's completed teaching and approved through the Bibleberry product process under Aaron's product authority, with its own illustration in the recognizable notebook visual language. The publication month and unlocking basis can be metadata such as “Earned by completing November 2026,” while the card displays the **actual earned date** separately. An award earned years later from the Library still belongs under its **original publication month**.
 
 The full-month card is the **final monthly reward**: it cannot be earned merely by finishing everything currently released if unpublished Challenges remain. When the month is editorially finalized, its eligible Challenge set is stable. **Ordinary content corrections do not change completion requirements or revoke awards.** Exceptional changes to a finalized month's membership are not a routine scenario and require a separate editorial decision if they arise. Completion in the historical Library earns the same card without Archive activation.
 
@@ -124,9 +126,9 @@ The full-month card is the **final monthly reward**: it cannot be earned merely 
 
 **Decided November 7:** After Alexis plans content, editors may identify naturally recurring biblical images, motifs, narratives or theological connections. This must never dictate what Alexis writes. **Each completed thematic mini-collection awards a permanent illustrated Scripture collectible**, with an actual earned date, meaningful title, Scripture references / selected WEBP text, and a concise substantive explanation based on her teaching.
 
-**Visibility:** A month's Notebook entry appears normally without advertising all its unearned goals. Once a reader earns at least one achievement associated with that month, the month detail may reveal other available thematic discoveries, their clear requirements and completion progress (for example, “2 of 4 Challenges completed”).
+**Visibility:** **Monthly Discoveries live on the Month Screen**, with titles and numeric progress visible from initial participation. **Do not reveal qualifying Challenge titles, Scripture references or card artwork** until earned. An unearned item is untappable; an earned illustrated badge opens the full card. Completing all of the month's Challenges guarantees all thematic cards. Place the full-month completion goal last. Progress only changes upon **Finish**, not by viewing content.
 
-**Eligibility:** Completions from current teaching, Personal Archive or Past Teaching Library count identically. Library completion records and awards accrue even though the Library itself shows no gameful prompts or reward progress. Collected cards stay available regardless of whether a month is subsequently put away.
+**Eligibility:** Completions from current teaching, Shelf or Library count identically. Library completion records and awards accrue even though the Library itself shows no gameful prompts or reward progress. Collected cards stay available regardless of whether a month is subsequently put away.
 
 ### C4. Real-day consistency: optional spontaneous encouragement, not a core streak
 
@@ -134,11 +136,11 @@ The full-month card is the **final monthly reward**: it cannot be earned merely 
 
 If pursued, the acknowledgment is **not** an ongoing streak obligation, a permanent missing collectible, a warning, or the foundation of lifetime progress. There should be no streak-maintenance pressure. Recognition triggers, whether it ships, and any minimum date-only tracking needed remain open.
 
-### C5. Current teaching, Personal Archive and Past Teaching Library
+### C5. Current teaching, Shelf and Library
 
-The **Hub prioritizes the current publication month**, where Challenges become available as published. The **Personal Archive** is an active study workspace with **zero to three reader-selected historical months**, plus the separate current month. Readers may add or put away past months without losing progress, saved position or earned awards. A just-ended month may enter an available historical slot, but does not automatically evict a more recently and meaningfully studied month if all three are occupied. Qualifying activity is explicitly adding a historical month or completing a Challenge, **not simply opening one**. Detailed rollover ties and Hub Continue routing still require their own specification.
+The **Hub prioritizes the current publication month**. The **Shelf** is a focused workspace with **zero to three historical months** in addition to the separate current month. At rollover a just-ended month with at least one completed Challenge may enter an open slot or replace the **oldest automatically admitted** month. It must **never evict a reader-selected/protected month**; if all slots are protected, it stays in Library. Putting away preserves all progress/awards. The reader's deliberate active study focus is distinct from incidental Library browsing. Hub offers a single Continue suggestion. Rollover/resume tie handling remains technical specification work.
 
-The **Past Teaching Library** holds previously published teaching not necessarily active in the Archive. Readers may finish a Challenge there directly, and receive **all qualifying distinct lifetime credit, thematic collectibles and full-month cards** without activating that month. Its gameful affordances remain hidden while studying. After leaving the quiet Challenge reader, the same optional combined announcement rules apply as elsewhere.
+The **Library** holds all older ordinary teaching, including months not on Shelf. Readers may finish Challenges there directly, receiving all distinct lifetime credit and permanent cards. Library catalogue and Challenge reading remain free of gamification intrusions, while the historical **Month Screen** legitimately shows monthly completion and discoveries. **Announcements are deferred until the next Hub visit** regardless of where Challenge completion occurred.
 
 Cards are grouped in the Field Notebook under their **publication year/month**, even when earned later, and display the real date earned. Earned history is permanent, and returning to older teaching does not entail punitive streak resets.
 
@@ -157,12 +159,13 @@ The five smaller disagreements have now all been **discussed**. One led to a mat
 ### Hub, Notebook, Library and Challenge reader are distinct experiences
 
 - **Hub:** Latest current published Challenge and Bibleberry resources; may offer one unobtrusive active-Archive Continue entry (routing details remain open). A Field Notebook destination carries the temporary **New Discoveries** indicator.
-- **Personal Archive:** Focused reader-selected active workspace of at most three historical months plus current teaching.
-- **Past Teaching Library:** Historical catalogue with ordinary completion and earning but no in-context achievement UI.
-- **Field Notebook, year/month:** Select a publication year and see all twelve months normally. Each month contains its earned cards; remaining thematic goals become visible after the first achievement from that month's teaching. Links can take readers to historical teaching or add it to the Archive.
+- **Shelf:** Focused reader-selected active workspace of at most three historical months plus current teaching.
+- **Library:** Historical catalogue with ordinary completion and earning but no in-context achievement UI.
+- **Month Screen:** Calendar of Challenges with completed/available/Coming Soon status and all month titles; Monthly Discoveries below calendar, full-month goal last. Unearned titles/progress are visible and untappable; earned illustrated badges open full cards. Advance previews show teaching only.
+- **Field Notebook, year/month:** Select a publication year and see all twelve months normally with **earned** Scripture cards. Historical Month Screens, not unearned gray Notebook galleries, host unfinished discovery goals.
 - **Field Notebook, All Earned Cards:** Separate scrolling gallery grouped into **Monthly Challenges** (thematic and full-month cards) and **Special Experiences** (category hidden until first earned event card). Within each group, show **newest earned first**, not publication-order. The gallery and monthly pages point to the same award records. No complex filters are currently required.
 - **Field Notebook lifetime status:** One status that evolves with distinct Challenge completion, not accumulating badges.
-- **Challenge reader:** No earned-card announcements, collectible popups, reward counters or unrelated gamification during teaching, including when opened directly from the Library. Ordinary navigation, screen progress and content-specific interactions remain.
+- **Challenge reader:** No earned-card announcements, collectible popups, reward counters or unrelated gamification during teaching. The final screen has a prominent **Finish** action; tapping it records completion, saves awards and returns to origin. The **Hub alone** triggers pending combined card announcements.
 
 **Card details:** Each earned Scripture collectible may show a title, Alexis-notebook-inspired illustration, Scripture references, selected **WEBP** text, a substantive short biblical/theological explanation, actual earned date and earning condition. Full-month cards are also genuine Scripture study artifacts, not completion certificates. Example card themes such as Jacob's Well remain illustrative and require editorial verification.
 
@@ -177,7 +180,7 @@ Ordinary Challenge completion and retrospective archive access are separate from
 
 - Earned cards are automatically awarded, dated and kept forever, no matter which study space is used and regardless of announcement preferences.
 - No awards interrupt the Challenge reader. After leaving it, one **combined** earned-card announcement may report several cards and link to the Field Notebook.
-- If an award is earned but not yet announced when the app closes, **carry that unannounced batch across sessions** and show one combined announcement on the next visit outside the reader. A batch is announced **only once**, even if the announcement is dismissed.
+- If an award is earned but not yet announced when the app closes, **carry that unannounced batch across sessions** and show one combined announcement **upon the next Hub visit**, not in the Shelf, Library, Month Screen or other surfaces. A batch is announced **only once**, even if the announcement is dismissed.
 - Dismissing the announcement **does not clear** the Hub **New Discoveries** indicator or the **New** label on an individual card.
 - The Hub indicator clears **when the Field Notebook opens**; each card stays **New until that specific card is opened**, regardless of whether the reader uses the month view or All Earned Cards.
 - Readers may **turn off earned-achievement announcements**. They cannot switch off the Field Notebook or earning. New Discoveries and card-level New labels still operate with announcements disabled.
@@ -201,7 +204,7 @@ Characteristics to draw from: illustrative biblical motifs and objects, handwrit
 
 The two notebook reference images were shared as conversation attachments; **they are not included as image assets in this GitHub documentation update**. Their descriptions and the chosen direction are preserved here; retrieve the actual references from the original conversation before preparing mockups.
 
-**Alexis remains the final authority** for ministry-facing visuals and assets. Her past notebook work establishes an authentic aesthetic precedent; it is **not** proof she has approved any particular app UI, badges or artwork.
+**Aaron holds Bibleberry product and creative approval authority.** Alexis's substantive theological/editorial teaching is the source and cannot be overridden or distorted by AI gamification ideas. Specific visuals remain to be designed; do not make a separate Alexis sign-off an automatic requirement for each card/product layout. Her past notebook work establishes the authentic aesthetic precedent.
 
 ## F. Concepts explicitly not approved
 
