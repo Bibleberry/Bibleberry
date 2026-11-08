@@ -5,13 +5,15 @@
  * READ-ONLY SAFETY GUARANTEES:
  * 1. Strictly read-only: performs only GET and HEAD requests.
  * 2. Never requires or prompts for the Worker's `SANITY_READ_TOKEN` secret.
- * 3. Supports anonymous perimeter verification and authenticated Cloudflare Access checks.
+ * 3. Supports anonymous perimeter verification (--perimeter-only) and authenticated Cloudflare Access checks.
  * 4. Deterministically validates catalog and detail outcomes (Cases A through F).
  * 5. Honest status reporting: PASS, FAIL, SKIP, INCONCLUSIVE.
- * 6. Cloudflare Access 302 Location inspection: verifies redirect to Access login.
- * 7. Positive control privacy validation: distinguishes 401/403 (proven private),
- *    200 with 0 records (requires positive control proof), and 200 with records (failure).
- * 8. Network errors fail closed (FAIL or INCONCLUSIVE, never PASS).
+ * 6. Cloudflare Access 302 Location inspection: parses URL and verifies real *.cloudflareaccess.com
+ *    hostname and /cdn-cgi/access/login path, rejecting deceptive or non-HTTPS redirects.
+ * 7. Positive control privacy validation: in full acceptance, requires positive control proof
+ *    (confirmed presence of Fixture A) before accepting 200 with 0 records as private dataset proof.
+ *    In --perimeter-only mode, runs exclusively the Cloudflare root and API perimeter checks.
+ * 8. Network errors fail closed (FAIL, never PASS).
  */
 
 import {
@@ -66,6 +68,67 @@ export interface VerificationRunResult {
   }
 }
 
+/**
+ * Validates that a 302 redirect Location header points securely to a genuine
+ * Cloudflare Access login endpoint rather than an open redirect or deceptive domain.
+ */
+export function isValidCloudflareAccessRedirect(
+  location: string,
+  baseUrl: string,
+): { valid: boolean; reason?: string } {
+  if (!location || typeof location !== 'string' || location.trim() === '') {
+    return { valid: false, reason: 'Missing or empty Location header on 302 redirect' }
+  }
+
+  let parsed: URL
+  try {
+    parsed = new URL(location, baseUrl)
+  } catch {
+    return { valid: false, reason: `Malformed Location header URL: '${location}'` }
+  }
+
+  if (parsed.protocol !== 'https:') {
+    return {
+      valid: false,
+      reason: `Insecure redirect protocol '${parsed.protocol}' (must be https:)`,
+    }
+  }
+
+  // Require legitimate Cloudflare Access host or application host
+  const isCloudflareAccessHost =
+    parsed.hostname.endsWith('.cloudflareaccess.com') ||
+    parsed.hostname === 'cloudflareaccess.com'
+
+  let baseHost = ''
+  try {
+    baseHost = new URL(baseUrl).hostname
+  } catch {
+    // ignore
+  }
+
+  const isSameHost = Boolean(baseHost && parsed.hostname === baseHost)
+
+  if (!isCloudflareAccessHost && !isSameHost) {
+    return {
+      valid: false,
+      reason: `Redirect hostname '${parsed.hostname}' is not a valid *.cloudflareaccess.com domain or application domain.`,
+    }
+  }
+
+  // Path must be a Cloudflare Access path
+  if (
+    !parsed.pathname.startsWith('/cdn-cgi/access/login') &&
+    !parsed.pathname.startsWith('/cdn-cgi/access/')
+  ) {
+    return {
+      valid: false,
+      reason: `Redirect path '${parsed.pathname}' is not a Cloudflare Access login path (/cdn-cgi/access/login).`,
+    }
+  }
+
+  return { valid: true }
+}
+
 export async function runStagingVerification(
   options: VerificationOptions = {},
 ): Promise<VerificationRunResult> {
@@ -90,50 +153,51 @@ export async function runStagingVerification(
 
   // -------------------------------------------------------------------------
   // Check 1: Direct Unauthenticated Sanity Query Denial / Privacy Enforcement
+  // In --perimeter-only mode, this check is explicitly SKIPPED because verifying
+  // privacy via positive control is part of full acceptance after seeding.
   // -------------------------------------------------------------------------
-  try {
-    const query = `*[_id == "${FIXTURE_A_ID}" || _type == "challenge"]`
-    const sanityUrl = new URL(
-      `https://${sanityProjectId}.api.sanity.io/v${SANITY_API_VERSION}/data/query/${sanityDataset}`,
-    )
-    sanityUrl.searchParams.set('query', query)
-
-    const sanityRes = await fetchImpl(sanityUrl.toString(), {
-      method: 'GET',
-      headers: { Accept: 'application/json' },
+  if (perimeterOnly) {
+    results.push({
+      id: 'sanity-direct-denial',
+      name: 'Direct unauthenticated Sanity query is denied (dataset private)',
+      status: 'SKIP',
+      passed: false,
+      expectedStatus: '401, 403, or 200 with 0 records against verified seeded dataset',
+      message:
+        'Skipped in --perimeter-only mode: direct dataset privacy proof requires positive control (Fixture A) in full acceptance mode.',
     })
+  } else {
+    try {
+      const query = `*[_id == "${FIXTURE_A_ID}" || _type == "challenge"]`
+      const sanityUrl = new URL(
+        `https://${sanityProjectId}.api.sanity.io/v${SANITY_API_VERSION}/data/query/${sanityDataset}`,
+      )
+      sanityUrl.searchParams.set('query', query)
 
-    if (sanityRes.status === 401 || sanityRes.status === 403) {
-      results.push({
-        id: 'sanity-direct-denial',
-        name: 'Direct unauthenticated Sanity query is denied (dataset private)',
-        status: 'PASS',
-        passed: true,
-        httpStatus: sanityRes.status,
-        expectedStatus: '401, 403, or 200 with 0 records against verified seeded dataset',
-        message: `Direct unauthenticated Sanity query failed closed with HTTP ${sanityRes.status} (private dataset access denied).`,
+      const sanityRes = await fetchImpl(sanityUrl.toString(), {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
       })
-    } else if (sanityRes.status === 200) {
-      let payload: { result?: unknown[] } | null = null
-      try {
-        payload = (await sanityRes.json()) as { result?: unknown[] }
-      } catch {
-        payload = null
-      }
 
-      if (!payload || !Array.isArray(payload.result)) {
+      if (sanityRes.status === 401 || sanityRes.status === 403) {
         results.push({
           id: 'sanity-direct-denial',
           name: 'Direct unauthenticated Sanity query is denied (dataset private)',
-          status: 'FAIL',
-          passed: false,
-          httpStatus: 200,
-          expectedStatus: '401, 403, or 200 with 0 records',
-          message: 'Sanity query returned HTTP 200 with malformed JSON body (no result array).',
+          status: 'PASS',
+          passed: true,
+          httpStatus: sanityRes.status,
+          expectedStatus: '401, 403, or 200 with 0 records against verified seeded dataset',
+          message: `Direct unauthenticated Sanity query failed closed with HTTP ${sanityRes.status} (private dataset access denied).`,
         })
-      } else {
-        const records = payload.result
-        if (records.length > 0) {
+      } else if (sanityRes.status === 200) {
+        let payload: { result?: unknown[] } | null = null
+        try {
+          payload = (await sanityRes.json()) as { result?: unknown[] }
+        } catch {
+          payload = null
+        }
+
+        if (!payload || !Array.isArray(payload.result)) {
           results.push({
             id: 'sanity-direct-denial',
             name: 'Direct unauthenticated Sanity query is denied (dataset private)',
@@ -141,52 +205,65 @@ export async function runStagingVerification(
             passed: false,
             httpStatus: 200,
             expectedStatus: '401, 403, or 200 with 0 records',
-            message: `SECURITY FAILURE: Direct unauthenticated Sanity query exposed ${records.length} records!`,
-            details: { exposedRecordCount: records.length },
-          })
-        } else if (fixtureAPresentInStaging) {
-          results.push({
-            id: 'sanity-direct-denial',
-            name: 'Direct unauthenticated Sanity query is denied (dataset private)',
-            status: 'PASS',
-            passed: true,
-            httpStatus: 200,
-            expectedStatus: '401, 403, or 200 with 0 records',
-            message:
-              'Direct unauthenticated Sanity query returned HTTP 200 with 0 records while positive control Fixture A is present; unauthenticated read restriction verified.',
+            message: 'Sanity query returned HTTP 200 with malformed JSON body (no result array).',
           })
         } else {
-          results.push({
-            id: 'sanity-direct-denial',
-            name: 'Direct unauthenticated Sanity query is denied (dataset private)',
-            status: 'INCONCLUSIVE',
-            passed: false,
-            httpStatus: 200,
-            expectedStatus: '401, 403, or 200 with 0 records against verified seeded dataset',
-            message:
-              'Direct unauthenticated Sanity query returned HTTP 200 with 0 records, but dataset is unverified or empty without positive control (Fixture A). Confirm Fixture A is seeded to prove private read restrictions, or verify 401/403.',
-          })
+          const records = payload.result
+          if (records.length > 0) {
+            results.push({
+              id: 'sanity-direct-denial',
+              name: 'Direct unauthenticated Sanity query is denied (dataset private)',
+              status: 'FAIL',
+              passed: false,
+              httpStatus: 200,
+              expectedStatus: '401, 403, or 200 with 0 records',
+              message: `SECURITY FAILURE: Direct unauthenticated Sanity query exposed ${records.length} records!`,
+              details: { exposedRecordCount: records.length },
+            })
+          } else if (fixtureAPresentInStaging) {
+            results.push({
+              id: 'sanity-direct-denial',
+              name: 'Direct unauthenticated Sanity query is denied (dataset private)',
+              status: 'PASS',
+              passed: true,
+              httpStatus: 200,
+              expectedStatus: '401, 403, or 200 with 0 records',
+              message:
+                'Direct unauthenticated Sanity query returned HTTP 200 with 0 records while positive control Fixture A is present; unauthenticated read restriction verified.',
+            })
+          } else {
+            results.push({
+              id: 'sanity-direct-denial',
+              name: 'Direct unauthenticated Sanity query is denied (dataset private)',
+              status: 'INCONCLUSIVE',
+              passed: false,
+              httpStatus: 200,
+              expectedStatus: '401, 403, or 200 with 0 records against verified seeded dataset',
+              message:
+                'Direct unauthenticated Sanity query returned HTTP 200 with 0 records, but dataset is unverified or empty without positive control (Fixture A). Confirm Fixture A is seeded to prove private read restrictions, or verify 401/403.',
+            })
+          }
         }
+      } else {
+        results.push({
+          id: 'sanity-direct-denial',
+          name: 'Direct unauthenticated Sanity query is denied (dataset private)',
+          status: 'FAIL',
+          passed: false,
+          httpStatus: sanityRes.status,
+          expectedStatus: '401, 403, or 200 with 0 records',
+          message: `Unexpected HTTP ${sanityRes.status} from direct Sanity query.`,
+        })
       }
-    } else {
+    } catch (err) {
       results.push({
         id: 'sanity-direct-denial',
         name: 'Direct unauthenticated Sanity query is denied (dataset private)',
         status: 'FAIL',
         passed: false,
-        httpStatus: sanityRes.status,
-        expectedStatus: '401, 403, or 200 with 0 records',
-        message: `Unexpected HTTP ${sanityRes.status} from direct Sanity query.`,
+        message: `Network error connecting to direct Sanity API: ${err instanceof Error ? err.message : String(err)}`,
       })
     }
-  } catch (err) {
-    results.push({
-      id: 'sanity-direct-denial',
-      name: 'Direct unauthenticated Sanity query is denied (dataset private)',
-      status: 'FAIL',
-      passed: false,
-      message: `Network error connecting to direct Sanity API: ${err instanceof Error ? err.message : String(err)}`,
-    })
   }
 
   // Helper for Cloudflare Access redirect checks
@@ -215,11 +292,9 @@ export async function runStagingVerification(
 
       if (res.status === 302) {
         const location = res.headers.get('Location') ?? res.headers.get('location') ?? ''
-        const isAccessLogin =
-          location.includes('.cloudflareaccess.com') ||
-          location.includes('cdn-cgi/access/login')
+        const redirectCheck = isValidCloudflareAccessRedirect(location, url)
 
-        if (isAccessLogin) {
+        if (redirectCheck.valid) {
           return {
             id: checkId,
             name: checkName,
@@ -239,8 +314,8 @@ export async function runStagingVerification(
           passed: false,
           httpStatus: 302,
           expectedStatus: '302 (to Access login), 401, or 403',
-          message: `Anonymous request returned 302 redirecting to unexpected location (${location || 'none'}), not Cloudflare Access login.`,
-          details: { location },
+          message: `Anonymous request returned 302 with invalid or deceptive redirect: ${redirectCheck.reason} (${location || 'none'}).`,
+          details: { location, reason: redirectCheck.reason },
         }
       }
 
@@ -298,16 +373,19 @@ export async function runStagingVerification(
     { slug: NONEXISTENT_SLUG, expectedStatus: 404, label: 'Case E (Nonexistent slug)' },
   ]
 
-  if (!hasAccessCredentials) {
+  if (perimeterOnly || !hasAccessCredentials) {
     // Record explicit SKIP for catalog and all detail checks
+    const skipReason = perimeterOnly
+      ? 'Skipped: --perimeter-only mode active.'
+      : 'Skipped: CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET not provided in environment. Requires Cloudflare Access Service Token with Service Auth policy.'
+
     results.push({
       id: 'gateway-catalog-outcomes',
       name: 'Authenticated GET /api/challenges correctly admits A and excludes B, C, D, F',
       status: 'SKIP',
       passed: false,
       expectedStatus: 200,
-      message:
-        'Skipped: CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET not provided in environment. Requires Cloudflare Access Service Token with Service Auth policy.',
+      message: skipReason,
     })
 
     for (const item of detailCases) {
@@ -317,8 +395,7 @@ export async function runStagingVerification(
         status: 'SKIP',
         passed: false,
         expectedStatus: item.expectedStatus,
-        message:
-          'Skipped: CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET not provided in environment.',
+        message: skipReason,
       })
     }
   } else {
@@ -470,7 +547,7 @@ export async function runStagingVerification(
   }
 
   // Honest overall evaluation:
-  // In perimeter-only mode: requires perimeter checks to pass, with zero failures/inconclusive.
+  // In perimeter-only mode: requires anonymous perimeter checks to PASS, with 0 FAIL and 0 INCONCLUSIVE.
   // In full mode: requires ALL checks to pass (no SKIP, no FAIL, no INCONCLUSIVE).
   const overallPassed = perimeterOnly
     ? counts.failed === 0 && counts.inconclusive === 0 && counts.passed > 0

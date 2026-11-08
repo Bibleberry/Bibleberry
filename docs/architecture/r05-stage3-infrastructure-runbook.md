@@ -443,7 +443,7 @@ export SANITY_WRITE_TOKEN
 npm run fixtures:staging -- --apply
 unset SANITY_WRITE_TOKEN
 ```
-*Expected:* `Successfully created 6 synthetic acceptance documents in staging dataset (staging).` Followed by readback verification passing for all 6 documents.
+*Expected:* `Successfully verified 6 synthetic acceptance documents present in staging dataset (staging) with perspective=raw readback.` Validates that all 6 documents exist, draft status is preserved for D, sequence order and release timestamps match, and structured screen/block contents and review statuses are verified.
 
 #### Step 3: Run Acceptance Verification
 
@@ -451,7 +451,7 @@ unset SANITY_WRITE_TOKEN
 ```bash
 npm run verify:staging -- --perimeter-only
 ```
-*Expected:* Anonymous perimeter checks pass (Direct Sanity denial and Cloudflare Access login redirects). Authenticated checks are marked `SKIP` and the suite succeeds for perimeter verification.
+*Expected:* Anonymous Cloudflare Access perimeter checks pass (Root SPA and API requests redirect to Cloudflare Access login). In `--perimeter-only` mode, the direct Sanity positive-control query is explicitly SKIPPED (as full privacy positive-control proof requires seeded fixtures in full acceptance mode). The suite succeeds for perimeter verification.
 
 **Option B: Full Gateway Acceptance Verification (Automated CLI)**
 > [!NOTE]
@@ -472,18 +472,22 @@ unset CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET
 - Detail GET for B, C, D, F, E return identical neutral 404 with zero manuscript leakage.
 - All responses emit `Cache-Control: no-store`.
 
-**Option C: Browser End-to-End Acceptance (Primary if Service Auth is not configured)**
+**Option C: Browser End-to-End API Acceptance (Primary if Service Auth is not configured)**
 Sign in through Cloudflare Access in an approved browser:
 1. Navigate to `https://bibleberry-staging.aw-e44.workers.dev/api/challenges` -> Verify `{ "ok": true, "challenges": [ { "slug": "r05-3b-challenge-a-released", ... } ] }`.
 2. Navigate to `https://bibleberry-staging.aw-e44.workers.dev/api/challenges/r05-3b-challenge-a-released` -> Verify HTTP 200, challenge details present, no `reviewNotes`.
 3. Navigate to `https://bibleberry-staging.aw-e44.workers.dev/api/challenges/r05-3b-challenge-b-future` -> Verify HTTP 404 not found.
-4. Navigate to `https://bibleberry-staging.aw-e44.workers.dev/#/challenge/r05-3b-challenge-a-released` -> Verify Challenge loads in the React reader.
+
+> [!NOTE]
+> **Browser Challenge-Route Reader Notice:** The current Stage 3B.1 staging deployment serves the standard build where the `#/challenge/:slug` reader route is feature-gated off (since `VITE_ENABLE_RELEASED_CHALLENGE_ROUTE` and `VITE_ENABLE_RELEASE_GATEWAY_SOURCE` are false by default in standard builds). Live staging acceptance in this phase is therefore verified via the gateway API endpoints (`/api/challenges` and `/api/challenges/:slug`). Any future reader browser UI route acceptance requires a **separately authorized** staging rebuild with both feature flags enabled and redeployment under Aaron's supervision. No deployment or build modification is authorized or performed during this PR.
 
 #### Step 4: Post-Acceptance Teardown / Cleanup
 When testing is complete, follow the authorized manual cleanup procedure in §10.6 to delete the 6 synthetic documents from the staging dataset.
 
 #### Step 5: Readback Verification After Cleanup
-After performing the manual teardown in §10.6, verify that the staging catalog is completely restored to an empty state:
+After performing the manual teardown in §10.6, verify that the staging dataset and catalog are completely restored:
+1. **Raw Perspective Sanity Query:** Confirm all 6 synthetic IDs and slugs return zero records (see §10.6 Step 3). Do not rely solely on catalog `[]`, as B, C, D, and F were never in the catalog.
+2. **Authenticated Gateway Catalog:**
 ```bash
 # Via authenticated curl with service token:
 curl -i -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
@@ -501,6 +505,9 @@ curl -i -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
 
 To preserve strict safety invariants, destructive teardown is disarmed in automated scripts. Once acceptance testing is concluded, the operator cleans up the 6 synthetic acceptance documents using either the Sanity CLI or an explicit Sanity mutation request.
 
+> [!IMPORTANT]
+> **No cleanup is authorized in this PR.** This manual cleanup procedure is documented solely for operator execution following independent PR review, approval, and live acceptance testing.
+
 #### Explicit Synthetic IDs Subject to Cleanup
 Only delete these 6 specific synthetic IDs (never delete by wildcard or open prefix):
 1. `r05-3b-series-acceptance`
@@ -510,7 +517,18 @@ Only delete these 6 specific synthetic IDs (never delete by wildcard or open pre
 5. `drafts.r05-3b-challenge-d-draft`
 6. `r05-3b-challenge-f-unapproved-block`
 
-#### Option 1: Via Sanity CLI
+#### Step 1: Pre-Cleanup Ownership and Content Inspection
+Before issuing any deletion, query the raw documents in Sanity staging to verify exact IDs, revision ownership, and confirm no unexpected modifications occurred:
+```bash
+read -s -p "Enter SANITY_WRITE_TOKEN: " SANITY_WRITE_TOKEN && echo
+curl -s "https://80016lrq.api.sanity.io/v2026-11-01/data/query/staging?query=*[_id+in+[\"r05-3b-series-acceptance\",\"r05-3b-challenge-a-released\",\"r05-3b-challenge-b-future\",\"r05-3b-challenge-c-unreviewed\",\"drafts.r05-3b-challenge-d-draft\",\"r05-3b-challenge-f-unapproved-block\"]]%7B_id,_rev,title,\"slug\":slug.current%7D&perspective=raw" \
+  -H "Authorization: Bearer $SANITY_WRITE_TOKEN"
+```
+*Expected:* Returns exactly the 6 synthetic acceptance records. Confirm all titles and slugs match the synthetic test manifest.
+
+#### Step 2: Execute Explicit Deletion
+
+**Option 1: Via Sanity CLI**
 ```bash
 npx sanity documents delete \
   --project 80016lrq \
@@ -523,9 +541,8 @@ npx sanity documents delete \
   r05-3b-challenge-f-unapproved-block
 ```
 
-#### Option 2: Via Direct Sanity HTTP Mutation API
+**Option 2: Via Direct Sanity HTTP Mutation API**
 ```bash
-read -s -p "Enter SANITY_WRITE_TOKEN: " SANITY_WRITE_TOKEN && echo
 curl -X POST \
   "https://80016lrq.api.sanity.io/v2026-11-01/data/mutate/staging" \
   -H "Authorization: Bearer $SANITY_WRITE_TOKEN" \
@@ -540,6 +557,13 @@ curl -X POST \
       { "delete": { "id": "r05-3b-challenge-f-unapproved-block" } }
     ]
   }'
+```
+
+#### Step 3: Post-Cleanup Raw Perspective Readback Verification
+Do not treat an empty catalog (`GET /api/challenges -> []`) alone as sufficient proof of cleanup, because B, C, D, and F were never in the catalog. Confirm the total absence of all 6 synthetic IDs and slugs in Sanity staging using `perspective=raw`:
+```bash
+curl -s "https://80016lrq.api.sanity.io/v2026-11-01/data/query/staging?query=*[_id+in+[\"r05-3b-series-acceptance\",\"r05-3b-challenge-a-released\",\"r05-3b-challenge-b-future\",\"r05-3b-challenge-c-unreviewed\",\"drafts.r05-3b-challenge-d-draft\",\"r05-3b-challenge-f-unapproved-block\"]+||+slug.current+in+[\"r05-3b-synthetic-series\",\"r05-3b-challenge-a-released\",\"r05-3b-challenge-b-future\",\"r05-3b-challenge-c-unreviewed\",\"r05-3b-challenge-d-draft\",\"r05-3b-challenge-f-unapproved-block\"]]&perspective=raw" \
+  -H "Authorization: Bearer $SANITY_WRITE_TOKEN"
 unset SANITY_WRITE_TOKEN
 ```
-*Expected:* Sanity returns HTTP 200 with mutation confirmation results. Proceed to Step 5 to confirm catalog is empty.
+*Expected:* `{ "result": [] }` (empty array), confirming that all 6 synthetic records (both published and draft) have been completely removed from the staging dataset.

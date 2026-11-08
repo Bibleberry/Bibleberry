@@ -121,10 +121,13 @@ function verifyReadbackDocuments(
 ): { verified: boolean; errors: string[] } {
   const errors: string[] = []
   const docMap = new Map<string, Record<string, unknown>>()
+  const docMapByBaseId = new Map<string, Record<string, unknown>>()
 
   for (const d of readbackDocs) {
     if (typeof d._id === 'string') {
       docMap.set(d._id, d)
+      const baseId = d._id.replace(/^drafts\./, '')
+      docMapByBaseId.set(baseId, d)
     }
   }
 
@@ -137,8 +140,27 @@ function verifyReadbackDocuments(
   for (const expected of ALL_SYNTHETIC_STAGING_DOCUMENTS) {
     const actual = docMap.get(expected._id)
     if (!actual) {
+      const baseId = expected._id.replace(/^drafts\./, '')
+      const altActual = docMapByBaseId.get(baseId)
+      if (altActual && altActual._id !== expected._id) {
+        const expectedIsDraft = expected._id.startsWith('drafts.')
+        const actualIsDraft = typeof altActual._id === 'string' && altActual._id.startsWith('drafts.')
+        errors.push(
+          `Document ${expected._id} draft status mismatch: expected ${expectedIsDraft ? 'draft' : 'published'}, got ${actualIsDraft ? 'draft' : 'published'} (${altActual._id}).`,
+        )
+        continue
+      }
       errors.push(`Document ${expected._id} is missing from raw readback verification.`)
       continue
+    }
+
+    // Draft vs published status distinction
+    const expectedIsDraft = expected._id.startsWith('drafts.')
+    const actualIsDraft = typeof actual._id === 'string' && actual._id.startsWith('drafts.')
+    if (expectedIsDraft !== actualIsDraft) {
+      errors.push(
+        `Document ${expected._id} draft status mismatch: expected ${expectedIsDraft ? 'draft' : 'published'}, got ${actualIsDraft ? 'draft' : 'published'}.`,
+      )
     }
 
     if (actual._type !== expected._type) {
@@ -178,6 +200,117 @@ function verifyReadbackDocuments(
       if (expChal.editorialReview.reviewNotes) {
         if (!review?.reviewNotes || typeof review.reviewNotes !== 'string' || !review.reviewNotes.includes('SIMULATED SYNTHETIC ELIGIBILITY')) {
           errors.push(`Document ${expected._id} missing expected synthetic fixture review note in readback.`)
+        }
+      }
+
+      // Screen and structured block content verification
+      const actualScreens = Array.isArray(actual.screens)
+        ? (actual.screens as Array<Record<string, unknown>>)
+        : null
+
+      if (!actualScreens) {
+        errors.push(`Document ${expected._id} screens array is missing or malformed in readback.`)
+      } else {
+        if (actualScreens.length !== expChal.screens.length) {
+          errors.push(
+            `Document ${expected._id} screen count mismatch: expected ${expChal.screens.length}, got ${actualScreens.length}.`,
+          )
+        }
+
+        for (let sIdx = 0; sIdx < expChal.screens.length; sIdx++) {
+          const expScreen = expChal.screens[sIdx]
+          const actScreen = actualScreens[sIdx]
+          if (!actScreen) {
+            errors.push(`Document ${expected._id} screen[${sIdx}] missing in readback.`)
+            continue
+          }
+
+          if (actScreen._key !== expScreen._key) {
+            errors.push(
+              `Document ${expected._id} screen[${sIdx}] key mismatch: expected '${expScreen._key}', got '${actScreen._key}'.`,
+            )
+          }
+          if (actScreen._type !== expScreen._type) {
+            errors.push(
+              `Document ${expected._id} screen[${sIdx}] type mismatch: expected '${expScreen._type}', got '${actScreen._type}'.`,
+            )
+          }
+
+          const actBlocks = Array.isArray(actScreen.blocks)
+            ? (actScreen.blocks as Array<Record<string, unknown>>)
+            : null
+
+          if (!actBlocks) {
+            errors.push(
+              `Document ${expected._id} screen[${sIdx}] blocks array is missing or malformed in readback.`,
+            )
+            continue
+          }
+
+          if (actBlocks.length !== expScreen.blocks.length) {
+            errors.push(
+              `Document ${expected._id} screen[${sIdx}] block count mismatch: expected ${expScreen.blocks.length}, got ${actBlocks.length}.`,
+            )
+          }
+
+          for (let bIdx = 0; bIdx < expScreen.blocks.length; bIdx++) {
+            const expBlock = expScreen.blocks[bIdx]
+            const actBlock = actBlocks[bIdx]
+            if (!actBlock) {
+              errors.push(
+                `Document ${expected._id} screen[${sIdx}] block[${bIdx}] missing in readback.`,
+              )
+              continue
+            }
+
+            if (actBlock._key !== expBlock._key) {
+              errors.push(
+                `Document ${expected._id} screen[${sIdx}] block[${bIdx}] key mismatch: expected '${expBlock._key}', got '${actBlock._key}'.`,
+              )
+            }
+            if (actBlock._type !== expBlock._type) {
+              errors.push(
+                `Document ${expected._id} screen[${sIdx}] block[${bIdx}] type mismatch: expected '${expBlock._type}', got '${actBlock._type}'.`,
+              )
+            }
+
+            // Verify block reviewStatus if defined on expected block (critical for Fixture F and A)
+            if (typeof expBlock.reviewStatus === 'string') {
+              if (actBlock.reviewStatus !== expBlock.reviewStatus) {
+                errors.push(
+                  `Document ${expected._id} block '${expBlock._key}' reviewStatus mismatch: expected '${expBlock.reviewStatus}', got '${actBlock.reviewStatus}'.`,
+                )
+              }
+            }
+
+            // Verify nested scriptures in optionalStudyBlock if present
+            if (expBlock._type === 'optionalStudyBlock' && Array.isArray(expBlock.scriptures)) {
+              const actScriptures = Array.isArray(actBlock.scriptures)
+                ? (actBlock.scriptures as Array<Record<string, unknown>>)
+                : null
+
+              if (!actScriptures || actScriptures.length !== expBlock.scriptures.length) {
+                errors.push(
+                  `Document ${expected._id} block '${expBlock._key}' nested scriptures count mismatch.`,
+                )
+              } else {
+                for (let scIdx = 0; scIdx < expBlock.scriptures.length; scIdx++) {
+                  const expSc = expBlock.scriptures[scIdx] as Record<string, unknown>
+                  const actSc = actScriptures[scIdx]
+                  if (actSc._key !== expSc._key) {
+                    errors.push(
+                      `Document ${expected._id} block '${expBlock._key}' scripture[${scIdx}] key mismatch: expected '${expSc._key}', got '${actSc._key}'.`,
+                    )
+                  }
+                  if (actSc.textStatus !== 'referenceOnly' || actSc.passage !== undefined) {
+                    errors.push(
+                      `Document ${expected._id} block '${expBlock._key}' scripture '${expSc._key}' violates reference-only scripture invariants.`,
+                    )
+                  }
+                }
+              }
+            }
+          }
         }
       }
     }
@@ -518,7 +651,7 @@ export async function executeStagingFixtures(
     dryRun: false,
     mode: 'setup',
     actionCount: createMutations.length,
-    message: `Successfully created and verified ${createMutations.length} synthetic acceptance documents in staging dataset (${EXPECTED_DATASET}) with perspective=raw readback.`,
+    message: `Successfully verified ${ALL_SYNTHETIC_STAGING_DOCUMENTS.length} synthetic acceptance documents present in staging dataset (${EXPECTED_DATASET}) with perspective=raw readback.`,
     details: {
       verifiedIds: ALL_SYNTHETIC_DOCUMENT_IDS,
       readbackCount: readbackResult.length,
