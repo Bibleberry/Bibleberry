@@ -1,5 +1,7 @@
 # Bibleberry — Release Readiness, Environments & Rollback
 
+> **November 8 approved product direction:** [Approved Reader Experience, Month Screen & Field Notebook](../product/2026-11-08-approved-reader-experience-and-month-screen.md) supersedes older achievement, Archive/Library, monthly preview and account-merge assumptions. The new Month Screen and preview/welcome sequence are **planned requirements, not built or launch-committed**. Release readiness still requires verified implementation, scoped acceptance and Aaron's go/no-go.
+
 > **Status:** Working release-planning document. It records verified current facts, proposed operational safeguards, and unresolved launch decisions. **Not an approved release specification or authorization to build/deploy.**  
 > **Created:** November 1, 2026  
 > **Planning target:** January 1, 2027, **subject to readiness**  

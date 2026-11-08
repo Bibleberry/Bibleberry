@@ -1,7 +1,7 @@
 # Bibleberry — User Accounts, Authentication & Cross-Device Continuity
 
 > **Working architecture decision record**  
-> **Updated:** 2026-11-06  
+> **Updated:** 2026-11-08  
 > **Status:** Working account decisions plus the November 6 minimal-record product choice; not an implementation brief  
 > **Owners:** Aaron Waid (product/technical decisions), Alexis Waid (ministry/content authority)  
 > **Target launch:** January 1, 2027
@@ -34,6 +34,18 @@ Aaron resolved the gamification research architecture disagreement in favor of t
 - **Keep future ideas conditional:** surprise acknowledgments for actual consecutive participation days are possible, not approved technical scope. If adopted, they may need day-level participation dates, but not minute-by-minute activity tracking. Do not preemptively build a real-day streak ledger.
 
 For product decisions and unresolved achievement rules, see [Gamification, Achievements & Participation](../product/gamification-and-achievements.md) and [Biblical Discovery & Scripture](../product/biblical-discovery-and-scripture.md). This note supersedes any inference elsewhere in this record that **full event sourcing or a comprehensive append-only interaction ledger** is required.
+
+## November 8 owner-approved guest conversion and synchronization rules
+
+The [November 8 approved reader experience](../product/2026-11-08-approved-reader-experience-and-month-screen.md) **settles the product behavior** for guest conversion and merging. Prior "guest-to-account migration undecided" language below is superseded.
+
+1. A guest **creating a new account** on that device automatically transfers completed Challenge records, saved Scripture, earned cards and their dates, reading positions and saved progress into the new account. Do not reset or duplicate awards.
+2. Someone browsing **as a guest on a device** who signs into an **already existing account** there automatically merges the guest records into that account. Preserve both sides' completions, saved Scripture and valid earned cards. Never require redoing Challenges.
+3. The **existing account's Shelf selections win** if guest and cloud Shelf memberships conflict; the guest's underlying reading, achievements and Scripture remain preserved in the Library and collections.
+4. Duplicate earning of the same card results in **one card**, using the **earliest credible earned date**, not an arbitrary unverified client timestamp. When two devices have conflicting partial Challenge positions, default to **furthest read position**; intentional reread cases need separate technical design.
+5. Account invitations remain optional, gentle and outside focused Challenge reading. Guest data may still be lost on device loss before registration; these merge rules do not promise cloud recovery for unsigned guests.
+
+**Still to specify:** Atomic migration steps, stable identities, idempotence, clock integrity, offline conflicts, native device persistence, row-level permissions, secure account linking and practical failure/retry UX. These are engineering design questions, not permission to reopen the product decision.
 
 ## Working decisions
 
@@ -123,10 +135,10 @@ These are requirements for a production design, not completed implementation:
 
 ## Open questions — discuss before Kimi implementation instructions
 
-1. **Guest-to-account conversion:** Exact UX and migration behavior for locally saved progress.
+1. **Guest-to-account conversion (product settled Nov 8):** Engineer/test the **approved automatic transfer and merge**, including retries, deduplication, idempotence and safe errors. Do not ask whether migration is manual or optional.
 2. **Identity linking:** How readers add/change login methods and how to prevent duplicate or incorrectly merged accounts.
 3. **Data model:** Stable Challenge IDs, verse identity, completion record semantics, achievement award records, retries, and deduplication.
-4. **Synchronization:** Which data syncs, which stays on-device, and how conflicts/merges are handled.
+4. **Synchronization:** Implement the approved existing-account Shelf precedence, furthest reading position and earliest credible earned date; define remaining offline/timestamp conflict safeguards.
 5. **Offline behavior:** Define the minimum acceptable launch behavior; assess future offline completion architecture.
 6. **Mobile packaging:** Confirm iOS/Android deployment technology and test Google/Apple/email-code flows on actual supported platforms.
 7. **Privacy lifecycle:** Final user-data collection, deletion, retention, and whether export is provided.

@@ -1,5 +1,7 @@
 # November 7, 2026 — Gamification and Field Notebook repository consistency audit
 
+> **HISTORICAL AUDIT:** Updated November 8 product authority is the [approved Month Screen and reader-experience specification](2026-11-08-approved-reader-experience-and-month-screen.md). Its Shelf/Library labels, monthly discoveries, Finish/Hub behavior and new monthly preview supersede conflicting November 7 findings below. This remains provenance, not an implementation requirement.
+>
 > **AUDIT / PROVENANCE, NOT A COMPETING PRODUCT SPECIFICATION.**
 > Current behavior lives in [Gamification & Achievements — decision-status map](gamification-and-achievements.md#decision-status-at-a-glance--november-7-2026). This report identifies where earlier text appeared, what it meant, and how it should be interpreted. It does not authorize coding or merge PR #51.
 
