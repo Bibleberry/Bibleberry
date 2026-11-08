@@ -224,12 +224,12 @@ npm run build
 # (enables reader challenge route and directs ReleasedChallengeHost to gateway source)
 VITE_ENABLE_RELEASED_CHALLENGE_ROUTE=true VITE_ENABLE_RELEASE_GATEWAY_SOURCE=true npm run build
 
-# 5. Non-deploying Wrangler dry-run compilation test (pinned version)
+# 5. Non-deploying Wrangler dry-run compilation test (uses actual built assets in dist/)
 npm run check:staging
-# (or: npx --yes wrangler@4.158.0 deploy --dry-run --config wrangler.staging.jsonc)
 ```
 Verify that all checks exit with code 0, `dist/` contains `index.html` and static assets, and the dry-run check outputs:
 `✨ Read 10 files from the assets directory ... --dry-run: exiting now.`
+Note: `npm run check:staging` compiles the Worker via esbuild and verifies asset bindings against actual built assets in `./dist`. Routine unit tests (`npm run test:gateway`) remain completely offline-capable and do not invoke Wrangler or create synthetic build directories.
 
 ### Step 7.2: Perimeter Security & Cloudflare Secret Installation Sequencing (Aaron Action)
 
@@ -238,8 +238,9 @@ Verify that all checks exit with code 0, `dist/` contains `index.html` and stati
 
 To prevent an unprotected staging window:
 
-1. **Step 7.2A: Configure Cloudflare Access Policy (Zero Trust):**  
-   If staging access must be restricted to Aaron and authorized reviewers, configure the Cloudflare Access Application on `bibleberry-staging.aw-e44.workers.dev` in the Cloudflare Zero Trust dashboard **before** deploying or installing secrets. This ensures the endpoint is authenticated the instant it becomes live.
+1. **Step 7.2A: Configure Cloudflare Access Policy (Zero Trust) Ahead of Deployment:**  
+   If staging access must be restricted to Aaron and authorized reviewers, configure the Cloudflare Access Application on `bibleberry-staging.aw-e44.workers.dev` in the Cloudflare Zero Trust dashboard (`Access -> Applications -> Add an application -> Self-hosted -> Application Domain: bibleberry-staging.aw-e44.workers.dev`) **before** deploying code or installing secrets.  
+   *Implementation distinction:* Hostname-level Access in Zero Trust can and must be prepared before the Worker service exists. In contrast, the per-Worker Access tab in the Workers & Pages dashboard requires an already-existing Worker; relying on that would create a vulnerability window during initial deploy.
 
 2. **Step 7.2B: Initial Worker Code & Asset Deployment:**  
    ```bash
@@ -252,57 +253,84 @@ To prevent an unprotected staging window:
    npx wrangler secret put SANITY_READ_TOKEN --config wrangler.staging.jsonc
    # (When prompted, paste the private Sanity read-only Viewer token securely)
    ```
-   *Behavior note:* This immediately deploys an updated Worker version with `env.SANITY_READ_TOKEN` bound, activating live gateway operations.
+   *Behavior note:* This immediately deploys an updated Worker version with `env.SANITY_READ_TOKEN` bound, activating live gateway operations behind Cloudflare Access.  
    *(Alternative for staged releases: `wrangler versions secret put SANITY_READ_TOKEN --config wrangler.staging.jsonc` can be used within Cloudflare's Gradual Deployments workflow).*
 
 ### Step 7.3: Live Staging Acceptance Checks
 
-Execute the following checks against the deployed staging URL:
+Staging acceptance is divided into two distinct verification phases:
+
+#### Phase 7.3A: Unauthenticated Perimeter Verification (Proving Access Block)
+Execute requests without Access credentials to confirm that Cloudflare Access intercepts anonymous traffic before it reaches the Worker runtime:
+
+1. **Unauthenticated Root Request:**
+   ```bash
+   curl -i https://bibleberry-staging.aw-e44.workers.dev/
+   ```
+   *Expected:* HTTP 302 Found (redirecting to `<team>.cloudflareaccess.com/cdn-cgi/access/login/...`) or HTTP 403 Forbidden. Static assets must NOT be returned anonymously.
+2. **Unauthenticated API Request:**
+   ```bash
+   curl -i https://bibleberry-staging.aw-e44.workers.dev/api/challenges
+   ```
+   *Expected:* HTTP 302 Found or HTTP 403 Forbidden. Gateway API must NOT be executed anonymously.
+
+#### Phase 7.3B: Authenticated Acceptance Checks (Testing Gateway Runtime & Application Delivery)
+Execute requests presenting valid Cloudflare Access credentials. For CLI automation, use an Access Service Token via headers (`-H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET"`, stored in local shell environment; never printed or committed). For browser testing, authenticate via the Cloudflare Access login screen.
 
 1. **Static SPA Root Delivery:**
    ```bash
-   curl -i https://bibleberry-staging.aw-e44.workers.dev/
+   curl -i -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+     https://bibleberry-staging.aw-e44.workers.dev/
    ```
    *Expected:* HTTP 200, `Content-Type: text/html`, contains `<div id="root">` / React mount.
 2. **Static Asset Chunk Delivery:**
    ```bash
-   curl -i https://bibleberry-staging.aw-e44.workers.dev/assets/index-<hash>.js
+   curl -i -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+     https://bibleberry-staging.aw-e44.workers.dev/assets/index-<hash>.js
    ```
    *Expected:* HTTP 200, `Content-Type: application/javascript`.
 3. **SPA Client Routing Fallback:**
    ```bash
-   curl -i https://bibleberry-staging.aw-e44.workers.dev/today
+   curl -i -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+     https://bibleberry-staging.aw-e44.workers.dev/today
    ```
    *Expected:* HTTP 200 serving `index.html` (SPA fallback).
 4. **Gateway Catalog API:**
    ```bash
-   curl -i https://bibleberry-staging.aw-e44.workers.dev/api/challenges
+   curl -i -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+     https://bibleberry-staging.aw-e44.workers.dev/api/challenges
    ```
    *Expected:* HTTP 200, `Content-Type: application/json; charset=utf-8`, `Cache-Control: no-store`, `{ "ok": true, "challenges": [ ... ] }`.
 5. **Gateway Single Challenge API (Released):**
    ```bash
-   curl -i https://bibleberry-staging.aw-e44.workers.dev/api/challenges/<released-slug>
+   curl -i -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+     https://bibleberry-staging.aw-e44.workers.dev/api/challenges/<released-slug>
    ```
    *Expected:* HTTP 200, `Cache-Control: no-store`, `{ "ok": true, "challenge": { ... } }`.
 6. **Gateway Single Challenge API (Future-Dated or Nonexistent):**
    ```bash
-   curl -i https://bibleberry-staging.aw-e44.workers.dev/api/challenges/<future-slug>
+   curl -i -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+     https://bibleberry-staging.aw-e44.workers.dev/api/challenges/<future-slug>
    ```
    *Expected:* HTTP 404, `Cache-Control: no-store`, `{ "ok": false, "error": { "kind": "notFound", "message": "Challenge not found" } }`. Zero manuscript leakage.
 7. **CORS Preflight:**
    ```bash
    curl -i -X OPTIONS https://bibleberry-staging.aw-e44.workers.dev/api/challenges \
      -H "Origin: http://localhost:3000" \
-     -H "Access-Control-Request-Method: GET"
+     -H "Access-Control-Request-Method: GET" \
+     -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+     -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET"
    ```
    *Expected:* HTTP 204, `Access-Control-Allow-Origin: http://localhost:3000`, `Access-Control-Allow-Methods: GET, OPTIONS`.
 8. **Unsupported Method Gating:**
    ```bash
-   curl -i -X POST https://bibleberry-staging.aw-e44.workers.dev/api/challenges
+   curl -i -X POST https://bibleberry-staging.aw-e44.workers.dev/api/challenges \
+     -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+     -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET"
    ```
    *Expected:* HTTP 405 Method Not Allowed, `Allow: GET, OPTIONS`.
-9. **Ordinary Reader End-to-End Route Acceptance:**  
-   Navigate in a browser to `https://bibleberry-staging.aw-e44.workers.dev/#/challenge/<released-slug>`. Verify that the Challenge loads via the gateway source without fallback to direct Sanity reads, and that completed screens record progress into guest participation storage.
+9. **Ordinary Reader End-to-End Route Acceptance (Browser):**  
+   Sign in through Cloudflare Access in an approved browser, navigate to `https://bibleberry-staging.aw-e44.workers.dev/#/challenge/<released-slug>`. Verify that the Challenge loads via the gateway source without fallback to direct Sanity reads, and that completed screens record progress into guest participation storage.
 
 ---
 

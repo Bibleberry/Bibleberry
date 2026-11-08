@@ -2,7 +2,6 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import * as child_process from 'node:child_process'
 import worker, { handleWorkerRequest } from '../../src/gateway/worker.ts'
 import type { WorkerEnv, GatewayFetch, GatewayCatalogResponse, GatewayChallengeResponse, GatewayErrorResponse } from '../../src/gateway/types.ts'
 
@@ -431,29 +430,4 @@ test('wrangler.staging.jsonc is valid configuration for Cloudflare Workers Stati
   assert.equal(config.vars.SANITY_API_VERSION, '2026-11-01')
   assert.equal(typeof config.vars.ALLOWED_ORIGINS, 'string')
   assert.ok(config.vars.ALLOWED_ORIGINS.includes('aw-e44.workers.dev'), 'ALLOWED_ORIGINS must include aw-e44 subdomain')
-})
-
-test('wrangler deploy --dry-run compiles Worker and binds assets without deployment', () => {
-  // Ensure dist directory exists with index.html for assets validation
-  const distDir = path.resolve(process.cwd(), 'dist')
-  const createdDist = !fs.existsSync(distDir)
-  if (createdDist) {
-    fs.mkdirSync(distDir, { recursive: true })
-    fs.writeFileSync(path.join(distDir, 'index.html'), '<!DOCTYPE html><html></html>')
-  }
-
-  try {
-    const result = child_process.execSync(
-      'npx --yes wrangler@4.158.0 deploy --dry-run --config wrangler.staging.jsonc',
-      { encoding: 'utf8', stdio: 'pipe' },
-    )
-    assert.ok(result.includes('--dry-run: exiting now.'))
-    assert.ok(result.includes('env.ASSETS'))
-    assert.ok(result.includes('env.SANITY_PROJECT_ID'))
-    assert.ok(result.includes('2026-11-01'))
-  } finally {
-    if (createdDist) {
-      fs.rmSync(distDir, { recursive: true, force: true })
-    }
-  }
 })
