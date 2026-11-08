@@ -370,3 +370,200 @@ Before proceeding beyond Stage 3A local verification, the following explicit dec
    - [ ] Decide whether `bibleberry-staging.aw-e44.workers.dev` will be placed behind Cloudflare Access (Zero Trust) before secret installation, recognizing that CORS restrictions do not prevent direct non-browser HTTP requests.
 5. **Technical Acceptance of PR #55:**
    - [ ] Authorize merge of `feat/r05-3a-worker-runtime-integration` following ChatGPT's review.
+
+---
+
+## 10. Stage 3B: Synthetic Scheduled-Release Acceptance Procedure (R05 Stage 3B.3A)
+
+### 10.1 Context & Verified Checkpoints
+
+1. **Merged PR #55 (Stage 3A):** Established the Worker runtime (`src/gateway/worker.ts`), staging configuration (`wrangler.staging.jsonc`), and unit tests.
+2. **Verified Deployment Checkpoint (Issue #57):**
+   - `bibleberry-staging.aw-e44.workers.dev` was deployed without secrets and confirmed to deny anonymous root and API traffic via Cloudflare Access (HTTP 302 login redirect).
+   - Sanity private dataset `staging` exists under project `80016lrq`.
+   - Read-only Sanity Viewer token was installed in Cloudflare Worker secrets as `SANITY_READ_TOKEN`.
+   - Authenticated browser check of `GET /api/challenges` returned `{ "ok": true, "challenges": [] }`.
+3. **Stage 3B.3A Objective (Issue #58):** Engineering preparation only. Prepares synthetic deterministic acceptance fixtures, a guarded create-only setup tool, an acceptance harness, and an operator checklist. No Sanity writes, token creation, or Worker redeployments are performed during preparation.
+
+### 10.2 Synthetic Fixture Pack Inventory
+
+All synthetic fixtures are defined in `src/gateway/fixtures/stagingAcceptanceFixtures.ts`. All IDs and slugs use the isolated `r05-3b-` prefix. They contain deterministic, reference-only Scripture citations (no quoted Bible text, live teaching, editorial notes, user data, or copyrighted content):
+
+> [!NOTE]
+> **Simulated Synthetic Eligibility:** Synthetic fixtures include `reviewedBy: Aaron Waid` and predetermined `releaseAt` timestamps solely to test the release engine's technical eligibility gating. These synthetic attributes do NOT represent actual pastoral, editorial, or theological approval.
+
+| Fixture Case | Document ID / Slug | Title | Published / Draft | Editorial Review Status | releaseAt (UTC) | Screen Blocks | Expected Catalog | Expected Detail | Acceptance Role |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| **Series** | `r05-3b-series-acceptance`<br>`r05-3b-synthetic-series` | Synthetic Acceptance Series (R05 Stage 3B) | Published | N/A | N/A | N/A | N/A | N/A | Parent container for synthetic test challenges. |
+| **Case A** | `r05-3b-challenge-a-released` | Synthetic Released Challenge A | Published | `adaptationReviewed: true`<br>Reviewed by Aaron Waid (simulated synthetic eligibility) | `2026-11-01T05:00:00Z`<br>(Past) | Approved comparison & study blocks | **Included** | **200 OK** | Verifies normal release admission, reader projection, and internal note stripping. |
+| **Case B** | `r05-3b-challenge-b-future` | Synthetic Future Challenge B | Published | `adaptationReviewed: true`<br>Reviewed by Aaron Waid (simulated synthetic eligibility) | `2099-01-01T00:00:00.000Z`<br>(Durable future date) | Approved blocks | **Excluded** | **404 Not Found** (Neutral) | Verifies future-dated embargo enforcement and zero manuscript leakage. Fixed to durable future date 2099-01-01 to avoid auto-release drift over test cycles. |
+| **Case C** | `r05-3b-challenge-c-unreviewed` | Synthetic Unreviewed Challenge C | Published | `adaptationReviewed: false` | `2026-11-01T05:00:00Z`<br>(Past) | Approved blocks | **Excluded** | **404 Not Found** (Neutral) | Verifies unreviewed content is excluded even after release timestamp. |
+| **Case D** | `drafts.r05-3b-challenge-d-draft`<br>`r05-3b-challenge-d-draft` | Synthetic Draft-Only Challenge D | Draft-only | `adaptationReviewed: true` | `2026-11-01T05:00:00Z`<br>(Past) | Approved blocks | **Excluded** | **404 Not Found** (Neutral) | Verifies draft documents are excluded from published perspective and gateway. |
+| **Case E** | `r05-3b-nonexistent-slug` | Nonexistent Slug | Nonexistent | N/A | N/A | N/A | **Excluded** | **404 Not Found** (Neutral) | Verifies nonexistent slugs return neutral 404 identical to embargoed slugs. |
+| **Case F** | `r05-3b-challenge-f-unapproved-block` | Synthetic Unapproved Block Challenge F | Published | `adaptationReviewed: true` | `2026-11-01T05:00:00Z`<br>(Past) | Comparison block `reviewStatus: "proposed"` | **Excluded** | **404 Not Found** (Neutral) | Verifies unapproved structured blocks cause immediate rejection. |
+
+### 10.3 Guarded Setup Mechanism (`scripts/staging-fixtures.ts`)
+
+To prevent accidental writes to production or state corruption, the setup tool enforces:
+1. **Dry-Run by Default:** Without `--apply`, no network mutations occur. A dry run inspects the manifest and validates target settings.
+2. **Strict Target Pinning:** Hard-coded to project `80016lrq` and dataset `staging`. Target dataset `production` is strictly rejected with a fatal error.
+3. **Local Administrative Credential:** Requires `SANITY_WRITE_TOKEN` in the environment. Tokens in CLI arguments (e.g. `--token`) are explicitly blocked to avoid leaking into `ps` tables or shell history.
+4. **Comprehensive Preflight (`perspective=raw`):** Queries existing documents using raw perspective covering `$ids`, `$draftIds` (`drafts.r05-3b-...`), and `$slugs`. Fails closed if any document or slug conflict already exists, or if the preflight query returns a malformed response.
+5. **Post-Mutation Readback Verification (`perspective=raw`):** Performs a raw-perspective readback of all 6 documents following mutation, validating draft vs. published presence, `releaseAt` timestamps, sequence order, parent series references, reference-only scripture invariants, and editorial eligibility.
+6. **Create-Only Tool with Disarmed Teardown:** The setup tool only creates documents via `createIfNotExists`. Destructive teardown is disarmed in code and returns an immediate safety violation. Fixture cleanup is performed only via explicit, separately authorized operator procedures (see §10.6).
+
+### 10.4 Acceptance Verification Harness (`scripts/verify-staging-acceptance.ts`)
+
+Repeatable read-only verification:
+1. **Direct Unauthenticated Sanity Check:** Queries `https://80016lrq.api.sanity.io/v2026-11-01/data/query/staging?query=*[_id=="r05-3b-challenge-a-released"||_type=="challenge"]` without credentials. Distinguishes HTTP 401/403 (proven private), HTTP 200 with records (fatal security failure), and HTTP 200 with 0 records (requires confirmed presence of positive control Fixture A to mark PASS; otherwise marked INCONCLUSIVE). Network errors fail closed.
+2. **Anonymous Perimeter Check:** Verifies anonymous GET `/` and GET `/api/challenges` are blocked by Cloudflare Access. For HTTP 302 redirects, inspects the `Location` header to verify it redirects specifically to Cloudflare Access login (`.cloudflareaccess.com` or `cdn-cgi/access/login`), rejecting any unexpected redirect.
+3. **Honest Reporting (`PASS`, `FAIL`, `SKIP`, `INCONCLUSIVE`):** When Cloudflare Access service credentials are not provided, authenticated gateway checks are explicitly reported as `SKIP`. In default mode, this fails closed (exit code 1). Operators may pass `--perimeter-only` to run and pass only the anonymous perimeter checks without service credentials.
+4. **Authenticated Gateway Catalog:** Verifies GET `/api/challenges` returns HTTP 200, `Cache-Control: no-store`, includes Challenge A, and excludes B, C, D, and F.
+5. **Authenticated Single Challenge Details:**
+   - Case A: HTTP 200, `Cache-Control: no-store`, projection strips `reviewNotes` and `reviewedBy`.
+   - Cases B, C, D, F, E: All return identical neutral HTTP 404 with `Cache-Control: no-store` and zero manuscript leakage.
+
+### 10.5 Operator Execution Checklist (For Aaron Waid After PR Review)
+
+> [!IMPORTANT]
+> Do not execute these live-write steps during PR preparation. Execute only after independent PR review and approval.
+
+#### Step 1: Pre-Execution Dry-Run Inspection
+In your local authorized terminal:
+```bash
+npm run fixtures:staging
+```
+*Expected:* Outputs dry-run manifest of the 6 synthetic documents. Zero network mutations performed.
+
+#### Step 2: Apply Synthetic Fixtures to Private Staging Dataset
+In your local protected terminal, enter your temporary administrative write token via `read -s` to prevent the token from being captured in your shell history:
+```bash
+read -s -p "Enter SANITY_WRITE_TOKEN: " SANITY_WRITE_TOKEN && echo
+export SANITY_WRITE_TOKEN
+npm run fixtures:staging -- --apply
+unset SANITY_WRITE_TOKEN
+```
+*Expected:* `Successfully verified 6 synthetic acceptance documents present in staging dataset (staging) with perspective=raw readback.` Validates that all 6 documents exist, draft status is preserved for D, sequence order and release timestamps match, and structured screen/block contents and review statuses are verified.
+
+#### Step 3: Run Acceptance Verification
+
+**Option A: Anonymous Perimeter Verification (No Service Token Required)**
+```bash
+npm run verify:staging -- --perimeter-only
+```
+*Expected:* Anonymous Cloudflare Access perimeter checks pass (Root SPA and API requests redirect to Cloudflare Access login). In `--perimeter-only` mode, the direct Sanity positive-control query is explicitly SKIPPED (as full privacy positive-control proof requires seeded fixtures in full acceptance mode). The suite succeeds for perimeter verification.
+
+**Option B: Full Gateway Acceptance Verification (Automated CLI)**
+> [!NOTE]
+> Automated CLI verification requires a Cloudflare Access Service Token (`CF-Access-Client-Id` and `CF-Access-Client-Secret`) configured with a Cloudflare Access policy whose Action is **Service Auth**. If Service Auth is not configured on the Access application, browser authentication is the primary path (Option C).
+
+```bash
+read -s -p "Enter CF_ACCESS_CLIENT_SECRET: " CF_ACCESS_CLIENT_SECRET && echo
+export CF_ACCESS_CLIENT_ID="<your-access-client-id>"
+export CF_ACCESS_CLIENT_SECRET
+npm run verify:staging
+unset CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET
+```
+*Expected:* All 10 checks pass (10/10 Passed), validating:
+- Direct unauthenticated Sanity read returns no records (with Fixture A serving as verified positive control).
+- Anonymous perimeter requests redirect to Cloudflare Access login (HTTP 302 with verified `Location` header).
+- Authenticated catalog admits Challenge A and excludes B, C, D, F.
+- Detail GET for A returns 200 with internal fields stripped.
+- Detail GET for B, C, D, F, E return identical neutral 404 with zero manuscript leakage.
+- All responses emit `Cache-Control: no-store`.
+
+**Option C: Browser End-to-End API Acceptance (Primary if Service Auth is not configured)**
+Sign in through Cloudflare Access in an approved browser:
+1. Navigate to `https://bibleberry-staging.aw-e44.workers.dev/api/challenges` -> Verify `{ "ok": true, "challenges": [ { "slug": "r05-3b-challenge-a-released", ... } ] }`.
+2. Navigate to `https://bibleberry-staging.aw-e44.workers.dev/api/challenges/r05-3b-challenge-a-released` -> Verify HTTP 200, challenge details present, no `reviewNotes`.
+3. Navigate to `https://bibleberry-staging.aw-e44.workers.dev/api/challenges/r05-3b-challenge-b-future` -> Verify HTTP 404 not found.
+
+> [!NOTE]
+> **Browser Challenge-Route Reader Notice:** The current Stage 3B.1 staging deployment serves the standard build where the `#/challenge/:slug` reader route is feature-gated off (since `VITE_ENABLE_RELEASED_CHALLENGE_ROUTE` and `VITE_ENABLE_RELEASE_GATEWAY_SOURCE` are false by default in standard builds). Live staging acceptance in this phase is therefore verified via the gateway API endpoints (`/api/challenges` and `/api/challenges/:slug`). Any future reader browser UI route acceptance requires a **separately authorized** staging rebuild with both feature flags enabled and redeployment under Aaron's supervision. No deployment or build modification is authorized or performed during this PR.
+
+#### Step 4: Post-Acceptance Teardown / Cleanup
+When testing is complete, follow the authorized manual cleanup procedure in §10.6 to delete the 6 synthetic documents from the staging dataset.
+
+#### Step 5: Readback Verification After Cleanup
+After performing the manual teardown in §10.6, verify that the staging dataset and catalog are completely restored:
+1. **Raw Perspective Sanity Query:** Confirm all 6 synthetic IDs and slugs return zero records (see §10.6 Step 3). Do not rely solely on catalog `[]`, as B, C, D, and F were never in the catalog.
+2. **Authenticated Gateway Catalog:**
+```bash
+# Via authenticated curl with service token:
+curl -i -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+     -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+     https://bibleberry-staging.aw-e44.workers.dev/api/challenges
+
+# Or in your authenticated browser:
+# Visit https://bibleberry-staging.aw-e44.workers.dev/api/challenges
+```
+*Expected:* HTTP 200 with `{ "ok": true, "challenges": [] }`, confirming clean restoration.
+
+---
+
+### 10.6 Authorized Manual Cleanup / Teardown Procedure
+
+To preserve strict safety invariants, destructive teardown is disarmed in automated scripts. Once acceptance testing is concluded, the operator cleans up the 6 synthetic acceptance documents using either the Sanity CLI or an explicit Sanity mutation request.
+
+> [!IMPORTANT]
+> **No cleanup is authorized in this PR.** This manual cleanup procedure is documented solely for operator execution following independent PR review, approval, and live acceptance testing.
+
+#### Explicit Synthetic IDs Subject to Cleanup
+Only delete these 6 specific synthetic IDs (never delete by wildcard or open prefix):
+1. `r05-3b-series-acceptance`
+2. `r05-3b-challenge-a-released`
+3. `r05-3b-challenge-b-future`
+4. `r05-3b-challenge-c-unreviewed`
+5. `drafts.r05-3b-challenge-d-draft`
+6. `r05-3b-challenge-f-unapproved-block`
+
+#### Step 1: Pre-Cleanup Ownership and Content Inspection
+Before issuing any deletion, query the raw documents in Sanity staging to verify exact IDs, revision ownership, and confirm no unexpected modifications occurred:
+```bash
+read -s -p "Enter SANITY_WRITE_TOKEN: " SANITY_WRITE_TOKEN && echo
+curl -s "https://80016lrq.api.sanity.io/v2026-11-01/data/query/staging?query=*[_id+in+[\"r05-3b-series-acceptance\",\"r05-3b-challenge-a-released\",\"r05-3b-challenge-b-future\",\"r05-3b-challenge-c-unreviewed\",\"drafts.r05-3b-challenge-d-draft\",\"r05-3b-challenge-f-unapproved-block\"]]%7B_id,_rev,title,\"slug\":slug.current%7D&perspective=raw" \
+  -H "Authorization: Bearer $SANITY_WRITE_TOKEN"
+```
+*Expected:* Returns exactly the 6 synthetic acceptance records. Confirm all titles and slugs match the synthetic test manifest.
+
+#### Step 2: Execute Explicit Deletion
+
+**Option 1: Via Sanity CLI**
+```bash
+npx sanity documents delete \
+  --project 80016lrq \
+  --dataset staging \
+  r05-3b-series-acceptance \
+  r05-3b-challenge-a-released \
+  r05-3b-challenge-b-future \
+  r05-3b-challenge-c-unreviewed \
+  drafts.r05-3b-challenge-d-draft \
+  r05-3b-challenge-f-unapproved-block
+```
+
+**Option 2: Via Direct Sanity HTTP Mutation API**
+```bash
+curl -X POST \
+  "https://80016lrq.api.sanity.io/v2026-11-01/data/mutate/staging" \
+  -H "Authorization: Bearer $SANITY_WRITE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "mutations": [
+      { "delete": { "id": "r05-3b-series-acceptance" } },
+      { "delete": { "id": "r05-3b-challenge-a-released" } },
+      { "delete": { "id": "r05-3b-challenge-b-future" } },
+      { "delete": { "id": "r05-3b-challenge-c-unreviewed" } },
+      { "delete": { "id": "drafts.r05-3b-challenge-d-draft" } },
+      { "delete": { "id": "r05-3b-challenge-f-unapproved-block" } }
+    ]
+  }'
+```
+
+#### Step 3: Post-Cleanup Raw Perspective Readback Verification
+Do not treat an empty catalog (`GET /api/challenges -> []`) alone as sufficient proof of cleanup, because B, C, D, and F were never in the catalog. Confirm the total absence of all 6 synthetic IDs and slugs in Sanity staging using `perspective=raw`:
+```bash
+curl -s "https://80016lrq.api.sanity.io/v2026-11-01/data/query/staging?query=*[_id+in+[\"r05-3b-series-acceptance\",\"r05-3b-challenge-a-released\",\"r05-3b-challenge-b-future\",\"r05-3b-challenge-c-unreviewed\",\"drafts.r05-3b-challenge-d-draft\",\"r05-3b-challenge-f-unapproved-block\"]+||+slug.current+in+[\"r05-3b-synthetic-series\",\"r05-3b-challenge-a-released\",\"r05-3b-challenge-b-future\",\"r05-3b-challenge-c-unreviewed\",\"r05-3b-challenge-d-draft\",\"r05-3b-challenge-f-unapproved-block\"]]&perspective=raw" \
+  -H "Authorization: Bearer $SANITY_WRITE_TOKEN"
+unset SANITY_WRITE_TOKEN
+```
+*Expected:* `{ "result": [] }` (empty array), confirming that all 6 synthetic records (both published and draft) have been completely removed from the staging dataset.
