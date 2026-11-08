@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "bibleberry-staging",
+  "main": "src/gateway/worker.ts",
+  "compatibility_date": "2026-11-01",
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "vars": {
+    "SANITY_PROJECT_ID": "80016lrq",
+    // NOTE: Dataset "staging" is contingent on Aaron's explicit creation and authorization in Sanity Manage.
+    // It has NOT yet been verified to exist on account 80016lrq.
+    "SANITY_DATASET": "staging",
+    // Aligned to 2026-11-01 to match default gateway and reader query contract
+    "SANITY_API_VERSION": "2026-11-01",
+    // Configured for verified staging subdomain on aw-e44 plus local development origins
+    "ALLOWED_ORIGINS": "https://bibleberry-staging.aw-e44.workers.dev,http://localhost:3000,http://127.0.0.1:3000"
+  }
+}
