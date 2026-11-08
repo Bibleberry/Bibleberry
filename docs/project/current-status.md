@@ -1,7 +1,7 @@
 # Bibleberry — Current Project Status
 
 **Last full inventory reconciled:** November 5, 2026  
-**Latest scoped checkpoint:** November 6, 2026 ([A3/native-first handoff](handoffs/2026-11-06-a3-mobile-first.md))  
+**Latest scoped checkpoint:** November 7, 2026 (R05 Stage 3A merged; see current engineering reconciliation below)  
 **Status:** Living, cross-repository handoff and project-state summary  
 **Primary repository:** [ContraPhilosophy/Bibleberry](https://github.com/ContraPhilosophy/Bibleberry)  
 **Companion repository:** [ContraPhilosophy/BerryMark](https://github.com/ContraPhilosophy/BerryMark)  
@@ -11,13 +11,50 @@
 
 > **Read this at the start of a new AI session**, then verify anything relevant against the **current** GitHub branches, Issues, PRs and source code before making decisions or assignments. This is a maintained summary, **not an automatic reflection of GitHub**. It must not be mistaken for proof that tests, access controls, deployments or approvals have occurred. Last reconciled means the date of the documented review, not continuous monitoring.
 
+## November 7, 2026: engineering reconciliation after R05 Stage 3A merge
+
+**Checked GitHub source of truth:** Bibleberry `main` at [`379d84dc5bcf3895806f0316ff2f029fbd81d17c`](https://github.com/ContraPhilosophy/Bibleberry/commit/379d84dc5bcf3895806f0316ff2f029fbd81d17c); BerryMark `main` at [`d94d5fa01d7b423650527d00f802ee0356362c6f`](https://github.com/ContraPhilosophy/BerryMark/commit/d94d5fa01d7b423650527d00f802ee0356362c6f). **Zero open Bibleberry PRs** at the checkpoint. The older dated engineering inventory below is preserved as historical evidence; where it disagrees, this newer independently verified checkpoint supersedes its *current-state* claims.
+
+### Merged implementation and product records
+
+| Scope | Merged evidence | What was established |
+| --- | --- | --- |
+| Reader participation A3 | [PR #49](https://github.com/ContraPhilosophy/Bibleberry/pull/49) | Platform-neutral async-capable participation contract and isolated reload pilot; no native persistence or cross-device accounts proven |
+| Ordinary Challenge route A4.1 | [PR #50](https://github.com/ContraPhilosophy/Bibleberry/pull/50) | Controlled ordinary-reader CMS Challenge route using the shared player; not full live Today/Archive discovery |
+| Secure release gateway core | [PR #52](https://github.com/ContraPhilosophy/Bibleberry/pull/52) | Server-authoritative release authorization, filtered catalog/detail API, reader-safe projection, neutral unreleased/not-found responses |
+| Gateway detail reader | [PR #53](https://github.com/ContraPhilosophy/Bibleberry/pull/53) | Gateway-backed Challenge detail provider for the controlled route; server clock governs release |
+| Released catalog provider | [PR #54](https://github.com/ContraPhilosophy/Bibleberry/pull/54) | Validated, gateway-only lightweight discovery contract with catalog-to-detail canonical document identity checking; no complete Hub/Archive UI integration |
+| Cloudflare staging Worker runtime | [PR #55](https://github.com/ContraPhilosophy/Bibleberry/pull/55) | Worker entry point, static assets routing, separate `wrangler.staging.jsonc`, offline-capable gateway unit tests, genuine build-asset Wrangler dry-run in CI, and guarded deployment/acceptance runbook. **Merged November 7 (Eastern), not deployed** |
+| Archive / Library / Field Notebook decisions | [PR #51](https://github.com/ContraPhilosophy/Bibleberry/pull/51) | **Merged November 7**, replacing its earlier draft status. Product documentation only; no Notebook or navigation implementation authorized |
+
+**CI evidence:** For PR #55 head `630b2b51bf46ccdcf9591b69802c20c3c6d7b515`, [GitHub Actions run 42428560058](https://github.com/ContraPhilosophy/Bibleberry/actions/runs/42428560058) completed successfully with all four jobs green: Studio; reader build/lint/Playwright smoke; CMS adapters; and release gateway. The reader build job includes **`npm run check:staging` after building actual `dist/` assets**, not inside routine unit tests. This was verified on the PR head before merge, not independently rerun against the merge commit or deployed Cloudflare runtime.
+
+### What is implemented versus what is still unproven
+
+- **Implemented on `main`:** secure gateway logic, Worker runtime and staging configuration, controlled CMS-backed ordinary Challenge detail route, validated released-catalog data provider, and platform-neutral participation foundation.
+- **Not yet integrated as a full ordinary discovery experience:** Today/Archive navigation still needs separately scoped wiring to the released catalog. The catalog provider is not equivalent to a complete published-content Hub or Archive experience.
+- **Not yet externally demonstrated:** authorized private Sanity → deployed Access-protected staging Worker → time-gated ordinary reader → durable participation, end to end. Existing November 3 Sanity-to-CMS-Lab publication/edit proof remains valid but is a different, earlier test.
+- **External state not reverified here:** account billing/trial, actual dataset inventory and visibility, Viewer token, Cloudflare Access policy, `bibleberry-staging` service deployment. The existing Lab service/configuration must remain isolated.
+- **Do not assume** native iOS/Android persistence, signed-in synchronization, a final seven-format Challenge taxonomy, approved Notebook artwork, or complete production-ready Today/Archive integration.
+- **BerryMark:** controlled draft importer [PR #11](https://github.com/ContraPhilosophy/BerryMark/pull/11) is merged; actual authenticated draft write/readback/unchanged-no-op acceptance in a confirmed development dataset remains unverified.
+
+### Next decision gate: R05 Stage 3B, separate authorization required
+
+1. **Inspect live Sanity account facts** before choosing a source: current plan/trial/billing, dataset count and visibility, existing Studio/consumer dependencies, and whether to use a new private `staging` dataset or change the existing `production` dataset. Stage 3A configuration references `staging` provisionally; existence has not been confirmed. Earlier findings indicated `production` was publicly readable, but that observation is dated.
+2. **Inspect live Cloudflare configuration** and decide the exact staging hostname, Access self-hosted application and identity policies. CORS is not access control. Any service token must be explicitly allowed by a Service Auth policy if used for automated verification.
+3. **Only after Aaron approves account-level changes:** establish a private content source with appropriate ongoing billing, least-privilege Sanity Viewer token, protected separate staging Worker and synthetic/reference-only test records. Do not modify the existing `bibleberry-lab` service or commit credentials.
+4. **Run staged positive and negative checks:** anonymous Access denial; authenticated static assets and reader; released versus future/unreviewed/nonexistent catalog/detail responses; direct-Sanity source opacity; device-clock independence; no-store behavior; canonical participation identity; failure and rollback.
+5. **After staging proof:** separately scope live released-catalog discovery in the ordinary Today/Archive and the full manuscript → editorial → release → reader → participation vertical slice. Do not treat product backlog or product-record merges as coding approval.
+
+---
+
 ## November 7, 2026: Field Notebook product-document reconciliation (not an engineering build claim)
 
-The latest Bibleberry **Field Notebook product behaviors** were clarified in [draft PR #51](https://github.com/ContraPhilosophy/Bibleberry/pull/51). Consult the [canonical current/historical/open decision-status map](../product/gamification-and-achievements.md#decision-status-at-a-glance--november-7-2026) **on PR #51's branch until merged**, plus the [November 7 Archive/Hub working notes](../product/2026-11-07-archive-library-and-continue-working-notes.md).
+The latest Bibleberry **Field Notebook product behaviors** were clarified in [merged PR #51](https://github.com/ContraPhilosophy/Bibleberry/pull/51). Consult the [canonical current/historical/open decision-status map on main](../product/gamification-and-achievements.md#decision-status-at-a-glance--november-7-2026), plus the [November 7 Archive/Hub working notes](../product/2026-11-07-archive-library-and-continue-working-notes.md).
 
 Current direction: historical active Archive capacity is **zero to three months plus current month**; Library Challenges can earn awards without Archive activation; monthly thematic and full-month rewards are **substantive Scripture collectible cards**, not certificates; lifetime completion is **one evolving Notebook status**, not accumulated badges. The year/month Notebook and All Earned Cards grouping are decided. Notification persistence, New indicators, optional announcements, and ordinary finalized-month corrections are also decided. **Some Archive rotation/Hub Continue rules and Alexis's visual review remain open.**
 
-**Authority warning:** The [November 6 decision record](../product/2026-11-06-design-session-record.md), [November 6 A3 handoff](handoffs/2026-11-06-a3-mobile-first.md) and original [Issue #22](https://github.com/ContraPhilosophy/Bibleberry/issues/22) contain accurate *as-of-then* ideas, some superseded. Do not use their older achievements/field-notebook passages to override the November 7 current model. **PR #51 is a draft, unmerged documentation proposal as of this checkpoint**; do not treat its contents as implementation authorization. This addendum does not re-audit or change the engineering baseline dated below.
+**Authority warning:** The [November 6 decision record](../product/2026-11-06-design-session-record.md), [November 6 A3 handoff](handoffs/2026-11-06-a3-mobile-first.md) and original [Issue #22](https://github.com/ContraPhilosophy/Bibleberry/issues/22) contain accurate *as-of-then* ideas, some superseded. Do not use their older achievements/field-notebook passages to override the November 7 current model. **PR #51 has now merged as product documentation**; its merger does not authorize implementation. This addendum does not re-audit or change the engineering baseline dated below.
 
 ## November 6, 2026: end-of-day A3 and native-app-first checkpoint
 
