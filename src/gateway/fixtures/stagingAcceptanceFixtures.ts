@@ -5,12 +5,17 @@
  * 1. SYNTHETIC ONLY: Contains strictly deterministic, reference-only Scripture citations.
  *    No quoted Bible text, no live devotional teaching, no Alexis editorial notes,
  *    no reader user data, and no copyrighted content.
- * 2. ATTRIBUTION TRUTHFULNESS: Reviewed synthetic fixtures are attributed truthfully to
- *    Aaron Waid for technical synthetic approval. They do NOT claim Alexis approved synthetic content.
+ * 2. ATTRIBUTION TRUTHFULNESS & SIMULATED ELIGIBILITY: Reviewed synthetic fixtures are attributed
+ *    truthfully to Aaron Waid for technical synthetic approval. They represent simulated synthetic
+ *    eligibility attributes for release-engine testing only, and must NOT be asserted or interpreted
+ *    as actual theological or editorial approval by Aaron Waid or Alexis Waid.
  * 3. IDENTIFIER NAMESPACE: All document IDs and slugs use the distinct `r05-3b-` prefix
  *    to prevent collisions with production or future real editorial documents.
  * 4. ISOLATION: These fixtures target the private `staging` dataset in project `80016lrq`.
  *    They must never be applied to the public `production` dataset.
+ * 5. DURABLE EMBARGO: Future-scheduled acceptance fixtures use a distant future instant (year 2099)
+ *    so live acceptance tests remain durable over time and do not auto-release. Instant release
+ *    boundaries are tested deterministically offline with an injected clock.
  */
 
 export interface SyntheticScriptureReference {
@@ -212,13 +217,15 @@ export const FIXTURE_A_DOCUMENT: SyntheticChallengeDocument = {
     adaptationReviewed: true,
     reviewedBy: 'Aaron Waid (technical synthetic approval)',
     reviewedAt: '2026-11-08T12:00:00.000Z',
-    reviewNotes: 'INTERNAL ONLY: Synthetic staging review notes must never leak to reader projection.',
+    reviewNotes:
+      'SIMULATED SYNTHETIC ELIGIBILITY: Internal review marker for R05 Stage 3B testing only. Must never leak to reader projection. Not real editorial approval.',
   },
 }
 
 // ---------------------------------------------------------------------------
 // 4. Fixture B: Published, Reviewed, Future releaseAt, Otherwise Valid
 // Expected absent from catalog and neutral 404 in detail (zero leakage).
+// Uses distant future releaseAt (2099-01-01) for durable live embargo testing.
 // ---------------------------------------------------------------------------
 
 export const FIXTURE_B_SLUG = 'r05-3b-challenge-b-future'
@@ -232,7 +239,7 @@ export const FIXTURE_B_DOCUMENT: SyntheticChallengeDocument = {
   challengeType: 'teaching',
   series: { _type: 'reference', _ref: SYNTHETIC_SERIES_ID },
   sequence: 2,
-  releaseAt: '2026-11-15T05:00:00.000Z',
+  releaseAt: '2099-01-01T00:00:00.000Z',
   summary: 'Synthetic test summary for future-dated challenge B.',
   primaryScripture: makeSyntheticScripture('Romans 12:14'),
   screens: [
@@ -257,7 +264,8 @@ export const FIXTURE_B_DOCUMENT: SyntheticChallengeDocument = {
     adaptationReviewed: true,
     reviewedBy: 'Aaron Waid (technical synthetic approval)',
     reviewedAt: '2026-11-08T12:00:00.000Z',
-    reviewNotes: 'INTERNAL ONLY: Embargoed fixture review notes.',
+    reviewNotes:
+      'SIMULATED SYNTHETIC ELIGIBILITY: Future challenge review marker for R05 Stage 3B testing only. Not real editorial approval.',
   },
 }
 
@@ -344,7 +352,8 @@ export const FIXTURE_D_DOCUMENT: SyntheticChallengeDocument = {
     adaptationReviewed: true,
     reviewedBy: 'Aaron Waid (technical synthetic approval)',
     reviewedAt: '2026-11-08T12:00:00.000Z',
-    reviewNotes: 'INTERNAL ONLY: Draft fixture marker.',
+    reviewNotes:
+      'SIMULATED SYNTHETIC ELIGIBILITY: Draft fixture marker for R05 Stage 3B testing only. Not real editorial approval.',
   },
 }
 

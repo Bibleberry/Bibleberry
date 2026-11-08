@@ -110,7 +110,9 @@ test('fixture pack adheres strictly to synthetic-only, reference-only invariants
   }
 
   // Verify internal review note on Fixture A
-  assert.ok(FIXTURE_A_DOCUMENT.editorialReview.reviewNotes?.includes('INTERNAL ONLY'))
+  assert.ok(
+    FIXTURE_A_DOCUMENT.editorialReview.reviewNotes?.includes('SIMULATED SYNTHETIC ELIGIBILITY'),
+  )
 
   // Verify unapproved block on Fixture F
   const unapprovedBlock = FIXTURE_F_DOCUMENT.screens[0].blocks.find(
@@ -341,15 +343,14 @@ test('validateStagingTarget strictly pins project 80016lrq and dataset staging',
   assert.ok(projCheck.error?.includes('Prohibited project ID'))
 })
 
-test('checkCliArguments enforces security constraints and blocks token arguments', () => {
+test('checkCliArguments enforces security constraints, blocks tokens, and disarms teardown', () => {
   // Clean flags
-  assert.deepEqual(checkCliArguments([]), { apply: false, teardown: false, help: false })
-  assert.deepEqual(checkCliArguments(['--apply']), { apply: true, teardown: false, help: false })
-  assert.deepEqual(checkCliArguments(['--teardown', '--apply']), {
-    apply: true,
-    teardown: true,
-    help: false,
-  })
+  assert.deepEqual(checkCliArguments([]), { apply: false, help: false })
+  assert.deepEqual(checkCliArguments(['--apply']), { apply: true, help: false })
+
+  // Rejects --teardown with security violation
+  const teardownArg = checkCliArguments(['--teardown'])
+  assert.ok(teardownArg.securityViolation?.includes('Executable teardown is disabled'))
 
   // Blocks token passed via CLI argument
   const tokenArg = checkCliArguments(['--token=sk12345'])
@@ -400,8 +401,7 @@ test('executeStagingFixtures rejects --apply when targeted at production', async
   assert.ok(result.message.includes('Never write to production'))
 })
 
-test('executeStagingFixtures detects conflicting documents and prevents overwrites', async () => {
-  // Pre-flight returns an existing synthetic document
+test('executeStagingFixtures preflight detects conflicting published documents', async () => {
   const mockFetch: typeof fetch = async (url) => {
     const urlStr = url.toString()
     if (urlStr.includes('/data/query/staging')) {
@@ -426,17 +426,77 @@ test('executeStagingFixtures detects conflicting documents and prevents overwrit
   assert.ok(result.message.includes(FIXTURE_A_ID))
 })
 
-test('executeStagingFixtures setup issues createIfNotExists mutations when clean', async () => {
+test('executeStagingFixtures preflight detects conflicting draft documents', async () => {
+  const mockFetch: typeof fetch = async (url) => {
+    const urlStr = url.toString()
+    if (urlStr.includes('/data/query/staging')) {
+      return new Response(
+        JSON.stringify({
+          result: [{ _id: 'drafts.r05-3b-challenge-d-draft', _type: 'challenge' }],
+        }),
+        { status: 200 },
+      )
+    }
+    return new Response(JSON.stringify({}), { status: 200 })
+  }
+
+  const result = await executeStagingFixtures({
+    args: ['--apply'],
+    env: { SANITY_WRITE_TOKEN: 'write-token' },
+    fetchImpl: mockFetch,
+  })
+
+  assert.equal(result.success, false)
+  assert.ok(result.message.includes('ABORT: Staging dataset already contains'))
+  assert.ok(result.message.includes('drafts.r05-3b-challenge-d-draft'))
+})
+
+test('executeStagingFixtures preflight fails closed on malformed query response', async () => {
+  const mockFetch: typeof fetch = async () => {
+    return new Response(JSON.stringify({ result: 'not-an-array' }), { status: 200 })
+  }
+
+  const result = await executeStagingFixtures({
+    args: ['--apply'],
+    env: { SANITY_WRITE_TOKEN: 'write-token' },
+    fetchImpl: mockFetch,
+  })
+
+  assert.equal(result.success, false)
+  assert.ok(result.message.includes('missing a valid result array'))
+})
+
+test('executeStagingFixtures rejects --teardown with safety error', async () => {
+  const result = await executeStagingFixtures({
+    args: ['--teardown', '--apply'],
+    env: { SANITY_WRITE_TOKEN: 'write-token' },
+  })
+
+  assert.equal(result.success, false)
+  assert.ok(result.message.includes('Executable teardown is disabled'))
+})
+
+test('executeStagingFixtures setup issues createIfNotExists and validates readback', async () => {
   let mutationsSent: Array<{ createIfNotExists?: { _id: string } }> = []
+  let queryCount = 0
 
   const mockFetch: typeof fetch = async (url, init) => {
     const urlStr = url.toString()
     if (urlStr.includes('/data/query/staging')) {
-      // Pre-flight: no existing documents
-      return new Response(JSON.stringify({ result: [] }), { status: 200 })
+      queryCount += 1
+      if (queryCount === 1) {
+        // Pre-flight: no existing documents
+        return new Response(JSON.stringify({ result: [] }), { status: 200 })
+      }
+      // Post-mutation readback: return all synthetic documents
+      return new Response(JSON.stringify({ result: ALL_SYNTHETIC_STAGING_DOCUMENTS }), {
+        status: 200,
+      })
     }
     if (urlStr.includes('/data/mutate/staging')) {
-      const body = JSON.parse(String(init?.body)) as { mutations: Array<{ createIfNotExists?: { _id: string } }> }
+      const body = JSON.parse(String(init?.body)) as {
+        mutations: Array<{ createIfNotExists?: { _id: string } }>
+      }
       mutationsSent = body.mutations
       return new Response(JSON.stringify({ results: [] }), { status: 200 })
     }
@@ -453,49 +513,43 @@ test('executeStagingFixtures setup issues createIfNotExists mutations when clean
   assert.equal(result.actionCount, 6)
   assert.equal(mutationsSent.length, 6)
 
-  // Verify all mutations use createIfNotExists (strictly create-only, zero updates/overwrites)
+  // Verify all mutations use createIfNotExists (strictly create-only)
   for (const m of mutationsSent) {
     assert.ok(m.createIfNotExists)
     assert.ok(m.createIfNotExists._id)
   }
 })
 
-test('executeStagingFixtures teardown deletes strictly synthetic namespace IDs', async () => {
-  let deleteMutations: Array<{ delete?: { id: string } }> = []
+test('executeStagingFixtures fails closed when post-mutation readback fails', async () => {
+  let queryCount = 0
 
-  const mockFetch: typeof fetch = async (url, init) => {
+  const mockFetch: typeof fetch = async (url) => {
     const urlStr = url.toString()
     if (urlStr.includes('/data/query/staging')) {
+      queryCount += 1
+      if (queryCount === 1) {
+        return new Response(JSON.stringify({ result: [] }), { status: 200 })
+      }
+      // Readback returns incomplete list (missing documents)
       return new Response(
-        JSON.stringify({
-          result: [
-            { _id: FIXTURE_A_ID, _type: 'challenge' },
-            { _id: FIXTURE_B_ID, _type: 'challenge' },
-          ],
-        }),
+        JSON.stringify({ result: [ALL_SYNTHETIC_STAGING_DOCUMENTS[0]] }),
         { status: 200 },
       )
     }
     if (urlStr.includes('/data/mutate/staging')) {
-      const body = JSON.parse(String(init?.body)) as { mutations: Array<{ delete?: { id: string } }> }
-      deleteMutations = body.mutations
       return new Response(JSON.stringify({ results: [] }), { status: 200 })
     }
     return new Response(JSON.stringify({}), { status: 200 })
   }
 
   const result = await executeStagingFixtures({
-    args: ['--teardown', '--apply'],
+    args: ['--apply'],
     env: { SANITY_WRITE_TOKEN: 'write-token' },
     fetchImpl: mockFetch,
   })
 
-  assert.equal(result.success, true)
-  assert.equal(result.actionCount, 2)
-  assert.deepEqual(
-    deleteMutations.map(m => m.delete?.id),
-    [FIXTURE_A_ID, FIXTURE_B_ID],
-  )
+  assert.equal(result.success, false)
+  assert.ok(result.message.includes('Post-mutation readback verification FAILED'))
 })
 
 // ---------------------------------------------------------------------------
@@ -509,16 +563,16 @@ test('runStagingVerification executes authenticated checks and validates A throu
     const headers = new Headers(init?.headers)
     const isAccessAuthenticated = headers.has('CF-Access-Client-Id')
 
-    // 1. Direct Sanity unauthenticated check
+    // 1. Direct Sanity unauthenticated check (returns 401: private dataset proven)
     if (urlStr.includes('api.sanity.io')) {
-      return new Response(JSON.stringify({ result: [] }), { status: 200 })
+      return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 })
     }
 
     // 2. Anonymous perimeter check on Worker root & API
     if (!isAccessAuthenticated) {
       return new Response(null, {
         status: 302,
-        headers: { Location: 'https://login.cloudflareaccess.com' },
+        headers: { Location: 'https://test-team.cloudflareaccess.com/cdn-cgi/access/login' },
       })
     }
 
@@ -565,6 +619,162 @@ test('runStagingVerification executes authenticated checks and validates A throu
   })
 
   assert.equal(report.passed, true)
-  assert.equal(report.results.filter(r => !r.passed).length, 0)
-  assert.ok(report.summary.includes('Passed'))
+  assert.equal(report.counts.failed, 0)
+  assert.equal(report.counts.skipped, 0)
+  assert.ok(report.summary.includes('SUCCEEDED'))
+})
+
+test('runStagingVerification marks authenticated checks SKIP and fails closed without credentials', async () => {
+  const mockFetch: typeof fetch = async (url) => {
+    const urlStr = url.toString()
+    if (urlStr.includes('api.sanity.io')) {
+      return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 })
+    }
+    return new Response(null, {
+      status: 302,
+      headers: { Location: 'https://test-team.cloudflareaccess.com/cdn-cgi/access/login' },
+    })
+  }
+
+  const report = await runStagingVerification({
+    stagingUrl: 'https://bibleberry-staging.aw-e44.workers.dev',
+    fetchImpl: mockFetch,
+  })
+
+  assert.equal(report.passed, false, 'Default mode must fail closed without credentials')
+  assert.ok(report.counts.skipped > 0)
+  assert.equal(report.counts.failed, 0)
+  const catalogCheck = report.results.find(r => r.id === 'gateway-catalog-outcomes')
+  assert.equal(catalogCheck?.status, 'SKIP')
+})
+
+test('runStagingVerification succeeds in --perimeter-only mode without service credentials', async () => {
+  const mockFetch: typeof fetch = async (url) => {
+    const urlStr = url.toString()
+    if (urlStr.includes('api.sanity.io')) {
+      return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 })
+    }
+    return new Response(null, {
+      status: 302,
+      headers: { Location: 'https://test-team.cloudflareaccess.com/cdn-cgi/access/login' },
+    })
+  }
+
+  const report = await runStagingVerification({
+    stagingUrl: 'https://bibleberry-staging.aw-e44.workers.dev',
+    perimeterOnly: true,
+    fetchImpl: mockFetch,
+  })
+
+  assert.equal(report.passed, true, 'Perimeter-only mode must pass when perimeter is active')
+  assert.ok(report.counts.passed > 0)
+  assert.equal(report.counts.failed, 0)
+  assert.ok(report.counts.skipped > 0)
+  assert.ok(report.summary.includes('SUCCEEDED'))
+})
+
+test('runStagingVerification fails when 302 Location does not point to Cloudflare Access', async () => {
+  const mockFetch: typeof fetch = async (url) => {
+    const urlStr = url.toString()
+    if (urlStr.includes('api.sanity.io')) {
+      return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 })
+    }
+    return new Response(null, {
+      status: 302,
+      headers: { Location: 'https://unexpected-target.com/open' },
+    })
+  }
+
+  const report = await runStagingVerification({
+    stagingUrl: 'https://bibleberry-staging.aw-e44.workers.dev',
+    perimeterOnly: true,
+    fetchImpl: mockFetch,
+  })
+
+  assert.equal(report.passed, false)
+  assert.ok(report.counts.failed > 0)
+  const rootCheck = report.results.find(r => r.id === 'perimeter-anonymous-root')
+  assert.equal(rootCheck?.status, 'FAIL')
+  assert.ok(rootCheck?.message.includes('unexpected location'))
+})
+
+test('runStagingVerification handles positive control logic for direct Sanity query', async () => {
+  // Case 1: 200 with 0 records without positive control -> INCONCLUSIVE
+  const reportInconclusive = await runStagingVerification({
+    stagingUrl: 'https://bibleberry-staging.aw-e44.workers.dev',
+    perimeterOnly: true,
+    fixtureAPresentInStaging: false,
+    fetchImpl: async (url) => {
+      const urlStr = url.toString()
+      if (urlStr.includes('api.sanity.io')) {
+        return new Response(JSON.stringify({ result: [] }), { status: 200 })
+      }
+      return new Response(null, {
+        status: 302,
+        headers: { Location: 'https://test-team.cloudflareaccess.com/cdn-cgi/access/login' },
+      })
+    },
+  })
+  const sanityCheckInc = reportInconclusive.results.find(r => r.id === 'sanity-direct-denial')
+  assert.equal(sanityCheckInc?.status, 'INCONCLUSIVE')
+  assert.equal(reportInconclusive.passed, false)
+
+  // Case 2: 200 with 0 records WITH positive control -> PASS
+  const reportPass = await runStagingVerification({
+    stagingUrl: 'https://bibleberry-staging.aw-e44.workers.dev',
+    perimeterOnly: true,
+    fixtureAPresentInStaging: true,
+    fetchImpl: async (url) => {
+      const urlStr = url.toString()
+      if (urlStr.includes('api.sanity.io')) {
+        return new Response(JSON.stringify({ result: [] }), { status: 200 })
+      }
+      return new Response(null, {
+        status: 302,
+        headers: { Location: 'https://test-team.cloudflareaccess.com/cdn-cgi/access/login' },
+      })
+    },
+  })
+  const sanityCheckPass = reportPass.results.find(r => r.id === 'sanity-direct-denial')
+  assert.equal(sanityCheckPass?.status, 'PASS')
+  assert.equal(reportPass.passed, true)
+
+  // Case 3: 200 with records exposed -> FAIL
+  const reportFail = await runStagingVerification({
+    stagingUrl: 'https://bibleberry-staging.aw-e44.workers.dev',
+    perimeterOnly: true,
+    fetchImpl: async (url) => {
+      const urlStr = url.toString()
+      if (urlStr.includes('api.sanity.io')) {
+        return new Response(
+          JSON.stringify({ result: [{ _id: 'leaked-record', _type: 'challenge' }] }),
+          { status: 200 },
+        )
+      }
+      return new Response(null, {
+        status: 302,
+        headers: { Location: 'https://test-team.cloudflareaccess.com/cdn-cgi/access/login' },
+      })
+    },
+  })
+  const sanityCheckFail = reportFail.results.find(r => r.id === 'sanity-direct-denial')
+  assert.equal(sanityCheckFail?.status, 'FAIL')
+  assert.equal(reportFail.passed, false)
+})
+
+test('runStagingVerification fails closed on network errors', async () => {
+  const report = await runStagingVerification({
+    stagingUrl: 'https://bibleberry-staging.aw-e44.workers.dev',
+    perimeterOnly: true,
+    fetchImpl: async () => {
+      throw new Error('Connection refused')
+    },
+  })
+
+  assert.equal(report.passed, false)
+  for (const res of report.results.filter(r => r.status !== 'SKIP')) {
+    assert.equal(res.status, 'FAIL')
+    assert.equal(res.passed, false)
+    assert.ok(res.message.includes('Network error'))
+  }
 })

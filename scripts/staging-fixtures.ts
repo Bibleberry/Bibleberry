@@ -8,15 +8,21 @@
  *    Immediately aborts if targeted at `production` or any other project/dataset.
  * 3. EXPLICIT SEPARATE ADMINISTRATIVE WRITE CREDENTIAL: Requires `SANITY_WRITE_TOKEN`
  *    supplied only via local environment variable. Refuses command-line argument tokens.
- * 4. CONFLICT DETECTION & ZERO OVERWRITES: In create mode, checks for existing documents
- *    and aborts if any ID collisions exist. Strictly uses `createIfNotExists`.
- *    Never mutates or updates existing records.
- * 5. CREDENTIAL ISOLATION: Never prints, logs, or transmits tokens in output or logs.
+ * 4. COMPREHENSIVE PREFLIGHT (perspective=raw): Queries both published and draft documents
+ *    as well as slug conflicts. Fails closed if any conflict exists or if the query
+ *    response is malformed.
+ * 5. POST-MUTATION READBACK VERIFICATION (perspective=raw): Queries the raw documents
+ *    after mutation to verify exact creation and critical field invariants.
+ * 6. CREATE-ONLY TOOL: Never updates, mutates, or deletes existing records. Destructive
+ *    teardown is disarmed in code and governed by documented operator procedure.
+ * 7. CREDENTIAL ISOLATION: Never prints, logs, or transmits tokens in output or logs.
  */
 
 import {
   ALL_SYNTHETIC_STAGING_DOCUMENTS,
   ALL_SYNTHETIC_DOCUMENT_IDS,
+  SYNTHETIC_SERIES_ID,
+  type SyntheticChallengeDocument,
 } from '../src/gateway/fixtures/stagingAcceptanceFixtures.ts'
 
 export const EXPECTED_PROJECT_ID = '80016lrq'
@@ -54,12 +60,10 @@ export function validateStagingTarget(env: {
 
 export function checkCliArguments(args: string[]): {
   apply: boolean
-  teardown: boolean
   help: boolean
   securityViolation?: string
 } {
   let apply = false
-  let teardown = false
   let help = false
 
   for (const arg of args) {
@@ -68,7 +72,12 @@ export function checkCliArguments(args: string[]): {
     } else if (arg === '--apply') {
       apply = true
     } else if (arg === '--teardown') {
-      teardown = true
+      return {
+        apply: false,
+        help: false,
+        securityViolation:
+          'Safety error: Executable teardown is disabled in this tool to prevent accidental deletion. Clean up synthetic fixtures only through documented, separately authorized operator procedures (see docs/architecture/r05-stage3-infrastructure-runbook.md §10.6).',
+      }
     } else if (
       arg.startsWith('--token') ||
       arg.startsWith('-t=') ||
@@ -79,7 +88,6 @@ export function checkCliArguments(args: string[]): {
     ) {
       return {
         apply: false,
-        teardown: false,
         help: false,
         securityViolation:
           'Security error: Do not supply tokens via CLI arguments (avoids process table and history leaks). Set SANITY_WRITE_TOKEN in your local protected shell environment.',
@@ -87,7 +95,7 @@ export function checkCliArguments(args: string[]): {
     }
   }
 
-  return { apply, teardown, help }
+  return { apply, help }
 }
 
 export interface StagingExecutionOptions {
@@ -99,10 +107,83 @@ export interface StagingExecutionOptions {
 export interface StagingExecutionResult {
   success: boolean
   dryRun: boolean
-  mode: 'setup' | 'teardown'
+  mode: 'setup'
   actionCount: number
   message: string
   details?: Record<string, unknown>
+}
+
+/**
+ * Validates critical fields of readback synthetic documents.
+ */
+function verifyReadbackDocuments(
+  readbackDocs: Array<Record<string, unknown>>,
+): { verified: boolean; errors: string[] } {
+  const errors: string[] = []
+  const docMap = new Map<string, Record<string, unknown>>()
+
+  for (const d of readbackDocs) {
+    if (typeof d._id === 'string') {
+      docMap.set(d._id, d)
+    }
+  }
+
+  if (docMap.size !== ALL_SYNTHETIC_STAGING_DOCUMENTS.length) {
+    errors.push(
+      `Expected ${ALL_SYNTHETIC_STAGING_DOCUMENTS.length} documents in raw readback, found ${docMap.size}.`,
+    )
+  }
+
+  for (const expected of ALL_SYNTHETIC_STAGING_DOCUMENTS) {
+    const actual = docMap.get(expected._id)
+    if (!actual) {
+      errors.push(`Document ${expected._id} is missing from raw readback verification.`)
+      continue
+    }
+
+    if (actual._type !== expected._type) {
+      errors.push(`Document ${expected._id} type mismatch: expected ${expected._type}, got ${actual._type}.`)
+    }
+
+    const actualSlug = typeof actual.slug === 'string' ? actual.slug : (actual.slug as { current?: string } | undefined)?.current
+    if (actualSlug !== expected.slug.current) {
+      errors.push(`Document ${expected._id} slug mismatch: expected ${expected.slug.current}, got ${actualSlug}.`)
+    }
+
+    if (expected._type === 'challenge') {
+      const expChal = expected as SyntheticChallengeDocument
+      if (actual.releaseAt !== expChal.releaseAt) {
+        errors.push(`Document ${expected._id} releaseAt mismatch: expected ${expChal.releaseAt}, got ${actual.releaseAt}.`)
+      }
+
+      if (actual.sequence !== expChal.sequence) {
+        errors.push(`Document ${expected._id} sequence mismatch: expected ${expChal.sequence}, got ${actual.sequence}.`)
+      }
+
+      const seriesRef = (actual.series as { _ref?: string } | undefined)?._ref
+      if (seriesRef !== SYNTHETIC_SERIES_ID) {
+        errors.push(`Document ${expected._id} series ref mismatch: expected ${SYNTHETIC_SERIES_ID}, got ${seriesRef}.`)
+      }
+
+      const primScrip = actual.primaryScripture as Record<string, unknown> | undefined
+      if (primScrip?.textStatus !== 'referenceOnly' || primScrip?.practiceStatus !== 'notConfigured' || primScrip?.passage !== undefined) {
+        errors.push(`Document ${expected._id} primaryScripture violates reference-only invariants in readback.`)
+      }
+
+      const review = actual.editorialReview as Record<string, unknown> | undefined
+      if (review?.adaptationReviewed !== expChal.editorialReview.adaptationReviewed) {
+        errors.push(`Document ${expected._id} adaptationReviewed mismatch in readback.`)
+      }
+
+      if (expChal.editorialReview.reviewNotes) {
+        if (!review?.reviewNotes || typeof review.reviewNotes !== 'string' || !review.reviewNotes.includes('SIMULATED SYNTHETIC ELIGIBILITY')) {
+          errors.push(`Document ${expected._id} missing expected synthetic fixture review note in readback.`)
+        }
+      }
+    }
+  }
+
+  return { verified: errors.length === 0, errors }
 }
 
 export async function executeStagingFixtures(
@@ -118,7 +199,7 @@ export async function executeStagingFixtures(
     return {
       success: false,
       dryRun: !cli.apply,
-      mode: cli.teardown ? 'teardown' : 'setup',
+      mode: 'setup',
       actionCount: 0,
       message: cli.securityViolation,
     }
@@ -134,9 +215,8 @@ export async function executeStagingFixtures(
         'Bibleberry Staging Fixture Setup Tool (R05 Stage 3B.3A)',
         '',
         'Usage:',
-        '  node scripts/staging-fixtures.ts                # Dry-run inspection (default)',
-        '  node scripts/staging-fixtures.ts --apply        # Authoritative setup (requires SANITY_WRITE_TOKEN)',
-        '  node scripts/staging-fixtures.ts --teardown --apply # Clean up synthetic fixtures',
+        '  node scripts/staging-fixtures.ts         # Dry-run inspection (default)',
+        '  node scripts/staging-fixtures.ts --apply # Authoritative setup (requires SANITY_WRITE_TOKEN in env)',
         '',
         'Environment variables:',
         '  SANITY_WRITE_TOKEN  Administrative Sanity write token (required only when --apply is passed)',
@@ -152,13 +232,11 @@ export async function executeStagingFixtures(
     return {
       success: false,
       dryRun: !cli.apply,
-      mode: cli.teardown ? 'teardown' : 'setup',
+      mode: 'setup',
       actionCount: 0,
       message: targetCheck.error ?? 'Target validation failed.',
     }
   }
-
-  const mode = cli.teardown ? 'teardown' : 'setup'
 
   // 3. Dry-Run Mode (Default when --apply is omitted)
   if (!cli.apply) {
@@ -168,12 +246,12 @@ export async function executeStagingFixtures(
       '========================================================================',
       `Target Project:  ${EXPECTED_PROJECT_ID}`,
       `Target Dataset:  ${EXPECTED_DATASET} (Private)`,
-      `Mode:            ${mode === 'teardown' ? 'TEARDOWN (Synthetic document removal)' : 'SETUP (Create-only installation)'}`,
+      'Mode:            SETUP (Create-only installation)',
       '',
       `Synthetic Document Manifest (${ALL_SYNTHETIC_STAGING_DOCUMENTS.length} records):`,
       ...ALL_SYNTHETIC_STAGING_DOCUMENTS.map((doc, idx) => {
         const isChallenge = doc._type === 'challenge'
-        const slug = isChallenge ? (doc as { slug: { current: string } }).slug.current : (doc as { slug: { current: string } }).slug.current
+        const slug = (doc as { slug: { current: string } }).slug.current
         const releaseAt = isChallenge ? (doc as { releaseAt: string }).releaseAt : 'N/A'
         return `  ${idx + 1}. [${doc._type}] ${doc._id} (slug: ${slug}, releaseAt: ${releaseAt})`
       }),
@@ -181,15 +259,16 @@ export async function executeStagingFixtures(
       'SAFETY CHECKPOINT:',
       '  • Zero network mutations were issued.',
       '  • Production dataset is protected by strict hard-coded rejection.',
-      '  • When authorized by Aaron after PR review, run with:',
-      '      SANITY_WRITE_TOKEN="<token>" node --experimental-strip-types scripts/staging-fixtures.ts --apply',
+      '  • When authorized by Aaron after PR review, supply SANITY_WRITE_TOKEN securely via env:',
+      '      read -s -p "Enter SANITY_WRITE_TOKEN: " SANITY_WRITE_TOKEN; echo; export SANITY_WRITE_TOKEN',
+      '      node --experimental-strip-types scripts/staging-fixtures.ts --apply',
       '========================================================================',
     ]
 
     return {
       success: true,
       dryRun: true,
-      mode,
+      mode: 'setup',
       actionCount: ALL_SYNTHETIC_STAGING_DOCUMENTS.length,
       message: lines.join('\n'),
       details: {
@@ -206,7 +285,7 @@ export async function executeStagingFixtures(
     return {
       success: false,
       dryRun: false,
-      mode,
+      mode: 'setup',
       actionCount: 0,
       message:
         'Error: --apply requested, but SANITY_WRITE_TOKEN is not set in the local environment.\n' +
@@ -214,15 +293,25 @@ export async function executeStagingFixtures(
     }
   }
 
-  // Pre-flight check: query Sanity staging dataset for existing documents
+  // Pre-flight check: query Sanity staging dataset for existing documents using perspective=raw
+  // Checks both IDs and draft IDs as well as slug conflicts
   const queryUrl = new URL(
     `https://${EXPECTED_PROJECT_ID}.api.sanity.io/v${SANITY_API_VERSION}/data/query/${EXPECTED_DATASET}`,
   )
   queryUrl.searchParams.set(
     'query',
-    `*[_id in $ids]{ _id, _type }`,
+    `*[_id in $ids || _id in $draftIds || slug.current in $slugs]{ _id, "slug": slug.current, _type }`,
   )
+  queryUrl.searchParams.set('perspective', 'raw')
+
+  const draftIds = ALL_SYNTHETIC_STAGING_DOCUMENTS.map(d =>
+    d._id.startsWith('drafts.') ? d._id : `drafts.${d._id}`,
+  )
+  const slugs = ALL_SYNTHETIC_STAGING_DOCUMENTS.map(d => d.slug.current)
+
   queryUrl.searchParams.set('$ids', JSON.stringify(ALL_SYNTHETIC_DOCUMENT_IDS))
+  queryUrl.searchParams.set('$draftIds', JSON.stringify(draftIds))
+  queryUrl.searchParams.set('$slugs', JSON.stringify(slugs))
 
   let queryResponse: Response
   try {
@@ -237,7 +326,7 @@ export async function executeStagingFixtures(
     return {
       success: false,
       dryRun: false,
-      mode,
+      mode: 'setup',
       actionCount: 0,
       message: `Failed to connect to Sanity staging dataset: ${err instanceof Error ? err.message : String(err)}`,
     }
@@ -247,98 +336,82 @@ export async function executeStagingFixtures(
     return {
       success: false,
       dryRun: false,
-      mode,
+      mode: 'setup',
       actionCount: 0,
       message: `Sanity pre-flight query failed with HTTP ${queryResponse.status} ${queryResponse.statusText}. Verify SANITY_WRITE_TOKEN has access to ${EXPECTED_PROJECT_ID}/${EXPECTED_DATASET}.`,
     }
   }
 
-  const queryPayload = (await queryResponse.json()) as {
-    result?: Array<{ _id: string; _type: string }>
-  }
-  const existingDocs = queryPayload.result ?? []
-  const existingIds = existingDocs.map(d => d._id)
-
-  const mutateUrl = `https://${EXPECTED_PROJECT_ID}.api.sanity.io/v${SANITY_API_VERSION}/data/mutate/${EXPECTED_DATASET}`
-
-  // 5. Handle Teardown Mode
-  if (mode === 'teardown') {
-    if (existingIds.length === 0) {
-      return {
-        success: true,
-        dryRun: false,
-        mode: 'teardown',
-        actionCount: 0,
-        message: 'No synthetic documents found in staging dataset to tear down.',
-      }
-    }
-
-    // Safety guard: only delete IDs that strictly match synthetic namespace
-    const safeToDelete = existingIds.filter(
-      id => id.startsWith('r05-3b-') || id.startsWith('drafts.r05-3b-'),
-    )
-
-    const deleteMutations = safeToDelete.map(id => ({
-      delete: { id },
-    }))
-
-    const mutateResponse = await fetchImpl(mutateUrl, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${writeToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ mutations: deleteMutations }),
-    })
-
-    if (!mutateResponse.ok) {
-      return {
-        success: false,
-        dryRun: false,
-        mode: 'teardown',
-        actionCount: 0,
-        message: `Sanity teardown mutation failed with HTTP ${mutateResponse.status} ${mutateResponse.statusText}.`,
-      }
-    }
-
+  let queryPayload: unknown
+  try {
+    queryPayload = await queryResponse.json()
+  } catch {
     return {
-      success: true,
+      success: false,
       dryRun: false,
-      mode: 'teardown',
-      actionCount: safeToDelete.length,
-      message: `Successfully deleted ${safeToDelete.length} synthetic acceptance documents from staging dataset.`,
-      details: { deletedIds: safeToDelete },
+      mode: 'setup',
+      actionCount: 0,
+      message: 'Sanity pre-flight query returned a malformed non-JSON payload. Aborting to prevent silent corruption.',
     }
   }
 
-  // 6. Handle Setup Mode
-  // If any documents already exist, abort to prevent silent overwrites
-  if (existingIds.length > 0) {
+  if (
+    !queryPayload ||
+    typeof queryPayload !== 'object' ||
+    !Array.isArray((queryPayload as Record<string, unknown>).result)
+  ) {
+    return {
+      success: false,
+      dryRun: false,
+      mode: 'setup',
+      actionCount: 0,
+      message: 'Sanity pre-flight query response is missing a valid result array. Aborting to prevent silent corruption.',
+    }
+  }
+
+  const existingDocs = (queryPayload as { result: Array<{ _id?: string; slug?: string; _type?: string }> }).result
+
+  // If any matching documents exist (published or draft or slug collision), abort
+  if (existingDocs.length > 0) {
     return {
       success: false,
       dryRun: false,
       mode: 'setup',
       actionCount: 0,
       message:
-        `ABORT: Staging dataset already contains ${existingIds.length} synthetic document ID(s):\n` +
-        existingIds.map(id => `  • ${id}`).join('\n') +
-        '\nTo prevent conflicting or stale state, refusing to overwrite. Run with `--teardown --apply` first to remove prior fixtures if authorized.',
+        `ABORT: Staging dataset already contains ${existingDocs.length} conflicting document(s) matching synthetic IDs or slugs (detected with perspective=raw):\n` +
+        existingDocs
+          .map(d => `  • ID: ${d._id ?? 'unknown'}, Slug: ${d.slug ?? 'unknown'}, Type: ${d._type ?? 'unknown'}`)
+          .join('\n') +
+        '\nTo prevent conflicting or stale state, refusing to overwrite. Follow the authorized operator cleanup procedure before creating new fixtures.',
     }
   }
 
-  // Build createIfNotExists mutations for each synthetic document
+  // 5. Send createIfNotExists mutations
+  const mutateUrl = `https://${EXPECTED_PROJECT_ID}.api.sanity.io/v${SANITY_API_VERSION}/data/mutate/${EXPECTED_DATASET}`
   const createMutations = ALL_SYNTHETIC_STAGING_DOCUMENTS.map(doc => ({
     createIfNotExists: doc,
   }))
 
-  const mutateResponse = await fetchImpl(mutateUrl, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${writeToken}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ mutations: createMutations }),
-  })
+  let mutateResponse: Response
+  try {
+    mutateResponse = await fetchImpl(mutateUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${writeToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ mutations: createMutations }),
+    })
+  } catch (err) {
+    return {
+      success: false,
+      dryRun: false,
+      mode: 'setup',
+      actionCount: 0,
+      message: `Failed to post mutation to Sanity staging dataset: ${err instanceof Error ? err.message : String(err)}`,
+    }
+  }
 
   if (!mutateResponse.ok) {
     return {
@@ -350,13 +423,106 @@ export async function executeStagingFixtures(
     }
   }
 
+  // 6. Post-Mutation Readback Verification with perspective=raw
+  const readbackUrl = new URL(
+    `https://${EXPECTED_PROJECT_ID}.api.sanity.io/v${SANITY_API_VERSION}/data/query/${EXPECTED_DATASET}`,
+  )
+  readbackUrl.searchParams.set(
+    'query',
+    `*[_id in $ids]{
+      _id,
+      _type,
+      title,
+      "slug": slug.current,
+      sequence,
+      releaseAt,
+      editorialReview,
+      screens,
+      series,
+      primaryScripture
+    }`,
+  )
+  readbackUrl.searchParams.set('perspective', 'raw')
+  readbackUrl.searchParams.set('$ids', JSON.stringify(ALL_SYNTHETIC_DOCUMENT_IDS))
+
+  let readbackResponse: Response
+  try {
+    readbackResponse = await fetchImpl(readbackUrl.toString(), {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${writeToken}`,
+        Accept: 'application/json',
+      },
+    })
+  } catch (err) {
+    return {
+      success: false,
+      dryRun: false,
+      mode: 'setup',
+      actionCount: 0,
+      message: `Post-mutation readback query failed with network error: ${err instanceof Error ? err.message : String(err)}`,
+    }
+  }
+
+  if (!readbackResponse.ok) {
+    return {
+      success: false,
+      dryRun: false,
+      mode: 'setup',
+      actionCount: 0,
+      message: `Post-mutation readback query returned HTTP ${readbackResponse.status} ${readbackResponse.statusText}. Verification incomplete.`,
+    }
+  }
+
+  let readbackPayload: unknown
+  try {
+    readbackPayload = await readbackResponse.json()
+  } catch {
+    return {
+      success: false,
+      dryRun: false,
+      mode: 'setup',
+      actionCount: 0,
+      message: 'Post-mutation readback returned malformed non-JSON payload. Verification failed.',
+    }
+  }
+
+  const readbackResult = (readbackPayload as { result?: Array<Record<string, unknown>> })?.result
+  if (!Array.isArray(readbackResult)) {
+    return {
+      success: false,
+      dryRun: false,
+      mode: 'setup',
+      actionCount: 0,
+      message: 'Post-mutation readback response is missing result array. Verification failed.',
+    }
+  }
+
+  const verification = verifyReadbackDocuments(readbackResult)
+  if (!verification.verified) {
+    return {
+      success: false,
+      dryRun: false,
+      mode: 'setup',
+      actionCount: 0,
+      message:
+        `Post-mutation readback verification FAILED (${verification.errors.length} errors):\n` +
+        verification.errors.map(e => `  • ${e}`).join('\n') +
+        '\nDo not treat mutations as successful.',
+      details: { errors: verification.errors },
+    }
+  }
+
   return {
     success: true,
     dryRun: false,
     mode: 'setup',
     actionCount: createMutations.length,
-    message: `Successfully created ${createMutations.length} synthetic acceptance documents in staging dataset (${EXPECTED_DATASET}).`,
-    details: { createdIds: ALL_SYNTHETIC_DOCUMENT_IDS },
+    message: `Successfully created and verified ${createMutations.length} synthetic acceptance documents in staging dataset (${EXPECTED_DATASET}) with perspective=raw readback.`,
+    details: {
+      verifiedIds: ALL_SYNTHETIC_DOCUMENT_IDS,
+      readbackCount: readbackResult.length,
+    },
   }
 }
 
@@ -376,7 +542,6 @@ async function runCli(): Promise<void> {
   process.exit(result.success ? 0 : 1)
 }
 
-// Run CLI when executed directly
 const isMainModule =
   process.argv[1] &&
   (process.argv[1].endsWith('staging-fixtures.ts') || process.argv[1].endsWith('staging-fixtures.js'))
