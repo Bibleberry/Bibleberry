@@ -8,7 +8,7 @@
 
 ## Purpose and vision
 
-Bibleberry is a free, mobile-first Christian formation app built around Alexis Waid's biblical teaching. Each daily teaching experience is a **Challenge**, whatever its format. The structured multi-screen reader, Archive, Scripture library and the monthly/weekly editorial rhythm are the product's foundations.
+Bibleberry is a free, mobile-first Christian formation app built around Alexis Waid's biblical teaching. Each daily teaching experience is a **Challenge**, whatever its format. The structured multi-screen reader, **Month Screen**, **Shelf**, **Library**, Scripture library and monthly/weekly editorial rhythm belong to the broader product model.
 
 The participation system should make reading and learning satisfying, recognize accomplishments, and help readers see a lasting personal history. It is **not** a game economy, a spiritual maturity score, or an incentive to consume more content at the expense of attention to the teaching.
 
@@ -19,7 +19,7 @@ The participation system should make reading and learning satisfying, recognize 
 ### Decision authority and labels
 
 - **Adopted principle:** Aaron accepted the research-informed product direction on November 6, 2026.
-- **Decided product direction:** Aaron explicitly chose the stated approach; details may still require UX definition and Alexis's ministry-facing approval.
+- **Decided product direction:** Aaron explicitly chose the stated approach, including November 8 revisions. Aaron can approve product/creative decisions; maintain Alexis's editorial and theological authority over teaching without inventing an automatic separate layout/card approval gate.
 - **Exploratory/open:** Discussed, but **not** an engineering requirement or a finalized design.
 - **Historical/superseded:** Preserved for context and rationale, not instructions to implement.
 
@@ -52,9 +52,9 @@ Historical discussions, older Issue bodies, dated handoffs, and research reports
 
 ### OPEN / NOT YET APPROVED — do not silently choose in engineering
 
-- **Archive/Hub behavior:** Exact month-rollover comparison/ties, re-add behavior, repeat-completion recency treatment, deterministic Hub **Continue** routing, and onboarding details. The principle of three historical active slots and preserving meaningful reader work is decided; its full edge-case algorithm is not.
-- **Visual/editorial:** Alexis's approval of layouts and actual Scripture card artwork/copy, lifetime-status naming/placement, mobile treatments and other reader-facing labels. Her real notebooks are the required visual reference, not a finished mockup.
-- **Presentation preferences:** The specific earned-card *announcement opt-out is decided*; broader Quiet Reading Mode presentation behavior and exact setting placement remain open.
+- **Shelf/Hub engineering:** Reader-selected/protected Shelf months are never auto-evicted; a qualifying just-ended month replaces only the oldest auto-admitted month if full. Precise equal-age ties, re-add semantics, first-post-rollover visit detection, focus/resume edge cases and technical Hub **Continue** routing still need a deterministic implementation specification.
+- **Visual/editorial:** Exact illustrated card and badge designs, calendar layout, lifetime-status naming/placement and mobile treatments await design and **Aaron's product approval**. Alexis's real notebooks are the aesthetic source and her teaching remains editorially protected; product design does not require an independent Alexis sign-off for every card.
+- **Presentation preferences:** The earned-card *announcement opt-out* is decided; no separate broad Quiet Reading mode is required. Exact setting placement, announcement artwork and text remain UX work.
 - **Implementation/release:** Idempotent completion/award data contracts, CMS card modeling, sync, technical notification state, per-format completion contracts, testing and launch scope. These are implementation specifications and approvals, not a reason to reopen the settled product model.
 - **Optional future features:** Specific Special Experiences and exploratory real-calendar-day surprise encouragement are not production commitments.
 
@@ -71,7 +71,7 @@ These are the nine areas of substantial agreement across the Gemini Argon report
 5. **Permanent earned history.** Readers keep earned accomplishments, including the **date an achievement was earned**, and records of which Challenges they have completed. An earned award does not disappear when participation lapses.
 6. **Avoid artificial scarcity and fear of missing out.** Do not manufacture permanent shame or collectible gaps around missed dates. Seasonal material may be featured seasonally. Availability of past content and monthly goals is a separate product decision (see open questions).
 7. **Scripture saving and future memorization guidance.** App-wide saving of Scripture references remains important. Biblical Discovery replaces weekly memorization in the launch direction; integrated memorization is deferred. An optional honor-system learned declaration and personal-Bible guidance remain possible, but are not automatically launch scope. See [Biblical Discovery and Scripture](biblical-discovery-and-scripture.md).
-8. **Reader-controlled achievement announcements and quiet presentation.** Earned-card announcements may be disabled, but earning, the Field Notebook, the Hub's New Discoveries indicator and each card's New label remain. A broader Quiet Reading presentation option is conceptually supported without hiding navigation or Scripture tools; its details and release scope are open.
+8. **Reader-controlled achievement announcements and quiet presentation.** Earned-card announcements may be disabled, but earning, the Field Notebook, the Hub's New Discoveries indicator and each card's New label remain. Do not infer from earlier research that a separate broad Quiet Reading mode is a product requirement.
 9. **Durable, minimal personal records.** Stable Challenge identities, reliable completion tracking, permanent award records and account-based continuity matter. Use only the data needed to support product functions; do not presume a comprehensive interaction log.
 
 ## B. Three resolved research conflicts (November 6, 2026)
@@ -80,7 +80,7 @@ These are the nine areas of substantial agreement across the Gemini Argon report
 
 **Superseded November 8:** The Field Notebook is the permanent record of *earned* cards, not a wall of gray unearned badges. The **Month Screen** displays available thematic discovery **titles and progress from the beginning of participation**, no first-earned-card unlock prerequisite. **Never reveal the qualifying Challenges or future card artwork/text.** Unearned discoveries are not tappable; earned illustrated badges open the complete Scripture card. The larger Notebook collection contains earned cards only. A publication year continues to show all twelve months without treating unstudied months as failures.
 
-The selected aesthetic derives from **Alexis's actual illustrated Bible-study notebooks**, subject to her editorial and visual approval. The Field Notebook can show earned cards by publication month or in All Earned Cards; see §C and §D.
+The selected aesthetic derives from **Alexis's actual illustrated Bible-study notebooks**. Product designs are approved by Aaron; theological teaching remains under Alexis's editorial authority. The Field Notebook can show earned cards by publication month or in All Earned Cards; see §C and §D.
 
 **Reasoning:** Evidence supports neither universal suppression of visible goals nor a compulsory grid of missing achievements. The hybrid recognizes genuine participation without creating absence-driven pressure.
 
@@ -102,7 +102,7 @@ A simple relational/record-based approach using the existing Supabase working di
 
 See [User Accounts & Sync](../architecture/user-accounts-and-sync.md) for the separate working architecture and its unresolved technical questions.
 
-> **November 7 working notes:** [Shelf, Library, Hub Continue and Field Notebook](2026-11-07-archive-library-and-continue-working-notes.md) contain the detailed history and approved Field Notebook refinements. Archive rollover tie-breaking and Hub Continue routing remain provisional; illustrative examples are not a finalized algorithm.
+> **Historical November 7 working notes:** [Shelf, Library, Hub Continue and Field Notebook](2026-11-07-archive-library-and-continue-working-notes.md) contain the detailed history and approved Field Notebook refinements. Archive rollover tie-breaking and Hub Continue routing remain provisional; illustrative examples are not a finalized algorithm.
 
 ## C. Participation model: decided direction, not final catalogue
 
@@ -179,12 +179,12 @@ Ordinary Challenge completion and retrospective archive access are separate from
 ### Earned-card announcements and acknowledgment (approved November 7)
 
 - Earned cards are automatically awarded, dated and kept forever, no matter which study space is used and regardless of announcement preferences.
-- No awards interrupt the Challenge reader. After leaving it, one **combined** earned-card announcement may report several cards and link to the Field Notebook.
+- No awards interrupt the Challenge reader. After **returning to the Hub**, one **combined** earned-card announcement may report several pending cards and link to the Field Notebook. The Month Screen, Shelf and Library do not trigger these announcements.
 - If an award is earned but not yet announced when the app closes, **carry that unannounced batch across sessions** and show one combined announcement **upon the next Hub visit**, not in the Shelf, Library, Month Screen or other surfaces. A batch is announced **only once**, even if the announcement is dismissed.
 - Dismissing the announcement **does not clear** the Hub **New Discoveries** indicator or the **New** label on an individual card.
 - The Hub indicator clears **when the Field Notebook opens**; each card stays **New until that specific card is opened**, regardless of whether the reader uses the month view or All Earned Cards.
 - Readers may **turn off earned-achievement announcements**. They cannot switch off the Field Notebook or earning. New Discoveries and card-level New labels still operate with announcements disabled.
-- Broader Quiet Reading UX, exact visual form and implementation semantics are outside these behavioral approvals.
+- A broader Quiet Reading toggle is not an approved requirement. Exact Hub-announcement styling and implementation semantics remain UX/engineering work.
 
 ### Scripture collection and memorization boundaries
 
@@ -239,7 +239,7 @@ The October 31 snapshot [remains in Git history](https://github.com/ContraPhilos
 - **Divergence 2:** Sunday **Biblical Discovery** replaces the dedicated memorization Challenge in the intended launch lineup; self-directed own-Bible memorization guidance remains exploratory.
 - **Divergence 3:** Hub discovery orientation with Field Notebook destination and a temporary **New Discoveries** overlay; progress details inside the Notebook.
 - **Divergence 4:** Time-limited **Special Experiences** are acceptable with earned-only, permanently dated event collectibles; the Notebook category is hidden until first earned.
-- **Divergence 5:** Alexis's actual illustrated notebook work anchors the chosen aesthetic direction; final artwork still needs Alexis's approval.
+- **Divergence 5:** Alexis's actual illustrated notebook work anchors the chosen aesthetic direction. Final card artwork/layout remains a deferred product-design task, with Aaron holding product approval authority.
 
 ## H. Planning and implementation boundary
 
