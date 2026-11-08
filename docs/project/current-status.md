@@ -1,7 +1,7 @@
 # Bibleberry — Current Project Status
 
 **Last full inventory reconciled:** November 5, 2026  
-**Latest scoped checkpoint:** November 7, 2026 (R05 Stage 3A merged; see current engineering reconciliation below)  
+**Latest scoped checkpoint:** November 8, 2026 (owner-approved product direction; engineering evidence remains from earlier dated reconciliation)  
 **Status:** Living, cross-repository handoff and project-state summary  
 **Primary repository:** [ContraPhilosophy/Bibleberry](https://github.com/ContraPhilosophy/Bibleberry)  
 **Companion repository:** [ContraPhilosophy/BerryMark](https://github.com/ContraPhilosophy/BerryMark)  
@@ -10,6 +10,18 @@
 **Related planning:** [Bibleberry #34](https://github.com/ContraPhilosophy/Bibleberry/issues/34), [engineering maturity #20](https://github.com/ContraPhilosophy/Bibleberry/issues/20)
 
 > **Read this at the start of a new AI session**, then verify anything relevant against the **current** GitHub branches, Issues, PRs and source code before making decisions or assignments. This is a maintained summary, **not an automatic reflection of GitHub**. It must not be mistaken for proof that tests, access controls, deployments or approvals have occurred. Last reconciled means the date of the documented review, not continuous monitoring.
+
+## November 8, 2026: owner-approved reader-experience specification (PRODUCT AUTHORITY)
+
+Aaron explicitly approved the combined November 6–8 product decisions as the **current direction overriding older proposals**. The new canonical reference is [Approved Reader Experience, Month Screen & Field Notebook](../product/2026-11-08-approved-reader-experience-and-month-screen.md), supported by the updated [Gamification & Achievements](../product/gamification-and-achievements.md), [Product Roadmap](../product/application-development-roadmap.md) and [Account Sync](../architecture/user-accounts-and-sync.md) records.
+
+**New required product component: Month Screen.** A calendar for all 30/31 prewritten Challenge titles, completed/available/Coming Soon states, completion ticker, and Monthly Discoveries below (full-month card last). Unearned discoveries show only title/numeric progress with no tap target or card reveal; earned illustrations open full Scripture cards. A Challenge's **Finish** button is the completion action, and return goes to its origin context. Partial progress is silent; **combined earned-card announcements occur only on the next Hub visit**.
+
+**Monthly publishing:** Next-month teaching preview/news begins on the 28th (Feb 27), with introductory screens; the final Welcome-to-Theme appears at month start. Readers who saw preview can skip to Welcome; historical first visits get the intro; a replay link remains on Month Screen. **Shelf** (0–3 historical months, deliberate selections protected) and **Library** replace previous reader-facing names. Guest-to-new/existing-account merges are automatic; Special Experiences remain strictly time-limited with event-specific started-participant grace. Existing art, watermark treatment, exact calendar/mobile UI, and whole-app navigation remain deferred.
+
+**Verification boundary:** This is a **product-documentation decision**, not a claim that Month Screen, auth/sync, Notebook, introductions or award UI have been implemented. The dated engineering inventory below has not been re-audited by this note. Follow scoped Issue → branch → PR → Aaron merge authorization before code changes.
+
+---
 
 ## November 7, 2026: engineering reconciliation after R05 Stage 3A merge
 

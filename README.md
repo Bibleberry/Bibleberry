@@ -1,4 +1,6 @@
-# Bibleberry interactive prototype
+# Bibleberry
+
+> **November 8 authoritative product decisions:** [Approved Reader Experience, Month Screen & Field Notebook](docs/product/2026-11-08-approved-reader-experience-and-month-screen.md) governs the new Month Screen, Shelf/Library, monthly discovery/preview flow, Finish and Hub-only awards. It supersedes older conflicting issue text or design research; these approved product behaviors are not evidence of finished implementation. interactive prototype
 
 A mobile-first biblical formation prototype built with React, TypeScript, Vite, and CSS. **Bibleberry is a temporary app-name placeholder.** Realigned is Alexis Waid’s podcast, and Spiritually Hungry is the business entity.
 
