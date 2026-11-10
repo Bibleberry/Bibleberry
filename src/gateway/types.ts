@@ -111,3 +111,152 @@ export interface GatewayChallengeResponse {
   readonly serverContext: GatewayServerContext
   readonly challenge: Record<string, unknown>
 }
+
+export interface GatewayCoverImage {
+  readonly url: string
+  readonly alt: string
+}
+
+export interface GatewayIntroductionScreen {
+  readonly id: string
+  readonly stepLabel?: string
+  readonly title?: string
+  readonly ctaLabel?: string
+  readonly blocks: readonly Record<string, unknown>[]
+}
+
+export type GatewayMonthSlotPreview =
+  | {
+      readonly dayOfMonth: number
+      readonly date: string
+      readonly title: string
+      readonly availability: 'comingSoon'
+    }
+  | {
+      readonly dayOfMonth: number
+      readonly date: string
+      readonly availability: 'unavailable'
+    }
+
+export interface GatewayMonthPreviewResponse {
+  readonly ok: true
+  readonly serverContext: GatewayServerContext
+  readonly month: {
+    readonly monthId: string
+    readonly documentId: string
+    readonly year: number
+    readonly month: number
+    readonly daysInMonth: number
+    readonly phase: 'advancePreview'
+    readonly monthStartsOn: string
+    readonly title: string
+    readonly subtitle?: string
+    readonly coverImage?: GatewayCoverImage
+    readonly introduction: {
+      readonly version: string
+      readonly previewScreens: readonly GatewayIntroductionScreen[]
+    }
+    readonly slots: readonly GatewayMonthSlotPreview[]
+  }
+}
+
+export type GatewayMonthSlot =
+  | {
+      readonly dayOfMonth: number
+      readonly date: string
+      readonly availability: 'available'
+      readonly title: string
+      readonly slug: string
+      readonly challengeId: string
+      readonly challengeType: string
+    }
+  | {
+      readonly dayOfMonth: number
+      readonly date: string
+      readonly availability: 'comingSoon'
+      readonly title: string
+    }
+  | {
+      readonly dayOfMonth: number
+      readonly date: string
+      readonly availability: 'unavailable'
+      readonly formerChallengeId?: string
+    }
+
+export interface GatewayMonthDiscoverySummary {
+  readonly discoveryId: string
+  readonly kind: 'thematic' | 'fullMonth'
+  readonly title: string
+  readonly targetCount: number
+}
+
+export interface GatewayMonthDetailResponse {
+  readonly ok: true
+  readonly serverContext: GatewayServerContext
+  readonly month: {
+    readonly monthId: string
+    readonly documentId: string
+    readonly year: number
+    readonly month: number
+    readonly daysInMonth: number
+    readonly phase: 'active' | 'historical'
+    readonly rosterVersion: number
+    readonly totalChallenges: number
+    readonly title: string
+    readonly subtitle?: string
+    readonly coverImage?: GatewayCoverImage
+    readonly introduction: {
+      readonly version: string
+      readonly previewScreens: readonly GatewayIntroductionScreen[]
+      readonly welcomeScreen: GatewayIntroductionScreen
+    }
+    readonly slots: readonly GatewayMonthSlot[]
+    readonly discoveries: readonly GatewayMonthDiscoverySummary[]
+  }
+}
+
+export interface GatewayMonthProgressDiscovery {
+  readonly discoveryId: string
+  readonly kind: 'thematic' | 'fullMonth'
+  readonly title: string
+  readonly achievedCount: number
+  readonly targetCount: number
+  readonly isEarned: boolean
+  readonly awardId?: string
+  readonly reservedCardId?: string
+}
+
+export interface GatewayMonthProgressResponse {
+  readonly ok: true
+  readonly serverContext: GatewayServerContext
+  readonly monthId: string
+  readonly rosterVersion: number
+  readonly completedInMonthCount: number
+  readonly totalChallenges: number
+  readonly thematicEarnedCount: number
+  readonly thematicTotalCount: number
+  readonly discoveries: readonly GatewayMonthProgressDiscovery[]
+}
+
+export type GatewayNewsCategory = 'monthlyPreview' | 'ministryUpdate' | 'announcement'
+
+export interface GatewayNewsArticle {
+  readonly id: string
+  readonly documentId: string
+  readonly category: GatewayNewsCategory
+  readonly publishedOn: string
+  readonly title: string
+  readonly summary: string
+  readonly body?: readonly Record<string, unknown>[]
+  readonly coverImage?: GatewayCoverImage
+  readonly destination?: {
+    readonly kind: 'month'
+    readonly monthId: string
+  }
+}
+
+export interface GatewayNewsResponse {
+  readonly ok: true
+  readonly serverContext: GatewayServerContext
+  readonly articles: readonly GatewayNewsArticle[]
+}

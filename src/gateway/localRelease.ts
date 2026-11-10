@@ -1,7 +1,51 @@
 export const DEFAULT_RELEASE_TIME_ZONE = 'America/New_York' // Matches CMS_EDITORIAL_TIME_ZONE
 
+export const YEAR_MONTH_PATTERN = /^\d{4}-(?:0[1-9]|1[0-2])$/
+export const ISO_CIVIL_DATE_PATTERN = /^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/
+
 const RAW_OFFSET_PATTERN = /^(?:[+-]\d+(?::?\d+)?|(?:GMT|UTC)[+-].*)$/i
 const MAX_TIMEZONE_LENGTH = 64
+
+export function parseYearMonth(yearMonth: string): { year: number; month: number } | null {
+  if (typeof yearMonth !== 'string' || !YEAR_MONTH_PATTERN.test(yearMonth)) {
+    return null
+  }
+  const year = Number(yearMonth.slice(0, 4))
+  const month = Number(yearMonth.slice(5, 7))
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
+    return null
+  }
+  return { year, month }
+}
+
+export function daysInMonth(year: number, month: number): number {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate()
+}
+
+export function formatCivilDate(year: number, month: number, day: number): string {
+  return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+}
+
+export function isValidCivilDate(value: unknown): value is string {
+  if (typeof value !== 'string' || !ISO_CIVIL_DATE_PATTERN.test(value)) {
+    return false
+  }
+  const year = Number(value.slice(0, 4))
+  const month = Number(value.slice(5, 7))
+  const day = Number(value.slice(8, 10))
+  return day >= 1 && day <= daysInMonth(year, month)
+}
+
+/**
+ * Deterministic advance preview start date:
+ * - Preceding month's 28th for ordinary months (Dec 28 for Jan)
+ * - February 27th when target month is March (for both 28- and 29-day Februaries)
+ */
+export function computeAdvancePreviewStartDate(year: number, month: number): string {
+  if (month === 1) return `${String(year - 1).padStart(4, '0')}-12-28`
+  if (month === 3) return `${String(year).padStart(4, '0')}-02-27`
+  return `${String(year).padStart(4, '0')}-${String(month - 1).padStart(2, '0')}-28`
+}
 
 export interface AuthorizedReaderDateResolution {
   readonly authorizedLocalDate: string
