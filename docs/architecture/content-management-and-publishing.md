@@ -365,6 +365,8 @@ The initial Month Publishing workspace must make a full month create/review/fina
 
 ## 11. Engineering implementation sequence and dependencies
 
+> **Sequencing superseded by the canonical roadmap:** The Phase A–G structure below is preserved as the November 9 CMS conversation's original planning analysis, **not as an independent active implementation plan**. For actual ordering, interfaces with reader work, stage status, and first authorized candidate, follow [the single application-development roadmap](../product/application-development-roadmap.md). In particular, R05 private staging Stage 3C already passed on November 8; do not reimplement it as Phase B.
+
 This is a dependency-based sequence, **not** a single massive change request. Each code stage should become a scoped Issue/branch/PR with Aaron's implementation authorization and appropriate Alexis review.
 
 ### Phase A: Architecture contracts and target-state inventory
