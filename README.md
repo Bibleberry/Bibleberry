@@ -1,19 +1,20 @@
 # Bibleberry
 
-> **November 8 authoritative product decisions:** [Approved Reader Experience, Month Screen & Field Notebook](docs/product/2026-11-08-approved-reader-experience-and-month-screen.md) governs the new Month Screen, Shelf/Library, monthly discovery/preview flow, Finish and Hub-only awards. It supersedes older conflicting issue text or design research; these approved product behaviors are not evidence of finished implementation. interactive prototype
+> **November 9 project guidance:** [Application Development Roadmap](docs/product/application-development-roadmap.md) is the **single canonical six-phase implementation sequence**, integrating [November 8 approved reader behavior](docs/product/2026-11-08-approved-reader-experience-and-month-screen.md) and [November 9 CMS publishing architecture (80 decisions)](docs/architecture/content-management-and-publishing.md). [Current Project Status](docs/project/current-status.md) records verified progress, including **accepted R05 private staging Stage 3C**. Dated prototypes and older priorities elsewhere in this README are historical, not parallel instructions or evidence of completed production features.
 
 A mobile-first biblical formation prototype built with React, TypeScript, Vite, and CSS. **Bibleberry is a temporary app-name placeholder.** Realigned is Alexis Waid’s podcast, and Spiritually Hungry is the business entity.
 
 ## Project handoff and development roadmap
 
-**Start here when resuming Bibleberry in a new AI chat or coding agent:**
+**Start here when resuming Bibleberry with any AI assistant:**
 
-1. [**Current Project Status**](docs/project/current-status.md): the actively maintained, dated view of the accepted build, both repositories, pending decisions, live integration evidence, blockers and next steps. Compare it against current GitHub refs, Issues and PRs before relying on it.
-2. [**Product & Application Development Roadmap**](docs/product/application-development-roadmap.md): 20 prioritized development areas with engineering terminology, plain-English descriptions, dependencies and milestones. It is a planning reference, not automatic implementation approval.
-3. [**AI Development Protocol**](docs/ai-development-protocol.md): how agents get context, work on branches, verify results and hand off changes for review.
-4. [**Field Notebook Current / Historical / Open Decision Map**](docs/product/gamification-and-achievements.md#decision-status-at-a-glance--november-7-2026): the current working model, superseded historical gamification concepts and remaining design/engineering questions. The [dated repository audit](docs/product/2026-11-07-gamification-repository-audit.md) identifies older references. These are product-design records, not authorization to build.
+1. [**Current Project Status**](docs/project/current-status.md): latest accepted build, verified staging evidence, limitations and next recommended assignment; verify fresh GitHub refs/Issues/PRs.
+2. [**Single Product & Application Development Roadmap**](docs/product/application-development-roadmap.md): the **only authoritative implementation sequence**, organized into six dependency phases while preserving workstream IDs R01–R21 and R08A.
+3. [**Approved Reader Experience**](docs/product/2026-11-08-approved-reader-experience-and-month-screen.md): product behavior for Hub, Month Screen, Shelf, Library, monthly discoveries, Scripture Cards, Finish and announcements.
+4. [**CMS Content Management & Publishing Architecture**](docs/architecture/content-management-and-publishing.md): editorial schemas/workflows and all 80 November 9 decisions; its original Phase A–G planning outline does **not** supersede the canonical roadmap.
+5. [**AI Development Protocol**](docs/ai-development-protocol.md): branch/PR/review discipline, document authority and how agents continue without relying on a chat history.
 
-The initial [November 5, 2026 status baseline](docs/project/status-history/2026-11-05.md) is preserved separately for historical comparison. [Issue #34](https://github.com/ContraPhilosophy/Bibleberry/issues/34) tracks this documentation system; individual scoped Issues and pull requests track actual implementation.
+The initial [November 5, 2026 status baseline](docs/project/status-history/2026-11-05.md) remains a historical snapshot. [Planning Issue #34](https://github.com/ContraPhilosophy/Bibleberry/issues/34) is **closed**; scoped Issues and pull requests track actual engineering work. Accepted private staging proof: [R05 #62](https://github.com/ContraPhilosophy/Bibleberry/issues/62) and [#63](https://github.com/ContraPhilosophy/Bibleberry/issues/63). The next **proposed, not automatically authorized** engineering scope is **R08A-0: Monthly Publication, Series Identity, and Release Contract Design**.
 
 ## Run locally
 

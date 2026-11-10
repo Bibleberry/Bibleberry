@@ -1,7 +1,7 @@
 # Bibleberry — Current Project Status
 
 **Last full inventory reconciled:** November 5, 2026  
-**Latest scoped checkpoint:** November 8, 2026 (owner-approved product direction; engineering evidence remains from earlier dated reconciliation)  
+**Latest scoped checkpoint:** November 9, 2026 (integrated reader/CMS implementation planning; November 8 R05 staging acceptance independently checked)  
 **Status:** Living, cross-repository handoff and project-state summary  
 **Primary repository:** [ContraPhilosophy/Bibleberry](https://github.com/ContraPhilosophy/Bibleberry)  
 **Companion repository:** [ContraPhilosophy/BerryMark](https://github.com/ContraPhilosophy/BerryMark)  
@@ -10,6 +10,26 @@
 **Related planning:** [Bibleberry #34](https://github.com/ContraPhilosophy/Bibleberry/issues/34), [engineering maturity #20](https://github.com/ContraPhilosophy/Bibleberry/issues/20)
 
 > **Read this at the start of a new AI session**, then verify anything relevant against the **current** GitHub branches, Issues, PRs and source code before making decisions or assignments. This is a maintained summary, **not an automatic reflection of GitHub**. It must not be mistaken for proof that tests, access controls, deployments or approvals have occurred. Last reconciled means the date of the documented review, not continuous monitoring.
+
+## November 9, 2026: integrated CMS + reader roadmap and accepted staging evidence (LATEST GUIDANCE)
+
+**Roadmap authority:** Aaron approved a **single** integrated six-phase dependency roadmap at [Product & Application Development Roadmap](../product/application-development-roadmap.md). It is the **only active implementation sequence**, superseding the former November 5 P0/P1/P2 ordering and the CMS planning document's historical Phase A–G proposal where they differ. The complete [November 9 CMS Content Management & Publishing Architecture](../architecture/content-management-and-publishing.md) is the supporting editorial specification, retaining 80 planning decisions; the [November 8 approved reader experience](../product/2026-11-08-approved-reader-experience-and-month-screen.md) remains the product-behavior authority for its domain. A plan is not evidence of build completion or authorization to implement.
+
+**Six phase headings:** (01) shared architecture contracts; (02) Monthly Publishing foundation; (03) secure Month Screen including minimal preview News; (04) discoveries, Scripture Cards and permanent collections; (05) complete navigation/Shelf/Library/accounts/onboarding; (06) expanded editorial and notification/event capabilities plus operations. Phases represent dependencies, not giant PRs or an excuse to delay early account/native/security contracts. Legacy R01–R21/R08A identifiers remain in the canonical roadmap for Issue traceability.
+
+**Accepted R05 Stage 3B and 3C, November 8:** [Issue #62](https://github.com/ContraPhilosophy/Bibleberry/issues/62) and [Issue #63](https://github.com/ContraPhilosophy/Bibleberry/issues/63) **passed and closed**. Private synthetic Sanity dataset `staging` → Cloudflare Access-protected `bibleberry-staging` gateway → ordinary released-Challenge reader succeeded. The browser rendered structured teaching and optional study, saved a Challenge and restored the save after refresh, completed explicitly and restored completion after refresh, used the **same-origin** gateway API without observed direct Sanity requests, and rejected embargoed Fixture B with a neutral not-found reader view. Recorded deployed Worker version `e73541b9-c353-404b-8d41-dfdff5ced3bb`, previous rollback target `d25e82ca-9be5-43aa-b60f-858b6429ffe2`. Earlier R05 Stage 3A/3B pending checklists below are dated history, **not active next steps**. The accepted fixture had one Challenge screen; multiple-screen browser navigation in this specific live run was not independently exercised.
+
+**Source refs for accepted checkpoint:** Bibleberry `main` [`343b7523155e0850558ca05a66b117ea41bbfcc8`](https://github.com/ContraPhilosophy/Bibleberry/commit/343b7523155e0850558ca05a66b117ea41bbfcc8) and BerryMark `main` [`d94d5fa01d7b423650527d00f802ee0356362c6f`](https://github.com/ContraPhilosophy/BerryMark/commit/d94d5fa01d7b423650527d00f802ee0356362c6f). These are fixed evidence references, **not predictions of current main after subsequent PRs**. Inspect live GitHub on every new session.
+
+**Sanity economics and actual environment:** Growth is the approved platform; **only** `production` and `staging` are permitted. Aaron confirms the former `berrymark-development` dataset was deliberately **deleted** to make room for `staging`; it must not be recreated or treated as a third environment. The live private `staging` test source and gateway were accepted in #62/#63. Production manuscript privacy, safe production import permissions and full production editorial workflow remain separate to verify/engineer. BerryMark's earlier live draft acceptance remains valid historical test evidence despite the deleted dataset; its importer still requires an approved safe transition for the current topology.
+
+**What is not complete:** The approved Month Screen/calendar/preview API, local-day authorization policy, true monthly roster and Studio workspace, full Hub/Shelf/Library wiring, Scripture Card publishing/earned collection, native persistence/account sync, full News/notification services, event authoring and real cross-device awards. Don't infer their presence from planning or R05 staging success.
+
+**Next recommended scoped assignment:** **R08A-0 — Monthly Publication, Series Identity, and Release Contract Design**. First deliverable: one month/series source-of-truth and migration plan, reader-local calendar policy, safe future-title/preview projections, edge-case tests, and narrow follow-on assignment proposals. This is a **planning/contract** assignment until Aaron separately authorizes engineering. The single canonical implementation order is in the linked roadmap.
+
+**Change-control reminder:** No documentation acceptance alone authorizes CMS writes, backend changes, event launches, new accounts, deployment or PR merge. Follow one scoped Issue/branch/PR and explicit Aaron decision. Old checkpoint sections below remain as dated evidence; **this November 9 section supersedes their stale pending-work claims**.
+
+---
 
 ## November 8, 2026: owner-approved reader-experience specification (PRODUCT AUTHORITY)
 
