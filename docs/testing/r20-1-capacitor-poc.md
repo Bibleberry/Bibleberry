@@ -80,6 +80,30 @@ Executed in the Linux agent environment:
 
 GitHub Actions status is checked separately on the PR; a browser/Worker build is not evidence of an Android or iOS build or physical-device acceptance.
 
+## R20-2A Android CI evidence
+
+The independent [Native Android debug build workflow](https://github.com/ContraPhilosophy/Bibleberry/actions/workflows/native-android.yml) runs on relevant Android/Capacitor packaging changes to PRs targeting `main` and pushes to `main`, or by manual dispatch. It uses GitHub-hosted Ubuntu, Temurin JDK 21, Node.js 22, Android SDK Platform 36 and Build Tools 36.0.0. It keeps Gradle 8.14.3 and Android Gradle Plugin 8.13.0 from the checked-in project, runs the app's debug unit tests, checks the APK package ID and bundled `assets/public/index.html`, and uploads only the generated debug APK for seven days. The job reports the source SHA, APK size and SHA-256 in its log.
+
+To reproduce the CI build locally, install JDK 21, Node.js 22, Android SDK Platform 36 and Build Tools 36.0.0, and set `JAVA_HOME` to JDK 21 and `ANDROID_HOME` to the SDK root. From the repository root:
+
+```sh
+java -version
+npm ci
+npm run build
+npx cap sync android
+cd android
+./gradlew :app:assembleDebug :app:testDebugUnitTest --no-daemon
+APK=app/build/outputs/apk/debug/app-debug.apk
+test -s "$APK"
+"$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" \
+  | grep -F "package: name='com.example.bibleberry.r20poc'"
+unzip -Z1 "$APK" | grep -Fx 'assets/public/index.html'
+stat -c '%s bytes' "$APK"
+sha256sum "$APK"
+```
+
+CI run result and APK checksum/size are recorded here after a workflow run completes at the pushed branch head. The Android JVM build and unit tests do not demonstrate emulator or physical-device launch, lifecycle, or persistence acceptance. Browser `localStorage` and native Preferences remain separate guest stores; Preferences is not used for authentication or session credentials. The app ID and displayed app name remain nonproduction POC values.
+
 ## Device acceptance checklist — follow-up, not yet run
 
 Run each checklist independently on an actual iPhone and a budget Android device. Record model, OS version, app/build SHA, result, and evidence. A simulator/emulator or browser run does not substitute for physical-device acceptance.
