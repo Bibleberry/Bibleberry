@@ -65,6 +65,19 @@ export interface GatewayErrorResponse {
   }
 }
 
+export interface GatewayServerContext {
+  readonly authorizedLocalDate: string
+  readonly effectiveTimeZone: string
+}
+
+export interface GatewayCalendarSlot {
+  readonly monthId: string
+  readonly documentId: string
+  readonly monthTitle: string
+  readonly publicationDate: string
+  readonly dayOfMonth: number
+}
+
 export interface GatewayCatalogSummary {
   readonly _id: string
   readonly _type: 'challenge'
@@ -76,8 +89,9 @@ export interface GatewayCatalogSummary {
     readonly title: string
     readonly slug: string
   }
-  readonly sequence: number
-  readonly releaseAt: string
+  readonly sequence?: number
+  readonly releaseAt?: string
+  readonly calendarSlot?: GatewayCalendarSlot
   readonly summary?: string
   readonly primaryScripture: unknown
   readonly editorialEligibility: {
@@ -88,10 +102,12 @@ export interface GatewayCatalogSummary {
 
 export interface GatewayCatalogResponse {
   readonly ok: true
+  readonly serverContext: GatewayServerContext
   readonly challenges: readonly GatewayCatalogSummary[]
 }
 
 export interface GatewayChallengeResponse {
   readonly ok: true
+  readonly serverContext: GatewayServerContext
   readonly challenge: Record<string, unknown>
 }

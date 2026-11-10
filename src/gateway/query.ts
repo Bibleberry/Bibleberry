@@ -1,15 +1,56 @@
 export const DEFAULT_SANITY_API_VERSION = '2026-11-01'
 
+const UNAPPROVED_BLOCK_COUNT_GROQ =
+  'count(screens[].blocks[_type in ["comparisonBlock", "visualCardsBlock", "connectedSequenceBlock", "reflectionBlock", "optionalStudyBlock"] && reviewStatus != "approved"])'
+
+const DUAL_PATH_RELEASE_FILTER_GROQ = `
+    withdrawn != true
+    && editorialReview.adaptationReviewed == true
+    && ${UNAPPROVED_BLOCK_COUNT_GROQ} == 0
+    && (
+      (
+        count(*[_type == "monthlyPublication" && !(_id in path("drafts.**")) && ^._id in slots[].challenge._ref]) == 1
+        && count(*[
+          _type == "monthlyPublication"
+          && !(_id in path("drafts.**"))
+          && editorialStatus == "scheduled"
+          && withdrawn != true
+          && ^._id in slots[].challenge._ref
+          && count(slots[challenge._ref == ^.^._id && slotStatus == "scheduled" && date <= $authorizedLocalDate]) == 1
+          && count(slots[challenge._ref == ^.^._id]) == 1
+        ]) == 1
+      )
+      || (
+        count(*[_type == "monthlyPublication" && !(_id in path("drafts.**")) && ^._id in slots[].challenge._ref]) == 0
+        && defined(releaseAt)
+        && dateTime(releaseAt) <= dateTime($nowUtc)
+      )
+    )`
+
+const MONTHLY_ASSIGNMENTS_PROJECTION_GROQ = `"monthlyAssignments": *[_type == "monthlyPublication" && !(_id in path("drafts.**")) && ^._id in slots[].challenge._ref] {
+      _id,
+      yearMonth,
+      year,
+      month,
+      title,
+      editorialStatus,
+      withdrawn,
+      "slots": slots[challenge._ref == ^.^._id] {
+        _key,
+        dayOfMonth,
+        date,
+        slotStatus,
+        "challengeRef": challenge._ref
+      }
+    }`
+
 /**
  * Parameterized GROQ query for currently released, reviewed catalog summaries.
  */
 export const CATALOG_GROQ_QUERY = `
   *[_type == "challenge"
     && !(_id in path("drafts.**"))
-    && editorialReview.adaptationReviewed == true
-    && defined(releaseAt)
-    && dateTime(releaseAt) <= dateTime($nowUtc)
-    && count(screens[].blocks[_type in ["comparisonBlock", "visualCardsBlock", "connectedSequenceBlock", "reflectionBlock", "optionalStudyBlock"] && reviewStatus != "approved"]) == 0
+    &&${DUAL_PATH_RELEASE_FILTER_GROQ}
   ] | order(releaseAt asc) {
     _id,
     _type,
@@ -23,6 +64,7 @@ export const CATALOG_GROQ_QUERY = `
     },
     sequence,
     releaseAt,
+    withdrawn,
     summary,
     primaryScripture{
       reference,
@@ -36,7 +78,8 @@ export const CATALOG_GROQ_QUERY = `
       "adaptationReviewed": editorialReview.adaptationReviewed,
       "reviewedAt": editorialReview.reviewedAt
     },
-    "unapprovedBlockCount": count(screens[].blocks[_type in ["comparisonBlock", "visualCardsBlock", "connectedSequenceBlock", "reflectionBlock", "optionalStudyBlock"] && reviewStatus != "approved"])
+    "unapprovedBlockCount": ${UNAPPROVED_BLOCK_COUNT_GROQ},
+    ${MONTHLY_ASSIGNMENTS_PROJECTION_GROQ}
   }
 `
 
@@ -47,10 +90,7 @@ export const CHALLENGE_BY_SLUG_GROQ_QUERY = `
   *[_type == "challenge"
     && !(_id in path("drafts.**"))
     && slug.current == $slug
-    && editorialReview.adaptationReviewed == true
-    && defined(releaseAt)
-    && dateTime(releaseAt) <= dateTime($nowUtc)
-    && count(screens[].blocks[_type in ["comparisonBlock", "visualCardsBlock", "connectedSequenceBlock", "reflectionBlock", "optionalStudyBlock"] && reviewStatus != "approved"]) == 0
+    &&${DUAL_PATH_RELEASE_FILTER_GROQ}
   ][0] {
     _id,
     _type,
@@ -64,6 +104,7 @@ export const CHALLENGE_BY_SLUG_GROQ_QUERY = `
     },
     sequence,
     releaseAt,
+    withdrawn,
     summary,
     primaryScripture{
       reference,
@@ -130,7 +171,9 @@ export const CHALLENGE_BY_SLUG_GROQ_QUERY = `
     "editorialEligibility": {
       "adaptationReviewed": editorialReview.adaptationReviewed,
       "reviewedAt": editorialReview.reviewedAt
-    }
+    },
+    "unapprovedBlockCount": ${UNAPPROVED_BLOCK_COUNT_GROQ},
+    ${MONTHLY_ASSIGNMENTS_PROJECTION_GROQ}
   }
 `
 
