@@ -82,7 +82,7 @@ GitHub Actions status is checked separately on the PR; a browser/Worker build is
 
 ## R20-2A Android CI evidence
 
-The independent [Native Android debug build workflow](https://github.com/ContraPhilosophy/Bibleberry/actions/workflows/native-android.yml) runs on relevant Android/Capacitor packaging changes to PRs targeting `main` and pushes to `main`, or by manual dispatch. It uses GitHub-hosted Ubuntu, Temurin JDK 21, Node.js 22, Android SDK Platform 36 and Build Tools 36.0.0. It keeps Gradle 8.14.3 and Android Gradle Plugin 8.13.0 from the checked-in project, runs the app's debug unit tests, checks the APK package ID and bundled `assets/public/index.html`, and uploads only the generated debug APK for seven days. The job reports the source SHA, APK size and SHA-256 in its log.
+The independent [Native Android debug build workflow](https://github.com/ContraPhilosophy/Bibleberry/actions/workflows/native-android.yml) runs on relevant Android/Capacitor packaging changes to PRs targeting `main` and pushes to `main`, or by manual dispatch. It uses GitHub-hosted Ubuntu, Temurin JDK 21, Node.js 22, Android SDK Platform 36 and Build Tools 36.0.0. It keeps Gradle 8.14.3 and Android Gradle Plugin 8.13.0 from the checked-in project, runs the app's debug unit tests, checks the APK package ID and bundled `assets/public/index.html`, and uploads only the generated debug APK for seven days. An authorized successful run reports the source SHA, APK size and SHA-256 in its log.
 
 To reproduce the CI build locally, install JDK 21, Node.js 22, Android SDK Platform 36 and Build Tools 36.0.0, and set `JAVA_HOME` to JDK 21 and `ANDROID_HOME` to the SDK root. From the repository root:
 
@@ -102,7 +102,7 @@ stat -c '%s bytes' "$APK"
 sha256sum "$APK"
 ```
 
-CI run result and APK checksum/size are recorded here after a workflow run completes at the pushed branch head. The Android JVM build and unit tests do not demonstrate emulator or physical-device launch, lifecycle, or persistence acceptance. Browser `localStorage` and native Preferences remain separate guest stores; Preferences is not used for authentication or session credentials. The app ID and displayed app name remain nonproduction POC values.
+The first PR run at head `d82f4d37b8d5dbc65fa0c86f0a4da304b4345771` ([Native Android run 42915322495](https://github.com/ContraPhilosophy/Bibleberry/actions/runs/42915322495)) concluded `action_required` with zero jobs. Gradle did not run; there is no APK, unit-test result, checksum, size or artifact from that run. An authorized maintainer must approve/authorize the Copilot-authored workflow run before its build evidence can be recorded. This is not a passing native check. The Android JVM build and unit tests do not demonstrate emulator or physical-device launch, lifecycle, or persistence acceptance. Browser `localStorage` and native Preferences remain separate guest stores; Preferences is not used for authentication or session credentials. The app ID and displayed app name remain nonproduction POC values.
 
 ## Device acceptance checklist — follow-up, not yet run
 
