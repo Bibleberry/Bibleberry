@@ -135,6 +135,31 @@ test.describe('Navigation, Onboarding, and Date-Gated Teaching', () => {
     await expect(page.locator('#daily-teaching')).toBeVisible();
   });
 
+  test('Foundations opens the deferred Spiritual Disciplines Library and resource', async ({ page }) => {
+    await page.addInitScript(() => {
+      localStorage.setItem('bibleberry-prototype-v1', JSON.stringify({
+        onboarded: true,
+        appearance: 'system',
+        textSize: 'default',
+        reminderEnabled: false,
+        reminderTime: '08:00',
+        explored: [],
+        journey: [],
+        lastOpened: null,
+        resumeDismissedDate: '',
+      }));
+    });
+
+    await page.goto('/');
+    await page.locator('.app-shell nav button:has-text("Foundations")').first().click();
+    await page.locator('.foundations-page').getByRole('button', { name: 'Browse the library' }).click();
+    await expect(page.getByRole('heading', { name: 'Practices to explore, at your own pace.' })).toBeVisible();
+
+    await page.locator('.discipline-list button').filter({ hasText: 'Sabbath & Rest' }).click();
+    await expect(page.locator('.discipline-resource h1')).toHaveText('Sabbath & Rest');
+    await expect(page.locator('.discipline-resource')).toContainText('Biblical foundations');
+  });
+
   test('shared teaching URL opens target entry in fresh tab, preserving destination', async ({ page }) => {
     await page.addInitScript(() => {
       localStorage.setItem('bibleberry-prototype-v1', JSON.stringify({

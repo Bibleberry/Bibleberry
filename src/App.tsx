@@ -10,11 +10,15 @@ import { challenges } from './data/challenges'
 import { announcements } from './data/announcements'
 import { allFormationEntries, disciplineResources, onePhraseMemorizationEntry, weeklyPilotEntries } from './data/formationFixtures'
 import { entryTypeLabel, WEEKLY_PILOT_CHALLENGE_ID, type ChallengeEntry, type TeachingEntry } from './data/formation'
-import { DisciplineLibraryView, DisciplineResourceView, FormationExperienceView } from './components/FormationViews'
 import { DeveloperStudio } from './components/DeveloperStudio'
 import type { OrdinaryChallengeSessionState } from './components/challenge/ordinaryChallengeHostModel'
 import { defaultGuestParticipationStore } from './participation/defaultGuestStore'
 import './App.css'
+
+const DisciplineLibraryView = lazy(() => import('./components/FormationViews').then(module => ({ default: module.DisciplineLibraryView })))
+const DisciplineResourceView = lazy(() => import('./components/FormationViews').then(module => ({ default: module.DisciplineResourceView })))
+const FormationExperienceView = lazy(() => import('./components/FormationViews').then(module => ({ default: module.FormationExperienceView })))
+const formationViewFallback = <div className="standard-page"><p role="status" aria-live="polite">Loading reading tools…</p></div>
 
 type PrimaryView = 'today' | 'foundations' | 'archive' | 'more'
 type MoreSection = 'journey' | 'about' | 'podcast' | 'appearance' | 'reminder' | 'scripture' | 'privacy'
@@ -1091,7 +1095,7 @@ export default function App() {
   }
   const formationExperience = (item: Exclude<ChallengeEntry, { entryType: 'teaching' }>, archiveBack = false) => {
     const { previous, next } = entryNeighbors(item, previewDate ? '9999-12-31' : todayKey)
-    return <FormationExperienceView entry={item} previous={previous} next={next} onNavigate={target => previewDate ? previewDevelopmentDate(target.date) : openEntry(target.id)} onOpenDiscipline={openDiscipline} onLeave={() => navigate('archive')} onBack={archiveBack ? () => navigate('archive') : undefined} />
+    return <Suspense fallback={formationViewFallback}><FormationExperienceView entry={item} previous={previous} next={next} onNavigate={target => previewDate ? previewDevelopmentDate(target.date) : openEntry(target.id)} onOpenDiscipline={openDiscipline} onLeave={() => navigate('archive')} onBack={archiveBack ? () => navigate('archive') : undefined} /></Suspense>
   }
 
   let content: React.ReactNode
@@ -1106,11 +1110,11 @@ export default function App() {
     const item = allFormationEntries.find(entry => entry.id === detail.id && entry.entryType !== 'teaching') as Exclude<ChallengeEntry, { entryType: 'teaching' }>
     content = formationExperience(item, view === 'archive')
   } else if (detail?.type === 'disciplineLibrary') {
-    content = <DisciplineLibraryView resources={disciplineResources} onOpen={openDiscipline} onBack={() => navigate('foundations')} />
+    content = <Suspense fallback={formationViewFallback}><DisciplineLibraryView resources={disciplineResources} onOpen={openDiscipline} onBack={() => navigate('foundations')} /></Suspense>
   } else if (detail?.type === 'discipline') {
     const resource = disciplineResources.find(item => item.id === detail.id)!
     const relatedSessions = allFormationEntries.filter(entry => resource.relatedSessionIds?.includes(entry.id))
-    content = <DisciplineResourceView resource={resource} relatedSessions={relatedSessions} onBack={openDisciplineLibrary} onOpenSession={openEntry} />
+    content = <Suspense fallback={formationViewFallback}><DisciplineResourceView resource={resource} relatedSessions={relatedSessions} onBack={openDisciplineLibrary} onOpenSession={openEntry} /></Suspense>
   } else if (detail?.type === 'challengePilot' && challengePilotEnabled && OrdinaryChallengePilot) {
     content = <Suspense fallback={<div className="standard-page"><p>Opening Challenge…</p></div>}>
       <OrdinaryChallengePilot
