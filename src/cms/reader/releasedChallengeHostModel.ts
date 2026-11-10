@@ -22,7 +22,7 @@ export type ReleasedChallengeHostState =
       readonly status: 'embargoed'
       readonly slug: string
       readonly title: string
-      readonly releaseDate: Date
+      readonly releaseDate?: Date
     }
   | {
       readonly status: 'ineligible'
@@ -83,11 +83,15 @@ export function deriveReleasedChallengeState(
   const eligibility = evaluateChallengeReleaseEligibility(challenge, now)
   if (!eligibility.isEligible) {
     if (eligibility.reason === 'embargoed') {
+      const releaseDate =
+        eligibility.releaseDate ??
+        (challenge.releaseAtUtc ? new Date(challenge.releaseAtUtc) : undefined)
+
       return {
         status: 'embargoed',
         slug,
         title: challenge.title,
-        releaseDate: eligibility.releaseDate ?? new Date(challenge.releaseAtUtc),
+        ...(releaseDate ? { releaseDate } : {}),
       }
     }
     return {
@@ -143,11 +147,12 @@ export function deriveReleasedChallengeDetailState(
 
   // Gateway-authorized content: The Cloudflare Worker gateway has already evaluated release
   // eligibility at query time using the authoritative server clock and GROQ release constraints.
-  // An desynchronized or incorrectly set client device clock must NOT veto a server-authorized release.
+  // A desynchronized or incorrectly set client device clock must NOT veto a server-authorized release.
   //
   // We still enforce:
   // 1. Editorial review confirmation (adaptationReviewed === true)
-  // 2. Syntactically valid release timestamp
+  // 2. Syntactically valid release schedule: either a valid ISO calendarSlot.publicationDate
+  //    or a parseable releaseAtUtc timestamp. Fails closed if neither is present.
   // 3. Document identity, screen uniqueness, and capability token minting via admitTrustedCatalogChallenge
   if (detailResult.source === 'gateway') {
     if (challenge.editorial?.adaptationReviewed !== true) {
@@ -158,8 +163,15 @@ export function deriveReleasedChallengeDetailState(
       }
     }
 
-    const releaseMs = Date.parse(challenge.releaseAtUtc)
-    if (Number.isNaN(releaseMs)) {
+    const hasValidCalendarSlot =
+      typeof challenge.calendarSlot?.publicationDate === 'string' &&
+      /^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/.test(challenge.calendarSlot.publicationDate)
+
+    const hasValidReleaseAtUtc =
+      typeof challenge.releaseAtUtc === 'string' &&
+      !Number.isNaN(Date.parse(challenge.releaseAtUtc))
+
+    if (!hasValidCalendarSlot && !hasValidReleaseAtUtc) {
       return {
         status: 'ineligible',
         slug,
@@ -182,14 +194,20 @@ export function deriveReleasedChallengeDetailState(
   // Legacy direct-Sanity catalog path (A4.1 fallback):
   // Direct client queries to Sanity do not pass through a server release gateway,
   // so client-side release eligibility (evaluating embargo against `now`) is strictly enforced.
+  // Client-supplied calendarSlot does NOT bypass this check; unslotted/direct content must
+  // have a valid releaseAtUtc instant that has passed.
   const eligibility = evaluateChallengeReleaseEligibility(challenge, now)
   if (!eligibility.isEligible) {
     if (eligibility.reason === 'embargoed') {
+      const releaseDate =
+        eligibility.releaseDate ??
+        (challenge.releaseAtUtc ? new Date(challenge.releaseAtUtc) : undefined)
+
       return {
         status: 'embargoed',
         slug,
         title: challenge.title,
-        releaseDate: eligibility.releaseDate ?? new Date(challenge.releaseAtUtc),
+        ...(releaseDate ? { releaseDate } : {}),
       }
     }
     return {

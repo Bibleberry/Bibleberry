@@ -188,8 +188,8 @@ export function ReleasedChallengeHost({
         <div className="empty-state">
           <h2>Not yet released</h2>
           <p>
-            &ldquo;{state.title}&rdquo; is scheduled to release on{' '}
-            {formatReleaseDateTime(state.releaseDate)}.
+            &ldquo;{state.title}&rdquo; is scheduled to release
+            {state.releaseDate ? ` on ${formatReleaseDateTime(state.releaseDate)}.` : '.'}
           </p>
         </div>
         {footer}

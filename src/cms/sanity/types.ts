@@ -97,6 +97,20 @@ export type CmsCompanionLink = {
   requiredForCompletion: false
 }
 
+export type CmsCalendarSlot = {
+  monthId: string
+  documentId?: string
+  monthTitle?: string
+  publicationDate: string
+  dayOfMonth: number
+}
+
+export type CmsChallengeSeries = {
+  documentId: string
+  id: string
+  title: string
+}
+
 export type CmsChallenge = {
   /**
    * Reader route/presentation slug (`slug.current`). Frozen once imported under BerryMark's
@@ -110,16 +124,14 @@ export type CmsChallenge = {
   documentId: string
   title: string
   challengeType: CmsChallengeType
-  series: {
-    documentId: string
-    id: string
-    title: string
-  }
-  sequence: number
-  /** Authored instant, including its original offset. */
-  releaseAt: string
-  /** The same instant normalized to UTC for consistent comparisons in a later, authorized release layer. */
-  releaseAtUtc: string
+  series?: CmsChallengeSeries
+  sequence?: number
+  /** Authored instant, including its original offset. Omitted on monthly calendar-slotted Challenges. */
+  releaseAt?: string
+  /** The same instant normalized to UTC. Omitted on monthly calendar-slotted Challenges. */
+  releaseAtUtc?: string
+  /** Authoritative monthly calendar slot. Present on monthly calendar-slotted Challenges. */
+  calendarSlot?: CmsCalendarSlot
   summary?: string
   primaryScripture: CmsScripture
   screens: CmsScreen[]

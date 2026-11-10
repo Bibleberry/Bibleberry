@@ -19,7 +19,7 @@ import {
   type CmsSourceKind,
 } from './labState.ts'
 import { mapPublishedChallenge } from './mapChallenge.ts'
-import { formatCmsReleaseDate } from './presentation.ts'
+import { presentCmsScheduleDate } from './presentation.ts'
 import type { CmsChallenge, CmsScripture } from './types.ts'
 
 const developmentChallenges = (() => {
@@ -44,10 +44,19 @@ function CmsChallengeHome({ challenges, source, state, onOpen, onOpenScripture, 
           const position = resolveCmsScreenIndex(challenge, state.positions[key])
           const completed = state.completedChallengeIds.includes(key)
           const saved = state.savedChallengeIds.includes(key)
+          const scheduleDate = presentCmsScheduleDate(challenge)
+          const seriesLabel = challenge.series?.title
+          const sequenceLabel = challenge.sequence !== undefined ? `Sequence ${challenge.sequence}` : undefined
+          const metadataParts = [
+            seriesLabel,
+            sequenceLabel,
+            `${challenge.screens.length} screens`,
+          ].filter(Boolean).join(' · ')
+
           return <article key={key} className="lab-challenge-row">
             <button type="button" className="lab-challenge-row__open" onClick={() => onOpen(challenge)}>
-              <span className="lab-challenge-row__date">{formatCmsReleaseDate(challenge.releaseAtUtc)}</span>
-              <span><small>{challenge.series.title} · Sequence {challenge.sequence} · {challenge.screens.length} screens</small><strong>{challenge.title}</strong><em>{completed ? 'Completed · Revisit any screen' : position > 0 ? `Resume at ${position + 1} of ${challenge.screens.length}` : 'Begin Challenge'}</em></span>
+              <span className="lab-challenge-row__date">{scheduleDate}</span>
+              <span><small>{metadataParts}</small><strong>{challenge.title}</strong><em>{completed ? 'Completed · Revisit any screen' : position > 0 ? `Resume at ${position + 1} of ${challenge.screens.length}` : 'Begin Challenge'}</em></span>
               <ArrowRight size={19} aria-hidden="true" />
             </button>
             <button type="button" className="lab-challenge-row__save" aria-pressed={saved} aria-label={`${saved ? 'Remove' : 'Save'} ${challenge.title} ${saved ? 'from' : 'to'} CMS Saved Challenges`} onClick={() => onToggleSaved(key)}>
@@ -218,7 +227,15 @@ export function SanityChallengeLab({ onReturnToStudio }: { onReturnToStudio: () 
           onToggleSaveChallenge={() => toggleSavedChallenge(selectedKey)}
           onToggleSaveScripture={scripture => toggleScripture(source, scripture)}
           onComplete={completeChallenge}
-          eyebrow={`${challenge.series.title} · SEQUENCE ${challenge.sequence} · RELEASE ${challenge.releaseAtUtc}`}
+          eyebrow={[
+            challenge.series?.title,
+            challenge.sequence !== undefined ? `SEQUENCE ${challenge.sequence}` : undefined,
+            challenge.calendarSlot?.publicationDate
+              ? `SLOT ${challenge.calendarSlot.publicationDate}`
+              : challenge.releaseAtUtc
+                ? `RELEASE ${challenge.releaseAtUtc}`
+                : undefined,
+          ].filter(Boolean).join(' · ')}
           diagnostics
           labels={{
             scriptureCollection: 'CMS My Scripture',

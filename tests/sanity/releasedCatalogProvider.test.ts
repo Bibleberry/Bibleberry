@@ -432,7 +432,7 @@ test('accepts all four reader-supported challenge types', async () => {
 })
 
 test('fails closed for invalid sequence numbers (0, negative, fractional, or non-numeric)', async () => {
-  const invalidSequences = [0, -1, -100, 1.5, 0.25, NaN, Infinity]
+  const invalidSequences = [0, -1, -100, 1.5, 0.25, NaN, Infinity, 'one', true]
   for (const sequence of invalidSequences) {
     const invalidItem = makeValidGatewayCatalogItem({ sequence })
     const mockFetch: typeof fetch = async () =>
@@ -449,17 +449,52 @@ test('fails closed for invalid sequence numbers (0, negative, fractional, or non
   }
 })
 
-test('fails closed for missing, null, or malformed series', async () => {
-  const invalidSeriesCases = [
-    undefined,
-    null,
+test('accepts missing or null series and sequence for monthly/series-less catalog items', async () => {
+  const seriesLessItem = makeValidGatewayCatalogItem({
+    series: undefined,
+    sequence: undefined,
+    calendarSlot: {
+      monthId: '2026-11',
+      publicationDate: '2026-11-09',
+      dayOfMonth: 9,
+    },
+  })
+  delete (seriesLessItem as Record<string, unknown>).releaseAt
+
+  const mockFetch: typeof fetch = async () =>
+    new Response(JSON.stringify({ ok: true, challenges: [seriesLessItem] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
+
+  const provider = createGatewayCatalogProvider({ fetchImpl: mockFetch })
+  const result = await provider.loadReleasedCatalog()
+
+  assert.equal(result.status, 'ready')
+  if (result.status === 'ready') {
+    assert.equal(result.challenges.length, 1)
+    const summary = result.challenges[0]
+    assert.equal(summary.series, undefined)
+    assert.equal(summary.sequence, undefined)
+    assert.equal(summary.releaseAt, undefined)
+    assert.equal(summary.releaseAtUtc, undefined)
+    assert.deepEqual(summary.calendarSlot, {
+      monthId: '2026-11',
+      publicationDate: '2026-11-09',
+      dayOfMonth: 9,
+    })
+  }
+})
+
+test('fails closed for malformed series objects when present', async () => {
+  const malformedSeriesCases = [
     {},
     { _id: '', title: 'Valid Title', slug: 'valid-slug' },
     { _id: 'series-1', title: '', slug: 'valid-slug' },
     { _id: 'series-1', title: 'Valid Title', slug: '' },
   ]
 
-  for (const series of invalidSeriesCases) {
+  for (const series of malformedSeriesCases) {
     const item = makeValidGatewayCatalogItem({ series })
     const mockFetch: typeof fetch = async () =>
       new Response(JSON.stringify({ ok: true, challenges: [item] }), {
