@@ -1,4 +1,4 @@
-import type { GatewayCatalogSummary } from './types.ts'
+import type { GatewayCalendarSlot, GatewayCatalogSummary } from './types.ts'
 
 export const REVIEWED_BLOCK_TYPES = new Set([
   'comparisonBlock',
@@ -17,10 +17,208 @@ export type ValidationFailureReason =
   | 'malformedDocument'
   | 'missingScreens'
   | 'unlicensedScripture'
+  | 'withdrawn'
+  | 'duplicateSlotAssignment'
+  | 'invalidCalendarAssignment'
 
 export type ProjectionValidationResult<T> =
   | { readonly ok: true; readonly document: T }
   | { readonly ok: false; readonly reason: ValidationFailureReason }
+
+const YEAR_MONTH_PATTERN = /^\d{4}-(?:0[1-9]|1[0-2])$/
+const ISO_CIVIL_DATE_PATTERN = /^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isValidCivilDate(value: unknown): value is string {
+  if (typeof value !== 'string' || !ISO_CIVIL_DATE_PATTERN.test(value)) {
+    return false
+  }
+  const year = Number(value.slice(0, 4))
+  const month = Number(value.slice(5, 7))
+  const day = Number(value.slice(8, 10))
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate()
+  return day >= 1 && day <= daysInMonth
+}
+
+function extractSlotChallengeRef(slot: Record<string, unknown>): string | undefined {
+  if (typeof slot.challengeRef === 'string') {
+    return slot.challengeRef
+  }
+  if (isPlainObject(slot.challenge) && typeof slot.challenge._ref === 'string') {
+    return slot.challenge._ref
+  }
+  return undefined
+}
+
+type ChallengeReleaseEvaluation =
+  | { readonly ok: true; readonly mode: 'slotted'; readonly calendarSlot: GatewayCalendarSlot }
+  | { readonly ok: true; readonly mode: 'legacy'; readonly releaseAt: string }
+  | { readonly ok: false; readonly reason: ValidationFailureReason }
+
+/**
+ * Evaluates dual-path Challenge release eligibility:
+ * - Slotted path when assigned to a published monthlyPublication (authoritative; never falls back to releaseAt)
+ * - Legacy unslotted path when zero monthlyPublication assignments exist and releaseAt is valid
+ */
+function evaluateChallengeRelease(
+  doc: Record<string, unknown>,
+  challengeId: string,
+  nowTime: number,
+  authorizedLocalDate?: string,
+): ChallengeReleaseEvaluation {
+  // Challenge-level emergency withdrawal suppresses delivery across both paths.
+  if (doc.withdrawn !== undefined && doc.withdrawn !== null && doc.withdrawn !== false) {
+    return { ok: false, reason: 'withdrawn' }
+  }
+
+  const rawAssignments = doc.monthlyAssignments
+  if (rawAssignments !== undefined && !Array.isArray(rawAssignments)) {
+    return { ok: false, reason: 'malformedDocument' }
+  }
+
+  const assignments = rawAssignments ?? []
+  if (assignments.length > 1) {
+    console.error(
+      `[gateway] Integrity error: Challenge "${challengeId}" is assigned to ${assignments.length} monthly publications.`,
+    )
+    return { ok: false, reason: 'duplicateSlotAssignment' }
+  }
+
+  if (assignments.length === 1) {
+    if (!isValidCivilDate(authorizedLocalDate)) {
+      return { ok: false, reason: 'invalidCalendarAssignment' }
+    }
+
+    const assignment = assignments[0]
+    if (!isPlainObject(assignment)) {
+      return { ok: false, reason: 'invalidCalendarAssignment' }
+    }
+
+    const monthDocId = assignment._id
+    if (typeof monthDocId !== 'string' || monthDocId.trim().length === 0 || monthDocId.startsWith('drafts.')) {
+      return { ok: false, reason: 'invalidCalendarAssignment' }
+    }
+
+    const yearMonth = assignment.yearMonth
+    if (typeof yearMonth !== 'string' || !YEAR_MONTH_PATTERN.test(yearMonth)) {
+      return { ok: false, reason: 'invalidCalendarAssignment' }
+    }
+
+    // Require canonical deterministic month document ID (`month-YYYY-MM`).
+    if (monthDocId !== `month-${yearMonth}`) {
+      return { ok: false, reason: 'invalidCalendarAssignment' }
+    }
+
+    const expectedYear = Number(yearMonth.slice(0, 4))
+    const expectedMonth = Number(yearMonth.slice(5, 7))
+    if (assignment.year !== undefined && assignment.year !== null && assignment.year !== expectedYear) {
+      return { ok: false, reason: 'invalidCalendarAssignment' }
+    }
+    if (assignment.month !== undefined && assignment.month !== null && assignment.month !== expectedMonth) {
+      return { ok: false, reason: 'invalidCalendarAssignment' }
+    }
+
+    const monthTitle = typeof assignment.title === 'string' ? assignment.title.trim() : ''
+    if (!monthTitle) {
+      return { ok: false, reason: 'invalidCalendarAssignment' }
+    }
+
+    if (assignment.editorialStatus !== 'scheduled') {
+      return { ok: false, reason: 'embargoed' }
+    }
+
+    if (assignment.withdrawn !== undefined && assignment.withdrawn !== null && assignment.withdrawn !== false) {
+      return { ok: false, reason: 'withdrawn' }
+    }
+
+    if (!Array.isArray(assignment.slots)) {
+      return { ok: false, reason: 'invalidCalendarAssignment' }
+    }
+
+    const matchingSlots: Record<string, unknown>[] = []
+    for (const rawSlot of assignment.slots) {
+      if (!isPlainObject(rawSlot)) {
+        return { ok: false, reason: 'invalidCalendarAssignment' }
+      }
+      const ref = extractSlotChallengeRef(rawSlot)
+      if (ref === undefined || ref === challengeId) {
+        matchingSlots.push(rawSlot)
+      }
+    }
+
+    if (matchingSlots.length === 0) {
+      return { ok: false, reason: 'invalidCalendarAssignment' }
+    }
+    if (matchingSlots.length > 1) {
+      console.error(
+        `[gateway] Integrity error: Challenge "${challengeId}" is assigned to ${matchingSlots.length} slots in "${monthDocId}".`,
+      )
+      return { ok: false, reason: 'duplicateSlotAssignment' }
+    }
+
+    const slot = matchingSlots[0]
+    if (slot.slotStatus === 'withdrawn') {
+      return { ok: false, reason: 'withdrawn' }
+    }
+    if (slot.slotStatus !== 'scheduled') {
+      return { ok: false, reason: 'invalidCalendarAssignment' }
+    }
+
+    if (!isValidCivilDate(slot.date)) {
+      return { ok: false, reason: 'invalidCalendarAssignment' }
+    }
+    if (slot.date.slice(0, 7) !== yearMonth) {
+      return { ok: false, reason: 'invalidCalendarAssignment' }
+    }
+
+    const expectedDay = Number(slot.date.slice(8, 10))
+    if (
+      typeof slot.dayOfMonth !== 'number' ||
+      !Number.isInteger(slot.dayOfMonth) ||
+      slot.dayOfMonth !== expectedDay
+    ) {
+      return { ok: false, reason: 'invalidCalendarAssignment' }
+    }
+
+    if (slot.date > authorizedLocalDate) {
+      return { ok: false, reason: 'embargoed' }
+    }
+
+    return {
+      ok: true,
+      mode: 'slotted',
+      calendarSlot: {
+        monthId: yearMonth,
+        documentId: monthDocId,
+        monthTitle,
+        publicationDate: slot.date,
+        dayOfMonth: slot.dayOfMonth,
+      },
+    }
+  }
+
+  // Legacy unslotted fallback path: requires explicit UTC releaseAt timestamp.
+  const releaseAt = doc.releaseAt
+  if (typeof releaseAt !== 'string' || releaseAt.trim().length === 0) {
+    return { ok: false, reason: 'invalidTimestamp' }
+  }
+  const releaseTime = Date.parse(releaseAt)
+  if (!Number.isFinite(releaseTime)) {
+    return { ok: false, reason: 'invalidTimestamp' }
+  }
+  if (releaseTime > nowTime) {
+    return { ok: false, reason: 'embargoed' }
+  }
+
+  return {
+    ok: true,
+    mode: 'legacy',
+    releaseAt: String(releaseAt),
+  }
+}
 
 function sanitizeSeries(series: unknown): GatewayCatalogSummary['series'] | undefined {
   if (!series || typeof series !== 'object') return undefined
@@ -369,84 +567,109 @@ function sanitizeScreens(screens: unknown): Record<string, unknown>[] {
     })
 }
 
-/**
- * Server-side validation and sanitization for single Challenge responses.
- */
-export function validateAndProjectChallenge(
+interface ValidatedChallengeBase {
+  readonly doc: Record<string, unknown>
+  readonly summary: GatewayCatalogSummary
+}
+
+function validateAndProjectBase(
   rawDoc: unknown,
   nowTime: number,
-): ProjectionValidationResult<Record<string, unknown>> {
-  if (!rawDoc || typeof rawDoc !== 'object') {
+  authorizedLocalDate: string | undefined,
+  requireUnapprovedBlockCount: boolean,
+): ProjectionValidationResult<ValidatedChallengeBase> {
+  if (!isPlainObject(rawDoc)) {
     return { ok: false, reason: 'malformedDocument' }
   }
 
-  const doc = rawDoc as Record<string, unknown>
+  const doc = rawDoc
 
   // 1. Must not be a draft document
   const id = doc._id
-  if (typeof id !== 'string' || id.startsWith('drafts.')) {
+  if (typeof id !== 'string' || id.trim().length === 0 || id.startsWith('drafts.')) {
     return { ok: false, reason: 'draftDocument' }
   }
 
   // 2. Editorial adaptation must be approved
-  const eligibility = doc.editorialEligibility as Record<string, unknown> | undefined
+  const eligibility = isPlainObject(doc.editorialEligibility) ? doc.editorialEligibility : undefined
   if (eligibility?.adaptationReviewed !== true) {
     return { ok: false, reason: 'unreviewed' }
   }
 
-  // 3. Release time must be defined and on/before now
-  const releaseAt = doc.releaseAt
-  if (typeof releaseAt !== 'string' || releaseAt.trim().length === 0) {
-    return { ok: false, reason: 'invalidTimestamp' }
-  }
-  const releaseTime = Date.parse(releaseAt)
-  if (!Number.isFinite(releaseTime)) {
-    return { ok: false, reason: 'invalidTimestamp' }
-  }
-  if (releaseTime > nowTime) {
-    return { ok: false, reason: 'embargoed' }
+  // 3. Evaluate dual-path release authorization (slotted monthly vs unslotted legacy)
+  const release = evaluateChallengeRelease(doc, id, nowTime, authorizedLocalDate)
+  if (!release.ok) {
+    return release
   }
 
-  // 4. If unapprovedBlockCount is supplied by GROQ, enforce that it is 0
-  if (
-    doc.unapprovedBlockCount !== undefined &&
-    (typeof doc.unapprovedBlockCount !== 'number' ||
+  // 4. Enforce unapprovedBlockCount == 0 (mandatory on catalog, validated if present on detail)
+  if (requireUnapprovedBlockCount || doc.unapprovedBlockCount !== undefined) {
+    if (
+      typeof doc.unapprovedBlockCount !== 'number' ||
       !Number.isFinite(doc.unapprovedBlockCount) ||
-      doc.unapprovedBlockCount !== 0)
-  ) {
+      doc.unapprovedBlockCount !== 0
+    ) {
+      return { ok: false, reason: 'unapprovedBlocks' }
+    }
+  }
+
+  // 5. Validate screens whenever required or supplied
+  if ((!requireUnapprovedBlockCount || doc.screens !== undefined) && !validateScreenBlocks(doc.screens)) {
     return { ok: false, reason: 'unapprovedBlocks' }
   }
 
-  // 5. Validate primary scripture and rights
+  // 6. Validate primary Scripture and rights
   const primaryScripture = sanitizeScripture(doc.primaryScripture)
   if (!primaryScripture) {
     return { ok: false, reason: 'unlicensedScripture' }
   }
 
-  // 6. Screens must exist and contain zero unapproved blocks or unlicensed scriptures
-  if (!validateScreenBlocks(doc.screens)) {
-    return { ok: false, reason: 'unapprovedBlocks' }
-  }
-
-  // 7. Deep allowlist projection: strictly copies allowed fields only
   const series = sanitizeSeries(doc.series)
+  const sequence =
+    typeof doc.sequence === 'number' && Number.isInteger(doc.sequence) && doc.sequence >= 1
+      ? doc.sequence
+      : undefined
 
-  const projected: Record<string, unknown> = {
-    _id: String(doc._id),
+  // 7. Deep allowlist summary projection (never synthesizes sequence or releaseAt)
+  const summary: GatewayCatalogSummary = {
+    _id: id,
     _type: 'challenge',
     title: String(doc.title ?? ''),
     slug: String(doc.slug ?? ''),
     challengeType: String(doc.challengeType ?? 'teaching'),
-    sequence: Number(doc.sequence ?? 1),
-    releaseAt: String(doc.releaseAt),
+    ...(sequence !== undefined ? { sequence } : {}),
+    ...(release.mode === 'slotted'
+      ? { calendarSlot: release.calendarSlot }
+      : { releaseAt: release.releaseAt }),
     primaryScripture,
-    screens: sanitizeScreens(doc.screens),
     editorialEligibility: {
       adaptationReviewed: true,
       reviewedAt: String(eligibility.reviewedAt ?? ''),
     },
     ...(series ? { series } : {}),
     ...(typeof doc.summary === 'string' ? { summary: doc.summary } : {}),
+  }
+
+  return { ok: true, document: { doc, summary } }
+}
+
+/**
+ * Server-side validation and sanitization for single Challenge responses.
+ */
+export function validateAndProjectChallenge(
+  rawDoc: unknown,
+  nowTime: number,
+  authorizedLocalDate?: string,
+): ProjectionValidationResult<Record<string, unknown>> {
+  const base = validateAndProjectBase(rawDoc, nowTime, authorizedLocalDate, false)
+  if (!base.ok) {
+    return base
+  }
+
+  const { doc, summary } = base.document
+  const projected: Record<string, unknown> = {
+    ...summary,
+    screens: sanitizeScreens(doc.screens),
     ...(Array.isArray(doc.companionLinks) ? { companionLinks: sanitizeCompanionLinks(doc.companionLinks) } : {}),
   }
 
@@ -459,78 +682,12 @@ export function validateAndProjectChallenge(
 export function validateAndProjectCatalogSummary(
   rawDoc: unknown,
   nowTime: number,
+  authorizedLocalDate?: string,
 ): ProjectionValidationResult<GatewayCatalogSummary> {
-  if (!rawDoc || typeof rawDoc !== 'object') {
-    return { ok: false, reason: 'malformedDocument' }
+  const base = validateAndProjectBase(rawDoc, nowTime, authorizedLocalDate, true)
+  if (!base.ok) {
+    return base
   }
 
-  const doc = rawDoc as Record<string, unknown>
-
-  // 1. Must not be a draft document
-  const id = doc._id
-  if (typeof id !== 'string' || id.startsWith('drafts.')) {
-    return { ok: false, reason: 'draftDocument' }
-  }
-
-  // 2. Editorial adaptation must be approved
-  const eligibility = doc.editorialEligibility as Record<string, unknown> | undefined
-  if (eligibility?.adaptationReviewed !== true) {
-    return { ok: false, reason: 'unreviewed' }
-  }
-
-  // 3. Release time must be defined and on/before now
-  const releaseAt = doc.releaseAt
-  if (typeof releaseAt !== 'string' || releaseAt.trim().length === 0) {
-    return { ok: false, reason: 'invalidTimestamp' }
-  }
-  const releaseTime = Date.parse(releaseAt)
-  if (!Number.isFinite(releaseTime)) {
-    return { ok: false, reason: 'invalidTimestamp' }
-  }
-  if (releaseTime > nowTime) {
-    return { ok: false, reason: 'embargoed' }
-  }
-
-  // 4. unapprovedBlockCount must be a finite numeric zero.
-  // Missing, null, non-numeric, or non-zero values strictly fail closed.
-  if (
-    typeof doc.unapprovedBlockCount !== 'number' ||
-    !Number.isFinite(doc.unapprovedBlockCount) ||
-    doc.unapprovedBlockCount !== 0
-  ) {
-    return { ok: false, reason: 'unapprovedBlocks' }
-  }
-
-  // Also if screens array is directly present, validate them
-  if (doc.screens !== undefined && !validateScreenBlocks(doc.screens)) {
-    return { ok: false, reason: 'unapprovedBlocks' }
-  }
-
-  // 5. Validate primary Scripture and rights
-  const primaryScripture = sanitizeScripture(doc.primaryScripture)
-  if (!primaryScripture) {
-    return { ok: false, reason: 'unlicensedScripture' }
-  }
-
-  const series = sanitizeSeries(doc.series)
-
-  // 6. Deep allowlist projection
-  const summary: GatewayCatalogSummary = {
-    _id: String(doc._id),
-    _type: 'challenge',
-    title: String(doc.title ?? ''),
-    slug: String(doc.slug ?? ''),
-    challengeType: String(doc.challengeType ?? 'teaching'),
-    sequence: Number(doc.sequence ?? 1),
-    releaseAt: String(doc.releaseAt),
-    primaryScripture,
-    editorialEligibility: {
-      adaptationReviewed: true,
-      reviewedAt: String(eligibility.reviewedAt ?? ''),
-    },
-    ...(series ? { series } : {}),
-    ...(typeof doc.summary === 'string' ? { summary: doc.summary } : {}),
-  }
-
-  return { ok: true, document: summary }
+  return { ok: true, document: base.document.summary }
 }

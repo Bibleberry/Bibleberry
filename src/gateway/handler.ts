@@ -7,6 +7,7 @@ import {
   validateAndProjectCatalogSummary,
   validateAndProjectChallenge,
 } from './projection.ts'
+import { resolveAuthorizedReaderDate } from './localRelease.ts'
 import type {
   GatewayCatalogResponse,
   GatewayCatalogSummary,
@@ -14,7 +15,9 @@ import type {
   GatewayEnv,
   GatewayErrorKind,
   GatewayErrorResponse,
+  GatewayFetch,
   GatewayOptions,
+  GatewayServerContext,
 } from './types.ts'
 
 const DEFAULT_ALLOWED_ORIGINS = ['http://localhost:3000', 'http://127.0.0.1:3000']
@@ -32,13 +35,13 @@ function parseAllowedOrigins(allowedOriginsConfig?: string): string[] {
 
 function resolveCorsHeaders(request: Request, env: GatewayEnv): Headers {
   const headers = new Headers()
+  headers.set('Vary', 'Origin, X-Bibleberry-Timezone')
   const origin = request.headers.get('Origin')
   if (!origin) return headers
 
   const allowed = parseAllowedOrigins(env.ALLOWED_ORIGINS)
   if (allowed.includes('*') || allowed.includes(origin)) {
     headers.set('Access-Control-Allow-Origin', origin)
-    headers.set('Vary', 'Origin')
   }
 
   return headers
@@ -96,7 +99,7 @@ export async function handleGatewayRequest(
   if (request.method === 'OPTIONS') {
     const preflightHeaders = new Headers(corsHeaders)
     preflightHeaders.set('Access-Control-Allow-Methods', 'GET, OPTIONS')
-    preflightHeaders.set('Access-Control-Allow-Headers', 'Content-Type, Accept')
+    preflightHeaders.set('Access-Control-Allow-Headers', 'Content-Type, Accept, X-Bibleberry-Timezone')
     preflightHeaders.set('Access-Control-Max-Age', '86400')
     preflightHeaders.set('Cache-Control', 'no-store')
     return new Response(null, { status: 204, headers: preflightHeaders })
@@ -131,38 +134,26 @@ export async function handleGatewayRequest(
 
   // Route: GET /api/challenges
   if (pathname === '/api/challenges') {
-    return handleCatalogRequest(env, options, corsHeaders)
+    return handleCatalogRequest(request, env, options, corsHeaders)
   }
 
   // Route: GET /api/challenges/:slug
   const slugMatch = pathname.match(/^\/api\/challenges\/([^/]+)$/)
   if (slugMatch) {
     const slug = slugMatch[1]
-    return handleSingleChallengeRequest(slug, env, options, corsHeaders)
+    return handleSingleChallengeRequest(request, slug, env, options, corsHeaders)
   }
 
   // Unrecognized route
   return errorResponse('notFound', 'Not found', 404, corsHeaders)
 }
 
-async function handleCatalogRequest(
+async function fetchSanityQueryResult(
+  upstreamUrl: URL,
   env: GatewayEnv,
-  options: GatewayOptions,
+  fetchImpl: GatewayFetch,
   corsHeaders: Headers,
-): Promise<Response> {
-  const now = options.getNow ? options.getNow() : new Date()
-  const nowUtc = now.toISOString()
-  const nowTime = now.getTime()
-  const fetchImpl = options.fetchImpl ?? fetch
-
-  const upstreamUrl = buildSanityQueryUrl(
-    env.SANITY_PROJECT_ID,
-    env.SANITY_DATASET,
-    env.SANITY_API_VERSION,
-    CATALOG_GROQ_QUERY,
-    { $nowUtc: nowUtc },
-  )
-
+): Promise<{ ok: true; result: unknown } | { ok: false; response: Response }> {
   let upstreamResponse: Response
   try {
     upstreamResponse = await fetchImpl(upstreamUrl, {
@@ -174,41 +165,101 @@ async function handleCatalogRequest(
       cache: 'no-store',
     })
   } catch {
-    return errorResponse(
-      'upstreamError',
-      'Upstream content service unavailable',
-      502,
-      corsHeaders,
-    )
+    return {
+      ok: false,
+      response: errorResponse(
+        'upstreamError',
+        'Upstream content service unavailable',
+        502,
+        corsHeaders,
+      ),
+    }
   }
 
   if (!upstreamResponse.ok) {
-    return errorResponse(
-      'upstreamError',
-      'Upstream content service unavailable',
-      502,
-      corsHeaders,
-    )
+    return {
+      ok: false,
+      response: errorResponse(
+        'upstreamError',
+        'Upstream content service unavailable',
+        502,
+        corsHeaders,
+      ),
+    }
   }
 
   let payload: unknown
   try {
     payload = await upstreamResponse.json()
   } catch {
-    return errorResponse(
-      'upstreamError',
-      'Upstream content service unavailable',
-      502,
-      corsHeaders,
-    )
+    return {
+      ok: false,
+      response: errorResponse(
+        'upstreamError',
+        'Upstream content service unavailable',
+        502,
+        corsHeaders,
+      ),
+    }
   }
 
-  if (
-    !payload ||
-    typeof payload !== 'object' ||
-    !('result' in payload) ||
-    !Array.isArray(payload.result)
-  ) {
+  if (!payload || typeof payload !== 'object' || !('result' in payload)) {
+    return {
+      ok: false,
+      response: errorResponse(
+        'upstreamError',
+        'Upstream content service unavailable',
+        502,
+        corsHeaders,
+      ),
+    }
+  }
+
+  return { ok: true, result: (payload as { result?: unknown }).result }
+}
+
+function buildRequestReleaseContext(
+  request: Request,
+  options: GatewayOptions,
+): { nowUtc: string; nowTime: number; serverContext: GatewayServerContext } {
+  const now = options.getNow ? options.getNow() : new Date()
+  const resolution = resolveAuthorizedReaderDate(now, request.headers.get('X-Bibleberry-Timezone'))
+  return {
+    nowUtc: now.toISOString(),
+    nowTime: now.getTime(),
+    serverContext: {
+      authorizedLocalDate: resolution.authorizedLocalDate,
+      effectiveTimeZone: resolution.effectiveTimeZone,
+    },
+  }
+}
+
+async function handleCatalogRequest(
+  request: Request,
+  env: GatewayEnv,
+  options: GatewayOptions,
+  corsHeaders: Headers,
+): Promise<Response> {
+  const { nowUtc, nowTime, serverContext } = buildRequestReleaseContext(request, options)
+  const fetchImpl = options.fetchImpl ?? fetch
+
+  const upstreamUrl = buildSanityQueryUrl(
+    env.SANITY_PROJECT_ID,
+    env.SANITY_DATASET,
+    env.SANITY_API_VERSION,
+    CATALOG_GROQ_QUERY,
+    {
+      $nowUtc: nowUtc,
+      $authorizedLocalDate: serverContext.authorizedLocalDate,
+    },
+  )
+
+  const upstream = await fetchSanityQueryResult(upstreamUrl, env, fetchImpl, corsHeaders)
+  if (!upstream.ok) {
+    return upstream.response
+  }
+
+  if (!Array.isArray(upstream.result)) {
     return errorResponse(
       'upstreamError',
       'Upstream content service unavailable',
@@ -218,8 +269,12 @@ async function handleCatalogRequest(
   }
 
   const validatedSummaries: GatewayCatalogSummary[] = []
-  for (const item of payload.result) {
-    const projected = validateAndProjectCatalogSummary(item, nowTime)
+  for (const item of upstream.result) {
+    const projected = validateAndProjectCatalogSummary(
+      item,
+      nowTime,
+      serverContext.authorizedLocalDate,
+    )
     if (projected.ok) {
       validatedSummaries.push(projected.document)
     }
@@ -228,6 +283,7 @@ async function handleCatalogRequest(
   return jsonResponse(
     {
       ok: true,
+      serverContext,
       challenges: validatedSummaries,
     },
     200,
@@ -236,6 +292,7 @@ async function handleCatalogRequest(
 }
 
 async function handleSingleChallengeRequest(
+  request: Request,
   slug: string,
   env: GatewayEnv,
   options: GatewayOptions,
@@ -245,9 +302,7 @@ async function handleSingleChallengeRequest(
     return errorResponse('notFound', 'Challenge not found', 404, corsHeaders)
   }
 
-  const now = options.getNow ? options.getNow() : new Date()
-  const nowUtc = now.toISOString()
-  const nowTime = now.getTime()
+  const { nowUtc, nowTime, serverContext } = buildRequestReleaseContext(request, options)
   const fetchImpl = options.fetchImpl ?? fetch
 
   const upstreamUrl = buildSanityQueryUrl(
@@ -255,73 +310,38 @@ async function handleSingleChallengeRequest(
     env.SANITY_DATASET,
     env.SANITY_API_VERSION,
     CHALLENGE_BY_SLUG_GROQ_QUERY,
-    { $nowUtc: nowUtc, $slug: slug },
+    {
+      $nowUtc: nowUtc,
+      $authorizedLocalDate: serverContext.authorizedLocalDate,
+      $slug: slug,
+    },
   )
 
-  let upstreamResponse: Response
-  try {
-    upstreamResponse = await fetchImpl(upstreamUrl, {
-      method: 'GET',
-      headers: {
-        Accept: 'application/json',
-        Authorization: `Bearer ${env.SANITY_READ_TOKEN}`,
-      },
-      cache: 'no-store',
-    })
-  } catch {
-    return errorResponse(
-      'upstreamError',
-      'Upstream content service unavailable',
-      502,
-      corsHeaders,
-    )
+  const upstream = await fetchSanityQueryResult(upstreamUrl, env, fetchImpl, corsHeaders)
+  if (!upstream.ok) {
+    return upstream.response
   }
 
-  if (!upstreamResponse.ok) {
-    return errorResponse(
-      'upstreamError',
-      'Upstream content service unavailable',
-      502,
-      corsHeaders,
-    )
-  }
-
-  let payload: unknown
-  try {
-    payload = await upstreamResponse.json()
-  } catch {
-    return errorResponse(
-      'upstreamError',
-      'Upstream content service unavailable',
-      502,
-      corsHeaders,
-    )
-  }
-
-  if (!payload || typeof payload !== 'object' || !('result' in payload)) {
-    return errorResponse(
-      'upstreamError',
-      'Upstream content service unavailable',
-      502,
-      corsHeaders,
-    )
-  }
-
-  const rawDoc = (payload as { result?: unknown }).result
+  const rawDoc = upstream.result
   if (!rawDoc || typeof rawDoc !== 'object') {
     // Challenge does not exist, or was filtered out by GROQ (unreviewed or future release)
     return errorResponse('notFound', 'Challenge not found', 404, corsHeaders)
   }
 
-  const projected = validateAndProjectChallenge(rawDoc, nowTime)
+  const projected = validateAndProjectChallenge(
+    rawDoc,
+    nowTime,
+    serverContext.authorizedLocalDate,
+  )
   if (!projected.ok) {
-    // Server-side validation failed closed (e.g. unapproved blocks, embargoed, draft)
+    // Server-side validation failed closed (e.g. unapproved blocks, embargoed, draft, withdrawn)
     return errorResponse('notFound', 'Challenge not found', 404, corsHeaders)
   }
 
   return jsonResponse(
     {
       ok: true,
+      serverContext,
       challenge: projected.document,
     },
     200,
