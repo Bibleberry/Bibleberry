@@ -216,15 +216,36 @@ function rejectDuplicateSiblingKeys(
 }
 
 const isoCalendarDate = z.string().regex(/^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/, 'A valid ISO calendar date YYYY-MM-DD is required.')
+const yearMonthPattern = /^\d{4}-(?:0[1-9]|1[0-2])$/
 
 const calendarSlotSchema = z.object({
-  monthId: requiredText,
+  monthId: z.string().regex(yearMonthPattern, 'monthId must be in YYYY-MM format.'),
   documentId: optionalText,
   monthTitle: optionalText,
   publicationDate: isoCalendarDate,
   dayOfMonth: z.number().int().min(1).max(31),
 }).superRefine((slot, ctx) => {
   const parts = slot.publicationDate.split('-')
+  const expectedYearMonth = `${parts[0]}-${parts[1]}`
+  if (slot.monthId !== expectedYearMonth) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['monthId'],
+      message: `monthId (${slot.monthId}) must match publicationDate year-month (${expectedYearMonth}).`,
+    })
+  }
+
+  if (slot.documentId?.trim()) {
+    const expectedDocumentId = `month-${expectedYearMonth}`
+    if (slot.documentId.trim() !== expectedDocumentId) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['documentId'],
+        message: `documentId (${slot.documentId}) must match deterministic pattern (${expectedDocumentId}).`,
+      })
+    }
+  }
+
   const year = parseInt(parts[0], 10)
   const month = parseInt(parts[1], 10)
   const day = parseInt(parts[2], 10)
@@ -260,7 +281,7 @@ const challengeDocumentSchema = z.object({
   slug: stableKey,
   challengeType: z.enum(['teaching', 'discipline', 'reflection', 'memorization']),
   series: seriesRefSchema.nullish(),
-  sequence: sequenceSchema.optional(),
+  sequence: sequenceSchema.nullish(),
   releaseAt: explicitInstant.nullish(),
   calendarSlot: calendarSlotSchema.nullish(),
   summary: optionalText,
