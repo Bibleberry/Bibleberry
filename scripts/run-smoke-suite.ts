@@ -100,7 +100,7 @@ async function main() {
     try {
       // Run tests targeting public build: navigation, today-resume, memorization, build-isolation
       console.log('>>> Running Playwright smoke tests against Public Bundle...');
-      await runCommand('npx playwright test tests/smoke/navigation.spec.ts tests/smoke/today-resume.spec.ts tests/smoke/memorization.spec.ts tests/smoke/build-isolation.spec.ts', {
+      await runCommand('npx playwright test tests/smoke/navigation.spec.ts tests/smoke/today-resume.spec.ts tests/smoke/memorization.spec.ts tests/smoke/build-isolation.spec.ts tests/smoke/frame-safe-storage.spec.ts', {
         PLAYWRIGHT_TEST_BASE_URL: `http://localhost:${PORT}`,
       });
     } finally {

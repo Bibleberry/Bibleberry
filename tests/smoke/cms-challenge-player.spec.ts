@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/frameSafeTest';
 
 const PROTOTYPE_STORAGE_KEY = 'bibleberry-prototype-v1';
 const LOCAL_LAB_STORAGE_KEY = 'bibleberry-interactive-challenge-lab-v1';

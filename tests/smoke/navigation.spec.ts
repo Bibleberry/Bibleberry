@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/frameSafeTest';
 
 test.describe('Navigation, Onboarding, and Date-Gated Teaching', () => {
   let uncaughtErrors: Error[] = [];

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/frameSafeTest';
 
 test.describe('Today, Journey Activity, and Resume Behavior', () => {
   let uncaughtErrors: Error[] = [];
