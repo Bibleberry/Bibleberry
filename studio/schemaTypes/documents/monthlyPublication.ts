@@ -656,121 +656,134 @@ export const monthlyPublication = defineType({
       }
 
       // 7. Network-dependent cross-document verification (never silently pass when gated!)
-      const client = typeof context.getClient === 'function'
+      const baseClient = typeof context.getClient === 'function'
         ? context.getClient({apiVersion: '2026-11-01'})
         : undefined
 
       const slotAssignedIds = [...seenChallengeIndices.keys()]
 
       if (isGatedBoundary) {
-        if (!client || typeof client.fetch !== 'function') {
+        if (!baseClient || typeof baseClient.withConfig !== 'function') {
           issues.push({
-            message: 'Fail-closed: An authenticated Sanity client is required to verify referenced published Challenges and cross-month uniqueness before approving, finalizing, or scheduling.',
+            message: 'Fail-closed: An authenticated Sanity client supporting perspective: "published" is required to verify referenced published Challenges and cross-month uniqueness before approving, finalizing, or scheduling.',
             path: ['rosterFinalization'],
           })
         } else {
-          const activeIdsToVerify = [...new Set(activeSlotChallengeRefs.map(entry => entry.baseRef))]
-          const selfBase = typeof doc._id === 'string'
-            ? stripDraftPrefix(doc._id)
-            : (doc.yearMonth ? `month-${String(doc.yearMonth)}` : '')
-
-          try {
-            const [otherMonths, publishedChallenges] = await Promise.all([
-              slotAssignedIds.length > 0
-                ? client.fetch<RemoteOtherMonthProjection[]>(
-                    `*[_type == "monthlyPublication" && !(_id in [$baseId, $draftId]) && defined(slots)]{
-                      _id,
-                      yearMonth,
-                      "challengeRefs": slots[defined(challenge._ref)].challenge._ref
-                    }`,
-                    {baseId: selfBase, draftId: `drafts.${selfBase}`},
-                  )
-                : Promise.resolve([] as RemoteOtherMonthProjection[]),
-              activeIdsToVerify.length > 0
-                ? client.fetch<RemoteChallengeProjection[]>(
-                    `*[_type == "challenge" && _id in $ids && !(_id in path("drafts.**"))]{
-                      _id,
-                      withdrawn,
-                      "adaptationReviewed": editorialReview.adaptationReviewed,
-                      "unapprovedBlockCount": count(screens[].blocks[_type in ["comparisonBlock", "visualCardsBlock", "connectedSequenceBlock", "reflectionBlock", "optionalStudyBlock"] && reviewStatus != "approved"])
-                    }`,
-                    {ids: activeIdsToVerify},
-                  )
-                : Promise.resolve([] as RemoteChallengeProjection[]),
-            ])
-
-            if (!Array.isArray(otherMonths) || !Array.isArray(publishedChallenges)) {
-              issues.push({
-                message: 'Fail-closed: Remote Sanity verification returned an invalid response; cannot confirm published Challenge dependencies.',
-                path: ['rosterFinalization'],
-              })
-            } else {
-              for (const other of otherMonths) {
-                const refs = Array.isArray(other?.challengeRefs) ? other.challengeRefs : []
-                for (const otherRef of refs) {
-                  if (typeof otherRef !== 'string') continue
-                  const normalizedOtherRef = stripDraftPrefix(otherRef)
-                  const conflictSlotIdx = seenChallengeIndices.get(normalizedOtherRef)
-                  if (conflictSlotIdx !== undefined) {
-                    issues.push({
-                      message: `Challenge "${normalizedOtherRef}" is already assigned to another monthly publication (${other.yearMonth || other._id}).`,
-                      path: ['slots', conflictSlotIdx, 'challenge'],
-                    })
-                  }
-                }
-              }
-
-              const publishedById = new Map<string, RemoteChallengeProjection>()
-              for (const item of publishedChallenges) {
-                if (item && typeof item._id === 'string') {
-                  publishedById.set(item._id, item)
-                }
-              }
-
-              for (const entry of activeSlotChallengeRefs) {
-                const remote = publishedById.get(entry.baseRef)
-                if (!remote) {
-                  issues.push({
-                    message: `Referenced Challenge "${entry.baseRef}" was not found as a Sanity-published document. Publish and review it before approving, finalizing, or scheduling this month.`,
-                    path: ['slots', entry.index, 'challenge'],
-                  })
-                } else {
-                  if (remote.adaptationReviewed !== true) {
-                    issues.push({
-                      message: `Referenced Challenge "${entry.baseRef}" has not completed editorial adaptation review.`,
-                      path: ['slots', entry.index, 'challenge'],
-                    })
-                  }
-                  if (typeof remote.unapprovedBlockCount !== 'number' || remote.unapprovedBlockCount > 0) {
-                    issues.push({
-                      message: `Referenced Challenge "${entry.baseRef}" contains unapproved structured editorial blocks.`,
-                      path: ['slots', entry.index, 'challenge'],
-                    })
-                  }
-                  if (remote.withdrawn === true) {
-                    issues.push({
-                      message: `Referenced Challenge "${entry.baseRef}" is marked withdrawn; replace it or withdraw its slot in an amendment.`,
-                      path: ['slots', entry.index, 'challenge'],
-                    })
-                  }
-                }
-              }
-            }
-          } catch {
+          const publishedClient = baseClient.withConfig({perspective: 'published'})
+          if (!publishedClient || typeof publishedClient.fetch !== 'function') {
             issues.push({
-              message: 'Fail-closed: Unable to reach Sanity to verify referenced published Challenges and cross-month assignments.',
+              message: 'Fail-closed: Configured published-perspective Sanity client is required before approving, finalizing, or scheduling.',
               path: ['rosterFinalization'],
             })
+          } else {
+            const activeIdsToVerify = [...new Set(activeSlotChallengeRefs.map(entry => entry.baseRef))]
+            const selfBase = typeof doc._id === 'string'
+              ? stripDraftPrefix(doc._id)
+              : (doc.yearMonth ? `month-${String(doc.yearMonth)}` : '')
+
+            try {
+              const [otherMonths, publishedChallenges] = await Promise.all([
+                slotAssignedIds.length > 0
+                  ? publishedClient.fetch<RemoteOtherMonthProjection[]>(
+                      `*[_type == "monthlyPublication" && !(_id in [$baseId, $draftId]) && !(_id in path("drafts.**")) && defined(slots)]{
+                        _id,
+                        yearMonth,
+                        "challengeRefs": slots[defined(challenge._ref)].challenge._ref
+                      }`,
+                      {baseId: selfBase, draftId: `drafts.${selfBase}`},
+                    )
+                  : Promise.resolve([] as RemoteOtherMonthProjection[]),
+                activeIdsToVerify.length > 0
+                  ? publishedClient.fetch<RemoteChallengeProjection[]>(
+                      `*[_type == "challenge" && _id in $ids && !(_id in path("drafts.**"))]{
+                        _id,
+                        withdrawn,
+                        "adaptationReviewed": editorialReview.adaptationReviewed,
+                        "unapprovedBlockCount": count(screens[].blocks[_type in ["comparisonBlock", "visualCardsBlock", "connectedSequenceBlock", "reflectionBlock", "optionalStudyBlock"] && reviewStatus != "approved"])
+                      }`,
+                      {ids: activeIdsToVerify},
+                    )
+                  : Promise.resolve([] as RemoteChallengeProjection[]),
+              ])
+
+              if (!Array.isArray(otherMonths) || !Array.isArray(publishedChallenges)) {
+                issues.push({
+                  message: 'Fail-closed: Remote Sanity verification returned an invalid response; cannot confirm published Challenge dependencies.',
+                  path: ['rosterFinalization'],
+                })
+              } else {
+                for (const other of otherMonths) {
+                  if (!other || (typeof other._id === 'string' && other._id.startsWith('drafts.'))) continue
+                  const refs = Array.isArray(other?.challengeRefs) ? other.challengeRefs : []
+                  for (const otherRef of refs) {
+                    if (typeof otherRef !== 'string') continue
+                    const normalizedOtherRef = stripDraftPrefix(otherRef)
+                    const conflictSlotIdx = seenChallengeIndices.get(normalizedOtherRef)
+                    if (conflictSlotIdx !== undefined) {
+                      issues.push({
+                        message: `Challenge "${normalizedOtherRef}" is already assigned to another published monthly publication (${other.yearMonth || other._id}).`,
+                        path: ['slots', conflictSlotIdx, 'challenge'],
+                      })
+                    }
+                  }
+                }
+
+                const publishedById = new Map<string, RemoteChallengeProjection>()
+                for (const item of publishedChallenges) {
+                  if (item && typeof item._id === 'string' && !item._id.startsWith('drafts.')) {
+                    publishedById.set(item._id, item)
+                  }
+                }
+
+                for (const entry of activeSlotChallengeRefs) {
+                  const remote = publishedById.get(entry.baseRef)
+                  if (!remote) {
+                    issues.push({
+                      message: `Referenced Challenge "${entry.baseRef}" was not found in the published Sanity perspective. Publish and review it before approving, finalizing, or scheduling this month.`,
+                      path: ['slots', entry.index, 'challenge'],
+                    })
+                  } else {
+                    if (remote.adaptationReviewed !== true) {
+                      issues.push({
+                        message: `Referenced Challenge "${entry.baseRef}" has not completed editorial adaptation review in its published document.`,
+                        path: ['slots', entry.index, 'challenge'],
+                      })
+                    }
+                    if (typeof remote.unapprovedBlockCount !== 'number' || remote.unapprovedBlockCount > 0) {
+                      issues.push({
+                        message: `Referenced Challenge "${entry.baseRef}" contains unapproved structured editorial blocks in its published document.`,
+                        path: ['slots', entry.index, 'challenge'],
+                      })
+                    }
+                    if (remote.withdrawn === true) {
+                      issues.push({
+                        message: `Referenced Challenge "${entry.baseRef}" is marked withdrawn in its published document; replace it or withdraw its slot in an amendment.`,
+                        path: ['slots', entry.index, 'challenge'],
+                      })
+                    }
+                  }
+                }
+              }
+            } catch {
+              issues.push({
+                message: 'Fail-closed: Unable to reach Sanity (published perspective) to verify referenced published Challenges and cross-month assignments.',
+                path: ['rosterFinalization'],
+              })
+            }
           }
         }
-      } else if (slotAssignedIds.length > 0 && client && typeof client.fetch === 'function') {
+      } else if (slotAssignedIds.length > 0 && baseClient && typeof baseClient.fetch === 'function') {
         // Non-blocking best-effort collision detection during draft editing
+        const draftReadClient =
+          typeof baseClient.withConfig === 'function'
+            ? baseClient.withConfig({perspective: 'published'})
+            : baseClient
         const selfBase = typeof doc._id === 'string'
           ? stripDraftPrefix(doc._id)
           : (doc.yearMonth ? `month-${String(doc.yearMonth)}` : '')
         try {
-          const otherMonths = await client.fetch<RemoteOtherMonthProjection[]>(
-            `*[_type == "monthlyPublication" && !(_id in [$baseId, $draftId]) && defined(slots)]{
+          const otherMonths = await draftReadClient.fetch<RemoteOtherMonthProjection[]>(
+            `*[_type == "monthlyPublication" && !(_id in [$baseId, $draftId]) && !(_id in path("drafts.**")) && defined(slots)]{
               _id,
               yearMonth,
               "challengeRefs": slots[defined(challenge._ref)].challenge._ref

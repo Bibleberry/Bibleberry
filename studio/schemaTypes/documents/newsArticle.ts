@@ -62,7 +62,7 @@ export const newsArticle = defineType({
         ],
         layout: 'radio',
       },
-      initialValue: 'monthlyPreview',
+      initialValue: 'ministryUpdate',
       validation: Rule => Rule.required(),
     }),
     defineField({

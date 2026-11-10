@@ -3,10 +3,18 @@ import assert from 'node:assert/strict'
 import {test} from 'node:test'
 import {validateDocument} from '@sanity/validation'
 import {createSchema} from 'sanity'
-import workspaces from '../sanity.config'
-import {initialValueTemplates, MONTHLY_PREVIEW_NEWS_TEMPLATE_ID, MONTHLY_PUBLICATION_TEMPLATE_ID} from '../initialValues/templates'
+import {createStructureBuilder} from 'sanity/structure'
+import workspaces, {filterDeterministicNewDocumentOptions} from '../sanity.config'
+import {
+  GENERAL_NEWS_TEMPLATE_ID,
+  initialValueTemplates,
+  MONTHLY_PREVIEW_NEWS_TEMPLATE_ID,
+  MONTHLY_PUBLICATION_TEMPLATE_ID,
+} from '../initialValues/templates'
 import {schemaTypes} from '../schemaTypes/index'
 import {buildMonthlySlots, computeAdvancePreviewStartDate, daysInMonth} from '../schemaTypes/monthlyHelpers'
+import {structure} from '../structure'
+import {parseDeterministicMonthTarget, resolveDeterministicMonthChild} from '../structureHelpers'
 
 type ValidationOptions = Parameters<typeof validateDocument>[0]
 type ValidationDocument = ValidationOptions['document']
@@ -39,29 +47,58 @@ type MockChallengeState = {
 
 function createMockClient({
   publishedChallenges = [],
+  draftChallenges = [],
   otherMonths = [],
+  draftOtherMonths = [],
+  initialPerspective = 'previewDrafts',
+  onFetch,
 }: {
   publishedChallenges?: MockChallengeState[]
+  draftChallenges?: MockChallengeState[]
   otherMonths?: {_id: string; yearMonth?: string; challengeRefs?: string[]}[]
+  draftOtherMonths?: {_id: string; yearMonth?: string; challengeRefs?: string[]}[]
+  initialPerspective?: string
+  onFetch?: (info: {perspective: string; query: string}) => void
 } = {}): ValidationClient {
-  return {
-    fetch: async (query: string, params?: Record<string, unknown>) => {
-      if (query.includes('_type == "monthlyPublication"')) {
-        const baseId = typeof params?.baseId === 'string' ? params.baseId : ''
-        const draftId = typeof params?.draftId === 'string' ? params.draftId : ''
-        return otherMonths.filter(m => m._id !== baseId && m._id !== draftId)
-      }
-      if (query.includes('_type == "challenge"')) {
-        const ids = Array.isArray(params?.ids) ? (params.ids as string[]) : []
-        return publishedChallenges.filter(c => ids.includes(c._id))
-      }
-      return []
-    },
-    getDataUrl: () => { throw new Error('Unexpected Sanity network request') },
-    request: async () => { throw new Error('Unexpected Sanity network request') },
-    observable: {fetch: () => { throw new Error('Unexpected Sanity network fetch') }},
-    withConfig() { return this },
-  } as unknown as ValidationClient
+  function makeClientWithPerspective(perspective: string): ValidationClient {
+    return {
+      fetch: async (query: string, params?: Record<string, unknown>) => {
+        onFetch?.({perspective, query})
+        if (query.includes('_type == "monthlyPublication"')) {
+          const baseId = typeof params?.baseId === 'string' ? params.baseId : ''
+          const draftId = typeof params?.draftId === 'string' ? params.draftId : ''
+          const pool = perspective === 'published'
+            ? otherMonths
+            : [...otherMonths, ...draftOtherMonths]
+          return pool.filter(m => m._id !== baseId && m._id !== draftId)
+        }
+        if (query.includes('_type == "challenge"')) {
+          const ids = Array.isArray(params?.ids) ? (params.ids as string[]) : []
+          if (perspective === 'published') {
+            return publishedChallenges.filter(c => ids.includes(c._id))
+          }
+          // In non-published perspective (e.g. previewDrafts), drafts overlay/supplement published docs
+          const byId = new Map<string, MockChallengeState>()
+          for (const pub of publishedChallenges) byId.set(pub._id, pub)
+          for (const draft of draftChallenges) {
+            const baseId = draft._id.replace(/^drafts\./, '')
+            byId.set(baseId, {...draft, _id: baseId})
+          }
+          return [...byId.values()].filter(c => ids.includes(c._id))
+        }
+        return []
+      },
+      getDataUrl: () => { throw new Error('Unexpected Sanity network request') },
+      request: async () => { throw new Error('Unexpected Sanity network request') },
+      observable: {fetch: () => { throw new Error('Unexpected Sanity network fetch') }},
+      withConfig(nextConfig?: {perspective?: string}) {
+        const nextPerspective = nextConfig?.perspective ?? perspective
+        return makeClientWithPerspective(nextPerspective)
+      },
+    } as unknown as ValidationClient
+  }
+
+  return makeClientWithPerspective(initialPerspective)
 }
 
 function makeIntroScreen(key: string, label: string, heading: string, ctaLabel?: string) {
@@ -778,4 +815,285 @@ test('Studio configures separate production and staging workspaces and monthly t
   assert.ok(newsTemplate && typeof newsTemplate.value === 'function')
   const marchNews = newsTemplate.value({yearMonth: '2027-03'})
   assert.equal(marchNews.publishOnDate, '2027-02-27')
+})
+
+// =========================================================================
+// 9. Published-only perspective enforcement at approval/scheduling gate
+// =========================================================================
+
+test('authoritative approval/scheduling gate explicitly sets perspective: "published" and rejects draft-only and draft-overlay Challenges', async () => {
+  const {doc, publishedChallenges} = makePopulatedScheduledMonth(2027, 4)
+
+  // 9a. Verify every remote fetch on gated month explicitly switches client to perspective: 'published'
+  const observedFetches: {perspective: string; query: string}[] = []
+  const trackedClient = createMockClient({
+    publishedChallenges,
+    initialPerspective: 'previewDrafts',
+    onFetch: info => observedFetches.push(info),
+  })
+  const okRes = await validateDocument({
+    document: doc,
+    schema,
+    client: trackedClient,
+    getDocumentExists: async () => true,
+  })
+  assert.deepEqual(okRes.markers, [])
+  assert.equal(observedFetches.length, 2)
+  assert.ok(
+    observedFetches.every(f => f.perspective === 'published'),
+    `Expected all authoritative fetches in published perspective; saw ${JSON.stringify(observedFetches)}`,
+  )
+
+  // 9b. Draft-only Challenge (present in previewDrafts, absent from published) -> FAILS CLOSED
+  const draftOnlyId = doc.slots[0].challenge._ref
+  const draftOnlyClient = createMockClient({
+    publishedChallenges: publishedChallenges.filter(c => c._id !== draftOnlyId),
+    draftChallenges: [
+      {_id: `drafts.${draftOnlyId}`, withdrawn: false, adaptationReviewed: true, unapprovedBlockCount: 0},
+    ],
+    initialPerspective: 'previewDrafts',
+  })
+  const draftOnlyRes = await validateDocument({
+    document: doc,
+    schema,
+    client: draftOnlyClient,
+    getDocumentExists: async () => true,
+  })
+  assert.ok(markerPaths(draftOnlyRes).includes('slots.0.challenge'))
+
+  // 9c. Draft-overlay Challenge: published version is unreviewed/unapproved while draft overlay claims approved -> FAILS CLOSED
+  const overlayId = doc.slots[3].challenge._ref
+  const publishedUnreviewed = publishedChallenges.map(c =>
+    c._id === overlayId ? {...c, adaptationReviewed: false, unapprovedBlockCount: 1} : c,
+  )
+  const draftOverlayClient = createMockClient({
+    publishedChallenges: publishedUnreviewed,
+    draftChallenges: [
+      {_id: `drafts.${overlayId}`, withdrawn: false, adaptationReviewed: true, unapprovedBlockCount: 0},
+    ],
+    initialPerspective: 'previewDrafts',
+  })
+  const overlayRes = await validateDocument({
+    document: doc,
+    schema,
+    client: draftOverlayClient,
+    getDocumentExists: async () => true,
+  })
+  assert.ok(markerPaths(overlayRes).includes('slots.3.challenge'))
+
+  // 9d. Client failing to provide a valid published-perspective client -> fails closed
+  const brokenPublishedClient = {
+    fetch: async () => publishedChallenges,
+    getDataUrl: () => { throw new Error('Unexpected') },
+    request: async () => { throw new Error('Unexpected') },
+    observable: {fetch: () => { throw new Error('Unexpected') }},
+    withConfig(cfg?: {perspective?: string}) {
+      if (cfg?.perspective === 'published') return {}
+      return this
+    },
+  } as unknown as ValidationClient
+  const resBrokenPublished = await validateDocument({
+    document: doc,
+    schema,
+    client: brokenPublishedClient,
+    getDocumentExists: async () => true,
+  })
+  assert.ok(markerPaths(resBrokenPublished).includes('rosterFinalization'))
+})
+
+// =========================================================================
+// 10. Deterministic Studio Structure & Document Creation / Reopen Flow
+// =========================================================================
+
+test('Studio Structure deterministically creates/opens month-YYYY-MM and news-preview-YYYY-MM without random IDs while preserving general news', async () => {
+  const testTemplates = initialValueTemplates
+  const mockSource = {
+    name: 'staging',
+    projectId: '80016lrq',
+    dataset: 'staging',
+    schema,
+    templates: testTemplates,
+    getClient: () => noNetworkClient,
+    currentUser: null,
+    authenticated: true,
+    document: {
+      unstable_fieldActions: [],
+      actions: () => [],
+      badges: () => [],
+      resolveNewDocumentOptions: (creationContext: {type: string; schemaType?: string}) =>
+        filterDeterministicNewDocumentOptions(
+          testTemplates
+            .filter(t => !creationContext.schemaType || t.schemaType === creationContext.schemaType)
+            .map(t => ({
+              id: t.id,
+              templateId: t.id,
+              title: t.title,
+              schemaType: t.schemaType,
+              parameters: t.parameters,
+            })),
+          creationContext,
+        ),
+    },
+    i18n: {t: (key: string) => key},
+    __internal: {
+      staticInitialValueTemplateItems: testTemplates.map(t => ({
+        id: t.id,
+        templateId: t.id,
+        title: t.title,
+        schemaType: t.schemaType,
+        parameters: t.parameters,
+      })),
+    },
+  } as unknown as Parameters<typeof createStructureBuilder>[0]['source']
+
+  const S = createStructureBuilder({
+    source: mockSource,
+    perspectiveStack: ['drafts'],
+  })
+
+  type SerializedStructureNode = {
+    id?: string
+    type?: string
+    items?: SerializedStructureNode[]
+    initialValueTemplates?: {templateId: string}[]
+    options?: {
+      id?: string
+      type?: string
+      template?: string
+      templateParameters?: Record<string, unknown>
+    }
+    child?:
+      | SerializedStructureNode
+      | ((id: string, ctx: {parent: unknown; index: number; splitIndex: number}) => unknown)
+    serialize?: () => SerializedStructureNode
+  }
+
+  const resolveChild = async (
+    node: SerializedStructureNode | undefined,
+    id: string,
+    parent: unknown,
+    index = 0,
+  ): Promise<SerializedStructureNode | undefined> => {
+    if (!node?.child) return undefined
+    const resolved = (
+      typeof node.child === 'function'
+        ? await node.child(id, {parent, index, splitIndex: 0})
+        : node.child
+    ) as SerializedStructureNode | undefined
+    return resolved && typeof resolved.serialize === 'function'
+      ? resolved.serialize()
+      : resolved
+  }
+
+  const rootList = structure(S, {} as Parameters<typeof structure>[1]).serialize() as SerializedStructureNode
+  const rootItems = rootList.items ?? []
+  const itemIds = rootItems.map(item => item.id)
+  assert.ok(itemIds.includes('monthly-publications-workspace'))
+  assert.ok(itemIds.includes('ministry-news'))
+  assert.ok(itemIds.includes('november-2-pilot'))
+
+  // 10a. Existing monthly publications list disables generic '+' creation
+  const monthlyRootItem = rootItems.find(i => i.id === 'monthly-publications-workspace')
+  assert.ok(monthlyRootItem && monthlyRootItem.type === 'listItem')
+  const monthlyMenu = await resolveChild(monthlyRootItem, 'monthly-publications-workspace', rootList, 0)
+  const monthlyMenuItems = monthlyMenu?.items ?? []
+  const existingItem = monthlyMenuItems.find(i => i.id === 'existing-monthly-publications')
+  assert.ok(existingItem)
+  const existingList = await resolveChild(existingItem, 'existing-monthly-publications', monthlyMenu, 0)
+  assert.deepEqual(existingList?.initialValueTemplates, [])
+
+  // 10b. Year -> Month tree creates/opens exact month-2027-03 and news-preview-2027-03 with parameters
+  const year2027Item = monthlyMenuItems.find(i => i.id === 'months-year-2027')
+  assert.ok(year2027Item)
+  const year2027List = await resolveChild(year2027Item, 'months-year-2027', monthlyMenu, 3)
+  const marchItem = (year2027List?.items ?? []).find(i => i.id === 'month-entry-2027-03')
+  assert.ok(marchItem)
+  const marchActions = await resolveChild(marchItem, 'month-entry-2027-03', year2027List, 2)
+  const marchActionItems = marchActions?.items ?? []
+
+  const openMonthAction = marchActionItems.find(i => i.id === 'open-month-2027-03')
+  assert.ok(openMonthAction)
+  const monthDocPane = await resolveChild(openMonthAction, 'open-month-2027-03', marchActions, 0)
+  assert.equal(monthDocPane?.type, 'document')
+  assert.equal(monthDocPane?.options?.id, 'month-2027-03')
+  assert.equal(monthDocPane?.options?.type, 'monthlyPublication')
+  assert.equal(monthDocPane?.options?.template, MONTHLY_PUBLICATION_TEMPLATE_ID)
+  assert.deepEqual(monthDocPane?.options?.templateParameters, {yearMonth: '2027-03'})
+
+  const openNewsAction = marchActionItems.find(i => i.id === 'open-preview-news-2027-03')
+  assert.ok(openNewsAction)
+  const newsDocPane = await resolveChild(openNewsAction, 'open-preview-news-2027-03', marchActions, 1)
+  assert.equal(newsDocPane?.type, 'document')
+  assert.equal(newsDocPane?.options?.id, 'news-preview-2027-03')
+  assert.equal(newsDocPane?.options?.type, 'newsArticle')
+  assert.equal(newsDocPane?.options?.template, MONTHLY_PREVIEW_NEWS_TEMPLATE_ID)
+  assert.deepEqual(newsDocPane?.options?.templateParameters, {yearMonth: '2027-03'})
+
+  // 10c. Custom YYYY-MM opener pane resolves any future month (e.g. leap Feb 2096-02) cleanly and initializes valid draft
+  const openerItem = monthlyMenuItems.find(i => i.id === 'open-create-custom-month')
+  assert.ok(openerItem)
+  const openerPane = await resolveChild(openerItem, 'open-create-custom-month', monthlyMenu, 1)
+  assert.equal(openerPane?.type, 'component')
+  assert.equal(typeof openerPane?.child, 'function')
+
+  const feb2096Node = await resolveChild(openerPane, 'month-2096-02', openerPane, 0)
+  assert.equal(feb2096Node?.options?.id, 'month-2096-02')
+  assert.equal(feb2096Node?.options?.template, MONTHLY_PUBLICATION_TEMPLATE_ID)
+  assert.deepEqual(feb2096Node?.options?.templateParameters, {yearMonth: '2096-02'})
+
+  const monthTemplate = initialValueTemplates.find(t => t.id === feb2096Node?.options?.template)
+  assert.ok(monthTemplate && typeof monthTemplate.value === 'function')
+  const initializedDraft = {
+    _id: `drafts.${feb2096Node?.options?.id}`,
+    title: 'Leap February 2096 Synthetic Theme',
+    ...monthTemplate.value(feb2096Node?.options?.templateParameters as {yearMonth?: string}),
+  } as ValidationDocument
+  assert.equal(initializedDraft.slots.length, 29)
+  assert.equal(initializedDraft.slots[28].date, '2096-02-29')
+  const draftValidation = await validateDocument({
+    document: initializedDraft,
+    schema,
+    client: noNetworkClient,
+    getDocumentExists: async () => false,
+  })
+  assert.deepEqual(draftValidation.markers, [])
+
+  // Invoking the route again produces the exact same documentId (no duplicate creation)
+  const feb2096Again = resolveDeterministicMonthChild(S, 'month-2096-02').serialize()
+  assert.equal(feb2096Again.options.id, 'month-2096-02')
+
+  // Custom opener pane also resolves news-preview-2096-02 cleanly
+  const feb2096NewsNode = await resolveChild(openerPane, 'news-preview-2096-02', openerPane, 0)
+  assert.equal(feb2096NewsNode?.options?.id, 'news-preview-2096-02')
+  assert.equal(feb2096NewsNode?.options?.template, MONTHLY_PREVIEW_NEWS_TEMPLATE_ID)
+  assert.deepEqual(feb2096NewsNode?.options?.templateParameters, {yearMonth: '2096-02'})
+
+  // Reject invalid childIds and malformed YYYY-MM input
+  assert.throws(() => resolveDeterministicMonthChild(S, 'random-uuid-1234'))
+  assert.equal(parseDeterministicMonthTarget('2027-13').ok, false)
+
+  // 10d. Ministry news preserves general news authoring and global newDocumentOptions excludes random monthly creation
+  const ministryNewsItem = rootItems.find(i => i.id === 'ministry-news')
+  assert.ok(ministryNewsItem)
+  const ministryNewsList = await resolveChild(ministryNewsItem, 'ministry-news', rootList, 3)
+  assert.deepEqual(
+    ministryNewsList?.initialValueTemplates?.map(t => t.templateId),
+    [GENERAL_NEWS_TEMPLATE_ID],
+  )
+
+  const filteredNewOptions = filterDeterministicNewDocumentOptions(
+    [
+      {id: 'challenge', templateId: 'challenge', title: 'Challenge'},
+      {id: 'challengeSeries', templateId: 'challengeSeries', title: 'Series'},
+      {id: 'monthlyPublication', templateId: 'monthlyPublication', title: 'Monthly publication'},
+      {id: MONTHLY_PUBLICATION_TEMPLATE_ID, templateId: MONTHLY_PUBLICATION_TEMPLATE_ID, title: 'Month'},
+      {id: MONTHLY_PREVIEW_NEWS_TEMPLATE_ID, templateId: MONTHLY_PREVIEW_NEWS_TEMPLATE_ID, title: 'Preview News'},
+      {id: GENERAL_NEWS_TEMPLATE_ID, templateId: GENERAL_NEWS_TEMPLATE_ID, title: 'General News'},
+    ] as Parameters<typeof filterDeterministicNewDocumentOptions>[0],
+    {} as Parameters<typeof filterDeterministicNewDocumentOptions>[1],
+  )
+  assert.deepEqual(
+    filteredNewOptions.map(o => o.templateId),
+    ['challenge', 'challengeSeries', GENERAL_NEWS_TEMPLATE_ID],
+  )
 })
