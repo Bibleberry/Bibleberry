@@ -13,6 +13,14 @@ export interface ReleasedCatalogSeries {
   readonly title: string
 }
 
+export interface ReleasedCatalogCalendarSlot {
+  readonly monthId: string
+  readonly documentId?: string
+  readonly monthTitle?: string
+  readonly publicationDate: string
+  readonly dayOfMonth: number
+}
+
 export type ReleasedCatalogScripture = Readonly<CmsScripture>
 
 export interface ReleasedCatalogSummary {
@@ -25,12 +33,14 @@ export interface ReleasedCatalogSummary {
   readonly title: string
   readonly summary?: string
   readonly challengeType: CmsChallengeType
-  readonly sequence: number
-  /** Authored release timestamp string */
-  readonly releaseAt: string
-  /** Normalized UTC release timestamp */
-  readonly releaseAtUtc: string
-  readonly series: ReleasedCatalogSeries
+  readonly sequence?: number
+  /** Authored release timestamp string. Present on legacy UTC-scheduled Challenges. */
+  readonly releaseAt?: string
+  /** Normalized UTC release timestamp. Present on legacy UTC-scheduled Challenges. */
+  readonly releaseAtUtc?: string
+  /** Authoritative monthly calendar slot. Present on monthly calendar-slotted Challenges. */
+  readonly calendarSlot?: ReleasedCatalogCalendarSlot
+  readonly series?: ReleasedCatalogSeries
   readonly primaryScripture: ReleasedCatalogScripture
 }
 
@@ -137,6 +147,59 @@ const seriesSchema = z.object({
   slug: requiredText,
 })
 
+const isoCalendarDate = z.string().regex(/^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/, 'A valid ISO calendar date YYYY-MM-DD is required.')
+const yearMonthPattern = /^\d{4}-(?:0[1-9]|1[0-2])$/
+
+const catalogCalendarSlotSchema = z.object({
+  monthId: z.string().regex(yearMonthPattern, 'monthId must be in YYYY-MM format.'),
+  documentId: optionalText,
+  monthTitle: optionalText,
+  publicationDate: isoCalendarDate,
+  dayOfMonth: z.number().int().min(1).max(31),
+}).superRefine((slot, ctx) => {
+  const parts = slot.publicationDate.split('-')
+  const expectedYearMonth = `${parts[0]}-${parts[1]}`
+  if (slot.monthId !== expectedYearMonth) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['monthId'],
+      message: `monthId (${slot.monthId}) must match publicationDate year-month (${expectedYearMonth}).`,
+    })
+  }
+
+  if (slot.documentId?.trim()) {
+    const expectedDocumentId = `month-${expectedYearMonth}`
+    if (slot.documentId.trim() !== expectedDocumentId) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['documentId'],
+        message: `documentId (${slot.documentId}) must match deterministic pattern (${expectedDocumentId}).`,
+      })
+    }
+  }
+
+  const year = parseInt(parts[0], 10)
+  const month = parseInt(parts[1], 10)
+  const day = parseInt(parts[2], 10)
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate()
+  if (day > daysInMonth) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['publicationDate'],
+      message: `Invalid calendar date ${slot.publicationDate}: month ${month} has only ${daysInMonth} days.`,
+    })
+  }
+  if (slot.dayOfMonth !== day) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['dayOfMonth'],
+      message: `dayOfMonth (${slot.dayOfMonth}) must match publicationDate day (${day}).`,
+    })
+  }
+})
+
+const sequenceSchema = z.number().int().positive()
+
 const gatewayCatalogItemSchema = z.object({
   _id: requiredText.refine(
     id => !id.startsWith('drafts.'),
@@ -145,15 +208,24 @@ const gatewayCatalogItemSchema = z.object({
   slug: requiredText,
   title: requiredText,
   challengeType: z.enum(['teaching', 'discipline', 'reflection', 'memorization']),
-  sequence: z.number().int().positive(),
-  releaseAt: explicitInstant,
+  sequence: sequenceSchema.nullish(),
+  releaseAt: explicitInstant.nullish(),
+  calendarSlot: catalogCalendarSlotSchema.nullish(),
   summary: optionalText,
-  series: seriesSchema,
+  series: seriesSchema.nullish(),
   primaryScripture: scriptureSchema,
   editorialEligibility: z.object({
     adaptationReviewed: z.literal(true),
     reviewedAt: explicitInstant,
   }),
+}).superRefine((item, ctx) => {
+  if (!item.releaseAt && !item.calendarSlot) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['releaseAt'],
+      message: 'Catalog item requires either a releaseAt timestamp or a calendarSlot.',
+    })
+  }
 })
 
 /**
@@ -289,11 +361,23 @@ export function createGatewayCatalogProvider(
       }
       seenSlugs.add(slug)
 
-      const series: ReleasedCatalogSeries = {
-        documentId: item.series._id.trim(),
-        id: item.series.slug.trim(),
-        title: item.series.title.trim(),
-      }
+      const series: ReleasedCatalogSeries | undefined = item.series
+        ? {
+            documentId: item.series._id.trim(),
+            id: item.series.slug.trim(),
+            title: item.series.title.trim(),
+          }
+        : undefined
+
+      const calendarSlot: ReleasedCatalogCalendarSlot | undefined = item.calendarSlot
+        ? {
+            monthId: item.calendarSlot.monthId.trim(),
+            ...(item.calendarSlot.documentId?.trim() ? { documentId: item.calendarSlot.documentId.trim() } : {}),
+            ...(item.calendarSlot.monthTitle?.trim() ? { monthTitle: item.calendarSlot.monthTitle.trim() } : {}),
+            publicationDate: item.calendarSlot.publicationDate.trim(),
+            dayOfMonth: item.calendarSlot.dayOfMonth,
+          }
+        : undefined
 
       const primaryScripture: ReleasedCatalogScripture = {
         id: `${slug}:primary-scripture`,
@@ -315,10 +399,10 @@ export function createGatewayCatalogProvider(
         documentId: docId,
         title: item.title.trim(),
         challengeType: item.challengeType,
-        sequence: item.sequence,
-        releaseAt: item.releaseAt,
-        releaseAtUtc: new Date(item.releaseAt).toISOString(),
-        series,
+        ...(series ? { series } : {}),
+        ...(item.sequence !== null && item.sequence !== undefined ? { sequence: item.sequence } : {}),
+        ...(item.releaseAt ? { releaseAt: item.releaseAt, releaseAtUtc: new Date(item.releaseAt).toISOString() } : {}),
+        ...(calendarSlot ? { calendarSlot } : {}),
         primaryScripture,
         ...(item.summary?.trim() ? { summary: item.summary.trim() } : {}),
       }

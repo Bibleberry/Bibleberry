@@ -215,19 +215,75 @@ function rejectDuplicateSiblingKeys(
   })
 }
 
+const isoCalendarDate = z.string().regex(/^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/, 'A valid ISO calendar date YYYY-MM-DD is required.')
+const yearMonthPattern = /^\d{4}-(?:0[1-9]|1[0-2])$/
+
+const calendarSlotSchema = z.object({
+  monthId: z.string().regex(yearMonthPattern, 'monthId must be in YYYY-MM format.'),
+  documentId: optionalText,
+  monthTitle: optionalText,
+  publicationDate: isoCalendarDate,
+  dayOfMonth: z.number().int().min(1).max(31),
+}).superRefine((slot, ctx) => {
+  const parts = slot.publicationDate.split('-')
+  const expectedYearMonth = `${parts[0]}-${parts[1]}`
+  if (slot.monthId !== expectedYearMonth) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['monthId'],
+      message: `monthId (${slot.monthId}) must match publicationDate year-month (${expectedYearMonth}).`,
+    })
+  }
+
+  if (slot.documentId?.trim()) {
+    const expectedDocumentId = `month-${expectedYearMonth}`
+    if (slot.documentId.trim() !== expectedDocumentId) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['documentId'],
+        message: `documentId (${slot.documentId}) must match deterministic pattern (${expectedDocumentId}).`,
+      })
+    }
+  }
+
+  const year = parseInt(parts[0], 10)
+  const month = parseInt(parts[1], 10)
+  const day = parseInt(parts[2], 10)
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate()
+  if (day > daysInMonth) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['publicationDate'],
+      message: `Invalid calendar date ${slot.publicationDate}: month ${month} has only ${daysInMonth} days.`,
+    })
+  }
+  if (slot.dayOfMonth !== day) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['dayOfMonth'],
+      message: `dayOfMonth (${slot.dayOfMonth}) must match publicationDate day (${day}).`,
+    })
+  }
+})
+
+const seriesRefSchema = z.object({
+  _id: stableKey,
+  title: requiredText,
+  slug: stableKey,
+})
+
+const sequenceSchema = z.number().int().positive()
+
 const challengeDocumentSchema = z.object({
   _id: stableKey,
   _type: z.literal('challenge'),
   title: requiredText,
   slug: stableKey,
   challengeType: z.enum(['teaching', 'discipline', 'reflection', 'memorization']),
-  series: z.object({
-    _id: stableKey,
-    title: requiredText,
-    slug: stableKey,
-  }),
-  sequence: z.number().int().positive(),
-  releaseAt: explicitInstant,
+  series: seriesRefSchema.nullish(),
+  sequence: sequenceSchema.nullish(),
+  releaseAt: explicitInstant.nullish(),
+  calendarSlot: calendarSlotSchema.nullish(),
   summary: optionalText,
   primaryScripture: scriptureSchema,
   screens: z.array(screenSchema).min(1),
@@ -237,6 +293,14 @@ const challengeDocumentSchema = z.object({
     reviewedAt: explicitInstant,
   }),
 }).superRefine((document, ctx) => {
+  if (!document.releaseAt && !document.calendarSlot) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['releaseAt'],
+      message: 'Challenge requires either a releaseAt timestamp or a calendarSlot.',
+    })
+  }
+
   rejectDuplicateSiblingKeys(document.screens, ['screens'], ctx)
   rejectDuplicateSiblingKeys(document.companionLinks, ['companionLinks'], ctx)
 
@@ -394,6 +458,24 @@ export function mapPublishedChallenge(document: unknown): ChallengeMappingResult
   }
 
   const value = parsed.data
+  const series = value.series
+    ? {
+        documentId: value.series._id,
+        id: value.series.slug,
+        title: value.series.title,
+      }
+    : undefined
+
+  const calendarSlot = value.calendarSlot
+    ? {
+        monthId: value.calendarSlot.monthId,
+        ...(value.calendarSlot.documentId ? { documentId: value.calendarSlot.documentId } : {}),
+        ...(value.calendarSlot.monthTitle ? { monthTitle: value.calendarSlot.monthTitle } : {}),
+        publicationDate: value.calendarSlot.publicationDate,
+        dayOfMonth: value.calendarSlot.dayOfMonth,
+      }
+    : undefined
+
   return {
     ok: true,
     challenge: {
@@ -401,14 +483,10 @@ export function mapPublishedChallenge(document: unknown): ChallengeMappingResult
       documentId: value._id,
       title: value.title,
       challengeType: value.challengeType,
-      series: {
-        documentId: value.series._id,
-        id: value.series.slug,
-        title: value.series.title,
-      },
-      sequence: value.sequence,
-      releaseAt: value.releaseAt,
-      releaseAtUtc: new Date(value.releaseAt).toISOString(),
+      ...(series ? { series } : {}),
+      ...(value.sequence !== null && value.sequence !== undefined ? { sequence: value.sequence } : {}),
+      ...(value.releaseAt ? { releaseAt: value.releaseAt, releaseAtUtc: new Date(value.releaseAt).toISOString() } : {}),
+      ...(calendarSlot ? { calendarSlot } : {}),
       summary: value.summary ?? undefined,
       primaryScripture: mapScripture(value.primaryScripture, `${value.slug}:primary-scripture`),
       screens: value.screens.map(screen => ({

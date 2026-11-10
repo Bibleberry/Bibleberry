@@ -305,3 +305,126 @@ test('maps an empty published result as a valid empty catalog', () => {
   const result = mapPublishedChallengeBatch([])
   assert.deepEqual(result, { ok: true, challenges: [] })
 })
+
+test('maps a monthly Challenge with calendarSlot, omitting series, sequence, and releaseAt', () => {
+  const monthlyDoc: Record<string, unknown> = fixture()
+  monthlyDoc.series = null
+  monthlyDoc.sequence = null
+  delete monthlyDoc.releaseAt
+  monthlyDoc.calendarSlot = {
+    monthId: '2027-03',
+    documentId: 'month-2027-03',
+    monthTitle: 'Abiding in the Vine',
+    publicationDate: '2027-03-09',
+    dayOfMonth: 9,
+  }
+
+  const result = mapPublishedChallenge(monthlyDoc)
+  assert.equal(result.ok, true)
+  if (!result.ok) return
+
+  const { challenge } = result
+  assert.equal(challenge.id, 'structural-adapter-fixture')
+  assert.equal(challenge.series, undefined)
+  assert.equal(challenge.sequence, undefined)
+  assert.equal(challenge.releaseAt, undefined)
+  assert.equal(challenge.releaseAtUtc, undefined)
+  assert.deepEqual(challenge.calendarSlot, {
+    monthId: '2027-03',
+    documentId: 'month-2027-03',
+    monthTitle: 'Abiding in the Vine',
+    publicationDate: '2027-03-09',
+    dayOfMonth: 9,
+  })
+})
+
+test('rejects a Challenge lacking both releaseAt and calendarSlot', () => {
+  const unscheduledDoc: Record<string, unknown> = fixture()
+  delete unscheduledDoc.releaseAt
+  delete unscheduledDoc.calendarSlot
+
+  const result = mapPublishedChallenge(unscheduledDoc)
+  assert.equal(result.ok, false)
+  if (!result.ok) {
+    assert.ok(result.failure.issues.some(i => i.path === 'releaseAt'))
+  }
+})
+
+test('rejects a calendarSlot when dayOfMonth does not match publicationDate or exceeds month length', () => {
+  const mismatchedDayDoc: Record<string, unknown> = fixture()
+  delete mismatchedDayDoc.releaseAt
+  mismatchedDayDoc.calendarSlot = {
+    monthId: '2027-03',
+    publicationDate: '2027-03-09',
+    dayOfMonth: 10,
+  }
+
+  const resultMismatch = mapPublishedChallenge(mismatchedDayDoc)
+  assert.equal(resultMismatch.ok, false)
+
+  const invalidFebDayDoc: Record<string, unknown> = fixture()
+  delete invalidFebDayDoc.releaseAt
+  invalidFebDayDoc.calendarSlot = {
+    monthId: '2027-02',
+    publicationDate: '2027-02-30',
+    dayOfMonth: 30,
+  }
+
+  const resultInvalidFeb = mapPublishedChallenge(invalidFebDayDoc)
+  assert.equal(resultInvalidFeb.ok, false)
+})
+
+test('rejects a calendarSlot when monthId or documentId disagrees with publicationDate', () => {
+  const mismatchedMonthDoc: Record<string, unknown> = fixture()
+  delete mismatchedMonthDoc.releaseAt
+  mismatchedMonthDoc.calendarSlot = {
+    monthId: '2027-04',
+    publicationDate: '2027-03-09',
+    dayOfMonth: 9,
+  }
+  const resultMismatch = mapPublishedChallenge(mismatchedMonthDoc)
+  assert.equal(resultMismatch.ok, false)
+  if (!resultMismatch.ok) {
+    assert.ok(resultMismatch.failure.issues.some(i => i.path === 'calendarSlot.monthId'))
+  }
+
+  const mismatchedDocIdDoc: Record<string, unknown> = fixture()
+  delete mismatchedDocIdDoc.releaseAt
+  mismatchedDocIdDoc.calendarSlot = {
+    monthId: '2027-03',
+    documentId: 'month-2027-04',
+    publicationDate: '2027-03-09',
+    dayOfMonth: 9,
+  }
+  const resultMismatchDocId = mapPublishedChallenge(mismatchedDocIdDoc)
+  assert.equal(resultMismatchDocId.ok, false)
+  if (!resultMismatchDocId.ok) {
+    assert.ok(resultMismatchDocId.failure.issues.some(i => i.path === 'calendarSlot.documentId'))
+  }
+})
+
+test('rejects invalid sequence values (0, negative, fractional, nonnumeric) but accepts null and undefined', () => {
+  const invalidValues = [0, -1, -100, 1.5, 0.25, 'one', true, {}]
+  for (const seq of invalidValues) {
+    const doc = fixture()
+    doc.sequence = seq
+    const result = mapPublishedChallenge(doc)
+    assert.equal(result.ok, false, `Expected failure for sequence: ${JSON.stringify(seq)}`)
+  }
+
+  const nullSeqDoc = fixture()
+  nullSeqDoc.sequence = null
+  const nullResult = mapPublishedChallenge(nullSeqDoc)
+  assert.equal(nullResult.ok, true)
+  if (nullResult.ok) {
+    assert.equal(nullResult.challenge.sequence, undefined)
+  }
+
+  const undefinedSeqDoc = fixture()
+  delete undefinedSeqDoc.sequence
+  const undefinedResult = mapPublishedChallenge(undefinedSeqDoc)
+  assert.equal(undefinedResult.ok, true)
+  if (undefinedResult.ok) {
+    assert.equal(undefinedResult.challenge.sequence, undefined)
+  }
+})

@@ -342,3 +342,55 @@ test('deriveReleasedChallengeDetailState fails closed with admissionFailed for i
     assert.equal(state.slug, 'test-challenge-slug')
   }
 })
+
+test('deriveReleasedChallengeDetailState accepts gateway-authorized monthly Challenge with calendarSlot and no releaseAtUtc', () => {
+  const monthlyChallenge: CmsChallenge = {
+    ...sampleChallenge,
+    series: undefined,
+    sequence: undefined,
+    releaseAt: undefined,
+    releaseAtUtc: undefined,
+    calendarSlot: {
+      monthId: '2027-03',
+      publicationDate: '2027-03-01',
+      dayOfMonth: 1,
+    },
+  }
+
+  const state = deriveReleasedChallengeDetailState(
+    { status: 'ready', challenge: monthlyChallenge, source: 'gateway' },
+    'test-challenge-slug',
+    new Date(),
+  )
+
+  assert.equal(state.status, 'ready')
+  if (state.status === 'ready') {
+    assert.equal(state.challenge.calendarSlot?.publicationDate, '2027-03-01')
+    assert.equal(state.admittedChallenge.challengeId, 'cms:challenge-doc-001')
+  }
+})
+
+test('deriveReleasedChallengeDetailState fails closed for direct/non-gateway Challenge possessing calendarSlot but missing releaseAtUtc', () => {
+  const directSlottedChallenge: CmsChallenge = {
+    ...sampleChallenge,
+    releaseAt: undefined,
+    releaseAtUtc: undefined,
+    calendarSlot: {
+      monthId: '2027-03',
+      publicationDate: '2027-03-01',
+      dayOfMonth: 1,
+    },
+  }
+
+  // Without source === 'gateway', direct evaluation runs evaluateChallengeReleaseEligibility
+  const state = deriveReleasedChallengeDetailState(
+    { status: 'ready', challenge: directSlottedChallenge },
+    'test-challenge-slug',
+    new Date(),
+  )
+
+  assert.equal(state.status, 'ineligible')
+  if (state.status === 'ineligible') {
+    assert.equal(state.reason, 'invalidTimestamp')
+  }
+})

@@ -1,5 +1,3 @@
-import type { CmsChallenge } from '../sanity/types.ts'
-
 export type ReleaseEligibilityFailureReason =
   | 'unreviewed'
   | 'invalidTimestamp'
@@ -18,10 +16,15 @@ export type ReleaseEligibilityResult =
       readonly releaseDate?: Date
     }
 
-export type ReleaseEligibilityChallengeInput = Pick<
-  CmsChallenge,
-  'releaseAtUtc' | 'editorial'
->
+export type ReleaseEligibilityChallengeInput = {
+  readonly releaseAtUtc?: string | null
+  readonly editorial?: {
+    readonly adaptationReviewed?: boolean
+  } | null
+  readonly calendarSlot?: {
+    readonly publicationDate?: string
+  } | null
+}
 
 /**
  * Pure release-eligibility evaluator (Track A, A4.1).
