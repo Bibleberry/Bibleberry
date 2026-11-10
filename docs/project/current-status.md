@@ -1,7 +1,7 @@
 # Bibleberry — Current Project Status
 
 **Last full inventory reconciled:** November 5, 2026  
-**Latest scoped checkpoint:** November 9, 2026 (integrated reader/CMS implementation planning; November 8 R05 staging acceptance independently checked)  
+**Latest scoped checkpoint:** November 9–10, 2026 (Argon R08A-0 Revision 2 read-only design and ChatGPT review; full implementation remains unstarted)  
 **Status:** Living, cross-repository handoff and project-state summary  
 **Primary repository:** [ContraPhilosophy/Bibleberry](https://github.com/ContraPhilosophy/Bibleberry)  
 **Companion repository:** [ContraPhilosophy/BerryMark](https://github.com/ContraPhilosophy/BerryMark)  
@@ -10,6 +10,18 @@
 **Related planning:** [Bibleberry #34](https://github.com/ContraPhilosophy/Bibleberry/issues/34), [engineering maturity #20](https://github.com/ContraPhilosophy/Bibleberry/issues/20)
 
 > **Read this at the start of a new AI session**, then verify anything relevant against the **current** GitHub branches, Issues, PRs and source code before making decisions or assignments. This is a maintained summary, **not an automatic reflection of GitHub**. It must not be mistaken for proof that tests, access controls, deployments or approvals have occurred. Last reconciled means the date of the documented review, not continuous monitoring.
+
+## November 9–10, 2026: R08A-0 architecture completed as a read-only proposal (LATEST DESIGN)
+
+**Technical design:** [R08A-0 Revision 2 — Monthly Publication, Series Identity, and Release Contract Design](../architecture/r08a-0-monthly-publication-release-contract.md), prepared by Gemini Argon from Bibleberry `main` `ebe5b4a89695da5afacd06c8362b01fbaf16d446` and BerryMark `main` `d94d5fa01d7b423650527d00f802ee0356362c6f`. Independent review accepted its overall technical direction, with the clarified reader-local Option 1C release approach and consumer-first compatibility migration. This is a **documentation/design deliverable**, **not** evidence of implemented `monthlyPublication` schemas, release endpoints, Month Screen UI, or a live production content pipeline.
+
+**Source-of-truth relationships:** One `monthlyPublication` per `YYYY-MM` owns all calendar slots; `challengeSeries` is an optional thematic grouping; existing `cms:<SanityBaseId>` participation identity remains stable. Reader-local release uses the gateway's server UTC clock + validated reader-supplied IANA timezone, falling back to `America/New_York`; IP location cross-checking and HMAC continuity are intentionally omitted because preventing early access to approved free teaching is not a substantial threat. Private editorial drafts, unpublished material and account records remain protected by separate existing authorization boundaries.
+
+**Next proposed coding assignment:** **R08A-1 — Consumer Compatibility** (details in §9 of the linked architecture). Scope existing CMS and reader consumers to accept optional `series`, `sequence`, `releaseAt` and explicit `calendarSlot` **before** Sanity schemas or gateway begin omitting legacy fields. Then follow R08A-2..R08A-6 in their documented dependency order under the [single canonical roadmap](../product/application-development-roadmap.md). Each requires separate Aaron authorization, testing, PR review and merge; no code or services have been changed by R08A-0.
+
+**Implementation review checkpoints:** Avoid circular Studio authoring requirements; keep guest-completion progress calculations distinct from authoritative account award records; consistently adjust thematic/full-month criteria when a finalized Challenge is withdrawn, including before roster re-finalization. Private Sanity `production` must be verified before entering any real future manuscript; continue to use only `production` and `staging` datasets.
+
+---
 
 ## November 9, 2026: integrated CMS + reader roadmap and accepted staging evidence (LATEST GUIDANCE)
 

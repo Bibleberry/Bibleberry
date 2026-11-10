@@ -4,7 +4,7 @@
 > **Last planning reconciliation:** November 9, 2026; engineering verification checkpoint: November 8 R05 Stage 3C accepted  
 > **Status:** Prioritized cross-system build order and dependency plan; **not** a blanket authorization to implement, deploy, publish, change accounts, or merge a PR  
 > **Owner:** Aaron Waid (product, engineering scope, infrastructure and merge/release decisions); Alexis Waid (substantive theological teaching and appropriate editorial review)  
-> **Next recommended scoped assignment:** **R08A-0 — Monthly Publication, Series Identity, and Release Contract Design**, a design/contract deliverable rather than a broad code change. Aaron separately authorizes its execution.
+> **R08A-0 architecture handoff:** [Argon Revision 2 — Monthly Publication, Series Identity, and Release Contract Design](../architecture/r08a-0-monthly-publication-release-contract.md) has been drafted and independently reviewed as the technical contract. **Next proposed coding assignment:** **R08A-1 — Consumer Compatibility**, requiring a separately approved scoped Issue/PR. No implementation or external changes are authorized by this roadmap.
 
 ## 0. How to use this roadmap — one source of implementation order
 
@@ -55,7 +55,7 @@ The [Current Project Status](../project/current-status.md) and exact merged Issu
 
 **Objective:** Establish one common content identity, release, participation and visibility model before expanding CMS schemas or constructing calendar APIs.
 
-**First proposed assignment — R08A-0, design/contract only:**
+**R08A-0 design deliverable — [Revision 2 technical architecture](../architecture/r08a-0-monthly-publication-release-contract.md); design/contract only:**
 1. Inventory actual `challenge`, `challengeSeries`, BerryMark importer, `production`/`staging` configuration, gateway catalog/detail, and stable completion IDs. No mutations in this assignment.
 2. Choose the single **calendar-month roster authority**, provisionally `monthlyPublication` with stable `YYYY-MM` identity; reconcile it explicitly with existing thematic `challengeSeries` and importer series lookups. Do not establish two competing membership sources.
 3. Define date-slot identity, Challenge relationship and stable IDs, finalization and later correction/rescheduling impacts without retroactive loss of legitimately earned awards.
@@ -161,18 +161,21 @@ The IDs below retain Issue and documentation traceability; **Phase 01–06 above
 
 The additional CMS models (monthly publication, graphic-first cards, discoveries, introductions, News, resources, events, tutorials, notices, editorial notifications and ministry pages) are governed by the [November 9 content architecture](../architecture/content-management-and-publishing.md), **not independent competing workstream numbers**.
 
-## 6. The first engineering handoff to prepare after this roadmap is merged
+## 6. R08A-0 design handoff complete; next proposed coding assignment
 
-**Candidate assignment:** `R08A-0 — Monthly Publication, Series Identity, and Release Contract Design`  
-**Type:** read-only/source review and technical specification; no source edits, migration, schemas or deployment under the initial assignment without a separate authorization.  
-**Inputs:** [November 8 approved reader experience](2026-11-08-approved-reader-experience-and-month-screen.md), [November 9 CMS content architecture](../architecture/content-management-and-publishing.md), [R05 gateway architecture](../architecture/r05-release-gateway.md), existing `challenge`/`challengeSeries` schema, BerryMark import contracts, [Issue #61](https://github.com/ContraPhilosophy/Bibleberry/issues/61), and accepted R05 staging evidence [#62](https://github.com/ContraPhilosophy/Bibleberry/issues/62)/[#63](https://github.com/ContraPhilosophy/Bibleberry/issues/63).
+**Design deliverable:** [R08A-0 Revision 2 — Monthly Publication, Series Identity, and Release Contract Design](../architecture/r08a-0-monthly-publication-release-contract.md). Argon's read-only proposal and the follow-up review cover deterministic monthly slots, optional independent `challengeSeries`, **Option 1C** reader-local calendar release, safe preview/data projections, finalized discovery rosters, emergency withdrawal, integration with existing CMS adapters, migration/tests, and six bounded future assignments.
 
-**Deliverable:** one proposed month/series/source-of-truth and migration contract; local-day release and future-title security policy; example sanitized API payloads; tests; staged narrow assignment breakdown and acceptance criteria.
+**Next candidate coding assignment:** **R08A-1 — Consumer Compatibility** (from §9 of the architecture document). Prepare a narrowly scoped GitHub Issue only after Aaron authorizes the assignment; update existing consumers to tolerate optional `series`, `sequence`, `releaseAt` and an explicit `calendarSlot`, without changing Sanity schemas or the Worker in the same PR.
 
-**No implicit approval:** Accepting this roadmap and the linked CMS plan is **documentation/product planning authority only**. Aaron assigns individual engineering scopes and approves every merge/deployment.
+**Sequence:** R08A-1 consumer-first compatibility → R08A-2 monthly Sanity schemas → R08A-3 gateway + monthly APIs; follow the contract's R08A-4..R08A-6 dependencies before the Month Screen implementation. This is the implementation detail **within** the single authoritative six-phase roadmap, not a competing roadmap.
+
+**Review notes to apply during implementation:** Ensure Studio editing does not create a circular publication dependency between Challenge and month; distinguish client-submitted guest progress calculation from authoritative account award storage and do not treat counts as a cryptographically hidden completion proof; handle emergency withdrawn Challenges consistently for thematic progress and full-month requirements, including the interval before re-finalization.
+
+**No implicit approval:** Neither the design nor this roadmap authorizes source edits, service operations, deployment, or merging. Aaron separately authorizes each coding scope and merge.
 
 ## 7. Change history and maintenance
 
+- **November 9–10, 2026:** R08A-0 technical architecture Revision 2 submitted and reviewed; linked contract records consumer-first migration, simplified timezone policy and six proposed implementation assignments. R08A-1 is the next **candidate** coding scope, subject to separate authorization.
 - **November 9, 2026:** Aaron selected the integrated **six-phase** reader + CMS dependency order as the project's new guidance; kept the existing roadmap path canonical, incorporated 80 CMS content decisions through a supporting specification, and identified R08A-0 contract work first. Reconciled November 8 Stage 3C staging success so already completed integration is not reissued.
 - **November 8, 2026:** The [approved reader-experience specification](2026-11-08-approved-reader-experience-and-month-screen.md) introduced the calendar Month Screen, Shelf/Library terminology, hybrid Monthly Discoveries, Hub-only earned-card announcements and monthly preview/welcome.
 - **November 5, 2026:** Initial multi-workstream roadmap and engineering inventory were established. Their old priority grouping and "next milestone" language are now **superseded**, not a parallel plan; Git history preserves the original.
