@@ -9,7 +9,7 @@ The checked-in Android project was generated and synchronized. This Linux runner
 ## Prerequisites and dependency versions
 
 - Node.js 22 or later and npm. The runner used Node.js 22.23.4 and npm 10.9.9.
-- Android Studio, Android SDK (the generated project targets API 36; minimum SDK 24), and a compatible JDK. The runner had JDK 17 and Android SDK/build tools installed.
+- Android Studio 2025.2.1 or later, Android SDK Platform 36 and Build Tools, and JDK 21. The generated Capacitor project compiles with `sourceCompatibility` and `targetCompatibility` set to Java 21; JDK 17 is insufficient. In Android Studio, set **Settings → Build, Execution, Deployment → Build Tools → Gradle → Gradle JDK** to JDK 21. For command-line builds, set `JAVA_HOME` to a JDK 21 installation and ensure `$JAVA_HOME/bin` is on `PATH` before running Gradle. This runner had JDK 17 and Android SDK/build tools installed, so it did not meet the JDK requirement.
 - macOS and Xcode for iOS project generation, simulator/device builds, and signing. CocoaPods is required by the iOS plugin workflow.
 - Dependencies selected for this POC: `@capacitor/core`, `@capacitor/cli`, `@capacitor/android`, and `@capacitor/ios` 8.6.0; `@capacitor/preferences` 8.0.1. The native Preferences plugin is used only for non-credential guest participation data. It is not a secure session/token store.
 
@@ -63,18 +63,18 @@ Executed in the Linux agent environment:
 
 | Check | Result |
 |---|---|
-| `npm ci` | Passed; existing lockfile dependencies installed. npm reported 7 moderate audit findings, also present before adding Capacitor dependencies. |
+| `npm ci` | Passed after merging current `main`; npm reported 7 moderate audit findings. |
 | GitHub advisory check for the five added packages | No known advisories returned. |
 | `npm run build` | Passed (`tsc -b` and Vite production build). Vite emitted existing dependency annotation warnings from Zod. |
 | `npm run lint` | Passed. |
 | `npm run test:native-participation` | Passed, 5 focused tests. |
 | `npm run test:adapter` | Passed, 176 tests. |
-| `npm run test:gateway` | Passed, 67 tests. |
-| `npm run test:smoke` | Passed all six builds: public (15), Developer Studio (4), Challenge pilot (2), participation pilot (5), released Challenge (7), gateway Challenge (7). Public build isolation passed. |
+| `npm run test:gateway` | Passed, 78 tests, including the accepted R08A-3A gateway changes from current `main`. |
+| `npm run test:smoke` | Passed all six builds: public (15), Developer Studio (4), Challenge pilot (2), participation pilot (5), released Challenge (7), gateway Challenge (7), 40 total. Public build isolation passed. |
 | `npm run check:staging` | Passed Wrangler dry-run; packaged 13 `dist/` assets and did not deploy. |
 | `npx cap add android` / `npx cap sync android` | Passed; sync found `@capacitor/preferences@8.0.1`. |
-| `cd android && ./gradlew assembleDebug` | Attempted; blocked while resolving Android Gradle Plugin / Google Services from `https://dl.google.com/dl/android/maven2/` (`dl.google.com` DNS unavailable). No APK was produced. |
-| GitHub Actions for PR #82 | Run [42876563159](https://github.com/ContraPhilosophy/Bibleberry/actions/runs/42876563159) reported `action_required` with zero jobs; no CI result is available and no failed-job logs exist. |
+| `cd android && ./gradlew assembleDebug` | Attempted on the updated branch; blocked before compilation while resolving Android Gradle Plugin / Google Services from `https://dl.google.com/dl/android/maven2/` (`dl.google.com` DNS unavailable). The runner also has JDK 17, not the required JDK 21. No APK was produced. |
+| GitHub Actions for PR #82 | The prior pre-merge-head run [42877635539](https://github.com/ContraPhilosophy/Bibleberry/actions/runs/42877635539) reported `action_required` with zero jobs; no CI result is available and no failed-job logs exist. Check the latest pushed head separately; do not treat this prior run as its result. |
 | iOS generation/build | Not run: this runner is Linux and has no Xcode or CocoaPods. |
 | Physical-device checks | Not run: no Android device/emulator, iPhone, or signing identity was available. |
 
