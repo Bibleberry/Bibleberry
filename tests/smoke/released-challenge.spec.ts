@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect } from './helpers/frameSafeTest'
 
 const PROTOTYPE_STORAGE_KEY = 'bibleberry-prototype-v1'
 const PARTICIPATION_STORAGE_KEY = 'bibleberry-reader-participation-v1'

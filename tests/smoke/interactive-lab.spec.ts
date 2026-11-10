@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/frameSafeTest';
 
 test.describe('Interactive Challenge Lab and State Isolation', () => {
   let uncaughtErrors: Error[] = [];
@@ -10,6 +10,28 @@ test.describe('Interactive Challenge Lab and State Isolation', () => {
 
   test.afterEach(async () => {
     expect(uncaughtErrors).toEqual([]);
+  });
+
+  test('Developer Studio lazily opens a pilot formation experience', async ({ page }) => {
+    await page.addInitScript(() => {
+      localStorage.setItem('bibleberry-prototype-v1', JSON.stringify({
+        onboarded: true,
+        appearance: 'system',
+        textSize: 'default',
+        reminderEnabled: false,
+        reminderTime: '08:00',
+        explored: [],
+        journey: [],
+        lastOpened: null,
+        resumeDismissedDate: '',
+      }));
+    });
+
+    await page.goto('/');
+    await page.locator('.app-shell nav button:has-text("More")').first().click();
+    await page.locator('button.developer-studio-entry').click();
+    await page.getByRole('button', { name: 'Test guided spiritual discipline' }).click();
+    await expect(page.locator('.formation-entry h1')).toHaveText('Making Room to Stop');
   });
 
   test('guided Challenge progress, saves, completion, backtracking, Scripture practice, and storage isolation', async ({ page }) => {

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/frameSafeTest';
 
 test.describe('Scripture Memorization Phrase-Reveal Tool', () => {
   let uncaughtErrors: Error[] = [];
