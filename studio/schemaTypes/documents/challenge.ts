@@ -58,24 +58,66 @@ export const challenge = defineType({
       to: [{type: 'challengeSeries'}],
       weak: true,
       group: 'publishing',
-      description: 'Allows draft-only pilot editing. Publish the series before publishing the Challenge.',
-      validation: Rule => Rule.required(),
+      description: 'Optional independent thematic grouping. Monthly calendar membership lives on monthlyPublication.slots[].',
     }),
     defineField({
       name: 'sequence',
       title: 'Sequence within series',
       type: 'number',
       group: 'publishing',
-      description: 'Deliberate editorial order; do not infer adjacency from consecutive dates.',
-      validation: Rule => Rule.required().integer().min(1),
+      description: 'Optional deliberate editorial order within an assigned series; do not infer adjacency from consecutive dates.',
+      validation: Rule => Rule.integer().min(1),
     }),
     defineField({
       name: 'releaseAt',
-      title: 'Reader release time',
+      title: 'Standalone UTC release time',
       type: 'datetime',
       group: 'publishing',
-      description: 'Choose an explicit time and offset before publication. This controls catalog availability only; it is not an embargo or scheduler.',
-      validation: Rule => Rule.required(),
+      description: 'Optional timestamp retained for standalone or legacy UTC-scheduled Challenges. Omit for monthly calendar-slotted Challenges (never synthesize UTC midnight).',
+    }),
+    defineField({
+      name: 'withdrawn',
+      title: 'Withdrawn from reader delivery',
+      type: 'boolean',
+      group: 'publishing',
+      initialValue: false,
+      description: 'Emergency suppression switch. Suppresses Challenge delivery immediately while preserving prior reader completions.',
+    }),
+    defineField({
+      name: 'keywords',
+      title: 'Topical search keywords',
+      type: 'array',
+      group: 'publishing',
+      description: 'Optional curated search keywords grounded in the teaching.',
+      of: [defineArrayMember({type: 'string'})],
+      validation: Rule => Rule.unique(),
+    }),
+    defineField({
+      name: 'supersedesChallengeIds',
+      title: 'Superseded canonical Challenge IDs',
+      type: 'array',
+      group: 'provenance',
+      description: 'Optional canonical base document IDs (without drafts. or cms:) for exceptional alias reconciliation.',
+      of: [defineArrayMember({type: 'string'})],
+      validation: Rule =>
+        Rule.unique().custom((value, context) => {
+          if (!Array.isArray(value)) return true
+          const selfId = typeof context.document?._id === 'string'
+            ? context.document._id.replace(/^drafts\./, '')
+            : ''
+          for (const entry of value) {
+            if (typeof entry !== 'string' || !entry.trim()) {
+              return 'Superseded Challenge IDs must be non-empty document ID strings.'
+            }
+            if (entry.startsWith('drafts.') || entry.startsWith('cms:')) {
+              return 'Use the canonical base Sanity document ID without drafts. or cms: prefixes.'
+            }
+            if (selfId && entry === selfId) {
+              return 'A Challenge cannot supersede its own canonical document ID.'
+            }
+          }
+          return true
+        }),
     }),
     defineField({name: 'summary', title: 'Optional archive summary', type: 'text', rows: 3, group: 'publishing'}),
     defineField({
@@ -170,11 +212,17 @@ export const challenge = defineType({
     {title: 'Release time, newest first', name: 'releaseDesc', by: [{field: 'releaseAt', direction: 'desc'}]},
   ],
   preview: {
-    select: {title: 'title', challengeType: 'challengeType', sequence: 'sequence', reviewed: 'editorialReview.adaptationReviewed'},
-    prepare({title, challengeType, sequence, reviewed}) {
+    select: {
+      title: 'title',
+      challengeType: 'challengeType',
+      sequence: 'sequence',
+      reviewed: 'editorialReview.adaptationReviewed',
+      withdrawn: 'withdrawn',
+    },
+    prepare({title, challengeType, sequence, reviewed, withdrawn}) {
       return {
         title: title || 'Untitled Challenge',
-        subtitle: `${challengeType || 'challenge'}${sequence ? ` · Sequence ${sequence}` : ''} · ${reviewed ? 'Reviewed' : 'Review pending'}`,
+        subtitle: `${challengeType || 'challenge'}${sequence ? ` · Sequence ${sequence}` : ''} · ${reviewed ? 'Reviewed' : 'Review pending'}${withdrawn ? ' · WITHDRAWN' : ''}`,
       }
     },
   },

@@ -5,6 +5,11 @@ export const structure: StructureResolver = S => S.list()
   .id('bibleberry')
   .title('Bibleberry')
   .items([
+    S.documentTypeListItem('monthlyPublication').title('Monthly publications'),
+    S.documentTypeListItem('challenge').title('Challenges'),
+    S.documentTypeListItem('challengeSeries').title('Series'),
+    S.documentTypeListItem('newsArticle').title('Ministry news'),
+    S.divider(),
     S.listItem()
       .id('november-2-pilot')
       .title('November 2 pilot setup')
@@ -33,7 +38,4 @@ export const structure: StructureResolver = S => S.list()
               ),
           ]),
       ),
-    S.divider(),
-    S.documentTypeListItem('challenge').title('Challenges'),
-    S.documentTypeListItem('challengeSeries').title('Series'),
   ])

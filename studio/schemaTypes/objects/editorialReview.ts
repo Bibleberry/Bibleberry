@@ -16,7 +16,7 @@ export const editorialReview = defineType({
     defineField({name: 'sourceRevision', title: 'Source revision or location', type: 'string'}),
     defineField({
       name: 'adaptationReviewed',
-      title: 'Adaptation reviewed by Alexis',
+      title: 'Editorial adaptation reviewed and approved',
       type: 'boolean',
       initialValue: false,
       validation: Rule => Rule.required(),
