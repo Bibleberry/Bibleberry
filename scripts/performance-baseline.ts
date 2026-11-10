@@ -1,4 +1,5 @@
 import { chromium, type Browser, type Page } from '@playwright/test';
+import { addTopFrameInitScript } from '../tests/smoke/helpers/frameSafeTest.ts';
 import { spawn, type ChildProcess } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
@@ -275,7 +276,7 @@ async function runOnce(browser: Browser, environment: Environment): Promise<RunR
     requestFailures.push(`${request.method()} ${request.url()}: ${request.failure()?.errorText ?? 'failed'}`);
   });
 
-  await page.addInitScript(storageKey => {
+  await addTopFrameInitScript(page, (storageKey: string) => {
     localStorage.setItem(storageKey, JSON.stringify({
       onboarded: true,
       appearance: 'system',

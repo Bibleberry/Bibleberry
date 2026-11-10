@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './helpers/frameSafeTest';
 
 test.describe('Interactive Challenge Lab and State Isolation', () => {
   let uncaughtErrors: Error[] = [];
