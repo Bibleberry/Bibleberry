@@ -1,3 +1,4 @@
+import { YEAR_MONTH_PATTERN, isValidCivilDate } from './localRelease.ts'
 import type { GatewayCalendarSlot, GatewayCatalogSummary } from './types.ts'
 
 export const REVIEWED_BLOCK_TYPES = new Set([
@@ -25,22 +26,8 @@ export type ProjectionValidationResult<T> =
   | { readonly ok: true; readonly document: T }
   | { readonly ok: false; readonly reason: ValidationFailureReason }
 
-const YEAR_MONTH_PATTERN = /^\d{4}-(?:0[1-9]|1[0-2])$/
-const ISO_CIVIL_DATE_PATTERN = /^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
+export function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
-}
-
-function isValidCivilDate(value: unknown): value is string {
-  if (typeof value !== 'string' || !ISO_CIVIL_DATE_PATTERN.test(value)) {
-    return false
-  }
-  const year = Number(value.slice(0, 4))
-  const month = Number(value.slice(5, 7))
-  const day = Number(value.slice(8, 10))
-  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate()
-  return day >= 1 && day <= daysInMonth
 }
 
 function extractSlotChallengeRef(slot: Record<string, unknown>): string | undefined {
@@ -289,7 +276,7 @@ function validateAndSanitizeScriptureCore(
   return { valid: true, data: clean }
 }
 
-function sanitizeScripture(scripture: unknown): Record<string, unknown> | null {
+export function sanitizeScripture(scripture: unknown): Record<string, unknown> | null {
   const result = validateAndSanitizeScriptureCore(scripture)
   if (!result.valid) return null
   return result.data
@@ -330,7 +317,7 @@ function sanitizeCompanionLinks(links: unknown): Record<string, unknown>[] {
     })
 }
 
-function sanitizePortableText(blocks: unknown): Record<string, unknown>[] {
+export function sanitizePortableText(blocks: unknown): Record<string, unknown>[] {
   if (!Array.isArray(blocks)) return []
   return blocks
     .filter(b => b && typeof b === 'object' && (b as Record<string, unknown>)._type === 'block')
@@ -372,7 +359,7 @@ function sanitizePortableText(blocks: unknown): Record<string, unknown>[] {
     })
 }
 
-function sanitizeBlock(rawBlock: Record<string, unknown>): Record<string, unknown> | null {
+export function sanitizeBlock(rawBlock: Record<string, unknown>): Record<string, unknown> | null {
   const blockType = String(rawBlock._type ?? '')
   const key = String(rawBlock._key ?? '')
   if (!key || !blockType) return null
@@ -505,7 +492,7 @@ function sanitizeBlock(rawBlock: Record<string, unknown>): Record<string, unknow
  * Validates that all structured editorial blocks requiring approval have been approved
  * and that all blocks (including scriptures and Portable Text) satisfy the reader contract.
  */
-function validateScreenBlocks(screens: unknown): boolean {
+export function validateScreenBlocks(screens: unknown): boolean {
   if (!Array.isArray(screens) || screens.length === 0) {
     return false
   }
