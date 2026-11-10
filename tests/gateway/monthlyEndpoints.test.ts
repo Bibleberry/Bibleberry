@@ -927,3 +927,170 @@ test('fails closed on unconfirmed Scripture rights in introduction and rejects s
   })
   assert.equal(streamRes.status, 400)
 })
+
+test('emergency withdrawn Challenge with retracted title/Scripture/review keeps Month and progress available (29/29) while hiding future formerChallengeId and rejecting inconsistent identities', async () => {
+  // Past withdrawn Challenge (Day 5) and future withdrawn Challenge (Day 20) with missing/invalid content & review
+  const docWithRetractedWithdrawn = makeMonthlyPublicationDoc('2098-04')
+  docWithRetractedWithdrawn.slots[4].challenge = {
+    _id: 'r08a-stg-2098-04-day-05',
+    _type: 'challenge',
+    title: '',
+    slug: '',
+    challengeType: 'invalid-type',
+    withdrawn: true,
+    editorialEligibility: { adaptationReviewed: false },
+    unapprovedBlockCount: 2,
+    primaryScripture: {
+      reference: 'Psalm 23:1',
+      translation: 'ESV',
+      textStatus: 'provided',
+      passage: 'SECRET_RETRACTED_PASSAGE_DAY_05',
+      usageRightsConfirmed: false,
+      practiceStatus: 'notConfigured',
+    },
+    assignedMonthIds: ['month-2098-04'],
+  } as unknown as ReturnType<typeof makeChallengeForSlot>
+  docWithRetractedWithdrawn.slots[19].challenge = {
+    _id: 'r08a-stg-2098-04-day-20',
+    _type: 'challenge',
+    title: undefined as unknown as string,
+    withdrawn: true,
+    editorialEligibility: null as unknown as { adaptationReviewed: boolean; reviewedAt: string },
+    unapprovedBlockCount: undefined as unknown as number,
+    primaryScripture: null as unknown as ReturnType<typeof makeChallengeForSlot>['primaryScripture'],
+    assignedMonthIds: ['month-2098-04'],
+  } as unknown as ReturnType<typeof makeChallengeForSlot>
+
+  const mockFetch = createMockFetch(() =>
+    new Response(JSON.stringify({ result: docWithRetractedWithdrawn }), { status: 200 }),
+  )
+  const getNow = () => new Date('2098-04-10T12:00:00Z') // Day 5 is past, Day 20 is future
+
+  // 1. Month detail stays 200 with 30 slots, active total reduced to 28, retracted text excluded, future formerChallengeId hidden
+  {
+    const res = await handleGatewayRequest(
+      new Request('http://localhost/api/months/2098-04', {
+        headers: { 'X-Bibleberry-Timezone': 'America/New_York' },
+      }),
+      TEST_ENV,
+      { getNow, fetchImpl: mockFetch },
+    )
+    assert.equal(res.status, 200)
+    const text = await res.text()
+    assert.equal(text.includes('SECRET_RETRACTED_PASSAGE_DAY_05'), false)
+    const body = JSON.parse(text) as {
+      month: {
+        totalChallenges: number
+        slots: Array<{
+          dayOfMonth: number
+          availability: string
+          formerChallengeId?: string
+          title?: string
+          slug?: string
+        }>
+        discoveries: Array<{ kind: string; targetCount: number }>
+      }
+    }
+    assert.equal(body.month.slots.length, 30)
+    assert.equal(body.month.totalChallenges, 28)
+    assert.equal(body.month.slots[4].availability, 'unavailable')
+    assert.equal(body.month.slots[4].title, undefined)
+    assert.equal(body.month.slots[4].slug, undefined)
+    assert.equal(body.month.slots[4].formerChallengeId, 'cms:r08a-stg-2098-04-day-05')
+    assert.equal(body.month.slots[19].availability, 'unavailable')
+    assert.equal(body.month.slots[19].formerChallengeId, undefined)
+    const fullMonthDisc = body.month.discoveries[body.month.discoveries.length - 1]
+    assert.equal(fullMonthDisc.kind, 'fullMonth')
+    assert.equal(fullMonthDisc.targetCount, 28)
+  }
+
+  // 2. Month preview also stays 200 with withdrawn slots marked unavailable
+  {
+    const res = await handleGatewayRequest(
+      new Request('http://localhost/api/months/2098-04/preview', {
+        headers: { 'X-Bibleberry-Timezone': 'America/New_York' },
+      }),
+      TEST_ENV,
+      { getNow: () => new Date('2098-03-29T12:00:00Z'), fetchImpl: mockFetch },
+    )
+    assert.equal(res.status, 200)
+    const body = (await res.json()) as {
+      month: { slots: Array<{ dayOfMonth: number; availability: string }> }
+    }
+    assert.equal(body.month.slots[4].availability, 'unavailable')
+    assert.equal(body.month.slots[19].availability, 'unavailable')
+  }
+
+  // 3. Progress route remains 200, ignores completion submitted for withdrawn Challenge, and achieves 29/29 on single withdrawal
+  {
+    const docSingleRetracted = makeMonthlyPublicationDoc('2098-04')
+    docSingleRetracted.slots[4].challenge = {
+      _id: 'r08a-stg-2098-04-day-05',
+      _type: 'challenge',
+      title: '',
+      withdrawn: true,
+      editorialEligibility: { adaptationReviewed: false },
+      unapprovedBlockCount: 1,
+      primaryScripture: null as unknown as ReturnType<typeof makeChallengeForSlot>['primaryScripture'],
+      assignedMonthIds: ['month-2098-04'],
+    } as unknown as ReturnType<typeof makeChallengeForSlot>
+
+    const singleFetch = createMockFetch(() =>
+      new Response(JSON.stringify({ result: docSingleRetracted }), { status: 200 }),
+    )
+    const allActiveIds = docSingleRetracted.slots
+      .filter((_, idx) => idx !== 4)
+      .map(s => `cms:${s.challenge._id}`)
+
+    const res = await handleGatewayRequest(
+      new Request('http://localhost/api/months/2098-04/progress', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Bibleberry-Timezone': 'America/New_York',
+        },
+        body: JSON.stringify({
+          completedChallengeIds: [...allActiveIds, 'cms:r08a-stg-2098-04-day-05'],
+        }),
+      }),
+      TEST_ENV,
+      { getNow: () => new Date('2098-05-02T12:00:00Z'), fetchImpl: singleFetch },
+    )
+    assert.equal(res.status, 200)
+    const body = (await res.json()) as {
+      completedInMonthCount: number
+      totalChallenges: number
+      discoveries: Array<{ kind: string; achievedCount: number; targetCount: number; isEarned: boolean }>
+    }
+    assert.equal(body.completedInMonthCount, 29)
+    assert.equal(body.totalChallenges, 29)
+    const fullMonth = body.discoveries[body.discoveries.length - 1]
+    assert.equal(fullMonth.kind, 'fullMonth')
+    assert.equal(fullMonth.achievedCount, 29)
+    assert.equal(fullMonth.targetCount, 29)
+    assert.equal(fullMonth.isEarned, true)
+  }
+
+  // 4. Malformed/inconsistent roster identity on a withdrawn Challenge still fails closed (404)
+  {
+    const badIdentityDoc = makeMonthlyPublicationDoc('2098-04')
+    badIdentityDoc.slots[4].challenge = {
+      _id: 'r08a-stg-2098-04-day-05',
+      _type: 'challenge',
+      withdrawn: true,
+      assignedMonthIds: ['month-2098-05'], // cross-month mismatch
+    } as unknown as ReturnType<typeof makeChallengeForSlot>
+
+    const badFetch = createMockFetch(() =>
+      new Response(JSON.stringify({ result: badIdentityDoc }), { status: 200 }),
+    )
+    const res = await handleGatewayRequest(
+      new Request('http://localhost/api/months/2098-04', {
+        headers: { 'X-Bibleberry-Timezone': 'America/New_York' },
+      }),
+      TEST_ENV,
+      { getNow, fetchImpl: badFetch },
+    )
+    assert.equal(res.status, 404)
+  }
+})

@@ -284,3 +284,100 @@ test('GET /api/news enforces coverImage alt requirement and handles valid coverI
     alt: 'Open Bible notebook illustration',
   })
 })
+
+test('GET /api/news enforces minimal monthlyPreview allowlist (strips sentinel body and coverImage on both filtered and unfiltered requests)', async () => {
+  const generalUpdate = makeNewsDoc({
+    coverImage: {
+      url: 'https://cdn.sanity.io/images/80016lrq/staging/general-cover.png',
+      alt: 'General ministry update cover',
+    },
+  })
+  const previewWithSentinels = makePreviewNewsDoc('2098-03', {
+    body: [
+      {
+        _key: 'b-sentinel',
+        _type: 'block',
+        style: 'normal',
+        markDefs: [],
+        children: [
+          { _key: 's-sentinel', _type: 'span', text: 'SENTINEL_PREVIEW_BODY_DO_NOT_LEAK', marks: [] },
+        ],
+      },
+    ],
+    coverImage: {
+      url: 'https://cdn.sanity.io/images/80016lrq/staging/sentinel-preview-cover.png',
+      alt: 'SENTINEL_PREVIEW_COVER_ALT_DO_NOT_LEAK',
+    },
+  })
+
+  const mockFetch = createMockFetch(() =>
+    new Response(JSON.stringify({ result: [previewWithSentinels, generalUpdate] }), { status: 200 }),
+  )
+
+  // Filtered ?category=monthlyPreview
+  {
+    const res = await handleGatewayRequest(
+      new Request('http://localhost/api/news?category=monthlyPreview', {
+        headers: { 'X-Bibleberry-Timezone': 'America/New_York' },
+      }),
+      TEST_ENV,
+      { getNow: () => new Date('2098-02-27T12:00:00Z'), fetchImpl: mockFetch },
+    )
+    assert.equal(res.status, 200)
+    const text = await res.text()
+    assert.equal(text.includes('SENTINEL_PREVIEW_BODY_DO_NOT_LEAK'), false)
+    assert.equal(text.includes('sentinel-preview-cover.png'), false)
+    assert.equal(text.includes('SENTINEL_PREVIEW_COVER_ALT_DO_NOT_LEAK'), false)
+    const body = JSON.parse(text) as { articles: Array<Record<string, unknown>> }
+    assert.equal(body.articles.length, 1)
+    assert.deepEqual(Object.keys(body.articles[0]).sort(), [
+      'category',
+      'destination',
+      'documentId',
+      'id',
+      'publishedOn',
+      'summary',
+      'title',
+    ])
+    assert.equal('body' in body.articles[0], false)
+    assert.equal('coverImage' in body.articles[0], false)
+  }
+
+  // Unfiltered /api/news: monthlyPreview remains minimal while ministryUpdate retains body and coverImage
+  {
+    const res = await handleGatewayRequest(
+      new Request('http://localhost/api/news', {
+        headers: { 'X-Bibleberry-Timezone': 'America/New_York' },
+      }),
+      TEST_ENV,
+      { getNow: () => new Date('2098-02-27T12:00:00Z'), fetchImpl: mockFetch },
+    )
+    assert.equal(res.status, 200)
+    const text = await res.text()
+    assert.equal(text.includes('SENTINEL_PREVIEW_BODY_DO_NOT_LEAK'), false)
+    assert.equal(text.includes('sentinel-preview-cover.png'), false)
+    assert.equal(text.includes('SENTINEL_PREVIEW_COVER_ALT_DO_NOT_LEAK'), false)
+    const body = JSON.parse(text) as { articles: Array<Record<string, unknown>> }
+    assert.equal(body.articles.length, 2)
+    const previewArticle = body.articles.find(a => a.category === 'monthlyPreview')
+    const updateArticle = body.articles.find(a => a.category === 'ministryUpdate')
+    assert.ok(previewArticle)
+    assert.ok(updateArticle)
+    assert.equal('body' in previewArticle, false)
+    assert.equal('coverImage' in previewArticle, false)
+    assert.deepEqual(Object.keys(previewArticle).sort(), [
+      'category',
+      'destination',
+      'documentId',
+      'id',
+      'publishedOn',
+      'summary',
+      'title',
+    ])
+    assert.equal(Array.isArray(updateArticle.body), true)
+    assert.deepEqual(updateArticle.coverImage, {
+      url: 'https://cdn.sanity.io/images/80016lrq/staging/general-cover.png',
+      alt: 'General ministry update cover',
+    })
+  }
+})

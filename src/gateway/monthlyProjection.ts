@@ -371,6 +371,22 @@ function validateMonthlyBase(
       }
     }
 
+    // Emergency individual Challenge withdrawal suppresses immediately even before rosterVersion >= 2.
+    // Check explicit withdrawal before content/review fields that may have been retracted alongside withdrawal.
+    if (ch.withdrawn === true) {
+      withdrawnChallengeIds.add(ch._id)
+      normalizedSlots.push({
+        dayOfMonth: expectedDay,
+        date: expectedDate,
+        status: 'withdrawn',
+        baseChallengeId: ch._id,
+      })
+      continue
+    }
+    if (!isNotWithdrawnFlag(ch.withdrawn)) {
+      return { ok: false, reason: 'malformedDocument' }
+    }
+
     const eligibility = isPlainObject(ch.editorialEligibility) ? ch.editorialEligibility : undefined
     if (eligibility?.adaptationReviewed !== true) {
       return { ok: false, reason: 'unreviewed' }
@@ -391,21 +407,6 @@ function validateMonthlyBase(
 
     const challengeTitle = typeof ch.title === 'string' ? ch.title.trim() : ''
     if (!challengeTitle) {
-      return { ok: false, reason: 'malformedDocument' }
-    }
-
-    // Emergency individual Challenge withdrawal suppresses immediately even before rosterVersion >= 2
-    if (ch.withdrawn === true) {
-      withdrawnChallengeIds.add(ch._id)
-      normalizedSlots.push({
-        dayOfMonth: expectedDay,
-        date: expectedDate,
-        status: 'withdrawn',
-        baseChallengeId: ch._id,
-      })
-      continue
-    }
-    if (!isNotWithdrawnFlag(ch.withdrawn)) {
       return { ok: false, reason: 'malformedDocument' }
     }
 
@@ -972,13 +973,6 @@ export function validateAndProjectNewsArticle(
     return { ok: false, reason: 'embargoed' }
   }
 
-  const coverCheck = sanitizeCoverImage(doc.coverImage)
-  if (!coverCheck.ok) {
-    return { ok: false, reason: 'malformedDocument' }
-  }
-
-  const body = sanitizePortableText(doc.body)
-
   if (typedCategory === 'monthlyPreview') {
     const idMatch = NEWS_PREVIEW_ID_PATTERN.exec(id)
     if (!idMatch) {
@@ -1035,8 +1029,6 @@ export function validateAndProjectNewsArticle(
         publishedOn: doc.publishOnDate,
         title,
         summary,
-        ...(body.length > 0 ? { body } : {}),
-        ...(coverCheck.coverImage ? { coverImage: coverCheck.coverImage } : {}),
         destination: {
           kind: 'month',
           monthId: expectedYearMonth,
@@ -1048,6 +1040,13 @@ export function validateAndProjectNewsArticle(
   if (id.startsWith('news-preview-')) {
     return { ok: false, reason: 'malformedDocument' }
   }
+
+  const coverCheck = sanitizeCoverImage(doc.coverImage)
+  if (!coverCheck.ok) {
+    return { ok: false, reason: 'malformedDocument' }
+  }
+
+  const body = sanitizePortableText(doc.body)
 
   return {
     ok: true,
