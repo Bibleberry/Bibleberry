@@ -531,6 +531,18 @@ test('drops malformed optional earned artwork without dropping earning, but reje
     assert.equal(invalidCardResult.progress.discoveries[0].awardId, 'card:monthly:2026-11:table-fellowship')
   }
 
+  const invalidRightsPayload = makeProgressPayload('2026-11', 30)
+  ;(invalidRightsPayload.discoveries[0].earnedCard as Record<string, unknown>).rightsStatus = ''
+  const invalidRightsProvider = createGatewayMonthProvider({
+    fetchImpl: async () => new Response(JSON.stringify(invalidRightsPayload), { status: 200 }),
+  })
+  const invalidRightsResult = await invalidRightsProvider.loadMonthProgress('2026-11', ['cms:doc-1'])
+  assert.equal(invalidRightsResult.status, 'ready')
+  if (invalidRightsResult.status === 'ready') {
+    assert.equal(invalidRightsResult.progress.discoveries[0].isEarned, true)
+    assert.equal(invalidRightsResult.progress.discoveries[0].earnedCard, undefined)
+  }
+
   const mismatchedIdentityPayload = makeProgressPayload('2026-11', 30)
   mismatchedIdentityPayload.discoveries[0].awardId = 'card:monthly:2026-12:table-fellowship'
   const mismatchedProvider = createGatewayMonthProvider({

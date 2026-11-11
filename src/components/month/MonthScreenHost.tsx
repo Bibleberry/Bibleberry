@@ -238,7 +238,7 @@ export function MonthScreenHost({
         if (res.status === 'ready') {
           setProgressData(res.progress)
           setProgressError(null)
-          void persistGatewayMonthProgressAwards(store, res).catch(() => {
+          void persistGatewayMonthProgressAwards(store, res, cleanYearMonth).catch(() => {
             if (!ignore) setProgressError('Unable to save earned discovery progress.')
           })
         } else if (res.status === 'requestError') {

@@ -24,10 +24,12 @@ export type MonthAwardReconciliationStatus =
 export async function persistGatewayMonthProgressAwards(
   store: ReaderParticipationStore,
   result: MonthProgressResult,
+  expectedMonthId?: string,
 ): Promise<number> {
   if (result.status !== 'ready' || result.source !== 'gateway') return 0
 
   const { progress, serverContext } = result
+  if (expectedMonthId !== undefined && progress.monthId !== expectedMonthId) return 0
   const awards = admitGatewayMonthProgressAwards({
     ok: true,
     serverContext,
@@ -155,7 +157,7 @@ export async function reconcileFinishedChallengeMonthAwards(input: {
     return 'progressUnavailable'
   }
 
-  return (await persistGatewayMonthProgressAwards(store, progressResult)) > 0
+  return (await persistGatewayMonthProgressAwards(store, progressResult, monthId)) > 0
     ? 'recorded'
     : 'noAwards'
 }

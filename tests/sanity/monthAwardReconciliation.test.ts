@@ -340,10 +340,16 @@ test('fails closed without a gateway month binding and admits a later successful
   assert.deepEqual(store.getSnapshot().data.earnedAwards, {})
 
   const laterProgress = makeProgress()
+  assert.equal(await persistGatewayMonthProgressAwards(store, laterProgress, '2026-10'), 0)
+  assert.deepEqual(store.getSnapshot().data.earnedAwards, {})
   assert.equal(await persistGatewayMonthProgressAwards(store, laterProgress), 2)
   assert.equal(
     store.getSnapshot().data.earnedAwards['card:monthly:2026-11:theme']?.earnedOn,
     '2027-01-03',
+  )
+  assert.equal(
+    store.getSnapshot().data.earnedAwards['card:monthly:2026-11:theme']?.earnedCard,
+    undefined,
   )
   assert.equal(await persistGatewayMonthProgressAwards(store, laterProgress), 2)
   assert.equal(
