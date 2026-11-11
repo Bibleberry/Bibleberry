@@ -426,6 +426,15 @@ def main() -> int:
                 (evidence_dir / "03-xcuitest-summary.json").write_text(
                     xc_summary.stdout, encoding="utf-8"
                 )
+                try:
+                    xc_data = json.loads(xc_summary.stdout)
+                    devices = xc_data.get("devicesAndConfigurations") or []
+                    if devices and isinstance(devices[0], dict):
+                        dev_info = devices[0].get("device") or {}
+                        if isinstance(dev_info, dict) and dev_info.get("architecture"):
+                            summary["simulatorArch"] = dev_info["architecture"]
+                except Exception:
+                    pass
             attachments_dir = evidence_dir / "xcuitest-attachments"
             attachments_dir.mkdir(parents=True, exist_ok=True)
             run_cmd(
