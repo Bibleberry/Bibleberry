@@ -5,8 +5,17 @@ import type {
   MonthSlot,
   MonthSlotPreview,
 } from '../../cms/reader/monthProvider.ts'
+import { formatCanonicalChallengeId, parseStoredChallengeId } from '../../participation/identity.ts'
 import { selectChallengeParticipationView } from '../../participation/model.ts'
-import type { LocalCalendarDate, ReaderParticipationData } from '../../participation/types.ts'
+import type {
+  CanonicalChallengeId,
+  LocalCalendarDate,
+  ReaderParticipationData,
+} from '../../participation/types.ts'
+
+function toCanonicalCmsChallengeId(raw: string): CanonicalChallengeId | null {
+  return parseStoredChallengeId(raw, 'cms') ?? formatCanonicalChallengeId('cms', raw)
+}
 
 /**
  * Pure, storage-free calendar, slot-state, and discovery presentation helpers
@@ -136,22 +145,23 @@ export function extractCompletedCmsChallengeIdsForMonth(
   data: ReaderParticipationData,
   slots?: readonly (MonthSlot | MonthSlotPreview)[],
 ): string[] {
-  let allowedIds: Set<string> | null = null
+  let allowedIds: Set<CanonicalChallengeId> | null = null
   if (slots) {
-    allowedIds = new Set<string>()
+    allowedIds = new Set<CanonicalChallengeId>()
     for (const slot of slots) {
       if (slot.availability === 'available') {
-        allowedIds.add(slot.challengeId)
+        const canonicalId = toCanonicalCmsChallengeId(slot.challengeId)
+        if (canonicalId) allowedIds.add(canonicalId)
       }
     }
   }
 
   const result: string[] = []
   for (const id of Object.keys(data.completedChallenges)) {
-    const trimmed = id.trim()
-    if (!trimmed.startsWith('cms:') || trimmed.length <= 4) continue
-    if (allowedIds && !allowedIds.has(trimmed)) continue
-    result.push(trimmed)
+    const canonical = parseStoredChallengeId(id, 'cms')
+    if (!canonical) continue
+    if (allowedIds && !allowedIds.has(canonical)) continue
+    result.push(canonical)
     if (result.length >= MAX_MONTH_PROGRESS_IDS) break
   }
   return result
@@ -160,16 +170,18 @@ export function extractCompletedCmsChallengeIdsForMonth(
 function resolvePriorityContinueChallengeId(
   slots: readonly (MonthSlot | MonthSlotPreview)[],
   data: ReaderParticipationData,
-): string | undefined {
-  const inProgressIds: { challengeId: string; updatedOn: string; dayOfMonth: number }[] = []
+): CanonicalChallengeId | undefined {
+  const inProgressIds: { challengeId: CanonicalChallengeId; updatedOn: string; dayOfMonth: number }[] = []
 
   for (const slot of slots) {
     if (slot.availability !== 'available') continue
-    const view = selectChallengeParticipationView(data, slot.challengeId)
+    const canonicalId = toCanonicalCmsChallengeId(slot.challengeId)
+    if (!canonicalId) continue
+    const view = selectChallengeParticipationView(data, canonicalId)
     if (view.isInProgress && !view.isCompleted) {
-      const updatedOn = data.inProgressChallenges[slot.challengeId]?.updatedOn ?? ''
+      const updatedOn = data.inProgressChallenges[canonicalId]?.updatedOn ?? ''
       inProgressIds.push({
-        challengeId: slot.challengeId,
+        challengeId: canonicalId,
         updatedOn,
         dayOfMonth: slot.dayOfMonth,
       })
@@ -234,9 +246,11 @@ export function deriveMonthSlotPresentations(
       }
     }
 
-    const view = participationData
-      ? selectChallengeParticipationView(participationData, slot.challengeId)
-      : null
+    const canonicalId = toCanonicalCmsChallengeId(slot.challengeId)
+    const view =
+      participationData && canonicalId
+        ? selectChallengeParticipationView(participationData, canonicalId)
+        : null
 
     if (view?.isCompleted) {
       return {
@@ -256,7 +270,7 @@ export function deriveMonthSlotPresentations(
     }
 
     if (view?.isInProgress) {
-      const isContinue = slot.challengeId === continueChallengeId
+      const isContinue = canonicalId !== null && canonicalId === continueChallengeId
       return {
         dayOfMonth: slot.dayOfMonth,
         date: slot.date,

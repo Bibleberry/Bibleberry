@@ -11,6 +11,7 @@ import {
 } from './challengeOrigin.ts'
 import {
   adaptCatalogProviderToDetailProvider,
+  defaultGatewayChallengeProvider,
   resolveDefaultChallengeProvider,
   type ChallengeDetailProvider,
   type ChallengeDetailResult,
@@ -67,8 +68,9 @@ export function ReleasedChallengeHost({
   const effectiveProvider = useMemo(() => {
     if (challengeProvider) return challengeProvider
     if (catalogProvider) return adaptCatalogProviderToDetailProvider(catalogProvider)
+    if (resolvedOrigin.kind === 'month') return defaultGatewayChallengeProvider
     return resolveDefaultChallengeProvider()
-  }, [challengeProvider, catalogProvider])
+  }, [challengeProvider, catalogProvider, resolvedOrigin.kind])
 
   const [detailResult, setDetailResult] = useState<ChallengeDetailResult | null>(null)
   const [loadAttempt, setLoadAttempt] = useState<number>(0)
