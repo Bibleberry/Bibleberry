@@ -176,7 +176,7 @@ def capture_scoped_logs(udid: str, start_time: str, out_file: Path) -> str:
     return content
 
 
-def capture_console_pty_launch(udid: str, bundle_id: str, out_file: Path, duration_s: float = 6.0) -> None:
+def capture_console_pty_launch(udid: str, bundle_id: str, out_file: Path, duration_s: float = 10.0) -> str:
     master_fd, slave_fd = pty.openpty()
     chunks: list[bytes] = []
     proc = subprocess.Popen(
@@ -188,8 +188,11 @@ def capture_console_pty_launch(udid: str, bundle_id: str, out_file: Path, durati
     )
     os.close(slave_fd)
     deadline = time.monotonic() + duration_s
+    seen_preferences_deadline: float | None = None
     try:
         while time.monotonic() < deadline:
+            if seen_preferences_deadline is not None and time.monotonic() >= seen_preferences_deadline:
+                break
             ready, _, _ = select.select([master_fd], [], [], 0.25)
             if ready:
                 try:
@@ -199,6 +202,10 @@ def capture_console_pty_launch(udid: str, bundle_id: str, out_file: Path, durati
                 if not data:
                     break
                 chunks.append(data)
+                if seen_preferences_deadline is None:
+                    current_text = b"".join(chunks).decode("utf-8", errors="replace")
+                    if re.search(r"To Native ->\s+Preferences\s+get\b", current_text):
+                        seen_preferences_deadline = min(deadline, time.monotonic() + 0.5)
             if proc.poll() is not None:
                 break
         run_cmd(["xcrun", "simctl", "terminate", udid, bundle_id], timeout=20, check=False)
@@ -226,6 +233,7 @@ def capture_console_pty_launch(udid: str, bundle_id: str, out_file: Path, durati
         os.close(master_fd)
     text = b"".join(chunks).decode("utf-8", errors="replace")
     out_file.write_text(text, encoding="utf-8")
+    return text
 
 
 def find_new_app_crashes(since_epoch: float) -> list[str]:
@@ -381,7 +389,16 @@ def main() -> int:
 
         # Capture line-buffered Capacitor stdout/CAPLog via PTY before clean uninstall.
         run_cmd(["xcrun", "simctl", "terminate", udid, args.bundle_id], timeout=20, check=False)
-        capture_console_pty_launch(udid, args.bundle_id, evidence_dir / "02b-simctl-console-pty.log", duration_s=6.0)
+        pty_log = capture_console_pty_launch(
+            udid, args.bundle_id, evidence_dir / "02b-simctl-console-pty.log", duration_s=10.0
+        )
+        if "Preferences.then" in pty_log:
+            raise RuntimeError("Detected Capacitor Preferences.then() Proxy trap in simulator PTY log.")
+        if not re.search(r"To Native ->\s+Preferences\s+get\b", pty_log):
+            raise RuntimeError(
+                "Expected native Capacitor Preferences.get bridge call in 02b-simctl-console-pty.log."
+            )
+        summary["simctlPhase"]["nativePreferencesGetObserved"] = True
 
         # Uninstall before XCUITest so UI tests start from a clean install -> onboarding state.
         run_cmd(["xcrun", "simctl", "terminate", udid, args.bundle_id], timeout=20, check=False)
