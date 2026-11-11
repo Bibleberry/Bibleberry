@@ -15,10 +15,10 @@ import type { OrdinaryChallengeSessionState } from './components/challenge/ordin
 import {
   formatChallengeOriginLabel,
   parseChallengeOrigin,
-  parseChallengeOriginFromSearchParams,
   type ChallengeOrigin,
 } from './cms/reader/challengeOrigin'
 import { defaultGuestParticipationStore } from './participation/defaultGuestStore'
+import { parseInternalDestination } from './native/internalDestination'
 import './App.css'
 
 const DisciplineLibraryView = lazy(() => import('./components/FormationViews').then(module => ({ default: module.DisciplineLibraryView })))
@@ -622,38 +622,26 @@ function currentCivilYearMonth(): string {
   return `${year}-${month}`
 }
 
+function parseInternalReaderDestination(hash: string) {
+  return parseInternalDestination(hash, {
+    monthScreenEnabled,
+    releasedChallengeRouteEnabled,
+    currentYearMonth: currentCivilYearMonth(),
+    challengeOrigin: typeof window !== 'undefined' ? window.history.state?.challengeOrigin : undefined,
+    search: typeof window !== 'undefined' ? window.location.search : '',
+  })
+}
+
 function parseMonthHash(hash: string): { yearMonth: string } | null {
-  if (hash === '#/month' || hash === '#/month/') {
-    return { yearMonth: currentCivilYearMonth() }
-  }
-  if (!hash.startsWith('#/month/')) return null
-  const raw = hash.slice('#/month/'.length).split('?')[0].trim()
-  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(raw)) return null
-  return { yearMonth: raw }
+  const destination = parseInternalReaderDestination(hash)
+  return destination?.type === 'month' ? { yearMonth: destination.yearMonth } : null
 }
 
 function parseReleasedChallengeHash(hash: string): { slug: string; origin: ChallengeOrigin } | null {
-  if (!hash.startsWith('#/challenge/')) return null
-  const withoutPrefix = hash.slice('#/challenge/'.length)
-  const queryIndex = withoutPrefix.indexOf('?')
-  const rawSlug = queryIndex >= 0 ? withoutPrefix.slice(0, queryIndex) : withoutPrefix
-  const rawQuery = queryIndex >= 0 ? withoutPrefix.slice(queryIndex + 1) : ''
-  const slug = rawSlug.trim()
-  if (slug.length === 0) return null
-
-  const historyOrigin = typeof window !== 'undefined' ? window.history.state?.challengeOrigin : undefined
-  let origin: ChallengeOrigin
-  if (historyOrigin !== undefined) {
-    origin = parseChallengeOrigin(historyOrigin)
-  } else if (rawQuery.length > 0) {
-    origin = parseChallengeOriginFromSearchParams(new URLSearchParams(rawQuery))
-  } else if (typeof window !== 'undefined' && window.location.search.length > 0) {
-    origin = parseChallengeOriginFromSearchParams(new URLSearchParams(window.location.search))
-  } else {
-    origin = { kind: 'hub' }
-  }
-
-  return { slug, origin }
+  const destination = parseInternalReaderDestination(hash)
+  return destination?.type === 'releasedChallenge'
+    ? { slug: destination.slug, origin: destination.origin }
+    : null
 }
 
 function parseInitialRoute(): {
