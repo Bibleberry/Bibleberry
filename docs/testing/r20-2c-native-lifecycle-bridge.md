@@ -57,15 +57,26 @@ Executed locally for this change:
 | `npx cap sync android` | Passed; registered `@capacitor/app@8.1.2` and existing `@capacitor/preferences@8.0.1`. |
 | `git diff --check` | Passed. |
 
-The Native Android debug workflow run
-[43035089375](https://github.com/ContraPhilosophy/Bibleberry/actions/runs/43035089375)
-at PR head `fc1de802164f68a4563a19b3366ad7f57fe04e1b` is `action_required` with
-zero jobs. It did not build an APK; the logs endpoint reports no failed jobs.
-The regular CI run [43035090014](https://github.com/ContraPhilosophy/Bibleberry/actions/runs/43035090014)
-is likewise `action_required` with zero jobs. Workflow execution and APK
-verification remain blocked on the required GitHub approval. The existing path
-filters include the changed package files and `android/**`; no workflow change
-was needed.
+The Native Android debug workflow
+[43036205650](https://github.com/ContraPhilosophy/Bibleberry/actions/runs/43036205650)
+completed successfully on attempt 2 at PR head
+`71a72eb2ea1bc8533de203166a0364c25ac79579`; the runner checked out synthetic
+PR-merge SHA `3ea6815709c532d948c62a0ee1fc95de381c1b0b`. Dependencies, web build,
+Capacitor sync, Gradle debug build and Android unit tests all passed. APK
+verification found package ID `com.example.bibleberry.r20poc` and
+`assets/public/index.html`. The APK was **4,387,011 bytes** with SHA-256
+`44519cac1fdde43847b3f66e8d239eca692302f08ea3f36b3a8d2f543fc0b045`.
+Artifact `bibleberry-r20-2a-debug-apk` (ID `13862029969`) was uploaded; it
+expires **2026-11-18 14:13 UTC**. The uploaded ZIP digest is
+`81566802a5bb0d5a3622b896315e0b12e4acc657a76e76aca5aa38b89882b88a`.
+
+The regular CI run
+[43036205512](https://github.com/ContraPhilosophy/Bibleberry/actions/runs/43036205512)
+at the same PR head had its other three jobs pass; the reader-build job was
+still installing Playwright Chromium when this note was updated. The Android
+run covered the final code and generated native configuration. The existing
+path filters include changed package files and `android/**`; no workflow
+change was needed.
 
 ## Android debug APK
 
@@ -82,10 +93,12 @@ cd android
 ./gradlew :app:assembleDebug :app:testDebugUnitTest --no-daemon
 ```
 
-After a **Native Android debug build** run is approved and succeeds, open that
-run on this PR and download the `bibleberry-r20-2a-debug-apk` artifact from its
-Artifacts section. It is a short-lived debug artifact, not a signed release
-build. A browser build does not establish Android or iOS device acceptance.
+Open the successful
+[Native Android debug build run](https://github.com/ContraPhilosophy/Bibleberry/actions/runs/43036205650)
+and download `bibleberry-r20-2a-debug-apk` (artifact ID `13862029969`) from its
+Artifacts section before it expires. It is a short-lived debug artifact, not a
+signed release build. A browser build does not establish Android or iOS
+physical-device acceptance.
 
 ## Physical-device acceptance — not run
 
