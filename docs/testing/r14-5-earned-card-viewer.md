@@ -26,4 +26,18 @@
 
 ## Verification Results
 
-_Pending final full-suite run._
+All browser smoke checks use synthetic mocked gateway responses, synthetic `cdn.sanity.io` 1x1 PNG image fulfillments, and local browser storage under the `VITE_ENABLE_MONTH_SCREEN=true` feature gate; no live Sanity writes or release/embargo bypasses are performed.
+
+| Check | Outcome | Scope |
+| --- | --- | --- |
+| `npm run lint` | Passed | ESLint across repository (`0` errors, `0` warnings) |
+| `npm run build` | Passed | TypeScript `tsc -b` + Vite production build |
+| `npm run test:adapter` | Passed (226 tests) | Adapter, month screen model, and `earnedCardViewer` unit/boundary tests |
+| `npm run test:native-participation` | Passed (10 tests) | Native Preferences / web storage V2 award persistence & migration tests |
+| `npm run test:gateway` | Passed (101 tests) | Gateway handler, release eligibility, and earned-card projection tests |
+| `npm run test:smoke` | Passed (49 tests across 7 build passes) | Public (15), Dev Studio (4), Challenge Pilot (2), Participation Pilot (5), Released Challenge (7), Gateway Released (8), Month Screen + R14-5 Card Viewer (8) |
+| `npm run check:staging` | Passed | Wrangler `--dry-run` staging bundle verification |
+| `git diff --check` | Passed | Clean whitespace/conflict check |
+
+Known test limitation:
+- Month Screen and Earned Scripture Card Viewer are gated behind `VITE_ENABLE_MONTH_SCREEN=true` on web (`Pass 7` of `npm run test:smoke`); real editorial artwork cropping, Hub announcement catch-up, and Field Notebook gallery browsing are outside this PR's scope and remain untested until those features are built.
