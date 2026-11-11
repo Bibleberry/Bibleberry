@@ -12,6 +12,10 @@ final class AppUITests: XCTestCase {
         add(attachment)
     }
 
+    private func exactButton(_ label: String, in app: XCUIApplication) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "label == %@", label)).firstMatch
+    }
+
     private func buttonContaining(_ text: String, in app: XCUIApplication) -> XCUIElement {
         app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", text)).firstMatch
     }
@@ -51,7 +55,7 @@ final class AppUITests: XCTestCase {
         XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 20), "Capacitor WKWebView did not appear")
 
         // Verify bundled web entrypoint rendered real onboarding UI rather than a blank/error screen.
-        let continueButton = buttonContaining("Continue", in: app)
+        let continueButton = exactButton("Continue", in: app)
         XCTAssertTrue(continueButton.waitForExistence(timeout: 25), "Onboarding Continue button not rendered in WKWebView")
         XCTAssertTrue(
             staticTextContaining("quiet place", in: app).waitForExistence(timeout: 10),
@@ -61,15 +65,15 @@ final class AppUITests: XCTestCase {
 
         // Complete onboarding -> Today screen.
         scrollToAndTapContent(continueButton, in: app)
-        let continueToTodayButton = buttonContaining("Continue to Today", in: app)
+        let continueToTodayButton = exactButton("Continue to Today", in: app)
         XCTAssertTrue(continueToTodayButton.waitForExistence(timeout: 10), "Onboarding step 2 did not appear")
         scrollToAndTapContent(continueToTodayButton, in: app)
 
         // Verify primary tabs are exposed in the WebView accessibility tree and Today content renders.
-        let todayTab = buttonContaining("Today", in: app)
-        let foundationsTab = buttonContaining("Foundations", in: app)
-        let archiveTab = buttonContaining("Archive", in: app)
-        let moreTab = buttonContaining("More", in: app)
+        let todayTab = exactButton("Today", in: app)
+        let foundationsTab = exactButton("Foundations", in: app)
+        let archiveTab = exactButton("Archive", in: app)
+        let moreTab = exactButton("More", in: app)
 
         XCTAssertTrue(todayTab.waitForExistence(timeout: 15), "Today tab missing after onboarding")
         XCTAssertTrue(foundationsTab.exists, "Foundations tab missing")
@@ -113,7 +117,7 @@ final class AppUITests: XCTestCase {
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 20), "App failed to enter foreground on relaunch")
         XCTAssertTrue(todayTab.waitForExistence(timeout: 20), "Today tab missing after terminate and relaunch")
         XCTAssertFalse(
-            buttonContaining("Continue to Today", in: app).exists,
+            exactButton("Continue to Today", in: app).exists,
             "App reverted to onboarding after terminate and relaunch"
         )
         attachScreenshot(named: "04-after-terminate-relaunch")
@@ -121,10 +125,10 @@ final class AppUITests: XCTestCase {
         // Reset local data via More -> Privacy & local data (exercises defaultGuestParticipationStore.clearLocalData).
         tapWhenReady(moreTab)
         scrollToAndTapContent(buttonContaining("Privacy & local data", in: app), in: app)
-        scrollToAndTapContent(buttonContaining("Reset local app data", in: app), in: app)
-        scrollToAndTapContent(buttonContaining("Erase & reset", in: app), in: app)
+        scrollToAndTapContent(exactButton("Reset local app data", in: app), in: app)
+        scrollToAndTapContent(exactButton("Erase & reset", in: app), in: app)
 
-        let onboardingReturned = buttonContaining("Continue", in: app).waitForExistence(timeout: 15)
+        let onboardingReturned = exactButton("Continue", in: app).waitForExistence(timeout: 15)
         if !onboardingReturned {
             attachScreenshot(named: "05-reset-failure")
         }
