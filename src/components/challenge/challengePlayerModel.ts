@@ -31,13 +31,16 @@ export type ChallengePlayerCopy = {
   completionMessage: string
   navigationNote: string
   startChallengeButton: string
+  finishButton: string
+  completedButton: string
 }
 
 export function resolveChallengePlayerCopy(options: {
   diagnostics?: boolean
+  returnOnFinish?: boolean
   labels?: ChallengePlayerLabels
 } = {}): ChallengePlayerCopy {
-  const { diagnostics = false, labels = {} } = options
+  const { diagnostics = false, returnOnFinish = false, labels = {} } = options
   return {
     scriptureCollection: labels.scriptureCollection ?? 'My Scripture',
     progressHeading: labels.progressHeading ?? (diagnostics ? 'Required screens' : 'Challenge screens'),
@@ -50,6 +53,8 @@ export function resolveChallengePlayerCopy(options: {
       ? 'Optional studies, reflection choices, and companion links never change required progress. Revisiting does not automatically complete a Challenge.'
       : 'Optional studies, reflection choices, and companion links are never required. Revisiting does not automatically complete a Challenge.',
     startChallengeButton: labels.startChallenge ?? 'Start Challenge',
+    finishButton: diagnostics ? 'Complete Challenge' : 'Finish',
+    completedButton: diagnostics || !returnOnFinish ? 'Challenge complete' : 'Finish',
   }
 }
 

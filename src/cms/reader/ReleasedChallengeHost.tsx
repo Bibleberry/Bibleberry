@@ -5,7 +5,13 @@ import { PersistedChallengeHost } from '../../participation/PersistedChallengeHo
 import type { ReaderParticipationStore } from '../../participation/store.ts'
 import type { ChallengeCatalogProvider } from './catalogProvider.ts'
 import {
+  formatChallengeOriginLabel,
+  parseChallengeOrigin,
+  type ChallengeOrigin,
+} from './challengeOrigin.ts'
+import {
   adaptCatalogProviderToDetailProvider,
+  defaultGatewayChallengeProvider,
   resolveDefaultChallengeProvider,
   type ChallengeDetailProvider,
   type ChallengeDetailResult,
@@ -21,6 +27,8 @@ export type ReleasedChallengeHostProps = {
   catalogProvider?: ChallengeCatalogProvider
   store?: ReaderParticipationStore
   getNow?: () => Date
+  origin?: ChallengeOrigin
+  onReturn?: (origin: ChallengeOrigin) => void
   onExit?: () => void
   exitLabel?: string
   returnLabel?: string
@@ -42,18 +50,27 @@ export function ReleasedChallengeHost({
   catalogProvider,
   store = defaultGuestParticipationStore,
   getNow = () => new Date(),
+  origin,
+  onReturn,
   onExit,
   exitLabel,
   returnLabel,
   banner,
   footer,
 }: ReleasedChallengeHostProps) {
-  const effectiveExitLabel = returnLabel ?? exitLabel ?? 'Return'
+  const resolvedOrigin = useMemo(() => parseChallengeOrigin(origin), [origin])
+  const effectiveExitLabel =
+    returnLabel ?? exitLabel ?? formatChallengeOriginLabel(resolvedOrigin)
+  const handleExit = useMemo(() => {
+    if (onReturn) return () => onReturn(resolvedOrigin)
+    return onExit
+  }, [onExit, onReturn, resolvedOrigin])
   const effectiveProvider = useMemo(() => {
     if (challengeProvider) return challengeProvider
     if (catalogProvider) return adaptCatalogProviderToDetailProvider(catalogProvider)
+    if (resolvedOrigin.kind === 'month') return defaultGatewayChallengeProvider
     return resolveDefaultChallengeProvider()
-  }, [challengeProvider, catalogProvider])
+  }, [challengeProvider, catalogProvider, resolvedOrigin.kind])
 
   const [detailResult, setDetailResult] = useState<ChallengeDetailResult | null>(null)
   const [loadAttempt, setLoadAttempt] = useState<number>(0)
@@ -101,8 +118,8 @@ export function ReleasedChallengeHost({
     return (
       <div className="standard-page challenge-reader-page" role="status" aria-live="polite">
         {banner}
-        {onExit && (
-          <button type="button" className="back-link challenge-player__exit" onClick={onExit}>
+        {handleExit && (
+          <button type="button" className="back-link challenge-player__exit" onClick={handleExit}>
             <ArrowLeft size={17} /> {effectiveExitLabel}
           </button>
         )}
@@ -116,8 +133,8 @@ export function ReleasedChallengeHost({
     return (
       <div className="standard-page challenge-reader-page">
         {banner}
-        {onExit && (
-          <button type="button" className="back-link challenge-player__exit" onClick={onExit}>
+        {handleExit && (
+          <button type="button" className="back-link challenge-player__exit" onClick={handleExit}>
             <ArrowLeft size={17} /> {effectiveExitLabel}
           </button>
         )}
@@ -142,8 +159,8 @@ export function ReleasedChallengeHost({
     return (
       <div className="standard-page challenge-reader-page">
         {banner}
-        {onExit && (
-          <button type="button" className="back-link challenge-player__exit" onClick={onExit}>
+        {handleExit && (
+          <button type="button" className="back-link challenge-player__exit" onClick={handleExit}>
             <ArrowLeft size={17} /> {effectiveExitLabel}
           </button>
         )}
@@ -160,8 +177,8 @@ export function ReleasedChallengeHost({
     return (
       <div className="standard-page challenge-reader-page">
         {banner}
-        {onExit && (
-          <button type="button" className="back-link challenge-player__exit" onClick={onExit}>
+        {handleExit && (
+          <button type="button" className="back-link challenge-player__exit" onClick={handleExit}>
             <ArrowLeft size={17} /> {effectiveExitLabel}
           </button>
         )}
@@ -180,8 +197,8 @@ export function ReleasedChallengeHost({
     return (
       <div className="standard-page challenge-reader-page">
         {banner}
-        {onExit && (
-          <button type="button" className="back-link challenge-player__exit" onClick={onExit}>
+        {handleExit && (
+          <button type="button" className="back-link challenge-player__exit" onClick={handleExit}>
             <ArrowLeft size={17} /> {effectiveExitLabel}
           </button>
         )}
@@ -201,8 +218,8 @@ export function ReleasedChallengeHost({
     return (
       <div className="standard-page challenge-reader-page">
         {banner}
-        {onExit && (
-          <button type="button" className="back-link challenge-player__exit" onClick={onExit}>
+        {handleExit && (
+          <button type="button" className="back-link challenge-player__exit" onClick={handleExit}>
             <ArrowLeft size={17} /> {effectiveExitLabel}
           </button>
         )}
@@ -221,7 +238,10 @@ export function ReleasedChallengeHost({
       admittedChallenge={state.admittedChallenge}
       challenge={state.challenge}
       expectedNamespace="cms"
+      origin={resolvedOrigin}
+      onReturn={onReturn}
       onExit={onExit}
+      returnOnFinish={Boolean(onReturn || onExit)}
       exitLabel={effectiveExitLabel}
       banner={banner}
       footer={footer}

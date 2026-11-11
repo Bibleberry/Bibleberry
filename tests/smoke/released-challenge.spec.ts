@@ -186,9 +186,11 @@ test.describe('Controlled Released CMS Challenge Integration (A4.1)', () => {
     await expect(page.locator('.lab-screen .eyebrow')).toHaveText('Step 2')
     await expect(page.locator('.lab-screen h2')).toHaveText('Second Step Heading')
 
-    // Explicitly complete the Challenge on the final screen
-    await page.locator('.lab-screen-nav button:has-text("Complete Challenge")').click()
-    await expect(page.locator('.lab-completion')).toBeVisible()
+    // Explicitly finish the Challenge on the final screen and return immediately to Today without completion panel
+    await page.locator('.lab-screen-nav button:has-text("Finish")').click()
+    await expect(page.locator('#daily-teaching')).toBeVisible()
+    await expect(page.locator('.lab-completion')).toHaveCount(0)
+    expect(page.url()).not.toContain('#/challenge/')
 
     // Verify durable completion recorded and inProgress cleared
     stored = await page.evaluate(key => JSON.parse(localStorage.getItem(key) || '{}'), PARTICIPATION_STORAGE_KEY)
@@ -245,10 +247,11 @@ test.describe('Controlled Released CMS Challenge Integration (A4.1)', () => {
       'screen-single',
     )
 
-    // Complete the challenge
-    const completeBtn = page.locator('.lab-screen-nav button:has-text("Complete Challenge")')
+    // Finish the challenge and return directly to origin
+    const completeBtn = page.locator('.lab-screen-nav button:has-text("Finish")')
     await expect(completeBtn).toBeVisible()
     await completeBtn.click()
+    await expect(page.locator('#daily-teaching')).toBeVisible()
 
     // Verify completed and inProgress cleared
     stored = await page.evaluate(key => JSON.parse(localStorage.getItem(key) || '{}'), PARTICIPATION_STORAGE_KEY)

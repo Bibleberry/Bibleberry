@@ -12,6 +12,12 @@ import { allFormationEntries, disciplineResources, onePhraseMemorizationEntry, w
 import { entryTypeLabel, WEEKLY_PILOT_CHALLENGE_ID, type ChallengeEntry, type TeachingEntry } from './data/formation'
 import { DeveloperStudio } from './components/DeveloperStudio'
 import type { OrdinaryChallengeSessionState } from './components/challenge/ordinaryChallengeHostModel'
+import {
+  formatChallengeOriginLabel,
+  parseChallengeOrigin,
+  parseChallengeOriginFromSearchParams,
+  type ChallengeOrigin,
+} from './cms/reader/challengeOrigin'
 import { defaultGuestParticipationStore } from './participation/defaultGuestStore'
 import './App.css'
 
@@ -33,7 +39,8 @@ type Detail =
   | { type: 'challengeLab' }
   | { type: 'challengePilot' }
   | { type: 'participationPilot' }
-  | { type: 'releasedChallenge'; slug: string }
+  | { type: 'releasedChallenge'; slug: string; origin: ChallengeOrigin }
+  | { type: 'month'; yearMonth: string }
   | null
 type Appearance = 'light' | 'dark' | 'system'
 type TextSize = 'compact' | 'default' | 'large'
@@ -71,8 +78,18 @@ const ParticipationPilotEntryBar = participationPilotEnabled
   ? lazy(() => import('./pilot/participationPilot').then(module => ({ default: module.ParticipationPilotEntryBar })))
   : null
 const releasedChallengeRouteEnabled = import.meta.env.VITE_ENABLE_RELEASED_CHALLENGE_ROUTE === 'true'
-const ReleasedChallengeHost = releasedChallengeRouteEnabled
+const monthScreenEnabled = import.meta.env.VITE_ENABLE_MONTH_SCREEN === 'true'
+const ReleasedChallengeHost = releasedChallengeRouteEnabled || monthScreenEnabled
   ? lazy(() => import('./cms/reader/ReleasedChallengeHost').then(module => ({ default: module.ReleasedChallengeHost })))
+  : null
+const MonthScreenHost = monthScreenEnabled
+  ? lazy(() => import('./components/month/MonthScreenHost').then(module => ({ default: module.MonthScreenHost })))
+  : null
+const MonthPreviewNewsBanner = monthScreenEnabled
+  ? lazy(() => import('./components/month/MonthPreviewNewsBanner').then(module => ({ default: module.MonthPreviewNewsBanner })))
+  : null
+const MonthScreenEntryBar = monthScreenEnabled
+  ? lazy(() => import('./components/month/MonthPreviewNewsBanner').then(module => ({ default: module.MonthScreenEntryBar })))
   : null
 const initialState: PrototypeState = {
   onboarded: false,
@@ -598,6 +615,47 @@ function primaryViewLabel(view: PrimaryView): string {
   return navItems.find(item => item.id === view)?.label ?? 'Today'
 }
 
+function currentCivilYearMonth(): string {
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  return `${year}-${month}`
+}
+
+function parseMonthHash(hash: string): { yearMonth: string } | null {
+  if (hash === '#/month' || hash === '#/month/') {
+    return { yearMonth: currentCivilYearMonth() }
+  }
+  if (!hash.startsWith('#/month/')) return null
+  const raw = hash.slice('#/month/'.length).split('?')[0].trim()
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(raw)) return null
+  return { yearMonth: raw }
+}
+
+function parseReleasedChallengeHash(hash: string): { slug: string; origin: ChallengeOrigin } | null {
+  if (!hash.startsWith('#/challenge/')) return null
+  const withoutPrefix = hash.slice('#/challenge/'.length)
+  const queryIndex = withoutPrefix.indexOf('?')
+  const rawSlug = queryIndex >= 0 ? withoutPrefix.slice(0, queryIndex) : withoutPrefix
+  const rawQuery = queryIndex >= 0 ? withoutPrefix.slice(queryIndex + 1) : ''
+  const slug = rawSlug.trim()
+  if (slug.length === 0) return null
+
+  const historyOrigin = typeof window !== 'undefined' ? window.history.state?.challengeOrigin : undefined
+  let origin: ChallengeOrigin
+  if (historyOrigin !== undefined) {
+    origin = parseChallengeOrigin(historyOrigin)
+  } else if (rawQuery.length > 0) {
+    origin = parseChallengeOriginFromSearchParams(new URLSearchParams(rawQuery))
+  } else if (typeof window !== 'undefined' && window.location.search.length > 0) {
+    origin = parseChallengeOriginFromSearchParams(new URLSearchParams(window.location.search))
+  } else {
+    origin = { kind: 'hub' }
+  }
+
+  return { slug, origin }
+}
+
 function parseInitialRoute(): {
   view: PrimaryView
   detail: Detail
@@ -627,15 +685,29 @@ function parseInitialRoute(): {
       previewDate: '',
     }
   }
-  if (releasedChallengeRouteEnabled && hash.startsWith('#/challenge/')) {
-    const slug = hash.replace('#/challenge/', '').trim()
-    if (slug.length > 0) {
+  if (monthScreenEnabled) {
+    const parsedMonth = parseMonthHash(hash)
+    if (parsedMonth) {
       const originView = typeof window !== 'undefined' && isPrimaryView(window.history.state?.originView)
         ? window.history.state.originView
         : 'today'
       return {
         view: originView,
-        detail: { type: 'releasedChallenge', slug },
+        detail: { type: 'month', yearMonth: parsedMonth.yearMonth },
+        developmentCollection: 'ordinary',
+        previewDate: '',
+      }
+    }
+  }
+  if (releasedChallengeRouteEnabled || monthScreenEnabled) {
+    const parsedChallenge = parseReleasedChallengeHash(hash)
+    if (parsedChallenge) {
+      const originView = typeof window !== 'undefined' && isPrimaryView(window.history.state?.originView)
+        ? window.history.state.originView
+        : 'today'
+      return {
+        view: originView,
+        detail: { type: 'releasedChallenge', slug: parsedChallenge.slug, origin: parsedChallenge.origin },
         developmentCollection: 'ordinary',
         previewDate: '',
       }
@@ -673,7 +745,12 @@ function parseInitialRoute(): {
   }
 }
 
-export default function App() {
+export type AppProps = {
+  /** Optional typed return adapter for R08A-6 / Phase 05 Month, Shelf, and Library surfaces. */
+  onReleasedChallengeReturn?: (origin: ChallengeOrigin) => void
+}
+
+export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
   const [state, setState] = useState<PrototypeState>(loadState)
   const [view, setView] = useState<PrimaryView>(() => (loadState().onboarded ? parseInitialRoute().view : 'today'))
   const [detail, setDetail] = useState<Detail>(() => (loadState().onboarded ? parseInitialRoute().detail : null))
@@ -720,7 +797,8 @@ export default function App() {
     if (
       (challengePilotEnabled && window.location.hash === '#/pilot/challenge')
       || (participationPilotEnabled && window.location.hash === '#/pilot/participation')
-      || (releasedChallengeRouteEnabled && window.location.hash.startsWith('#/challenge/'))
+      || ((releasedChallengeRouteEnabled || monthScreenEnabled) && window.location.hash.startsWith('#/challenge/'))
+      || (monthScreenEnabled && (window.location.hash === '#/month' || window.location.hash.startsWith('#/month/')))
     ) {
       window.history.pushState({ bibleberryView: destination }, '', window.location.pathname)
     } else {
@@ -731,7 +809,7 @@ export default function App() {
 
   useEffect(() => {
     if (
-      (!challengePilotEnabled && !participationPilotEnabled && !releasedChallengeRouteEnabled) ||
+      (!challengePilotEnabled && !participationPilotEnabled && !releasedChallengeRouteEnabled && !monthScreenEnabled) ||
       !state.onboarded
     )
       return
@@ -755,14 +833,30 @@ export default function App() {
         scrollTop()
         return
       }
-      if (releasedChallengeRouteEnabled && currentHash.startsWith('#/challenge/')) {
-        const slug = currentHash.replace('#/challenge/', '').trim()
-        if (slug.length > 0) {
+      if (monthScreenEnabled) {
+        const parsedMonth = parseMonthHash(currentHash)
+        if (parsedMonth) {
           const originView = isPrimaryView(window.history.state?.originView)
             ? window.history.state.originView
             : undefined
           if (originView) setView(originView)
-          setDetail({ type: 'releasedChallenge', slug })
+          setDetail({ type: 'month', yearMonth: parsedMonth.yearMonth })
+          scrollTop()
+          return
+        }
+      }
+      if (releasedChallengeRouteEnabled || monthScreenEnabled) {
+        const parsedChallenge = parseReleasedChallengeHash(currentHash)
+        if (parsedChallenge) {
+          const originView = isPrimaryView(window.history.state?.originView)
+            ? window.history.state.originView
+            : undefined
+          if (originView) setView(originView)
+          setDetail({
+            type: 'releasedChallenge',
+            slug: parsedChallenge.slug,
+            origin: parsedChallenge.origin,
+          })
           scrollTop()
           return
         }
@@ -783,7 +877,8 @@ export default function App() {
       setDetail(previous =>
         previous?.type === 'challengePilot' ||
         previous?.type === 'participationPilot' ||
-        previous?.type === 'releasedChallenge'
+        previous?.type === 'releasedChallenge' ||
+        previous?.type === 'month'
           ? null
           : previous,
       )
@@ -846,11 +941,29 @@ export default function App() {
     } else if (participationPilotEnabled && hash === '#/pilot/participation') {
       window.history.replaceState({ bibleberryPilot: true, originView: destination }, '', '#/pilot/participation')
       setDetail({ type: 'participationPilot' })
-    } else if (releasedChallengeRouteEnabled && hash.startsWith('#/challenge/')) {
-      const slug = hash.replace('#/challenge/', '').trim()
-      if (slug.length > 0) {
-        window.history.replaceState({ originView: destination }, '', hash)
-        setDetail({ type: 'releasedChallenge', slug })
+    } else if (monthScreenEnabled && (hash === '#/month' || hash === '#/month/' || hash.startsWith('#/month/'))) {
+      const parsedMonth = parseMonthHash(hash)
+      if (parsedMonth) {
+        window.history.replaceState(
+          { originView: destination },
+          '',
+          `#/month/${parsedMonth.yearMonth}`,
+        )
+        setDetail({ type: 'month', yearMonth: parsedMonth.yearMonth })
+      }
+    } else if ((releasedChallengeRouteEnabled || monthScreenEnabled) && hash.startsWith('#/challenge/')) {
+      const parsedChallenge = parseReleasedChallengeHash(hash)
+      if (parsedChallenge) {
+        window.history.replaceState(
+          { originView: destination, challengeOrigin: parsedChallenge.origin },
+          '',
+          hash,
+        )
+        setDetail({
+          type: 'releasedChallenge',
+          slug: parsedChallenge.slug,
+          origin: parsedChallenge.origin,
+        })
       }
     } else if (hash.startsWith('#/teaching/')) {
       const id = hash.replace('#/teaching/', '')
@@ -890,6 +1003,16 @@ export default function App() {
     if (participationPilotEnabled) {
       void import('./pilot/participationPilotModel').then(module => module.resetParticipationPilotData())
     }
+    let monthIntroCleared = true
+    if (monthScreenEnabled) {
+      try {
+        const monthIntroModule = await import('./components/month/monthIntroStorage')
+        const clearResult = await monthIntroModule.defaultMonthIntroStore.clear()
+        monthIntroCleared = clearResult.ok
+      } catch {
+        monthIntroCleared = false
+      }
+    }
     setState({ ...initialState })
     setDetail(null)
     setPreviewDate('')
@@ -902,7 +1025,11 @@ export default function App() {
     setResetConfirm(false)
     window.history.replaceState(null, '', window.location.pathname)
     scrollTop()
-    notify('Local app data cleared. Welcome restored.')
+    notify(
+      monthIntroCleared
+        ? 'Local app data cleared. Welcome restored.'
+        : 'App and participation data cleared, but monthly introduction storage could not be cleared (storage unavailable).',
+    )
   }
 
   useEffect(() => {
@@ -915,7 +1042,21 @@ export default function App() {
     if (view !== 'today' || detail || previewDate || simulatedDate) recordedOpening.current = ''
   }, [state.onboarded, view, detail, previewDate, simulatedDate, addActivity])
 
-  if (!state.onboarded) return <Onboarding state={state} update={update} finish={finishOnboarding} />
+  const toastBanner = (
+    <div className={`toast ${toast ? 'is-visible' : ''}`} role="status" aria-live="polite">
+      {toast}
+      <button aria-label="Dismiss notification" onClick={() => setToast('')}><X size={16} /></button>
+    </div>
+  )
+
+  if (!state.onboarded) {
+    return (
+      <>
+        <Onboarding state={state} update={update} finish={finishOnboarding} />
+        {toastBanner}
+      </>
+    )
+  }
 
   const previewedEntry = previewDate
     ? (developmentCollection === 'pilot' ? weeklyPilotEntries : allTeachings.filter(item => item.id.startsWith('sabbath-'))).find(entry => entry.date === previewDate)
@@ -1050,12 +1191,57 @@ export default function App() {
     }
     scrollTop()
   }
-  const exitReleasedChallenge = () => {
-    if (!releasedChallengeRouteEnabled) return
+  const openMonthScreen = (yearMonth: string) => {
+    if (!monthScreenEnabled) return
+    window.history.replaceState({ ...(window.history.state ?? {}), bibleberryView: view }, '', window.location.href)
+    window.history.pushState({ originView: view }, '', `#/month/${yearMonth}`)
+    setDetail({ type: 'month', yearMonth })
+    scrollTop()
+  }
+  const openMonthChallenge = (slug: string, yearMonth: string) => {
+    if (!monthScreenEnabled) return
+    const origin: ChallengeOrigin = { kind: 'month', yearMonth }
+    const targetHash = `#/challenge/${encodeURIComponent(slug)}?origin=month&yearMonth=${encodeURIComponent(yearMonth)}`
+    window.history.pushState(
+      { originView: view, challengeOrigin: origin },
+      '',
+      targetHash,
+    )
+    setDetail({ type: 'releasedChallenge', slug, origin })
+    scrollTop()
+  }
+  const exitMonthScreen = () => {
+    if (!monthScreenEnabled) return
     setDetail(null)
-    if (window.location.hash.startsWith('#/challenge/')) {
+    if (window.location.hash === '#/month' || window.location.hash.startsWith('#/month/')) {
       window.history.pushState({ bibleberryView: view }, '', window.location.pathname)
     }
+    scrollTop()
+  }
+  const exitReleasedChallenge = (returnedOrigin: ChallengeOrigin) => {
+    if (!releasedChallengeRouteEnabled && !monthScreenEnabled) return
+    const normalizedOrigin = parseChallengeOrigin(returnedOrigin)
+    if (monthScreenEnabled && normalizedOrigin.kind === 'month') {
+      const targetYearMonth = normalizedOrigin.yearMonth
+      setDetail({ type: 'month', yearMonth: targetYearMonth })
+      window.history.pushState(
+        { bibleberryView: view, originView: view, returnedChallengeOrigin: normalizedOrigin },
+        '',
+        `#/month/${targetYearMonth}`,
+      )
+      onReleasedChallengeReturn?.(normalizedOrigin)
+      scrollTop()
+      return
+    }
+    setDetail(null)
+    if (window.location.hash.startsWith('#/challenge/')) {
+      window.history.pushState(
+        { bibleberryView: view, returnedChallengeOrigin: normalizedOrigin },
+        '',
+        window.location.pathname,
+      )
+    }
+    onReleasedChallengeReturn?.(normalizedOrigin)
     scrollTop()
   }
 
@@ -1131,12 +1317,26 @@ export default function App() {
         onExit={exitParticipationPilot}
       />
     </Suspense>
-  } else if (detail?.type === 'releasedChallenge' && releasedChallengeRouteEnabled && ReleasedChallengeHost) {
+  } else if (detail?.type === 'month' && monthScreenEnabled && MonthScreenHost) {
+    content = <Suspense fallback={<div className="standard-page"><p role="status" aria-live="polite">Loading Month…</p></div>}>
+      <MonthScreenHost
+        yearMonth={detail.yearMonth}
+        onOpenChallenge={openMonthChallenge}
+        onSelectYearMonth={openMonthScreen}
+        onExit={exitMonthScreen}
+        exitLabel={`Return to ${primaryViewLabel(view)}`}
+      />
+    </Suspense>
+  } else if (detail?.type === 'releasedChallenge' && (releasedChallengeRouteEnabled || monthScreenEnabled) && ReleasedChallengeHost) {
+    const returnLabel = detail.origin.kind === 'hub'
+      ? `Return to ${primaryViewLabel(view)}`
+      : formatChallengeOriginLabel(detail.origin)
     content = <Suspense fallback={<div className="standard-page"><p role="status" aria-live="polite">Loading Challenge…</p></div>}>
       <ReleasedChallengeHost
         slug={detail.slug}
-        returnLabel={`Return to ${primaryViewLabel(view)}`}
-        onExit={exitReleasedChallenge}
+        origin={detail.origin}
+        returnLabel={returnLabel}
+        onReturn={exitReleasedChallenge}
       />
     </Suspense>
   } else if (detail?.type === 'challengeLab' && developerStudioEnabled && InteractiveChallengeLab) {
@@ -1201,9 +1401,19 @@ export default function App() {
             <ParticipationPilotEntryBar onOpenPilot={openParticipationPilot} />
           </Suspense>
         )}
+        {monthScreenEnabled && !detail && view === 'today' && MonthPreviewNewsBanner && (
+          <Suspense fallback={null}>
+            <MonthPreviewNewsBanner onOpenMonth={openMonthScreen} />
+          </Suspense>
+        )}
+        {monthScreenEnabled && !detail && (view === 'today' || view === 'archive') && MonthScreenEntryBar && (
+          <Suspense fallback={null}>
+            <MonthScreenEntryBar onOpenMonth={openMonthScreen} />
+          </Suspense>
+        )}
         {content}
       </AppShell>
-      <div className={`toast ${toast ? 'is-visible' : ''}`} role="status" aria-live="polite">{toast}<button aria-label="Dismiss notification" onClick={() => setToast('')}><X size={16} /></button></div>
+      {toastBanner}
     </div>
   )
 }

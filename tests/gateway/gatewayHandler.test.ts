@@ -740,7 +740,8 @@ test('handles OPTIONS preflight with CORS headers', async () => {
   assert.equal(res.status, 204)
   assert.equal(res.headers.get('Access-Control-Allow-Origin'), 'http://localhost:3000')
   assert.equal(res.headers.get('Access-Control-Allow-Methods'), 'GET, OPTIONS')
-  assert.equal(res.headers.get('Access-Control-Allow-Headers'), 'Content-Type, Accept')
+  assert.equal(res.headers.get('Access-Control-Allow-Headers'), 'Content-Type, Accept, X-Bibleberry-Timezone')
+  assert.equal(res.headers.get('Vary'), 'Origin, X-Bibleberry-Timezone')
   assert.equal(res.headers.get('Cache-Control'), 'no-store')
 })
 
@@ -759,7 +760,7 @@ test('reflects authorized origin and omits unauthorized origin in CORS headers',
     })
     assert.equal(res.status, 200)
     assert.equal(res.headers.get('Access-Control-Allow-Origin'), 'http://localhost:3000')
-    assert.equal(res.headers.get('Vary'), 'Origin')
+    assert.equal(res.headers.get('Vary'), 'Origin, X-Bibleberry-Timezone')
   }
 
   // Unauthorized origin
