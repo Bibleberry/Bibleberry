@@ -15,6 +15,8 @@ import {
 } from './persistence.ts'
 import type {
   ChallengeIdentityNamespace,
+  EarnedAwardRecord,
+  EarnedScriptureCardSnapshot,
   ParticipationCommand,
   ReaderParticipationData,
 } from './types.ts'
@@ -81,71 +83,190 @@ function areRecordMapsEqual<T>(
   return true
 }
 
+function areOptionalStringArraysEqual(
+  left: readonly string[] | undefined,
+  right: readonly string[] | undefined,
+): boolean {
+  if (left === right) return true
+  if (!left || !right) return false
+  if (left.length !== right.length) return false
+  for (let i = 0; i < left.length; i += 1) {
+    if (left[i] !== right[i]) return false
+  }
+  return true
+}
+
+function areEarnedCardSnapshotsEqual(
+  left: EarnedScriptureCardSnapshot | undefined,
+  right: EarnedScriptureCardSnapshot | undefined,
+): boolean {
+  if (left === right) return true
+  if (!left || !right) return false
+  return (
+    left.cardDocumentId === right.cardDocumentId
+    && left.title === right.title
+    && left.publicationYearMonth === right.publicationYearMonth
+    && left.imageUrl === right.imageUrl
+    && left.assetRevision === right.assetRevision
+    && left.illustrationAlt === right.illustrationAlt
+    && left.accessibleTranscription === right.accessibleTranscription
+    && left.scripture.book === right.scripture.book
+    && left.scripture.reference === right.scripture.reference
+    && left.scripture.translation === right.scripture.translation
+    && left.attribution === right.attribution
+    && left.rightsStatus === right.rightsStatus
+    && left.shareEligible === right.shareEligible
+    && areOptionalStringArraysEqual(left.theologicalThemes, right.theologicalThemes)
+    && areOptionalStringArraysEqual(left.keywords, right.keywords)
+  )
+}
+
+function areEarnedAwardRecordsEqual(
+  left: EarnedAwardRecord,
+  right: EarnedAwardRecord,
+): boolean {
+  if (left === right) return true
+  return (
+    left.awardId === right.awardId
+    && left.kind === right.kind
+    && left.publicationYearMonth === right.publicationYearMonth
+    && left.discoveryId === right.discoveryId
+    && left.earnedOn === right.earnedOn
+    && left.hubAnnouncementAcked === right.hubAnnouncementAcked
+    && left.cardViewed === right.cardViewed
+    && left.cardDocumentId === right.cardDocumentId
+    && areEarnedCardSnapshotsEqual(left.earnedCard, right.earnedCard)
+  )
+}
+
+function areLastOpenedEqual(
+  left: ReaderParticipationData['lastOpenedChallenge'],
+  right: ReaderParticipationData['lastOpenedChallenge'],
+): boolean {
+  if (left === right) return true
+  if (!left || !right) return false
+  return (
+    left.challengeId === right.challengeId
+    && left.openedOn === right.openedOn
+    && left.resumeDismissedOn === right.resumeDismissedOn
+  )
+}
+
+function areSavedScripturesEqual(
+  left: ReaderParticipationData['savedScriptures'],
+  right: ReaderParticipationData['savedScriptures'],
+): boolean {
+  if (left === right) return true
+  if (left.length !== right.length) return false
+  for (let i = 0; i < left.length; i += 1) {
+    const a = left[i]
+    const b = right[i]
+    if (
+      a.key !== b.key
+      || a.reference !== b.reference
+      || a.translation !== b.translation
+      || a.savedOn !== b.savedOn
+      || a.sourceChallengeId !== b.sourceChallengeId
+    ) {
+      return false
+    }
+  }
+  return true
+}
+
 export function areParticipationDataEqual(
   left: ReaderParticipationData,
   right: ReaderParticipationData,
 ): boolean {
   if (left === right) return true
 
-  if (left.lastOpenedChallenge !== right.lastOpenedChallenge) {
-    if (!left.lastOpenedChallenge || !right.lastOpenedChallenge) return false
-    if (
-      left.lastOpenedChallenge.challengeId !== right.lastOpenedChallenge.challengeId
-      || left.lastOpenedChallenge.openedOn !== right.lastOpenedChallenge.openedOn
-      || left.lastOpenedChallenge.resumeDismissedOn !== right.lastOpenedChallenge.resumeDismissedOn
-    ) {
-      return false
-    }
-  }
-
-  if (
-    !areRecordMapsEqual(
+  return (
+    areLastOpenedEqual(left.lastOpenedChallenge, right.lastOpenedChallenge)
+    && areRecordMapsEqual(
       left.completedChallenges,
       right.completedChallenges,
       (a, b) => a.completedOn === b.completedOn,
     )
-  ) {
-    return false
-  }
-
-  if (
-    !areRecordMapsEqual(
+    && areRecordMapsEqual(
       left.inProgressChallenges,
       right.inProgressChallenges,
       (a, b) => a.screenId === b.screenId && a.updatedOn === b.updatedOn,
     )
-  ) {
-    return false
-  }
-
-  if (
-    !areRecordMapsEqual(
+    && areRecordMapsEqual(
       left.savedChallenges,
       right.savedChallenges,
       (a, b) => a.savedOn === b.savedOn,
     )
+    && areSavedScripturesEqual(left.savedScriptures, right.savedScriptures)
+    && areRecordMapsEqual(left.earnedAwards, right.earnedAwards, areEarnedAwardRecordsEqual)
+  )
+}
+
+function stabilizeParticipationData(
+  prev: ReaderParticipationData,
+  next: ReaderParticipationData,
+): ReaderParticipationData {
+  if (prev === next) return prev
+
+  const completedChallenges = areRecordMapsEqual(
+    prev.completedChallenges,
+    next.completedChallenges,
+    (a, b) => a.completedOn === b.completedOn,
+  )
+    ? prev.completedChallenges
+    : next.completedChallenges
+
+  const inProgressChallenges = areRecordMapsEqual(
+    prev.inProgressChallenges,
+    next.inProgressChallenges,
+    (a, b) => a.screenId === b.screenId && a.updatedOn === b.updatedOn,
+  )
+    ? prev.inProgressChallenges
+    : next.inProgressChallenges
+
+  const savedChallenges = areRecordMapsEqual(
+    prev.savedChallenges,
+    next.savedChallenges,
+    (a, b) => a.savedOn === b.savedOn,
+  )
+    ? prev.savedChallenges
+    : next.savedChallenges
+
+  const savedScriptures = areSavedScripturesEqual(prev.savedScriptures, next.savedScriptures)
+    ? prev.savedScriptures
+    : next.savedScriptures
+
+  const lastOpenedChallenge = areLastOpenedEqual(prev.lastOpenedChallenge, next.lastOpenedChallenge)
+    ? prev.lastOpenedChallenge
+    : next.lastOpenedChallenge
+
+  const earnedAwards = areRecordMapsEqual(
+    prev.earnedAwards,
+    next.earnedAwards,
+    areEarnedAwardRecordsEqual,
+  )
+    ? prev.earnedAwards
+    : next.earnedAwards
+
+  if (
+    completedChallenges === prev.completedChallenges
+    && inProgressChallenges === prev.inProgressChallenges
+    && savedChallenges === prev.savedChallenges
+    && savedScriptures === prev.savedScriptures
+    && lastOpenedChallenge === prev.lastOpenedChallenge
+    && earnedAwards === prev.earnedAwards
   ) {
-    return false
+    return prev
   }
 
-  if (left.savedScriptures !== right.savedScriptures) {
-    if (left.savedScriptures.length !== right.savedScriptures.length) return false
-    for (let i = 0; i < left.savedScriptures.length; i += 1) {
-      const a = left.savedScriptures[i]
-      const b = right.savedScriptures[i]
-      if (
-        a.key !== b.key
-        || a.reference !== b.reference
-        || a.translation !== b.translation
-        || a.savedOn !== b.savedOn
-        || a.sourceChallengeId !== b.sourceChallengeId
-      ) {
-        return false
-      }
-    }
-  }
-
-  return true
+  return Object.freeze({
+    completedChallenges,
+    inProgressChallenges,
+    savedChallenges,
+    savedScriptures,
+    lastOpenedChallenge,
+    earnedAwards,
+  })
 }
 
 export function createReaderParticipationStore(
@@ -230,9 +351,7 @@ export function createReaderParticipationStore(
 
   function updateSnapshot(notify: boolean): void {
     const candidateData = computeEffectiveData()
-    const stableData = areParticipationDataEqual(cachedSnapshot.data, candidateData)
-      ? cachedSnapshot.data
-      : candidateData
+    const stableData = stabilizeParticipationData(cachedSnapshot.data, candidateData)
     const nextCount = distinctCompletedChallengeCount(stableData)
     const nextHasPending = pendingCommands.length > 0
 

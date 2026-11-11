@@ -137,6 +137,7 @@ test('derives all permitted slot states with most-recent Continue priority and n
       challengeId: 'cms:doc-3' as CanonicalChallengeId,
       openedOn: '2026-11-06',
     },
+    earnedAwards: {},
   }
 
   const presentations = deriveMonthSlotPresentations(2026, 11, slots, data)

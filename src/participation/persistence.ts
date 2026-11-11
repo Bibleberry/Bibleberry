@@ -1,6 +1,9 @@
+import { validateEarnedCardSnapshot } from './awards.ts'
 import {
   normalizeSavedScriptureInput,
+  parseCardDocumentId,
   parseLocalCalendarDate,
+  parseMonthlyAwardIdParts,
   parseStoredChallengeId,
 } from './identity.ts'
 import {
@@ -11,7 +14,8 @@ import type {
   ChallengeIdentityNamespace,
   ChallengeResumeRecord,
   CompletedChallengeRecord,
-  GuestParticipationEnvelopeV1,
+  EarnedAwardRecord,
+  GuestParticipationEnvelopeV2,
   LastOpenedChallengePointer,
   ParticipationCommand,
   ReaderParticipationData,
@@ -20,14 +24,17 @@ import type {
 } from './types.ts'
 
 /**
- * Platform-neutral persistence contracts and envelope adapter (Track A, A3 / Issue #46).
+ * Platform-neutral persistence contracts and envelope adapter (Track A, A3 / Issue #46;
+ * V1→V2 migration & durable awards in R14-3 / Issue #101).
  *
  * Scope & platform invariants:
  * - Zero direct references to `window`, `document`, `localStorage`, `sessionStorage`, or `indexedDB`.
  * - Supports both synchronous drivers (web `localStorage` adapter) and asynchronous drivers
- *   (future iOS/Android native storage such as Capacitor Preferences or SQLite).
- * - Never overwrites unrecognized newer schemas (`schemaVersion > 1`) or corrupt JSON payloads
- *   automatically; only explicit user-initiated `clear()` removes them.
+ *   (iOS/Android native storage such as Capacitor Preferences or SQLite).
+ * - Reads both `GuestParticipationEnvelopeV1` (migrating in memory with `earnedAwards: {}` and
+ *   preserving V1 on disk until the first successful write) and `GuestParticipationEnvelopeV2`.
+ * - Never overwrites unrecognized newer schemas (`schemaVersion > 2`), corrupt JSON, or
+ *   structurally invalid envelopes automatically; only explicit user-initiated `clear()` removes them.
  */
 
 export type MaybePromise<T> = T | Promise<T>
@@ -102,14 +109,15 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 }
 
 export function serializeParticipationEnvelope(data: ReaderParticipationData): string {
-  const envelope: GuestParticipationEnvelopeV1 = {
-    schemaVersion: 1,
+  const envelope: GuestParticipationEnvelopeV2 = {
+    schemaVersion: 2,
     data: {
       completedChallenges: data.completedChallenges,
       inProgressChallenges: data.inProgressChallenges,
       savedChallenges: data.savedChallenges,
       savedScriptures: data.savedScriptures,
       lastOpenedChallenge: data.lastOpenedChallenge,
+      earnedAwards: data.earnedAwards,
     },
   }
   return JSON.stringify(envelope)
@@ -144,14 +152,14 @@ export function parseParticipationEnvelope(
   }
 
   const schemaVersion = parsed.schemaVersion
-  if (typeof schemaVersion === 'number' && Number.isInteger(schemaVersion) && schemaVersion > 1) {
+  if (typeof schemaVersion === 'number' && Number.isInteger(schemaVersion) && schemaVersion > 2) {
     return {
       data: emptyReaderParticipationData(),
       health: 'unsupportedNewerSchema',
     }
   }
 
-  if (schemaVersion !== 1 || !isPlainObject(parsed.data)) {
+  if ((schemaVersion !== 1 && schemaVersion !== 2) || !isPlainObject(parsed.data)) {
     return {
       data: emptyReaderParticipationData(),
       health: 'corruptStoredData',
@@ -168,6 +176,11 @@ export function parseParticipationEnvelope(
       rawData.lastOpenedChallenge !== undefined
       && rawData.lastOpenedChallenge !== null
       && !isPlainObject(rawData.lastOpenedChallenge)
+    )
+    || (
+      schemaVersion === 2
+      && rawData.earnedAwards !== undefined
+      && !isPlainObject(rawData.earnedAwards)
     )
   ) {
     return {
@@ -263,12 +276,57 @@ export function parseParticipationEnvelope(
     }
   }
 
+  const earnedAwards: Record<string, EarnedAwardRecord> = {}
+  if (schemaVersion === 2 && isPlainObject(rawData.earnedAwards)) {
+    for (const [rawId, value] of Object.entries(rawData.earnedAwards)) {
+      const parsedId = parseMonthlyAwardIdParts(rawId)
+      if (!parsedId || !isPlainObject(value)) continue
+      if (value.awardId !== undefined && value.awardId !== parsedId.awardId) continue
+      if (value.kind !== undefined && value.kind !== parsedId.kind) continue
+      if (
+        value.publicationYearMonth !== undefined
+        && value.publicationYearMonth !== parsedId.publicationYearMonth
+      ) {
+        continue
+      }
+      if (value.discoveryId !== undefined && value.discoveryId !== parsedId.discoveryId) continue
+
+      const earnedOn = parseLocalCalendarDate(value.earnedOn)
+      if (!earnedOn) continue
+
+      const rawCardDocId = parseCardDocumentId(value.cardDocumentId) ?? undefined
+      let earnedCard =
+        value.earnedCard !== undefined && value.earnedCard !== null
+          ? validateEarnedCardSnapshot(value.earnedCard, parsedId.publicationYearMonth)
+          : null
+
+      if (earnedCard && rawCardDocId && rawCardDocId !== earnedCard.cardDocumentId) {
+        earnedCard = null
+      }
+
+      const cardDocumentId = earnedCard?.cardDocumentId ?? rawCardDocId
+
+      earnedAwards[parsedId.awardId] = Object.freeze({
+        awardId: parsedId.awardId,
+        kind: parsedId.kind,
+        publicationYearMonth: parsedId.publicationYearMonth,
+        discoveryId: parsedId.discoveryId,
+        earnedOn,
+        hubAnnouncementAcked: value.hubAnnouncementAcked === true,
+        cardViewed: value.cardViewed === true,
+        ...(cardDocumentId ? { cardDocumentId } : {}),
+        ...(earnedCard ? { earnedCard } : {}),
+      })
+    }
+  }
+
   const isEmpty =
     Object.keys(completedChallenges).length === 0
     && Object.keys(inProgressChallenges).length === 0
     && Object.keys(savedChallenges).length === 0
     && savedScriptures.length === 0
     && lastOpenedChallenge === null
+    && Object.keys(earnedAwards).length === 0
 
   return {
     data: isEmpty
@@ -279,6 +337,7 @@ export function parseParticipationEnvelope(
           savedChallenges: Object.freeze(savedChallenges),
           savedScriptures: Object.freeze(savedScriptures),
           lastOpenedChallenge,
+          earnedAwards: Object.freeze(earnedAwards),
         }),
     health: 'ok',
   }
