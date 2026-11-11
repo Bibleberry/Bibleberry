@@ -28,7 +28,9 @@ jobs:
         run: npm ci
 
       - name: Install Playwright Chromium
-        run: npx playwright install --with-deps chromium
+        # Runner image supplies OS libraries; avoid apt mirrors during browser provisioning.
+        # The reader smoke suite still launches actual Chromium and fails if runtime libraries are missing.
+        run: npx playwright install chromium
 
       - name: Lint application
         run: npm run lint
