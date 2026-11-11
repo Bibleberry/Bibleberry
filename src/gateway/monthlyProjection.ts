@@ -16,6 +16,7 @@ import {
 } from './projection.ts'
 import type {
   GatewayCoverImage,
+  GatewayEarnedScriptureCard,
   GatewayIntroductionScreen,
   GatewayMonthDetailResponse,
   GatewayMonthDiscoverySummary,
@@ -29,6 +30,11 @@ import type {
   GatewayServerContext,
 } from './types.ts'
 
+export interface MonthlyProjectionOptions {
+  readonly sanityProjectId?: string
+  readonly sanityDataset?: string
+}
+
 const ALLOWED_REVIEWER_ROLES = new Set(['theological_editorial', 'technical_synthetic'])
 const ALLOWED_INTRO_BLOCK_TYPES = new Set(['statementBlock', 'richTextBlock', 'scriptureBlock'])
 const ALLOWED_CHALLENGE_TYPES = new Set(['teaching', 'discipline', 'reflection', 'memorization'])
@@ -39,6 +45,8 @@ const ALLOWED_NEWS_CATEGORIES = new Set<GatewayNewsCategory>([
 ])
 const SLUG_TOKEN_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const CARD_PLACEHOLDER_PATTERN = /^card-[a-z0-9]+(?:-[a-z0-9]+)*$/
+const ASSET_REVISION_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,31}$/
+const SANITY_IMAGE_PATH_PATTERN = /^\/images\/([a-z0-9]+)\/([a-z0-9_-]+)\/[a-zA-Z0-9._-]+$/
 const NEWS_PREVIEW_ID_PATTERN = /^news-preview-(\d{4}-(?:0[1-9]|1[0-2]))$/
 
 const MONTH_NAMES = [
@@ -499,23 +507,273 @@ function validateMonthlyBase(
   }
 }
 
+function sanitizeCardArtworkUrl(
+  rawArtwork: unknown,
+  options?: MonthlyProjectionOptions,
+): { ok: true; url: string } | { ok: false } {
+  if (!isPlainObject(rawArtwork) || typeof rawArtwork.url !== 'string') {
+    return { ok: false }
+  }
+  const urlStr = rawArtwork.url.trim()
+  if (!urlStr) {
+    return { ok: false }
+  }
+  let parsed: URL
+  try {
+    parsed = new URL(urlStr)
+  } catch {
+    return { ok: false }
+  }
+  if (
+    parsed.protocol !== 'https:' ||
+    parsed.username !== '' ||
+    parsed.password !== '' ||
+    parsed.search !== '' ||
+    parsed.hash !== '' ||
+    parsed.hostname !== 'cdn.sanity.io'
+  ) {
+    return { ok: false }
+  }
+  const pathMatch = SANITY_IMAGE_PATH_PATTERN.exec(parsed.pathname)
+  if (!pathMatch) {
+    return { ok: false }
+  }
+  if (options?.sanityProjectId && pathMatch[1] !== options.sanityProjectId) {
+    return { ok: false }
+  }
+  if (options?.sanityDataset && pathMatch[2] !== options.sanityDataset) {
+    return { ok: false }
+  }
+  return { ok: true, url: urlStr }
+}
+
+function sanitizeOptionalStringArray(
+  raw: unknown,
+): { ok: true; values?: readonly string[] } | { ok: false } {
+  if (raw === undefined || raw === null) {
+    return { ok: true }
+  }
+  if (!Array.isArray(raw)) {
+    return { ok: false }
+  }
+  const values: string[] = []
+  const seen = new Set<string>()
+  for (const item of raw) {
+    if (typeof item !== 'string' || item.trim().length === 0) {
+      return { ok: false }
+    }
+    const trimmed = item.trim()
+    const key = trimmed.toLowerCase()
+    if (!seen.has(key)) {
+      seen.add(key)
+      values.push(trimmed)
+    }
+  }
+  return { ok: true, values: values.length > 0 ? values : undefined }
+}
+
+type LinkedCardValidationResult =
+  | { readonly linked: false }
+  | { readonly linked: true; readonly cardId?: string; readonly card?: GatewayEarnedScriptureCard }
+
+/**
+ * Validates and projects an optional linked `scriptureCard` reference.
+ * Fails closed (`card: undefined`) on any invalid/draft/unapproved/withdrawn/mislinked
+ * card so invalid card art/text never leaks while unrelated month access stays intact.
+ */
+function validateAndProjectLinkedCard(
+  container: Record<string, unknown>,
+  expectedCategory: 'monthlyThematic' | 'monthlyFull',
+  monthYearMonth: string,
+  legacyReservedCardId: string | undefined,
+  options?: MonthlyProjectionOptions,
+): LinkedCardValidationResult {
+  const rawCardRef =
+    typeof container.rawCardRef === 'string'
+      ? container.rawCardRef.trim()
+      : isPlainObject(container.card) && typeof container.card._ref === 'string'
+        ? container.card._ref.trim()
+        : undefined
+
+  const hasRawRef = rawCardRef !== undefined && rawCardRef.length > 0
+  const hasCardField = container.card !== undefined && container.card !== null
+
+  if (!hasRawRef && !hasCardField) {
+    return { linked: false }
+  }
+
+  if (hasRawRef && (rawCardRef.startsWith('drafts.') || !CARD_PLACEHOLDER_PATTERN.test(rawCardRef))) {
+    return { linked: true }
+  }
+
+  if (!isPlainObject(container.card)) {
+    return { linked: true, ...(hasRawRef ? { cardId: rawCardRef } : {}) }
+  }
+
+  const card = container.card
+  const cardId = typeof card._id === 'string' ? card._id.trim() : ''
+  if (!cardId || cardId.startsWith('drafts.') || !CARD_PLACEHOLDER_PATTERN.test(cardId)) {
+    return { linked: true, ...(hasRawRef ? { cardId: rawCardRef } : {}) }
+  }
+
+  if (hasRawRef && rawCardRef !== cardId) {
+    return { linked: true, cardId }
+  }
+  if (legacyReservedCardId && legacyReservedCardId !== cardId) {
+    return { linked: true, cardId }
+  }
+  if (card._type !== 'scriptureCard') {
+    return { linked: true, cardId }
+  }
+
+  const slug =
+    typeof card.slug === 'string'
+      ? card.slug.trim()
+      : isPlainObject(card.slug) && typeof card.slug.current === 'string'
+        ? card.slug.current.trim()
+        : ''
+  if (!SLUG_TOKEN_PATTERN.test(slug) || cardId !== `card-${slug}`) {
+    return { linked: true, cardId }
+  }
+
+  if (card.editorialStatus !== 'approved' || !isNotWithdrawnFlag(card.withdrawn)) {
+    return { linked: true, cardId }
+  }
+  if (!isValidEditorialReview(card.editorialReview)) {
+    return { linked: true, cardId }
+  }
+  if (card.cardCategory !== expectedCategory) {
+    return { linked: true, cardId }
+  }
+
+  if (
+    card.plannedYearMonth !== undefined &&
+    card.plannedYearMonth !== null &&
+    card.plannedYearMonth !== ''
+  ) {
+    if (
+      typeof card.plannedYearMonth !== 'string' ||
+      !YEAR_MONTH_PATTERN.test(card.plannedYearMonth.trim()) ||
+      card.plannedYearMonth.trim() !== monthYearMonth
+    ) {
+      return { linked: true, cardId }
+    }
+  }
+
+  const title = typeof card.title === 'string' ? card.title.trim() : ''
+  const assetRevision = typeof card.assetRevision === 'string' ? card.assetRevision.trim() : ''
+  if (!title || !ASSET_REVISION_PATTERN.test(assetRevision)) {
+    return { linked: true, cardId }
+  }
+
+  const artworkCheck = sanitizeCardArtworkUrl(card.artwork, options)
+  if (!artworkCheck.ok) {
+    return { linked: true, cardId }
+  }
+
+  const illustrationAlt =
+    typeof card.illustrationAlt === 'string' ? card.illustrationAlt.trim() : ''
+  const accessibleTranscription =
+    typeof card.accessibleTranscription === 'string' ? card.accessibleTranscription.trim() : ''
+  if (
+    !illustrationAlt ||
+    !accessibleTranscription ||
+    illustrationAlt.toLowerCase() === accessibleTranscription.toLowerCase()
+  ) {
+    return { linked: true, cardId }
+  }
+
+  if (!isPlainObject(card.scriptureCitation)) {
+    return { linked: true, cardId }
+  }
+  const citation = card.scriptureCitation
+  const book = typeof citation.book === 'string' ? citation.book.trim() : ''
+  const reference = typeof citation.reference === 'string' ? citation.reference.trim() : ''
+  const translation = typeof citation.translation === 'string' ? citation.translation.trim() : ''
+  if (!book || !reference || !translation) {
+    return { linked: true, cardId }
+  }
+  if (
+    citation.usageRightsConfirmed !== undefined &&
+    citation.usageRightsConfirmed !== null &&
+    typeof citation.usageRightsConfirmed !== 'boolean'
+  ) {
+    return { linked: true, cardId }
+  }
+  if (translation.toLowerCase() !== 'not configured' && citation.usageRightsConfirmed !== true) {
+    return { linked: true, cardId }
+  }
+
+  if (!isPlainObject(card.rightsAndAttribution)) {
+    return { linked: true, cardId }
+  }
+  const rights = card.rightsAndAttribution
+  const attribution = typeof rights.attribution === 'string' ? rights.attribution.trim() : ''
+  const rightsStatus = typeof rights.rightsStatus === 'string' ? rights.rightsStatus.trim() : ''
+  if (!attribution || !rightsStatus || rights.usageRightsConfirmed !== true) {
+    return { linked: true, cardId }
+  }
+
+  let shareEligible = true
+  if (card.shareEligible !== undefined && card.shareEligible !== null) {
+    if (typeof card.shareEligible !== 'boolean') {
+      return { linked: true, cardId }
+    }
+    shareEligible = card.shareEligible
+  }
+
+  const themesCheck = sanitizeOptionalStringArray(card.theologicalThemes)
+  const keywordsCheck = sanitizeOptionalStringArray(card.keywords)
+  if (!themesCheck.ok || !keywordsCheck.ok) {
+    return { linked: true, cardId }
+  }
+
+  return {
+    linked: true,
+    cardId,
+    card: {
+      cardDocumentId: cardId,
+      title,
+      publicationYearMonth: monthYearMonth,
+      imageUrl: artworkCheck.url,
+      assetRevision,
+      illustrationAlt,
+      accessibleTranscription,
+      scripture: {
+        book,
+        reference,
+        translation,
+      },
+      attribution,
+      rightsStatus,
+      shareEligible,
+      ...(themesCheck.values ? { theologicalThemes: themesCheck.values } : {}),
+      ...(keywordsCheck.values ? { keywords: keywordsCheck.values } : {}),
+    },
+  }
+}
+
 interface NormalizedDiscovery {
   readonly discoveryId: string
   readonly discoverySlug: string
   readonly title: string
   readonly activeQualifyingIds: readonly string[]
   readonly reservedCardId?: string
+  readonly linkedCardId?: string
+  readonly earnedCard?: GatewayEarnedScriptureCard
 }
 
 interface ValidatedDiscoveries {
   readonly thematic: readonly NormalizedDiscovery[]
   readonly fullMonthTitle: string
   readonly fullMonthReservedCardId?: string
+  readonly fullMonthEarnedCard?: GatewayEarnedScriptureCard
 }
 
 function validateDiscoveriesAndFullMonth(
   doc: Record<string, unknown>,
   base: ValidatedMonthBase,
+  options?: MonthlyProjectionOptions,
 ): ProjectionValidationResult<ValidatedDiscoveries> {
   const rawDiscoveries = doc.discoveries === undefined || doc.discoveries === null ? [] : doc.discoveries
   if (!Array.isArray(rawDiscoveries)) {
@@ -523,7 +781,8 @@ function validateDiscoveriesAndFullMonth(
   }
 
   const seenSlugs = new Set<string>()
-  const thematic: NormalizedDiscovery[] = []
+  const cardIdCounts = new Map<string, number>()
+  const rawThematic: NormalizedDiscovery[] = []
 
   for (const rawDisc of rawDiscoveries) {
     if (!isPlainObject(rawDisc)) {
@@ -588,17 +847,34 @@ function validateDiscoveriesAndFullMonth(
       reservedCardId = rawDisc.reservedCardId
     }
 
-    thematic.push({
+    const cardCheck = validateAndProjectLinkedCard(
+      rawDisc,
+      'monthlyThematic',
+      base.yearMonth,
+      reservedCardId,
+      options,
+    )
+    const linkedCardId = cardCheck.linked ? cardCheck.cardId : undefined
+    if (linkedCardId) {
+      cardIdCounts.set(linkedCardId, (cardIdCounts.get(linkedCardId) ?? 0) + 1)
+    }
+
+    rawThematic.push({
       discoveryId: `discovery:${base.yearMonth}:${discoverySlug}`,
       discoverySlug,
       title: discTitle,
       activeQualifyingIds,
       ...(reservedCardId ? { reservedCardId } : {}),
+      ...(linkedCardId ? { linkedCardId } : {}),
+      ...(cardCheck.linked && cardCheck.card ? { earnedCard: cardCheck.card } : {}),
     })
   }
 
   let fullMonthTitle = `Complete ${MONTH_NAMES[base.month - 1]}`
   let fullMonthReservedCardId: string | undefined
+  let fullMonthLinkedCardId: string | undefined
+  let fullMonthEarnedCard: GatewayEarnedScriptureCard | undefined
+
   if (doc.fullMonthCard !== undefined && doc.fullMonthCard !== null) {
     if (!isPlainObject(doc.fullMonthCard)) {
       return { ok: false, reason: 'malformedDocument' }
@@ -619,6 +895,35 @@ function validateDiscoveriesAndFullMonth(
       }
       fullMonthReservedCardId = doc.fullMonthCard.reservedCardId
     }
+
+    const fullCardCheck = validateAndProjectLinkedCard(
+      doc.fullMonthCard,
+      'monthlyFull',
+      base.yearMonth,
+      fullMonthReservedCardId,
+      options,
+    )
+    if (fullCardCheck.linked) {
+      fullMonthLinkedCardId = fullCardCheck.cardId
+      if (fullMonthLinkedCardId) {
+        cardIdCounts.set(fullMonthLinkedCardId, (cardIdCounts.get(fullMonthLinkedCardId) ?? 0) + 1)
+      }
+      fullMonthEarnedCard = fullCardCheck.card
+    }
+  }
+
+  // Fail closed on intra-month duplicate card references across discoveries & fullMonthCard
+  const thematic: NormalizedDiscovery[] = rawThematic.map(item => {
+    if (item.linkedCardId && (cardIdCounts.get(item.linkedCardId) ?? 0) > 1) {
+      const { earnedCard: _omitted, ...rest } = item
+      void _omitted
+      return rest
+    }
+    return item
+  })
+
+  if (fullMonthLinkedCardId && (cardIdCounts.get(fullMonthLinkedCardId) ?? 0) > 1) {
+    fullMonthEarnedCard = undefined
   }
 
   return {
@@ -627,6 +932,7 @@ function validateDiscoveriesAndFullMonth(
       thematic,
       fullMonthTitle,
       ...(fullMonthReservedCardId ? { fullMonthReservedCardId } : {}),
+      ...(fullMonthEarnedCard ? { fullMonthEarnedCard } : {}),
     },
   }
 }
@@ -706,6 +1012,7 @@ export function validateAndProjectMonthDetail(
   rawDoc: unknown,
   requestedYearMonth: string,
   serverContext: GatewayServerContext,
+  options?: MonthlyProjectionOptions,
 ): ProjectionValidationResult<GatewayMonthDetailResponse> {
   const baseResult = validateMonthlyBase(
     rawDoc,
@@ -723,7 +1030,7 @@ export function validateAndProjectMonthDetail(
     return { ok: false, reason: 'embargoed' }
   }
 
-  const discResult = validateDiscoveriesAndFullMonth(rawDoc as Record<string, unknown>, base)
+  const discResult = validateDiscoveriesAndFullMonth(rawDoc as Record<string, unknown>, base, options)
   if (!discResult.ok) {
     return discResult
   }
@@ -820,6 +1127,7 @@ export function evaluateMonthProgress(
   requestedYearMonth: string,
   serverContext: GatewayServerContext,
   completedChallengeIds: readonly string[],
+  options?: MonthlyProjectionOptions,
 ): ProjectionValidationResult<GatewayMonthProgressResponse> {
   const baseResult = validateMonthlyBase(
     rawDoc,
@@ -836,7 +1144,7 @@ export function evaluateMonthProgress(
     return { ok: false, reason: 'embargoed' }
   }
 
-  const discResult = validateDiscoveriesAndFullMonth(rawDoc as Record<string, unknown>, base)
+  const discResult = validateDiscoveriesAndFullMonth(rawDoc as Record<string, unknown>, base, options)
   if (!discResult.ok) {
     return discResult
   }
@@ -883,6 +1191,7 @@ export function evaluateMonthProgress(
         ? {
             awardId: `card:monthly:${base.yearMonth}:${d.discoverySlug}`,
             ...(d.reservedCardId ? { reservedCardId: d.reservedCardId } : {}),
+            ...(d.earnedCard ? { earnedCard: d.earnedCard } : {}),
           }
         : {}),
     }
@@ -901,6 +1210,9 @@ export function evaluateMonthProgress(
           awardId: `card:monthly:${base.yearMonth}:full-month`,
           ...(discResult.document.fullMonthReservedCardId
             ? { reservedCardId: discResult.document.fullMonthReservedCardId }
+            : {}),
+          ...(discResult.document.fullMonthEarnedCard
+            ? { earnedCard: discResult.document.fullMonthEarnedCard }
             : {}),
         }
       : {}),
