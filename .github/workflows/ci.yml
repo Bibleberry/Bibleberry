@@ -13,7 +13,9 @@ permissions:
 jobs:
   reader-app:
     name: Build reader application
-    runs-on: ubuntu-latest
+    # Pin to the established runner while ubuntu-latest migrates to Ubuntu 26.04.
+    # Playwright --with-deps was failing DNS/package downloads on resolute.
+    runs-on: ubuntu-24.04
 
     steps:
       - uses: actions/checkout@v4
