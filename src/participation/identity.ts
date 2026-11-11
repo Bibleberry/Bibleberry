@@ -1,7 +1,10 @@
 import type {
+  CanonicalAwardId,
   CanonicalChallengeId,
   ChallengeIdentityNamespace,
   LocalCalendarDate,
+  MonthlyAwardKind,
+  PublicationYearMonth,
   SavedScriptureInput,
   SavedScriptureKey,
 } from './types.ts'
@@ -17,6 +20,31 @@ import type {
 
 const CHALLENGE_TOKEN_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/
 const CALENDAR_DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/
+const YEAR_MONTH_PATTERN = /^\d{4}-(?:0[1-9]|1[0-2])$/
+const SLUG_TOKEN_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+const MONTHLY_AWARD_ID_PATTERN = /^card:monthly:(\d{4}-(?:0[1-9]|1[0-2])):([a-z0-9]+(?:-[a-z0-9]+)*)$/
+const MONTHLY_DISCOVERY_ID_PATTERN = /^discovery:(\d{4}-(?:0[1-9]|1[0-2])):([a-z0-9]+(?:-[a-z0-9]+)*)$/
+const CARD_DOCUMENT_ID_PATTERN = /^card-([a-z0-9]+(?:-[a-z0-9]+)*)$/
+const MAX_SLUG_LENGTH = 128
+
+const FORBIDDEN_DISCOVERY_SLUG_PREFIXES = [
+  'fixture-',
+  'pilot-',
+  'lab-',
+  'prototype-',
+  'weekly-pilot-',
+  'sanity-lab',
+  'sanity-live',
+  'sanity-fixture',
+] as const
+
+const FORBIDDEN_DISCOVERY_SLUG_TOKENS = new Set([
+  'interactive-challenge-lab',
+  'nov-1',
+  'nov-2',
+  'nov-3',
+  'nov-5',
+])
 
 const FORBIDDEN_PRODUCTION_CMS_PREFIXES = [
   'drafts.',
@@ -172,4 +200,99 @@ export function normalizeSavedScriptureInput(
     translation,
     ...(sourceChallengeId ? { sourceChallengeId } : {}),
   }
+}
+
+export function parsePublicationYearMonth(raw: unknown): PublicationYearMonth | null {
+  if (typeof raw !== 'string' || raw !== raw.trim()) return null
+  if (!YEAR_MONTH_PATTERN.test(raw)) return null
+  return raw as PublicationYearMonth
+}
+
+export function isForbiddenDiscoverySlug(slug: string): boolean {
+  const lower = slug.toLowerCase()
+  if (FORBIDDEN_DISCOVERY_SLUG_TOKENS.has(lower)) return true
+  return FORBIDDEN_DISCOVERY_SLUG_PREFIXES.some(prefix => lower.startsWith(prefix))
+}
+
+export function parseDiscoverySlug(raw: unknown): string | null {
+  if (typeof raw !== 'string' || raw !== raw.trim()) return null
+  if (raw.length === 0 || raw.length > MAX_SLUG_LENGTH) return null
+  if (!SLUG_TOKEN_PATTERN.test(raw)) return null
+  if (isForbiddenDiscoverySlug(raw)) return null
+  return raw
+}
+
+export interface ParsedMonthlyAwardId {
+  readonly awardId: CanonicalAwardId
+  readonly publicationYearMonth: PublicationYearMonth
+  readonly slug: string
+  readonly kind: MonthlyAwardKind
+  readonly discoveryId: string
+}
+
+export function parseMonthlyAwardIdParts(raw: unknown): ParsedMonthlyAwardId | null {
+  if (typeof raw !== 'string' || raw !== raw.trim()) return null
+  const match = MONTHLY_AWARD_ID_PATTERN.exec(raw)
+  if (!match) return null
+
+  const yearMonth = parsePublicationYearMonth(match[1])
+  const slug = parseDiscoverySlug(match[2])
+  if (!yearMonth || !slug) return null
+
+  return {
+    awardId: raw as CanonicalAwardId,
+    publicationYearMonth: yearMonth,
+    slug,
+    kind: slug === 'full-month' ? 'fullMonth' : 'thematic',
+    discoveryId: `discovery:${yearMonth}:${slug}`,
+  }
+}
+
+export function parseCanonicalMonthlyAwardId(raw: unknown): CanonicalAwardId | null {
+  return parseMonthlyAwardIdParts(raw)?.awardId ?? null
+}
+
+export interface ParsedMonthlyDiscoveryId {
+  readonly discoveryId: string
+  readonly publicationYearMonth: PublicationYearMonth
+  readonly slug: string
+  readonly kind: MonthlyAwardKind
+  readonly awardId: CanonicalAwardId
+}
+
+export function parseCanonicalMonthlyDiscoveryId(raw: unknown): ParsedMonthlyDiscoveryId | null {
+  if (typeof raw !== 'string' || raw !== raw.trim()) return null
+  const match = MONTHLY_DISCOVERY_ID_PATTERN.exec(raw)
+  if (!match) return null
+
+  const yearMonth = parsePublicationYearMonth(match[1])
+  const slug = parseDiscoverySlug(match[2])
+  if (!yearMonth || !slug) return null
+
+  return {
+    discoveryId: raw,
+    publicationYearMonth: yearMonth,
+    slug,
+    kind: slug === 'full-month' ? 'fullMonth' : 'thematic',
+    awardId: `card:monthly:${yearMonth}:${slug}` as CanonicalAwardId,
+  }
+}
+
+export function deriveMonthlyAwardIdFromDiscoveryId(
+  rawDiscoveryId: unknown,
+  expectedKind?: MonthlyAwardKind,
+): CanonicalAwardId | null {
+  const parsed = parseCanonicalMonthlyDiscoveryId(rawDiscoveryId)
+  if (!parsed) return null
+  if (expectedKind !== undefined && parsed.kind !== expectedKind) return null
+  return parsed.awardId
+}
+
+export function parseCardDocumentId(raw: unknown): string | null {
+  if (typeof raw !== 'string' || raw !== raw.trim()) return null
+  if (raw.startsWith('drafts.')) return null
+  const match = CARD_DOCUMENT_ID_PATTERN.exec(raw)
+  if (!match) return null
+  if (!parseDiscoverySlug(match[1])) return null
+  return raw
 }
