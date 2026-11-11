@@ -2,12 +2,24 @@ import {
   buildMonthlySlots,
   computeAdvancePreviewStartDate,
   parseYearMonth,
+  SLUG_TOKEN_PATTERN,
 } from '../schemaTypes/monthlyHelpers'
 import {NOV2_TEMPLATE_ID, SERIES_DOCUMENT_ID, SERIES_TEMPLATE_ID, nov2InitialValue} from './nov2'
 
 export const MONTHLY_PUBLICATION_TEMPLATE_ID = 'monthly-publication-by-year-month'
 export const MONTHLY_PREVIEW_NEWS_TEMPLATE_ID = 'monthly-preview-news-by-year-month'
 export const GENERAL_NEWS_TEMPLATE_ID = 'general-ministry-news'
+export const SCRIPTURE_CARD_TEMPLATE_ID = 'scripture-card-by-slug'
+
+function requireValidCardSlug(params: {slug?: unknown} | undefined, templateId: string): string {
+  const raw = typeof params?.slug === 'string' ? params.slug.trim() : ''
+  if (!SLUG_TOKEN_PATTERN.test(raw)) {
+    throw new Error(
+      `Template "${templateId}" requires a lowercase hyphenated slug parameter; received ${JSON.stringify(params?.slug)}.`,
+    )
+  }
+  return raw
+}
 
 function requireValidYearMonth(params: {yearMonth?: unknown} | undefined, templateId: string) {
   const raw = params?.yearMonth
@@ -97,6 +109,30 @@ export const initialValueTemplates = [
       _type: 'newsArticle',
       category: 'ministryUpdate',
       withdrawn: false,
+    },
+  },
+  {
+    id: SCRIPTURE_CARD_TEMPLATE_ID,
+    title: 'Scripture Card (deterministic card-<slug>)',
+    description: 'Creates a draft Scripture Card using the deterministic identity card-<slug>.',
+    schemaType: 'scriptureCard',
+    parameters: [{name: 'slug', title: 'Card slug (lowercase hyphenated)', type: 'string'}],
+    value: (params?: {slug?: string}) => {
+      const slug = requireValidCardSlug(params, SCRIPTURE_CARD_TEMPLATE_ID)
+      return {
+        _type: 'scriptureCard',
+        slug: {_type: 'slug', current: slug},
+        assetRevision: 'v1',
+        shareEligible: true,
+        editorialStatus: 'draft',
+        withdrawn: false,
+        scriptureCitation: {
+          usageRightsConfirmed: false,
+        },
+        rightsAndAttribution: {
+          usageRightsConfirmed: false,
+        },
+      }
     },
   },
 ]
