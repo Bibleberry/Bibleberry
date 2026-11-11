@@ -47,6 +47,38 @@ jobs:
           xcodebuild -version | tee "$RUNNER_TEMP/xcode-version.txt"
           grep -Fxq 'Xcode 26.0.1' "$RUNNER_TEMP/xcode-version.txt"
           grep -Fxq 'Build version 17A400' "$RUNNER_TEMP/xcode-version.txt"
+          xcodebuild -showsdks | tee "$RUNNER_TEMP/xcode-sdks.txt"
+          grep -Fq 'iphonesimulator26.0' "$RUNNER_TEMP/xcode-sdks.txt"
+          xcrun simctl list runtimes | tee "$RUNNER_TEMP/simulator-runtimes-before.txt"
+
+      - name: Provision iOS 26.0 Simulator runtime when missing
+        run: |
+          has_ios_26_runtime() {
+            xcrun simctl list runtimes -j \
+              | python3 -c 'import json,sys; runtimes=json.load(sys.stdin)["runtimes"]; sys.exit(0 if any(r["name"] == "iOS 26.0" and r["isAvailable"] for r in runtimes) else 1)'
+          }
+
+          if ! has_ios_26_runtime; then
+            echo "iOS Simulator SDK 26.0 is present, but its runtime is missing; downloading the Xcode 26.0 runtime."
+            RUNTIME_DIR="$RUNNER_TEMP/ios-simulator-runtime"
+            mkdir -p "$RUNTIME_DIR"
+            xcodebuild -downloadPlatform iOS \
+              -buildVersion 26.0 \
+              -exportPath "$RUNTIME_DIR"
+            RUNTIME_DMG="$(find "$RUNTIME_DIR" -maxdepth 1 -type f -name '*.dmg' -print -quit)"
+            if [ -z "$RUNTIME_DMG" ]; then
+              echo "::error::Xcode did not export an iOS 26.0 Simulator runtime disk image."
+              ls -la "$RUNTIME_DIR"
+              exit 1
+            fi
+            xcodebuild -importPlatform "$RUNTIME_DMG"
+          fi
+
+          xcrun simctl list runtimes | tee "$RUNNER_TEMP/simulator-runtimes.txt"
+          if ! has_ios_26_runtime; then
+            echo "::error::The iOS 26.0 Simulator runtime is still unavailable after provisioning."
+            exit 1
+          fi
 
       - name: Install dependencies
         run: npm ci
@@ -59,6 +91,19 @@ jobs:
           npx cap sync ios
           grep -Fq 'CapacitorApp' ios/App/CapApp-SPM/Package.swift
           grep -Fq 'CapacitorPreferences' ios/App/CapApp-SPM/Package.swift
+
+      - name: Inspect iOS Simulator destinations
+        run: |
+          if ! xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -showdestinations \
+            > "$RUNNER_TEMP/ios-destinations-before-build.txt" 2>&1; then
+            cat "$RUNNER_TEMP/ios-destinations-before-build.txt"
+            echo "::error::Xcode could not enumerate destinations after the iOS Simulator runtime check."
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/ios-destinations-before-build.txt"
 
       - name: Build unsigned iOS Simulator app
         run: |

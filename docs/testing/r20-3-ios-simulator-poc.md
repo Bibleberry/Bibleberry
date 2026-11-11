@@ -8,7 +8,11 @@ The generated project is in `ios/`. Its tracked source includes the Xcode projec
 
 The iOS Simulator workflow uses GitHub's fixed `macos-26` image and selects Xcode 26.0.1 (build 17A400), documented in the [runner-images macOS 26 image inventory](https://github.com/actions/runner-images/blob/main/images/macos/macos-26-Readme.md). The generated project sets its minimum iOS version to 15.0. It uses SPM; CocoaPods is not required.
 
-This Linux session successfully generated and synchronized the iOS source, but has no `xcodebuild`, Apple SDK, or simulator. The Xcode compilation and simulator artifact validation therefore remain pending the macOS workflow. App launch and device behavior are not inferred from source generation or compilation.
+The iOS Simulator SDK and the bootable Simulator runtime are separate Xcode components. CI records `xcodebuild -showsdks` and `xcrun simctl list runtimes`; if the iOS 26.0 runtime is absent, it downloads that exact runtime using `xcodebuild -downloadPlatform iOS -buildVersion 26.0` and installs the exported disk image with `xcodebuild -importPlatform`. It then enumerates project destinations before compiling. This keeps the compiler/toolchain pinned while provisioning the missing runtime instead of treating SDK presence as runtime availability.
+
+The first native run, [43076940894](https://github.com/ContraPhilosophy/Bibleberry/actions/runs/43076940894), used runner image `macos-26-arm64` version `20261102.0473.1` and Xcode 26.0.1 (build 17A400). `npm ci`, the web build, Capacitor sync, and SPM dependency resolution passed. The build then exited 70 before Swift compilation because the iOS 26.0 Simulator platform/runtime was not installed; no `.app` was produced or validated. The workflow now provisions and verifies that runtime before retrying compilation.
+
+This Linux session successfully generated and synchronized the iOS source, but has no `xcodebuild`, Apple SDK, or simulator. The corrected macOS build and `.app` validation are pending; app launch and device behavior are not inferred from source generation or compilation.
 
 ## Development and reproduction
 
@@ -30,6 +34,20 @@ On macOS with Xcode 26.0.1, the signing-free simulator build used by CI is:
 
 ```sh
 sudo xcode-select --switch /Applications/Xcode_26.0.1.app/Contents/Developer
+xcodebuild -version
+xcodebuild -showsdks
+xcrun simctl list runtimes
+if ! xcrun simctl list runtimes -j \
+  | python3 -c 'import json,sys; runtimes=json.load(sys.stdin)["runtimes"]; sys.exit(0 if any(r["name"] == "iOS 26.0" and r["isAvailable"] for r in runtimes) else 1)'; then
+  mkdir -p "$TMPDIR/ios-simulator-runtime"
+  xcodebuild -downloadPlatform iOS -buildVersion 26.0 \
+    -exportPath "$TMPDIR/ios-simulator-runtime"
+  RUNTIME_DMG="$(find "$TMPDIR/ios-simulator-runtime" -maxdepth 1 -type f -name '*.dmg' -print -quit)"
+  test -n "$RUNTIME_DMG"
+  xcodebuild -importPlatform "$RUNTIME_DMG"
+fi
+xcrun simctl list runtimes
+xcodebuild -project ios/App/App.xcodeproj -scheme App -showdestinations
 xcodebuild \
   -project ios/App/App.xcodeproj \
   -scheme App \
@@ -53,14 +71,14 @@ The resulting app is at `$TMPDIR/BibleberryDerivedData/Build/Products/Debug-ipho
 | `npx cap add ios` | Passed on Linux. Generated the SPM Xcode project and included `@capacitor/app@8.1.2` and `@capacitor/preferences@8.0.1`. |
 | `npx cap sync ios` | Passed on Linux; refreshed web assets, Capacitor config and the CLI-managed SPM plugin list. |
 | `npm run lint` | Passed. |
-| `npm run test:adapter` | Passed, 212 tests. |
-| `npm run test:native-participation` | Passed, 5 tests. |
+| `npm run test:adapter` | Passed on the branch updated with main `2854a05099893113201c8b4c7e5e2248ecb8c36e`, 217 tests. |
+| `npm run test:native-participation` | Passed on the branch updated with main `2854a05099893113201c8b4c7e5e2248ecb8c36e`, 10 tests. |
 | `npm run test:gateway` | Passed, 101 tests. |
 | `npm run test:smoke` | Passed, 47 Playwright tests across seven build variants. Chromium was installed with the existing Playwright command after the first local attempt found no browser binary. |
 | `npm run check:staging` | Passed Wrangler dry-run; packaged 13 assets and did not deploy. |
-| Xcode Simulator compile | Not run locally: this environment is Linux and `xcodebuild` is unavailable. The first run of `.github/workflows/native-ios.yml` is pending. |
-| Workflow run / checked SHA | Pending. Record the Actions run ID, PR head SHA, synthetic merge SHA (if a PR run), and check conclusion here after the macOS job completes. |
-| `.app` identity and asset validation | Pending the macOS compile; expected identity and assertions are specified above and in the workflow. No artifact is claimed yet. |
+| Initial Xcode Simulator compile | Failed before Swift compilation in [run 43076940894, job 130719098603](https://github.com/ContraPhilosophy/Bibleberry/actions/runs/43076940894/job/130719098603): Xcode could not select an iOS Simulator destination because iOS 26.0 was not installed (exit 70). No `.app` was produced. |
+| Runtime provisioning and retry | Pending the corrected macOS workflow run. Record its run/job IDs, PR head SHA, synthetic merge SHA, Xcode/SDK/runtime output, and conclusion here. |
+| `.app` identity and asset validation | Pending a successful retry; no artifact is claimed until the job builds and verifies the simulator `.app`. |
 | `git diff --check` | Passed. |
 
 CI is configured to run on relevant iOS project, Capacitor, native lifecycle/Preferences, and workflow changes, or by manual dispatch. It has read-only repository permissions and does not receive signing secrets or write generated files back to the repository.
