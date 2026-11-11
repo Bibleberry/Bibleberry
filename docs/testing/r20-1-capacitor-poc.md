@@ -80,6 +80,34 @@ Executed in the Linux agent environment:
 
 GitHub Actions status is checked separately on the PR; a browser/Worker build is not evidence of an Android or iOS build or physical-device acceptance.
 
+## R20-2A Android CI evidence
+
+The independent [Native Android debug build workflow](https://github.com/ContraPhilosophy/Bibleberry/actions/workflows/native-android.yml) runs on relevant Android/Capacitor packaging changes to PRs targeting `main` and pushes to `main`, or by manual dispatch. It uses GitHub-hosted Ubuntu, Temurin JDK 21, Node.js 22, Android SDK Platform 36 and Build Tools 36.0.0. It keeps Gradle 8.14.3 and Android Gradle Plugin 8.13.0 from the checked-in project, runs the app's debug unit tests, checks the APK package ID and bundled `assets/public/index.html`, and uploads only the generated debug APK for seven days. An authorized successful run reports the source SHA, APK size and SHA-256 in its log.
+
+To reproduce the CI build locally, install JDK 21, Node.js 22, Android SDK Platform 36 and Build Tools 36.0.0, and set `JAVA_HOME` to JDK 21 and `ANDROID_HOME` to the SDK root. From the repository root:
+
+```sh
+java -version
+npm ci
+npm run build
+npx cap sync android
+cd android
+./gradlew :app:assembleDebug :app:testDebugUnitTest --no-daemon
+APK=app/build/outputs/apk/debug/app-debug.apk
+test -s "$APK"
+"$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" \
+  | grep -F "package: name='com.example.bibleberry.r20poc'"
+unzip -Z1 "$APK" | grep -Fx 'assets/public/index.html'
+stat -c '%s bytes' "$APK"
+sha256sum "$APK"
+```
+
+The first authorized native run, [42915847331](https://github.com/ContraPhilosophy/Bibleberry/actions/runs/42915847331) at head `d464f52abc6a38fe648f0ec091c141c917459f2a`, failed before Gradle: `android-actions/setup-android@v3` tried to install the obsolete `tools` package, which `sdkmanager` could not find. The workflow now uses the hosted runner's preinstalled SDK command-line tools, accepts their licenses, and installs only Platform 36 and Build Tools 36.0.0. The next run at head `3f185ed027924c5fd43bc5422e259bbb1657bf3c` ([42917144629](https://github.com/ContraPhilosophy/Bibleberry/actions/runs/42917144629)) was `action_required` with zero jobs, so that attempt did not execute.
+
+The authorized retry [Native Android run 42917313499](https://github.com/ContraPhilosophy/Bibleberry/actions/runs/42917313499) succeeded at feature-branch head `6b9b6cc830d1d58670ccc4aac8ae1bae1c3349b7`. GitHub checked out the synthetic PR merge SHA `51d1ba549ff972ef9aede05300440e28aaf5d08f`, which is the `GITHUB_SHA` reported in the build log; it is not the feature-branch head. JDK 21, Node.js 22, SDK Platform 36 / Build Tools 36.0.0, `npm ci`, the web build, and Capacitor sync all succeeded. Gradle completed `:app:assembleDebug` and `:app:testDebugUnitTest` with `BUILD SUCCESSFUL`; the APK was nonempty, `aapt` reported package `com.example.bibleberry.r20poc`, and the archive contained `assets/public/index.html`.
+
+The generated debug APK is **4,382,109 bytes**, SHA-256 `09b69099d5fdc361eba6c900c9c07c39fb25dd02e0a3e0f8749ef9670c55c3b8`. GitHub Actions artifact [bibleberry-r20-2a-debug-apk](https://github.com/ContraPhilosophy/Bibleberry/actions/runs/42917313499) (artifact ID `13811725807`) contains the debug APK and expires **2026-11-17** (seven-day retention). The regular [Bibleberry CI run 42917313477](https://github.com/ContraPhilosophy/Bibleberry/actions/runs/42917313477) also passed all four jobs at the same feature head. This verifies a CI JVM build, unit tests and APK packaging only; no emulator or physical-device launch, lifecycle, or persistence acceptance is claimed. Browser `localStorage` and native Preferences remain separate guest stores; Preferences is not used for authentication or session credentials. The app ID and displayed app name remain nonproduction POC values.
+
 ## Device acceptance checklist — follow-up, not yet run
 
 Run each checklist independently on an actual iPhone and a budget Android device. Record model, OS version, app/build SHA, result, and evidence. A simulator/emulator or browser run does not substitute for physical-device acceptance.
