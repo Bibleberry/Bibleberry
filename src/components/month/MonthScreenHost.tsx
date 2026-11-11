@@ -409,6 +409,9 @@ export function MonthScreenHost({
               ? `${formatYearMonthHeading(cleanYearMonth)} is not currently available.`
               : 'The requested publication month is not valid or not available.'}
           </p>
+          <button type="button" className="button button--secondary" onClick={retryLoad}>
+            <RotateCcw size={16} aria-hidden="true" /> Try Again
+          </button>
         </div>
       </div>
     )

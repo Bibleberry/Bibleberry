@@ -72,16 +72,22 @@ test.describe('Build Isolation and Public Production Verification', () => {
     await expect(page.locator('.pilot-disclosure')).toHaveCount(0);
     await expect(page.locator('.challenge-reader-page')).toHaveCount(0);
 
-    // Visiting the released Challenge hash route without feature flag in public bundle must also be inert
+    // Visiting the released Challenge or Month hash routes without feature flags in public bundle must also be inert
     await page.goto('/#/challenge/bibleberry-cms-integration-test');
     await expect(page.locator('#daily-teaching')).toBeVisible();
     await expect(page.locator('.challenge-reader-page')).toHaveCount(0);
 
+    await page.goto('/#/month/2026-11');
+    await expect(page.locator('#daily-teaching')).toBeVisible();
+    await expect(page.locator('.month-screen-page')).toHaveCount(0);
+    await expect(page.locator('.month-entry-bar')).toHaveCount(0);
+
     await page.reload();
     await expect(page.locator('#daily-teaching')).toBeVisible();
     await expect(page.locator('.challenge-reader-page')).toHaveCount(0);
+    await expect(page.locator('.month-screen-page')).toHaveCount(0);
 
-    // 2. Check filesystem: dist/ directory must NOT contain Lab, Preview, Pilot, or Controlled-Route chunks
+    // 2. Check filesystem: dist/ directory must NOT contain Lab, Preview, Pilot, Month, or Controlled-Route chunks
     const distDir = path.resolve(process.cwd(), 'dist', 'assets');
     expect(fs.existsSync(distDir)).toBe(true);
 
@@ -93,7 +99,9 @@ test.describe('Build Isolation and Public Production Verification', () => {
         f.startsWith('BerryMarkLocalPreview') ||
         f.startsWith('ordinaryChallengePilot') ||
         f.startsWith('participationPilot') ||
-        f.startsWith('ReleasedChallengeHost'),
+        f.startsWith('ReleasedChallengeHost') ||
+        f.startsWith('MonthScreenHost') ||
+        f.startsWith('MonthPreviewNewsBanner'),
     );
     expect(nonPublicChunk).toBeUndefined();
 
@@ -122,6 +130,11 @@ test.describe('Build Isolation and Public Production Verification', () => {
       'Open participation pilot',
       'TECHNICAL PILOT · NOT PUBLISHED CONTENT',
       'TECHNICAL PILOT · ISOLATED PERSISTENCE',
+      'bibleberry-month-intro-v1',
+      'Provisional calendar layout',
+      'Read Monthly Introduction',
+      'Open Month Calendar',
+      '/api/months/',
     ];
 
     for (const jsFile of jsFiles) {
