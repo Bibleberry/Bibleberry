@@ -56,6 +56,12 @@ export type ChallengePlayerProps = {
    * Keeps CMS/Sanity configuration and practice-availability diagnostics out of the ordinary reader.
    */
   diagnostics?: boolean
+  /**
+   * Ordinary reader Finish behavior: suppresses any in-reader completion confirmation panel
+   * and allows exiting via `Finish` when rereading an already-completed Challenge.
+   * Ignored when `diagnostics` is true.
+   */
+  returnOnFinish?: boolean
   /** Accessible names and optional visible labels that let a host describe its context without the player knowing it. */
   labels?: ChallengePlayerLabels
 }
@@ -84,12 +90,27 @@ export function ChallengePlayer({
   exitLabel = 'Return',
   eyebrow,
   diagnostics = false,
+  returnOnFinish = false,
   labels = {},
 }: ChallengePlayerProps) {
   const screenHeading = useRef<HTMLHeadingElement>(null)
+  const completionDispatchedRef = useRef(false)
+  const wasCompletedRef = useRef(isCompleted)
   const position = challengePlayerPosition(challenge.screens, screenId)
   const screen = challenge.screens[position.index]
   const currentScreenId = screen?.id
+  const effectiveReturnOnFinish = !diagnostics && returnOnFinish
+
+  useEffect(() => {
+    if (wasCompletedRef.current && !isCompleted) {
+      completionDispatchedRef.current = false
+    }
+    wasCompletedRef.current = isCompleted
+  }, [isCompleted])
+
+  useEffect(() => {
+    completionDispatchedRef.current = false
+  }, [challenge])
 
   useEffect(() => {
     if (!currentScreenId) return
@@ -99,14 +120,22 @@ export function ChallengePlayer({
 
   if (!screen) return null
 
-  const copy = resolveChallengePlayerCopy({ diagnostics, labels })
+  const copy = resolveChallengePlayerCopy({
+    diagnostics,
+    returnOnFinish: effectiveReturnOnFinish,
+    labels,
+  })
   const scriptureSave: CmsScriptureSaveControls = {
     isSaved: isScriptureSaved,
     onToggle: onToggleSaveScripture,
     collectionLabel: copy.scriptureCollection,
   }
   const complete = () => {
-    if (canCompleteChallenge(position, isCompleted)) onComplete()
+    if (completionDispatchedRef.current) return
+    if (canCompleteChallenge(position, isCompleted)) {
+      completionDispatchedRef.current = true
+      onComplete()
+    }
   }
 
   return (
@@ -125,7 +154,7 @@ export function ChallengePlayer({
         <p className="eyebrow">{screen.stepLabel}</p><h2 id={`${screen.id}-title`} ref={screenHeading} tabIndex={-1}>{screen.title}</h2>
         <div className="lab-screen__blocks">{screen.blocks.map(block => <CmsBlockView key={block.id} block={block} scriptureSave={scriptureSave} diagnostics={diagnostics} />)}</div>
       </article>
-      {isCompleted && position.isLast && <section className="lab-completion" role="status" aria-live="polite"><Check size={22} aria-hidden="true" /><div><h2>Challenge complete</h2><p>{copy.completionMessage}</p></div></section>}
+      {isCompleted && position.isLast && !effectiveReturnOnFinish && <section className="lab-completion" role="status" aria-live="polite"><Check size={22} aria-hidden="true" /><div><h2>Challenge complete</h2><p>{copy.completionMessage}</p></div></section>}
       <nav className="lab-screen-nav" aria-label={copy.navigationAriaLabel}>
         {position.previousScreenId ? (
           <button
@@ -156,6 +185,15 @@ export function ChallengePlayer({
           >
             Continue <ArrowRight size={17} />
           </button>
+        ) : isCompleted && effectiveReturnOnFinish ? (
+          <button
+            type="button"
+            className="button button--primary"
+            disabled={!onExit}
+            onClick={onExit}
+          >
+            {copy.completedButton}
+          </button>
         ) : (
           <button
             type="button"
@@ -164,7 +202,7 @@ export function ChallengePlayer({
             onClick={complete}
           >
             {isCompleted && <Check size={17} />}
-            {isCompleted ? 'Challenge complete' : 'Complete Challenge'}
+            {isCompleted ? copy.completedButton : copy.finishButton}
           </button>
         )}
       </nav>

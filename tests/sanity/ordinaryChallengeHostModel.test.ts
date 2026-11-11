@@ -32,8 +32,12 @@ import {
 import {
   assertValidAdmittedChallengeForHost,
   buildChallengeAliasRecord,
+  createPersistedChallengeFinishController,
   resolvePersistedHostScreenId,
 } from '../../src/participation/persistedChallengeHostModel.ts'
+import { createReaderParticipationStore } from '../../src/participation/store.ts'
+import { createEnvelopePersistenceAdapter, type KeyValueStorageDriver } from '../../src/participation/persistence.ts'
+import type { LocalCalendarDate } from '../../src/participation/types.ts'
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 
@@ -508,4 +512,192 @@ test('PersistedChallengeHost model enforces namespace + screen matching and sepa
     resolvePersistedHostScreenId({ isCompleted: true, resumeScreenId: undefined }, 'screen-two'),
     'screen-two',
   )
+})
+
+test('PersistedChallengeFinishController prevents double Finish, handles pending async writes/unavailable storage, and supports reread exit', async () => {
+  const controller = createPersistedChallengeFinishController()
+  let completedCalls = 0
+  let exitCalls = 0
+
+  // 1. Not on final screen: Finish is rejected
+  const nonFinal = controller.triggerFinish({
+    screens: sampleChallenge.screens,
+    activeScreenId: 'screen-one',
+    isCompleted: false,
+    returnOnFinish: true,
+    dispatchComplete: () => {
+      completedCalls += 1
+    },
+    onExit: () => {
+      exitCalls += 1
+    },
+  })
+  assert.deepEqual(nonFinal, { completedDispatched: false, returnInvoked: false })
+  assert.equal(completedCalls, 0)
+  assert.equal(exitCalls, 0)
+
+  // 2. Final screen: Finish dispatches completion once and immediately triggers origin return
+  const firstFinish = controller.triggerFinish({
+    screens: sampleChallenge.screens,
+    activeScreenId: 'screen-two',
+    isCompleted: false,
+    returnOnFinish: true,
+    dispatchComplete: () => {
+      completedCalls += 1
+    },
+    onExit: () => {
+      exitCalls += 1
+    },
+  })
+  assert.deepEqual(firstFinish, { completedDispatched: true, returnInvoked: true })
+  assert.equal(completedCalls, 1)
+  assert.equal(exitCalls, 1)
+
+  // 3. Rapid double-click and concurrent Exit tap before unmount do NOT duplicate completion or navigation
+  const doubleFinish = controller.triggerFinish({
+    screens: sampleChallenge.screens,
+    activeScreenId: 'screen-two',
+    isCompleted: false,
+    returnOnFinish: true,
+    dispatchComplete: () => {
+      completedCalls += 1
+    },
+    onExit: () => {
+      exitCalls += 1
+    },
+  })
+  assert.deepEqual(doubleFinish, { completedDispatched: false, returnInvoked: false })
+  assert.equal(controller.triggerExit(() => {
+    exitCalls += 1
+  }), false)
+  assert.equal(completedCalls, 1)
+  assert.equal(exitCalls, 1)
+
+  // 4. Reread on an already-completed Challenge exits once via triggerExit without re-completing
+  controller.reset()
+  assert.deepEqual(
+    controller.triggerFinish({
+      screens: sampleChallenge.screens,
+      activeScreenId: 'screen-two',
+      isCompleted: true,
+      returnOnFinish: true,
+      dispatchComplete: () => {
+        completedCalls += 1
+      },
+      onExit: () => {
+        exitCalls += 1
+      },
+    }),
+    { completedDispatched: false, returnInvoked: false },
+  )
+  assert.equal(controller.triggerExit(() => {
+    exitCalls += 1
+  }), true)
+  assert.equal(completedCalls, 1)
+  assert.equal(exitCalls, 2)
+
+  // 5. Pending async native write & unavailable backend & clearLocalData reset race
+  let allowWriteResolve!: () => void
+  let failStorage = false
+  const backing = new Map<string, string>()
+  const asyncDriver: KeyValueStorageDriver = {
+    getItem: async key => backing.get(key) ?? null,
+    setItem: async (key, value) => {
+      if (failStorage) throw new Error('Storage unavailable')
+      await new Promise<void>(resolve => {
+        allowWriteResolve = resolve
+      })
+      backing.set(key, value)
+    },
+    removeItem: async key => {
+      backing.delete(key)
+    },
+  }
+  const store = createReaderParticipationStore(
+    createEnvelopePersistenceAdapter({ storageKey: 'test-finish-key', driver: asyncDriver }),
+  )
+  await store.whenReady()
+  const admitted = admitTrustedCatalogChallenge({
+    documentId: 'finish-test-doc-1',
+    screens: sampleChallenge.screens,
+    editorial: { adaptationReviewed: true, reviewedAt: '2026-11-02T12:00:00Z' },
+  })!
+
+  const asyncController = createPersistedChallengeFinishController()
+  let navigated = 0
+  const finishDate: LocalCalendarDate = '2026-11-10'
+  const finishResult = asyncController.triggerFinish({
+    screens: sampleChallenge.screens,
+    activeScreenId: 'screen-two',
+    isCompleted: false,
+    returnOnFinish: true,
+    dispatchComplete: () => {
+      void store.dispatch({
+        type: 'completeChallenge',
+        challengeId: admitted.challengeId,
+        completedOn: finishDate,
+      })
+    },
+    onExit: () => {
+      navigated += 1
+    },
+  })
+  assert.deepEqual(finishResult, { completedDispatched: true, returnInvoked: true })
+  assert.equal(navigated, 1)
+  assert.equal(
+    store.getSnapshot().data.completedChallenges[admitted.challengeId]?.completedOn,
+    finishDate,
+  )
+  assert.equal(store.getSnapshot().hasPendingWrites, true)
+
+  // If a local reset races while the async native write is in flight, reset wins cleanly
+  await store.clearLocalData()
+  allowWriteResolve?.()
+  await store.flushPending()
+  assert.equal(store.getSnapshot().data.completedChallenges[admitted.challengeId], undefined)
+
+  // Unavailable storage backend does not block Finish return and retains pending write for retry
+  failStorage = true
+  asyncController.reset()
+  let unavailableNavigated = 0
+  const unavailableResult = asyncController.triggerFinish({
+    screens: sampleChallenge.screens,
+    activeScreenId: 'screen-two',
+    isCompleted: false,
+    returnOnFinish: true,
+    dispatchComplete: () => {
+      void store.dispatch({
+        type: 'completeChallenge',
+        challengeId: admitted.challengeId,
+        completedOn: finishDate,
+      })
+    },
+    onExit: () => {
+      unavailableNavigated += 1
+    },
+  })
+  assert.deepEqual(unavailableResult, { completedDispatched: true, returnInvoked: true })
+  assert.equal(unavailableNavigated, 1)
+  await store.flushPending()
+  assert.equal(store.getSnapshot().health, 'writeFailed')
+  assert.equal(store.getSnapshot().hasPendingWrites, true)
+
+  // Storage recovers -> retry flush commits completion without duplicating
+  failStorage = false
+  let flushResolved = false
+  const flushPromise = store.flushPending().then(() => {
+    flushResolved = true
+  })
+  // Allow microtask to enter setItem and create allowWriteResolve
+  await Promise.resolve()
+  await Promise.resolve()
+  await Promise.resolve()
+  allowWriteResolve()
+  await flushPromise
+  assert.equal(flushResolved, true)
+  assert.equal(store.getSnapshot().health, 'ok')
+  assert.equal(store.getSnapshot().hasPendingWrites, false)
+  assert.equal(store.getSnapshot().distinctCompletedCount, 1)
+
+  store.dispose()
 })

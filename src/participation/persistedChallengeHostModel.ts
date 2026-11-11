@@ -1,7 +1,11 @@
 import { isAdmittedChallenge, type AdmittedChallenge } from './admission.ts'
 import { selectChallengeParticipationView } from './model.ts'
 import type { ReaderParticipationSnapshot } from './store.ts'
-import type { ChallengePlayerChallenge } from '../components/challenge/challengePlayerModel.ts'
+import {
+  canCompleteChallenge,
+  challengePlayerPosition,
+  type ChallengePlayerChallenge,
+} from '../components/challenge/challengePlayerModel.ts'
 import type {
   CanonicalChallengeId,
   ChallengeIdentityNamespace,
@@ -52,7 +56,7 @@ export function buildChallengeAliasRecord(
  *   when `undefined` or if an editor removed a screen).
  * - Completed Challenges use transient in-session `rereadScreenId` (starting at `undefined` -> Screen 1 on
  *   reopen so rereading never strands the reader on the final screen, while preserving final-screen focus
- *   immediately after clicking `Complete Challenge` in the current visit).
+ *   immediately after completing in a non-returning pilot session).
  */
 export function resolvePersistedHostScreenId(
   view: Pick<ChallengeParticipationView, 'isCompleted' | 'resumeScreenId'>,
@@ -88,5 +92,86 @@ export function derivePersistedHostRenderState(
     mode: 'ready',
     view,
     effectiveScreenId: resolvePersistedHostScreenId(view, rereadScreenId),
+  }
+}
+
+export interface PersistedFinishAttemptResult {
+  readonly completedDispatched: boolean
+  readonly returnInvoked: boolean
+}
+
+export interface PersistedChallengeFinishController {
+  reset(): void
+  triggerExit(onExit?: () => void, guardSingleReturn?: boolean): boolean
+  triggerFinish(input: {
+    readonly screens: ChallengePlayerChallenge['screens']
+    readonly activeScreenId: string | undefined
+    readonly isCompleted: boolean
+    readonly returnOnFinish: boolean
+    readonly dispatchComplete: () => void
+    readonly onStayOnFinalScreen?: (resolvedLastScreenId: string | undefined) => void
+    readonly onExit?: () => void
+  }): PersistedFinishAttemptResult
+}
+
+/**
+ * Pure, single-flight Finish/Return controller for `PersistedChallengeHost`.
+ * Prevents duplicate `completeChallenge` dispatches and duplicate origin-return navigation
+ * across rapid double-clicks and pending async native storage writes.
+ */
+export function createPersistedChallengeFinishController(): PersistedChallengeFinishController {
+  let finishTriggered = false
+  let returnTriggered = false
+
+  return {
+    reset() {
+      finishTriggered = false
+      returnTriggered = false
+    },
+
+    triggerExit(onExit?: () => void, guardSingleReturn = true): boolean {
+      if (!onExit) return false
+      if (guardSingleReturn) {
+        if (returnTriggered) return false
+        returnTriggered = true
+      }
+      onExit()
+      return true
+    },
+
+    triggerFinish({
+      screens,
+      activeScreenId,
+      isCompleted,
+      returnOnFinish,
+      dispatchComplete,
+      onStayOnFinalScreen,
+      onExit,
+    }) {
+      if (finishTriggered) {
+        return { completedDispatched: false, returnInvoked: false }
+      }
+      const position = challengePlayerPosition(screens, activeScreenId)
+      if (!canCompleteChallenge(position, isCompleted)) {
+        return { completedDispatched: false, returnInvoked: false }
+      }
+
+      finishTriggered = true
+      const resolvedScreenId = screens[position.index]?.id
+      if (!returnOnFinish) {
+        onStayOnFinalScreen?.(resolvedScreenId)
+      }
+
+      dispatchComplete()
+
+      let returnInvoked = false
+      if (returnOnFinish && onExit && !returnTriggered) {
+        returnTriggered = true
+        onExit()
+        returnInvoked = true
+      }
+
+      return { completedDispatched: true, returnInvoked }
+    },
   }
 }

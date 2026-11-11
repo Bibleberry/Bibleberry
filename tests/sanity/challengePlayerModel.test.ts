@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import {
   canCompleteChallenge,
   challengePlayerPosition,
+  resolveChallengePlayerCopy,
   resolveScreenIndex,
 } from '../../src/components/challenge/challengePlayerModel.ts'
 import { resolveCmsScreenIndex } from '../../src/cms/sanity/labState.ts'
@@ -91,4 +92,18 @@ test('CMS Lab resolveCmsScreenIndex keeps its existing behavior through the shar
   }
   assert.equal(resolveCmsScreenIndex(challenge, challenge.screens[1].id), 1)
   assert.equal(resolveCmsScreenIndex(challenge, 'missing-screen'), 0)
+})
+
+test('resolveChallengePlayerCopy uses Finish for ordinary reader and preserves Complete Challenge for Lab diagnostics', () => {
+  const ordinary = resolveChallengePlayerCopy({ diagnostics: false, returnOnFinish: true })
+  assert.equal(ordinary.finishButton, 'Finish')
+  assert.equal(ordinary.completedButton, 'Finish')
+
+  const ordinaryPilot = resolveChallengePlayerCopy({ diagnostics: false, returnOnFinish: false })
+  assert.equal(ordinaryPilot.finishButton, 'Finish')
+  assert.equal(ordinaryPilot.completedButton, 'Challenge complete')
+
+  const lab = resolveChallengePlayerCopy({ diagnostics: true })
+  assert.equal(lab.finishButton, 'Complete Challenge')
+  assert.equal(lab.completedButton, 'Challenge complete')
 })

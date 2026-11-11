@@ -12,6 +12,12 @@ import { allFormationEntries, disciplineResources, onePhraseMemorizationEntry, w
 import { entryTypeLabel, WEEKLY_PILOT_CHALLENGE_ID, type ChallengeEntry, type TeachingEntry } from './data/formation'
 import { DeveloperStudio } from './components/DeveloperStudio'
 import type { OrdinaryChallengeSessionState } from './components/challenge/ordinaryChallengeHostModel'
+import {
+  formatChallengeOriginLabel,
+  parseChallengeOrigin,
+  parseChallengeOriginFromSearchParams,
+  type ChallengeOrigin,
+} from './cms/reader/challengeOrigin'
 import { defaultGuestParticipationStore } from './participation/defaultGuestStore'
 import './App.css'
 
@@ -33,7 +39,7 @@ type Detail =
   | { type: 'challengeLab' }
   | { type: 'challengePilot' }
   | { type: 'participationPilot' }
-  | { type: 'releasedChallenge'; slug: string }
+  | { type: 'releasedChallenge'; slug: string; origin: ChallengeOrigin }
   | null
 type Appearance = 'light' | 'dark' | 'system'
 type TextSize = 'compact' | 'default' | 'large'
@@ -598,6 +604,30 @@ function primaryViewLabel(view: PrimaryView): string {
   return navItems.find(item => item.id === view)?.label ?? 'Today'
 }
 
+function parseReleasedChallengeHash(hash: string): { slug: string; origin: ChallengeOrigin } | null {
+  if (!hash.startsWith('#/challenge/')) return null
+  const withoutPrefix = hash.slice('#/challenge/'.length)
+  const queryIndex = withoutPrefix.indexOf('?')
+  const rawSlug = queryIndex >= 0 ? withoutPrefix.slice(0, queryIndex) : withoutPrefix
+  const rawQuery = queryIndex >= 0 ? withoutPrefix.slice(queryIndex + 1) : ''
+  const slug = rawSlug.trim()
+  if (slug.length === 0) return null
+
+  const historyOrigin = typeof window !== 'undefined' ? window.history.state?.challengeOrigin : undefined
+  let origin: ChallengeOrigin
+  if (historyOrigin !== undefined) {
+    origin = parseChallengeOrigin(historyOrigin)
+  } else if (rawQuery.length > 0) {
+    origin = parseChallengeOriginFromSearchParams(new URLSearchParams(rawQuery))
+  } else if (typeof window !== 'undefined' && window.location.search.length > 0) {
+    origin = parseChallengeOriginFromSearchParams(new URLSearchParams(window.location.search))
+  } else {
+    origin = { kind: 'hub' }
+  }
+
+  return { slug, origin }
+}
+
 function parseInitialRoute(): {
   view: PrimaryView
   detail: Detail
@@ -627,15 +657,15 @@ function parseInitialRoute(): {
       previewDate: '',
     }
   }
-  if (releasedChallengeRouteEnabled && hash.startsWith('#/challenge/')) {
-    const slug = hash.replace('#/challenge/', '').trim()
-    if (slug.length > 0) {
+  if (releasedChallengeRouteEnabled) {
+    const parsedChallenge = parseReleasedChallengeHash(hash)
+    if (parsedChallenge) {
       const originView = typeof window !== 'undefined' && isPrimaryView(window.history.state?.originView)
         ? window.history.state.originView
         : 'today'
       return {
         view: originView,
-        detail: { type: 'releasedChallenge', slug },
+        detail: { type: 'releasedChallenge', slug: parsedChallenge.slug, origin: parsedChallenge.origin },
         developmentCollection: 'ordinary',
         previewDate: '',
       }
@@ -673,7 +703,12 @@ function parseInitialRoute(): {
   }
 }
 
-export default function App() {
+export type AppProps = {
+  /** Optional typed return adapter for R08A-6 / Phase 05 Month, Shelf, and Library surfaces. */
+  onReleasedChallengeReturn?: (origin: ChallengeOrigin) => void
+}
+
+export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
   const [state, setState] = useState<PrototypeState>(loadState)
   const [view, setView] = useState<PrimaryView>(() => (loadState().onboarded ? parseInitialRoute().view : 'today'))
   const [detail, setDetail] = useState<Detail>(() => (loadState().onboarded ? parseInitialRoute().detail : null))
@@ -755,14 +790,18 @@ export default function App() {
         scrollTop()
         return
       }
-      if (releasedChallengeRouteEnabled && currentHash.startsWith('#/challenge/')) {
-        const slug = currentHash.replace('#/challenge/', '').trim()
-        if (slug.length > 0) {
+      if (releasedChallengeRouteEnabled) {
+        const parsedChallenge = parseReleasedChallengeHash(currentHash)
+        if (parsedChallenge) {
           const originView = isPrimaryView(window.history.state?.originView)
             ? window.history.state.originView
             : undefined
           if (originView) setView(originView)
-          setDetail({ type: 'releasedChallenge', slug })
+          setDetail({
+            type: 'releasedChallenge',
+            slug: parsedChallenge.slug,
+            origin: parsedChallenge.origin,
+          })
           scrollTop()
           return
         }
@@ -847,10 +886,18 @@ export default function App() {
       window.history.replaceState({ bibleberryPilot: true, originView: destination }, '', '#/pilot/participation')
       setDetail({ type: 'participationPilot' })
     } else if (releasedChallengeRouteEnabled && hash.startsWith('#/challenge/')) {
-      const slug = hash.replace('#/challenge/', '').trim()
-      if (slug.length > 0) {
-        window.history.replaceState({ originView: destination }, '', hash)
-        setDetail({ type: 'releasedChallenge', slug })
+      const parsedChallenge = parseReleasedChallengeHash(hash)
+      if (parsedChallenge) {
+        window.history.replaceState(
+          { originView: destination, challengeOrigin: parsedChallenge.origin },
+          '',
+          hash,
+        )
+        setDetail({
+          type: 'releasedChallenge',
+          slug: parsedChallenge.slug,
+          origin: parsedChallenge.origin,
+        })
       }
     } else if (hash.startsWith('#/teaching/')) {
       const id = hash.replace('#/teaching/', '')
@@ -1050,12 +1097,18 @@ export default function App() {
     }
     scrollTop()
   }
-  const exitReleasedChallenge = () => {
+  const exitReleasedChallenge = (returnedOrigin: ChallengeOrigin) => {
     if (!releasedChallengeRouteEnabled) return
+    const normalizedOrigin = parseChallengeOrigin(returnedOrigin)
     setDetail(null)
     if (window.location.hash.startsWith('#/challenge/')) {
-      window.history.pushState({ bibleberryView: view }, '', window.location.pathname)
+      window.history.pushState(
+        { bibleberryView: view, returnedChallengeOrigin: normalizedOrigin },
+        '',
+        window.location.pathname,
+      )
     }
+    onReleasedChallengeReturn?.(normalizedOrigin)
     scrollTop()
   }
 
@@ -1132,11 +1185,15 @@ export default function App() {
       />
     </Suspense>
   } else if (detail?.type === 'releasedChallenge' && releasedChallengeRouteEnabled && ReleasedChallengeHost) {
+    const returnLabel = detail.origin.kind === 'hub'
+      ? `Return to ${primaryViewLabel(view)}`
+      : formatChallengeOriginLabel(detail.origin)
     content = <Suspense fallback={<div className="standard-page"><p role="status" aria-live="polite">Loading Challenge…</p></div>}>
       <ReleasedChallengeHost
         slug={detail.slug}
-        returnLabel={`Return to ${primaryViewLabel(view)}`}
-        onExit={exitReleasedChallenge}
+        origin={detail.origin}
+        returnLabel={returnLabel}
+        onReturn={exitReleasedChallenge}
       />
     </Suspense>
   } else if (detail?.type === 'challengeLab' && developerStudioEnabled && InteractiveChallengeLab) {
