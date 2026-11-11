@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { CmsScripture } from '../../cms/sanity/types.ts'
 import {
   ChallengePlayer,
@@ -37,6 +37,7 @@ type OrdinaryChallengeHostBaseProps = {
   challenge: ChallengePlayerChallenge
   onExit?: () => void
   exitLabel?: string
+  returnOnFinish?: boolean
   eyebrow?: ReactNode
   banner?: ReactNode
   footer?: ReactNode
@@ -80,6 +81,7 @@ function OrdinaryChallengeHostFrame({
   actions,
   onExit,
   exitLabel,
+  returnOnFinish,
   eyebrow,
   banner,
   footer,
@@ -103,6 +105,7 @@ function OrdinaryChallengeHostFrame({
         onStartProgress={actions.onStartProgress}
         onExit={onExit}
         exitLabel={exitLabel}
+        returnOnFinish={returnOnFinish}
         eyebrow={eyebrow}
         labels={labels}
       />
@@ -120,12 +123,24 @@ function OrdinaryChallengeHostView({
   challenge,
   session,
   applyChange,
+  returnOnFinish,
+  onExit,
   ...restProps
 }: OrdinaryChallengeHostSessionViewProps) {
+  const finishHandledRef = useRef(false)
+
+  useEffect(() => {
+    if (!session.isCompleted) {
+      finishHandledRef.current = false
+    }
+  }, [session.isCompleted, restProps.challengeKey])
+
   return (
     <OrdinaryChallengeHostFrame
       {...restProps}
       challenge={challenge}
+      onExit={onExit}
+      returnOnFinish={returnOnFinish}
       viewState={{
         screenId: session.screenId,
         isSaved: session.isSaved,
@@ -140,7 +155,14 @@ function OrdinaryChallengeHostView({
         onToggleSaveChallenge: () => applyChange(toggleOrdinaryChallengeSaved),
         onToggleSaveScripture: scripture =>
           applyChange(current => toggleOrdinaryScriptureSaved(current, scripture)),
-        onComplete: () => applyChange(current => completeOrdinaryChallenge(challenge, current)),
+        onComplete: () => {
+          if (finishHandledRef.current || session.isCompleted) return
+          finishHandledRef.current = true
+          applyChange(current => completeOrdinaryChallenge(challenge, current))
+          if (returnOnFinish) {
+            onExit?.()
+          }
+        },
         onStartProgress: () => applyChange(startOrdinaryChallengeProgress),
       }}
     />
