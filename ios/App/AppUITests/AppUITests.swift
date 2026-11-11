@@ -123,13 +123,7 @@ final class AppUITests: XCTestCase {
         )
         attachScreenshot(named: "04-after-terminate-relaunch")
 
-        // Verify More -> Privacy & local data renders.
-        // Note: Tapping "Erase & reset" is intentionally not asserted here because
-        // `resetPrototype()` awaits `defaultGuestParticipationStore.clearLocalData()`, which
-        // currently hangs on native iOS due to `src/participation/drivers/capacitorPreferencesDriver.ts`
-        // returning the Capacitor `Preferences` Proxy directly from `.then(...)` (triggering
-        // `"Preferences.then()" is not implemented on ios`, observed in R20-4 runs 43091869039,
-        // 43093774077, and 43101432573). Fixing `src/participation/**` is out of scope for R20-4.
+        // Verify More -> Privacy & local data -> Reset local app data -> Erase & reset restores onboarding.
         tapWhenReady(moreTab)
         scrollToAndTapContent(buttonContaining("Privacy & local data", in: app), in: app)
         XCTAssertTrue(
@@ -139,5 +133,45 @@ final class AppUITests: XCTestCase {
         let resetButton = exactButton("Reset local app data", in: app)
         XCTAssertTrue(resetButton.waitForExistence(timeout: 10), "Reset local app data button missing")
         attachScreenshot(named: "05-privacy-local-data")
+
+        scrollToAndTapContent(resetButton, in: app)
+        XCTAssertTrue(
+            staticTextContaining("Reset all local app data?", in: app).waitForExistence(timeout: 10),
+            "Reset confirmation panel did not appear"
+        )
+        let eraseButton = exactButton("Erase & reset", in: app)
+        scrollToAndTapContent(eraseButton, in: app)
+
+        XCTAssertTrue(
+            exactButton("Continue", in: app).waitForExistence(timeout: 15),
+            "Onboarding Continue button did not reappear after Erase & reset"
+        )
+        XCTAssertTrue(
+            staticTextContaining("quiet place", in: app).waitForExistence(timeout: 10),
+            "Onboarding headline did not reappear after Erase & reset"
+        )
+        XCTAssertFalse(
+            exactButton("Today", in: app).exists,
+            "Today tab should not remain visible after Erase & reset"
+        )
+        XCTAssertFalse(
+            staticTextContaining("Unable to reset local app data", in: app).exists,
+            "Reset failed with storage unavailable error"
+        )
+        attachScreenshot(named: "06-after-privacy-reset")
+
+        // Terminate and relaunch after reset: onboarding remains restored.
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 20), "App failed to enter foreground after reset relaunch")
+        XCTAssertTrue(
+            exactButton("Continue", in: app).waitForExistence(timeout: 20),
+            "Onboarding Continue button missing after terminate and relaunch post-reset"
+        )
+        XCTAssertFalse(
+            exactButton("Today", in: app).exists,
+            "Today tab unexpectedly reappeared after post-reset relaunch"
+        )
+        attachScreenshot(named: "07-after-reset-relaunch")
     }
 }
