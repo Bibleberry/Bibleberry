@@ -90,6 +90,7 @@ test('rejects unsafe slugs, unknown routes, external URLs, and unsupported query
     'javascript:alert(1)',
     '#/challenge/rejoice?next=https://example.com',
     '#/challenge/rejoice?origin=hub&origin=month',
+    '#/challenge/rejoice\u0000',
   ]) {
     assert.equal(parseInternalDestination(route, enabled), null, route)
   }

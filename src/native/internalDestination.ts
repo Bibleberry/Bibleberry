@@ -44,7 +44,11 @@ export function parseInternalDestination(
   if (
     typeof candidate !== 'string' ||
     !candidate.startsWith('#/') ||
-    /[\u0000-\u001f\u007f\\]/.test(candidate)
+    candidate.includes('\\') ||
+    [...candidate].some(character => {
+      const code = character.charCodeAt(0)
+      return code < 0x20 || code === 0x7f
+    })
   ) {
     return null
   }
