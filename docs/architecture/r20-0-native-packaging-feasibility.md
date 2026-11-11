@@ -1,5 +1,19 @@
 # R20-0 — Native packaging feasibility
 
+## Status addendum — November 10–11, 2026 (subsequent implementation, not part of the original assessment)
+
+This feasibility memorandum is preserved as a **dated decision-support assessment** of the November 10 repository baseline, not as a description of the current implemented `main`. The historical source citations and original conditional recommendation below are intentionally unchanged.
+
+Subsequent, separately reviewed and merged work adopted **Capacitor for a limited development proof of concept**:
+
+- [PR #82](https://github.com/ContraPhilosophy/Bibleberry/pull/82) added the Capacitor 8 native development shell, checked-in Android project, and an asynchronous native Preferences driver for local guest participation, retaining hosted-web `localStorage` behavior and the same participation envelope. This is a proof of concept, not production platform approval.
+- [PR #86](https://github.com/ContraPhilosophy/Bibleberry/pull/86) added a reproducible optional GitHub Actions Android **debug** APK workflow, with artifact/package verification. It does **not** represent a signed release, an approved production app ID, or physical-device acceptance.
+- [R20-2B Issue #93 / PR #95](https://github.com/ContraPhilosophy/Bibleberry/pull/95) is a separately scoped native internal-navigation/lifecycle-adapter proposal **under review as of this addendum**. Do not treat its code as accepted until that PR is independently reviewed and merged.
+
+**Still open:** Physical iPhone and inexpensive Android device acceptance (including force-quit/resume, accessibility, lifecycle and native storage), production app identifier and signing, verified Universal/App Links and OAuth callbacks, app-store qualification, and account synchronization. The original decision memo's proposal to *begin* a Capacitor POC is therefore historical; its security and device-acceptance questions remain relevant. No live Sanity writes or native release actions are authorized by this update.
+
+---
+
 **Assessment date:** November 10, 2026  
 **Repository baseline:** `main` at `2a178e8d6f0b4a70312c14df788964b1dda465ae`  
 **Status:** Decision support only. No native technology is selected and no implementation is authorized by this memo.
