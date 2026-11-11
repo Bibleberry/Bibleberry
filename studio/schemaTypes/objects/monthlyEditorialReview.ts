@@ -12,7 +12,7 @@ export const monthlyEditorialReview = defineType({
   title: 'Editorial review',
   type: 'object',
   description:
-    'Truthful editorial review attribution for monthly publications and ministry news. Technical fixtures must use technical_synthetic rather than claiming Alexis theological review.',
+    'Truthful editorial review attribution for monthly publications, ministry news, and Scripture Cards. Technical fixtures must use technical_synthetic rather than claiming Alexis theological review.',
   fields: [
     defineField({
       name: 'reviewedBy',

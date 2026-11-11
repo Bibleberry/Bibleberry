@@ -9,6 +9,7 @@ import {
   initialValueTemplates,
   MONTHLY_PREVIEW_NEWS_TEMPLATE_ID,
   MONTHLY_PUBLICATION_TEMPLATE_ID,
+  SCRIPTURE_CARD_TEMPLATE_ID,
 } from './initialValues/templates'
 import {schemaTypes} from './schemaTypes'
 import {structure} from './structure'
@@ -20,7 +21,9 @@ export const filterDeterministicNewDocumentOptions: NonNullable<DocumentPluginOp
     item =>
       item.templateId !== 'monthlyPublication' &&
       item.templateId !== MONTHLY_PUBLICATION_TEMPLATE_ID &&
-      item.templateId !== MONTHLY_PREVIEW_NEWS_TEMPLATE_ID,
+      item.templateId !== MONTHLY_PREVIEW_NEWS_TEMPLATE_ID &&
+      item.templateId !== 'scriptureCard' &&
+      item.templateId !== SCRIPTURE_CARD_TEMPLATE_ID,
   )
 
 // Only the two approved datasets (production and staging) are permitted.

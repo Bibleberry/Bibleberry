@@ -5,6 +5,24 @@ export const ALLOWED_REVIEWER_ROLES = [
 
 export type AllowedReviewerRole = (typeof ALLOWED_REVIEWER_ROLES)[number]
 
+export const ALLOWED_CARD_CATEGORIES = [
+  'monthlyThematic',
+  'monthlyFull',
+  'foundation',
+  'tutorial',
+  'specialExperience',
+] as const
+
+export type AllowedCardCategory = (typeof ALLOWED_CARD_CATEGORIES)[number]
+
+export const ALLOWED_CARD_EDITORIAL_STATUSES = [
+  'draft',
+  'inReview',
+  'approved',
+] as const
+
+export type AllowedCardEditorialStatus = (typeof ALLOWED_CARD_EDITORIAL_STATUSES)[number]
+
 export const REVIEWED_BLOCK_TYPES = new Set([
   'comparisonBlock',
   'visualCardsBlock',
@@ -17,10 +35,16 @@ export const YEAR_MONTH_PATTERN = /^\d{4}-(?:0[1-9]|1[0-2])$/
 export const ISO_CIVIL_DATE_PATTERN = /^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/
 export const SLUG_TOKEN_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 export const CARD_PLACEHOLDER_PATTERN = /^card-[a-z0-9]+(?:-[a-z0-9]+)*$/
+export const CARD_ID_PATTERN = CARD_PLACEHOLDER_PATTERN
+export const ASSET_REVISION_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,31}$/
 export const SHA256_PATTERN = /^[0-9a-f]{64}$/
 
 export function stripDraftPrefix(id: string): string {
   return id.replace(/^drafts\./, '')
+}
+
+export function deterministicCardIdFromSlug(slug: string): string {
+  return `card-${slug}`
 }
 
 export function daysInMonth(year: number, month: number): number {

@@ -2,8 +2,15 @@ import type {StructureBuilder} from 'sanity/structure'
 import {
   MONTHLY_PREVIEW_NEWS_TEMPLATE_ID,
   MONTHLY_PUBLICATION_TEMPLATE_ID,
+  SCRIPTURE_CARD_TEMPLATE_ID,
 } from './initialValues/templates'
-import {computeAdvancePreviewStartDate, daysInMonth, parseYearMonth} from './schemaTypes/monthlyHelpers'
+import {
+  computeAdvancePreviewStartDate,
+  daysInMonth,
+  deterministicCardIdFromSlug,
+  parseYearMonth,
+  SLUG_TOKEN_PATTERN,
+} from './schemaTypes/monthlyHelpers'
 
 export const MONTH_PLANNING_YEARS = [2026, 2027, 2028, 2029, 2030] as const
 
@@ -111,4 +118,78 @@ export function resolveDeterministicMonthChild(S: StructureBuilder, childId: str
 
 export function listYearMonthKeys(year: number): string[] {
   return Array.from({length: 12}, (_, index) => `${year}-${String(index + 1).padStart(2, '0')}`)
+}
+
+export type DeterministicCardTarget = {
+  slug: string
+  cardDocumentId: string
+  cardTemplateId: string
+}
+
+export function deterministicCardDocumentId(slug: string): string {
+  const trimmed = slug.trim()
+  if (!SLUG_TOKEN_PATTERN.test(trimmed)) {
+    throw new Error(
+      `Invalid Scripture Card slug "${slug}". Expected lowercase hyphenated characters (for example, 2027-03-vineyard-imagery).`,
+    )
+  }
+  return deterministicCardIdFromSlug(trimmed)
+}
+
+export function parseDeterministicCardTarget(
+  rawInput: string,
+): {ok: true; target: DeterministicCardTarget} | {ok: false; error: string} {
+  const trimmed = rawInput.trim()
+  if (!trimmed) {
+    return {
+      ok: false,
+      error: 'Enter a lowercase hyphenated Card slug (for example, 2027-03-vineyard-imagery).',
+    }
+  }
+  if (trimmed.startsWith('card-')) {
+    return {
+      ok: false,
+      error: 'Enter the slug without the "card-" prefix (for example, 2027-03-vineyard-imagery).',
+    }
+  }
+  if (!SLUG_TOKEN_PATTERN.test(trimmed)) {
+    return {
+      ok: false,
+      error: 'Card slug must use lowercase letters, numbers, and single hyphens only (for example, 2027-03-vineyard-imagery).',
+    }
+  }
+  return {
+    ok: true,
+    target: {
+      slug: trimmed,
+      cardDocumentId: deterministicCardIdFromSlug(trimmed),
+      cardTemplateId: SCRIPTURE_CARD_TEMPLATE_ID,
+    },
+  }
+}
+
+/**
+ * Deterministic editor node for a scriptureCard document (`card-<slug>`).
+ * Reopens existing draft or published documents at `card-<slug>` without creating duplicates.
+ */
+export function resolveScriptureCardDocumentNode(S: StructureBuilder, slug: string) {
+  const documentId = deterministicCardDocumentId(slug)
+  return S.document()
+    .id(documentId)
+    .schemaType('scriptureCard')
+    .documentId(documentId)
+    .initialValueTemplate(SCRIPTURE_CARD_TEMPLATE_ID, {slug: slug.trim()})
+}
+
+/**
+ * Dynamic child resolver used by the custom card-<slug> opener pane (`ChildLink`).
+ */
+export function resolveDeterministicCardChild(S: StructureBuilder, childId: string) {
+  const match = /^card-([a-z0-9]+(?:-[a-z0-9]+)*)$/.exec(childId)
+  if (match) {
+    return resolveScriptureCardDocumentNode(S, match[1])
+  }
+  throw new Error(
+    `Unsupported deterministic Scripture Card child ID "${childId}". Expected card-<slug>.`,
+  )
 }
