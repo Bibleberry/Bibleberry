@@ -1,15 +1,16 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ArrowLeft } from 'lucide-react'
+import {
+  formatChallengeOriginLabel,
+  parseChallengeOrigin,
+  type ChallengeOrigin,
+} from '../cms/reader/challengeOrigin.ts'
 import type { CmsScripture } from '../cms/sanity/types.ts'
 import type {
   ChallengePlayerChallenge,
   ChallengePlayerProps,
 } from '../components/challenge/ChallengePlayer.tsx'
 import { OrdinaryChallengeHost } from '../components/challenge/OrdinaryChallengeHost.tsx'
-import {
-  canCompleteChallenge,
-  challengePlayerPosition,
-} from '../components/challenge/challengePlayerModel.ts'
 import type { AdmittedChallenge } from './admission.ts'
 import { formatLocalCalendarDate } from './identity.ts'
 import {
@@ -19,6 +20,7 @@ import {
 import {
   assertValidAdmittedChallengeForHost,
   buildChallengeAliasRecord,
+  createPersistedChallengeFinishController,
   derivePersistedHostRenderState,
   resolvePersistedHostScreenId,
 } from './persistedChallengeHostModel.ts'
@@ -44,6 +46,9 @@ export type PersistedChallengeHostProps = {
   expectedNamespace?: ChallengeIdentityNamespace
   /** Optional clock override for deterministic tests; defaults to `formatLocalCalendarDate()`. */
   getToday?: () => LocalCalendarDate
+  origin?: ChallengeOrigin
+  onReturn?: (origin: ChallengeOrigin) => void
+  returnOnFinish?: boolean
   onExit?: () => void
   exitLabel?: string
   eyebrow?: ReactNode
@@ -54,9 +59,10 @@ export type PersistedChallengeHostProps = {
 
 type ReadyPersistedChallengeHostProps = Omit<
   PersistedChallengeHostProps,
-  'expectedNamespace' | 'getToday'
+  'expectedNamespace' | 'getToday' | 'origin' | 'onReturn' | 'returnOnFinish'
 > & {
   getToday: () => LocalCalendarDate
+  effectiveReturnOnFinish: boolean
 }
 
 function ReadyPersistedChallengeHost({
@@ -64,6 +70,7 @@ function ReadyPersistedChallengeHost({
   admittedChallenge,
   challenge,
   getToday,
+  effectiveReturnOnFinish,
   onExit,
   exitLabel = 'Return',
   eyebrow,
@@ -74,10 +81,23 @@ function ReadyPersistedChallengeHost({
   const snapshot = useReaderParticipation(store)
   const [rereadScreenId, setRereadScreenId] = useState<string | undefined>(undefined)
   const recordedOpenKey = useRef<string>('')
+  const finishControllerRef = useRef(createPersistedChallengeFinishController())
 
   const challengeId = admittedChallenge.challengeId
   const view = selectChallengeParticipationView(snapshot.data, challengeId)
   const effectiveScreenId = resolvePersistedHostScreenId(view, rereadScreenId)
+  const wasCompletedRef = useRef<boolean>(view.isCompleted)
+
+  useEffect(() => {
+    if (wasCompletedRef.current && !view.isCompleted) {
+      finishControllerRef.current.reset()
+    }
+    wasCompletedRef.current = view.isCompleted
+  }, [view.isCompleted])
+
+  useEffect(() => {
+    finishControllerRef.current.reset()
+  }, [challengeId])
 
   useEffect(() => {
     const today = getToday()
@@ -100,12 +120,19 @@ function ReadyPersistedChallengeHost({
     })
   }, [admittedChallenge, challengeId, getToday, store])
 
+  const invokeReturnOnce = onExit
+    ? () => {
+        finishControllerRef.current.triggerExit(onExit, effectiveReturnOnFinish)
+      }
+    : undefined
+
   return (
     <OrdinaryChallengeHost
       challengeKey={challengeId}
       challenge={challenge}
-      onExit={onExit}
+      onExit={invokeReturnOnce}
       exitLabel={exitLabel}
+      returnOnFinish={effectiveReturnOnFinish}
       eyebrow={eyebrow}
       banner={banner}
       footer={footer}
@@ -165,14 +192,20 @@ function ReadyPersistedChallengeHost({
           })
         },
         onComplete: () => {
-          const position = challengePlayerPosition(challenge.screens, effectiveScreenId)
-          if (!canCompleteChallenge(position, view.isCompleted)) return
-          const activeScreenId = challenge.screens[position.index]?.id
-          setRereadScreenId(activeScreenId)
-          void store.dispatch({
-            type: 'completeChallenge',
-            challengeId,
-            completedOn: getToday(),
+          finishControllerRef.current.triggerFinish({
+            screens: challenge.screens,
+            activeScreenId: effectiveScreenId,
+            isCompleted: view.isCompleted,
+            returnOnFinish: effectiveReturnOnFinish,
+            onStayOnFinalScreen: activeScreenId => setRereadScreenId(activeScreenId),
+            dispatchComplete: () => {
+              void store.dispatch({
+                type: 'completeChallenge',
+                challengeId,
+                completedOn: getToday(),
+              })
+            },
+            onExit,
           })
         },
       }}
@@ -186,14 +219,26 @@ export function PersistedChallengeHost({
   challenge,
   expectedNamespace = 'cms',
   getToday = formatLocalCalendarDate,
+  origin,
+  onReturn,
+  returnOnFinish,
   onExit,
-  exitLabel = 'Return',
+  exitLabel,
   eyebrow,
   banner,
   footer,
   labels,
 }: PersistedChallengeHostProps) {
   assertValidAdmittedChallengeForHost(admittedChallenge, challenge, expectedNamespace)
+  const resolvedOrigin = parseChallengeOrigin(origin)
+  const effectiveReturnOnFinish = returnOnFinish ?? Boolean(onReturn)
+  const effectiveExitLabel =
+    exitLabel ??
+    (origin !== undefined || onReturn !== undefined
+      ? formatChallengeOriginLabel(resolvedOrigin)
+      : 'Return')
+  const handleExit = onReturn ? () => onReturn(resolvedOrigin) : onExit
+
   const snapshot = useReaderParticipation(store)
   const renderState = derivePersistedHostRenderState(
     snapshot,
@@ -205,9 +250,9 @@ export function PersistedChallengeHost({
     return (
       <div className="standard-page challenge-reader-page">
         {banner}
-        {onExit && (
-          <button type="button" className="back-link challenge-player__exit" onClick={onExit}>
-            <ArrowLeft size={17} /> {exitLabel}
+        {handleExit && (
+          <button type="button" className="back-link challenge-player__exit" onClick={handleExit}>
+            <ArrowLeft size={17} /> {effectiveExitLabel}
           </button>
         )}
         <p role="status" aria-live="polite">
@@ -225,8 +270,9 @@ export function PersistedChallengeHost({
       admittedChallenge={admittedChallenge}
       challenge={challenge}
       getToday={getToday}
-      onExit={onExit}
-      exitLabel={exitLabel}
+      effectiveReturnOnFinish={effectiveReturnOnFinish}
+      onExit={handleExit}
+      exitLabel={effectiveExitLabel}
       eyebrow={eyebrow}
       banner={banner}
       footer={footer}
