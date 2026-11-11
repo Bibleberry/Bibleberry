@@ -11,6 +11,7 @@ on:
       - src/native/**
       - src/participation/drivers/capacitorPreferencesDriver.ts
       - src/participation/defaultGuestStore.ts
+      - scripts/ios-simulator-smoke.py
       - .github/workflows/native-ios.yml
   push:
     branches: [main]
@@ -22,6 +23,7 @@ on:
       - src/native/**
       - src/participation/drivers/capacitorPreferencesDriver.ts
       - src/participation/defaultGuestStore.ts
+      - scripts/ios-simulator-smoke.py
       - .github/workflows/native-ios.yml
   workflow_dispatch:
 
@@ -138,5 +140,21 @@ jobs:
         with:
           name: bibleberry-r20-3-ios-simulator-app
           path: ${{ runner.temp }}/BibleberryDerivedData/Build/Products/Debug-iphonesimulator/App.app
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Run iOS Simulator runtime smoke (install, launch, restart, UI lifecycle)
+        run: |
+          python3 scripts/ios-simulator-smoke.py \
+            --app-path "$RUNNER_TEMP/BibleberryDerivedData/Build/Products/Debug-iphonesimulator/App.app" \
+            --derived-data "$RUNNER_TEMP/BibleberryDerivedData" \
+            --evidence-dir "$RUNNER_TEMP/ios-simulator-evidence"
+
+      - name: Upload iOS Simulator runtime smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bibleberry-r20-4-ios-simulator-evidence
+          path: ${{ runner.temp }}/ios-simulator-evidence
           if-no-files-found: error
           retention-days: 7
