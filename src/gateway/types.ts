@@ -215,6 +215,26 @@ export interface GatewayMonthDetailResponse {
   }
 }
 
+export interface GatewayEarnedScriptureCard {
+  readonly cardDocumentId: string
+  readonly title: string
+  readonly publicationYearMonth: string
+  readonly imageUrl: string
+  readonly assetRevision: string
+  readonly illustrationAlt: string
+  readonly accessibleTranscription: string
+  readonly scripture: {
+    readonly book: string
+    readonly reference: string
+    readonly translation: string
+  }
+  readonly attribution: string
+  readonly rightsStatus: string
+  readonly shareEligible: boolean
+  readonly theologicalThemes?: readonly string[]
+  readonly keywords?: readonly string[]
+}
+
 export interface GatewayMonthProgressDiscovery {
   readonly discoveryId: string
   readonly kind: 'thematic' | 'fullMonth'
@@ -224,6 +244,7 @@ export interface GatewayMonthProgressDiscovery {
   readonly isEarned: boolean
   readonly awardId?: string
   readonly reservedCardId?: string
+  readonly earnedCard?: GatewayEarnedScriptureCard
 }
 
 export interface GatewayMonthProgressResponse {

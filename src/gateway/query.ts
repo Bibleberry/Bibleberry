@@ -216,6 +216,45 @@ const MONTHLY_EDITORIAL_REVIEW_PROJECTION_GROQ = `
   }
 `
 
+const LINKED_SCRIPTURE_CARD_PROJECTION_GROQ = `
+  "rawCardRef": card._ref,
+  "card": card->{
+    _id,
+    _type,
+    title,
+    "slug": slug.current,
+    cardCategory,
+    plannedYearMonth,
+    assetRevision,
+    "artwork": select(defined(artwork.asset) => {
+      "url": artwork.asset->url
+    }, null),
+    illustrationAlt,
+    accessibleTranscription,
+    scriptureCitation{
+      book,
+      reference,
+      translation,
+      usageRightsConfirmed
+    },
+    theologicalThemes,
+    keywords,
+    rightsAndAttribution{
+      attribution,
+      rightsStatus,
+      usageRightsConfirmed
+    },
+    shareEligible,
+    editorialStatus,
+    withdrawn,
+    "editorialReview": editorialReview{
+      reviewedBy,
+      reviewerRole,
+      reviewedAt
+    }
+  }
+`
+
 /**
  * Parameterized GROQ query for advance-preview monthly publication metadata.
  * Intentionally omits welcomeScreen, discoveries, fullMonthCard, Challenge slugs, and Challenge screens.
@@ -350,11 +389,13 @@ export const MONTHLY_DETAIL_BY_ID_GROQ_QUERY = `
       discoverySlug,
       title,
       "qualifyingChallengeIds": qualifyingChallenges[]._ref,
-      reservedCardId
+      reservedCardId,
+      ${LINKED_SCRIPTURE_CARD_PROJECTION_GROQ}
     },
     "fullMonthCard": fullMonthCard{
       title,
-      reservedCardId
+      reservedCardId,
+      ${LINKED_SCRIPTURE_CARD_PROJECTION_GROQ}
     }
   }
 `

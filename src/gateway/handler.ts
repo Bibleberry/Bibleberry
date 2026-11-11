@@ -523,7 +523,10 @@ async function handleMonthDetailRequest(
     return fetched.response
   }
 
-  const projected = validateAndProjectMonthDetail(fetched.rawDoc, rawYearMonth, serverContext)
+  const projected = validateAndProjectMonthDetail(fetched.rawDoc, rawYearMonth, serverContext, {
+    sanityProjectId: env.SANITY_PROJECT_ID,
+    sanityDataset: env.SANITY_DATASET,
+  })
   if (!projected.ok) {
     return monthNotFoundResponse(corsHeaders)
   }
@@ -734,6 +737,10 @@ async function handleMonthProgressRequest(
     rawYearMonth,
     serverContext,
     parsedBody.completedChallengeIds,
+    {
+      sanityProjectId: env.SANITY_PROJECT_ID,
+      sanityDataset: env.SANITY_DATASET,
+    },
   )
   if (!evaluated.ok) {
     return monthNotFoundResponse(corsHeaders)
