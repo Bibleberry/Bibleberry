@@ -10,10 +10,10 @@ The checked-in Android project was generated and synchronized. This Linux runner
 
 - Node.js 22 or later and npm. The runner used Node.js 22.23.4 and npm 10.9.9.
 - Android Studio 2025.2.1 or later, Android SDK Platform 36 and Build Tools, and JDK 21. The generated Capacitor project compiles with `sourceCompatibility` and `targetCompatibility` set to Java 21; JDK 17 is insufficient. In Android Studio, set **Settings → Build, Execution, Deployment → Build Tools → Gradle → Gradle JDK** to JDK 21. For command-line builds, set `JAVA_HOME` to a JDK 21 installation and ensure `$JAVA_HOME/bin` is on `PATH` before running Gradle. This runner had JDK 17 and Android SDK/build tools installed, so it did not meet the JDK requirement.
-- macOS and Xcode for iOS project generation, simulator/device builds, and signing. CocoaPods is required by the iOS plugin workflow.
+- macOS and Xcode for iOS Simulator/device builds and signing. Capacitor CLI project generation and synchronization can run on Linux when using the SPM template; see the later [R20-3 iOS Simulator POC](r20-3-ios-simulator-poc.md). CocoaPods is not needed for this SPM-based iOS project.
 - Dependencies selected for this POC: `@capacitor/core`, `@capacitor/cli`, `@capacitor/android`, and `@capacitor/ios` 8.6.0; `@capacitor/preferences` 8.0.1. The native Preferences plugin is used only for non-credential guest participation data. It is not a secure session/token store.
 
-The generated Android project includes its Gradle wrapper (Gradle 8.14.3), app activity/manifest/resources, and platform build configuration. Its local SDK paths, Gradle caches/build outputs, copied Vite assets, copied Capacitor config/plugin files, and keystores are ignored. No iOS project is checked in.
+The generated Android project includes its Gradle wrapper (Gradle 8.14.3), app activity/manifest/resources, and platform build configuration. Its local SDK paths, Gradle caches/build outputs, copied Vite assets, copied Capacitor config/plugin files, and keystores are ignored. At the time of R20-1, no iOS project was checked in; R20-3 adds the source-controlled iOS project.
 
 ## Android development
 
@@ -35,19 +35,20 @@ cd android
 
 The checked-in `android/` project was generated with `npx cap add android`. `npx cap sync android` copies the current `dist/` output and registers the Preferences plugin; run it after every web build. Generated web assets, Capacitor plugin/config copies, Gradle caches/build outputs, local SDK paths, and keystores are excluded by the platform `.gitignore` files.
 
-## iOS development (macOS only)
+## iOS development (R20-1 status)
 
-The iOS project is intentionally not checked in from this Linux environment. On a Mac, with Xcode and CocoaPods installed, start from a clean checkout and run:
+At the time of R20-1, no iOS project had been generated or checked in. R20-3 supersedes this setup note with a source-controlled SPM project and a signing-free simulator CI workflow; see [R20-3 iOS Simulator POC](r20-3-ios-simulator-poc.md) for the current commands and verification status.
+
+The current iOS project is generated from a clean checkout with:
 
 ```sh
 npm ci
 npm run build
 npx cap add ios
 npx cap sync ios
-npx cap open ios
 ```
 
-In Xcode, use a local simulator for a development build. Physical-device installation requires an authorized development signing identity; no signing credentials or developer accounts are part of this POC. Subsequent web builds use `npm run build && npx cap sync ios`.
+Project generation uses Capacitor's SPM template and does not require CocoaPods. A simulator build requires macOS and Xcode; physical-device installation and distribution are outside this POC.
 
 ## Storage selection and limits
 

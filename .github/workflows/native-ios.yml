@@ -1,0 +1,97 @@
+name: Native iOS simulator build
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ios/**
+      - capacitor.config.ts
+      - package.json
+      - package-lock.json
+      - src/native/**
+      - src/participation/drivers/capacitorPreferencesDriver.ts
+      - src/participation/defaultGuestStore.ts
+      - .github/workflows/native-ios.yml
+  push:
+    branches: [main]
+    paths:
+      - ios/**
+      - capacitor.config.ts
+      - package.json
+      - package-lock.json
+      - src/native/**
+      - src/participation/drivers/capacitorPreferencesDriver.ts
+      - src/participation/defaultGuestStore.ts
+      - .github/workflows/native-ios.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ios-simulator:
+    name: Signing-free iOS Simulator build
+    runs-on: macos-26
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Select documented Xcode 26.0.1
+        run: |
+          sudo xcode-select --switch /Applications/Xcode_26.0.1.app/Contents/Developer
+          xcodebuild -version | tee "$RUNNER_TEMP/xcode-version.txt"
+          grep -Fxq 'Xcode 26.0.1' "$RUNNER_TEMP/xcode-version.txt"
+          grep -Fxq 'Build version 17A400' "$RUNNER_TEMP/xcode-version.txt"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web application
+        run: npm run build
+
+      - name: Sync Capacitor iOS project
+        run: |
+          npx cap sync ios
+          grep -Fq 'CapacitorApp' ios/App/CapApp-SPM/Package.swift
+          grep -Fq 'CapacitorPreferences' ios/App/CapApp-SPM/Package.swift
+
+      - name: Build unsigned iOS Simulator app
+        run: |
+          xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/BibleberryDerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY='' \
+            build
+
+      - name: Verify simulator app identity and web assets
+        env:
+          APP: ${{ runner.temp }}/BibleberryDerivedData/Build/Products/Debug-iphonesimulator/App.app
+        run: |
+          test -d "$APP"
+          test -s "$APP/Info.plist"
+          BUNDLE_ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist")
+          test "$BUNDLE_ID" = 'com.example.bibleberry.r20poc'
+          test -s "$APP/public/index.html"
+          test -n "$(find "$APP/public/assets" -type f -name '*.js' -size +0c -print -quit)"
+          echo "Bundle ID: $BUNDLE_ID"
+          echo "PR head SHA (or push SHA): ${{ github.event.pull_request.head.sha || github.sha }}"
+          echo "Build SHA (GITHUB_SHA): $GITHUB_SHA"
+          echo "App size: $(du -sh "$APP" | cut -f1)"
+
+      - name: Upload development simulator app
+        uses: actions/upload-artifact@v4
+        with:
+          name: bibleberry-r20-3-ios-simulator-app
+          path: ${{ runner.temp }}/BibleberryDerivedData/Build/Products/Debug-iphonesimulator/App.app
+          if-no-files-found: error
+          retention-days: 7
