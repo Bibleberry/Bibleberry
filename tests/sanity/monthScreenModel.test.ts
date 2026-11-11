@@ -20,8 +20,13 @@ import {
   resolveMonthIntroDecision,
 } from '../../src/components/month/monthIntroStorage.ts'
 import { emptyReaderParticipationData } from '../../src/participation/model.ts'
+import { parseLocalCalendarDate, parsePublicationYearMonth } from '../../src/participation/identity.ts'
 import type { KeyValueStorageDriver } from '../../src/participation/persistence.ts'
-import type { CanonicalChallengeId, ReaderParticipationData } from '../../src/participation/types.ts'
+import type {
+  CanonicalAwardId,
+  CanonicalChallengeId,
+  ReaderParticipationData,
+} from '../../src/participation/types.ts'
 
 function buildActiveMonthSlots(yearMonth: string, days: number): MonthSlot[] {
   return Array.from({ length: days }, (_, idx) => {
@@ -241,6 +246,7 @@ test('orders thematic discoveries first and fullMonth strictly last without leak
   assert.equal(resolved[0].kind, 'thematic')
   assert.equal(resolved[0].achievedCount, 3)
   assert.equal(resolved[0].isEarned, true)
+  assert.equal(resolved[0].hasCardDisplay, false)
   assert.equal(resolved[1].kind, 'fullMonth')
   assert.equal(resolved[1].achievedCount, 3)
   assert.equal(resolved[1].targetCount, 30)
@@ -250,6 +256,46 @@ test('orders thematic discoveries first and fullMonth strictly last without leak
   const stale = resolveMonthDiscoveryPresentations(summaries, progress, '2026-10')
   assert.equal(stale[0].achievedCount, 0)
   assert.equal(stale[0].isEarned, false)
+
+  const storedAward = {
+    awardId: 'card:monthly:2026-11:motif-a' as CanonicalAwardId,
+    discoveryId: 'discovery:2026-11:motif-a',
+    earnedOn: parseLocalCalendarDate('2026-11-09')!,
+  }
+  const storedData = {
+    ...emptyReaderParticipationData(),
+    earnedAwards: {
+      [storedAward.awardId]: {
+        ...storedAward,
+        kind: 'thematic' as const,
+        publicationYearMonth: parsePublicationYearMonth('2026-11')!,
+        hubAnnouncementAcked: true,
+        cardViewed: false,
+      },
+    },
+  }
+  const recomputedUnearned = {
+    ...progress,
+    discoveries: progress.discoveries.map(discovery => {
+      if (discovery.discoveryId !== 'discovery:2026-11:motif-a') return discovery
+      return {
+        discoveryId: discovery.discoveryId,
+        kind: discovery.kind,
+        title: discovery.title,
+        achievedCount: discovery.achievedCount,
+        targetCount: discovery.targetCount,
+        isEarned: false,
+      }
+    }),
+  }
+  const retained = resolveMonthDiscoveryPresentations(
+    summaries,
+    recomputedUnearned,
+    '2026-11',
+    storedData,
+  )
+  assert.equal(retained[0].isEarned, true)
+  assert.equal(retained[0].hasCardDisplay, false)
 
   const ticker = deriveMonthCompletionSummary(30, [], progress, '2026-11')
   assert.equal(ticker.label, '3 of 30 Challenges')
