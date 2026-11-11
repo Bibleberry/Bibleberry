@@ -3,10 +3,10 @@ import {CARD_PLACEHOLDER_PATTERN, SLUG_TOKEN_PATTERN} from '../monthlyHelpers'
 
 export const monthlyDiscovery = defineType({
   name: 'monthlyDiscovery',
-  title: 'Monthly discovery (Phase 04 prep)',
+  title: 'Monthly discovery',
   type: 'object',
   description:
-    'Thematic earning rule anchored to qualifying Challenges within the month. Qualifying Challenge references must belong to the active finalized roster (V-DISC-SUBSET). Complete Scripture Card artwork/asset linking is deferred to Phase 04.',
+    'Thematic earning rule anchored to qualifying Challenges within the month. Qualifying Challenge references must belong to the active finalized roster (V-DISC-SUBSET). Link a scriptureCard document via card (or keep reservedCardId for legacy synthetic fixtures).',
   fields: [
     defineField({
       name: 'discoverySlug',
@@ -40,11 +40,20 @@ export const monthlyDiscovery = defineType({
       validation: Rule => Rule.required().min(1).unique(),
     }),
     defineField({
+      name: 'card',
+      title: 'Linked Scripture Card',
+      type: 'reference',
+      to: [{type: 'scriptureCard'}],
+      weak: true,
+      description:
+        'Optional reference to a monthlyThematic scriptureCard document (card-<slug>). Linking a Card defines the earning target only; it never records reader awards or exposes unearned artwork.',
+    }),
+    defineField({
       name: 'reservedCardId',
-      title: 'Reserved Scripture Card ID (Phase 04 deferral)',
+      title: 'Legacy reserved Scripture Card ID',
       type: 'string',
       description:
-        'Optional placeholder card ID (card-<slug>). Deliberately deferred until Phase 04 introduces the full scriptureCard schema and artwork fields.',
+        'Optional legacy placeholder card ID (card-<slug>) retained for R08A synthetic fixtures. Prefer linking a scriptureCard document in the card field.',
       validation: Rule =>
         Rule.custom(value => {
           if (value === undefined || value === null || value === '') return true
@@ -58,12 +67,19 @@ export const monthlyDiscovery = defineType({
       title: 'title',
       discoverySlug: 'discoverySlug',
       qualifyingChallenges: 'qualifyingChallenges',
+      cardRef: 'card._ref',
+      reservedCardId: 'reservedCardId',
     },
-    prepare({title, discoverySlug, qualifyingChallenges}) {
+    prepare({title, discoverySlug, qualifyingChallenges, cardRef, reservedCardId}) {
       const count = qualifyingChallenges?.length || 0
+      const cardStatus = cardRef
+        ? ` · ${cardRef}`
+        : reservedCardId
+          ? ` · legacy ${reservedCardId}`
+          : ''
       return {
         title: title || discoverySlug || 'Untitled discovery',
-        subtitle: `${count} qualifying Challenge${count === 1 ? '' : 's'}`,
+        subtitle: `${count} qualifying Challenge${count === 1 ? '' : 's'}${cardStatus}`,
       }
     },
   },

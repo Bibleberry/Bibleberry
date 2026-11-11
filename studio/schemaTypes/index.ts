@@ -2,6 +2,7 @@ import {challenge} from './documents/challenge'
 import {challengeSeries} from './documents/challengeSeries'
 import {monthlyPublication} from './documents/monthlyPublication'
 import {newsArticle} from './documents/newsArticle'
+import {scriptureCard} from './documents/scriptureCard'
 import {challengeScreen} from './objects/challengeScreen'
 import {companionLink} from './objects/companionLink'
 import {comparisonBlock} from './objects/comparisonBlock'
@@ -33,6 +34,7 @@ export const schemaTypes = [
   challengeSeries,
   challenge,
   monthlyPublication,
+  scriptureCard,
   newsArticle,
   challengeScreen,
   introductionScreen,
