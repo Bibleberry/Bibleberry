@@ -316,6 +316,21 @@ test('manages month intro preview vs Welcome eligibility, Skip to Welcome, newer
   const afterClear = await store.markWelcomeSeen('2027-03', 'v1')
   assert.equal(afterClear.health, 'ok')
   assert.equal(afterClear.envelope.months['2027-03']?.welcomeSeen, true)
+
+  // 5. Failed storage remove reports { ok: false, health: 'storageUnavailable' } without throwing
+  const failingDriver: KeyValueStorageDriver = {
+    getItem: async key => backing.get(key) ?? null,
+    setItem: async (key, val) => {
+      backing.set(key, val)
+    },
+    removeItem: async () => {
+      throw new Error('Injected storage failure')
+    },
+  }
+  const failingStore = createMonthIntroStore(failingDriver)
+  const failedClear = await failingStore.clear()
+  assert.deepEqual(failedClear, { ok: false, health: 'storageUnavailable' })
+  assert.equal(backing.has(MONTH_INTRO_STORAGE_KEY), true)
 })
 
 test('computes adjacent yearMonths cleanly across year boundaries', () => {

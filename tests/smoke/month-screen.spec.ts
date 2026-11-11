@@ -306,11 +306,15 @@ function buildGatewayChallengePayload(params: {
   }
 }
 
-async function dismissIntroIfPresent(page: import('@playwright/test').Page) {
+async function completeIntroIfPresent(page: import('@playwright/test').Page) {
   await expect(page.locator('.month-intro, .month-header h1').first()).toBeVisible()
-  if (await page.locator('.month-intro').isVisible()) {
-    await page.getByRole('button', { name: /Close introduction/i }).click()
+  while (await page.locator('.month-intro').isVisible()) {
+    await page
+      .getByRole('navigation', { name: 'Monthly introduction navigation' })
+      .locator('button.button--primary')
+      .click()
   }
+  await expect(page.locator('.month-header h1')).toBeVisible()
 }
 
 async function seedOnboardedState(page: import('@playwright/test').Page) {
@@ -433,7 +437,7 @@ test.describe('R08A-6 Calendar Month Screen Integration', () => {
 
     // Check 28d (2098-02), 29d leap (2096-02), 30d (2098-04) via month navigation
     await page.getByRole('button', { name: /2098-02/ }).click()
-    await dismissIntroIfPresent(page)
+    await completeIntroIfPresent(page)
     await expect(page.getByRole('heading', { level: 1, name: 'February 2098 (28d)' })).toBeVisible()
     const feb2098Weeks = await page.locator('.month-week').count()
     expect(feb2098Weeks).toBe(5)
@@ -442,7 +446,7 @@ test.describe('R08A-6 Calendar Month Screen Integration', () => {
     // Switch via input[type="month"] to leap year 2096-02
     await page.locator('#month-jump-input').fill('2096-02')
     await page.getByRole('button', { name: 'Go', exact: true }).click()
-    await dismissIntroIfPresent(page)
+    await completeIntroIfPresent(page)
     await expect(page.getByRole('heading', { level: 1, name: 'February 2096 Leap (29d)' })).toBeVisible()
     await expect(page.locator('.month-day')).toHaveCount(29)
     await expect(page.locator('.month-day--unavailable')).toHaveCount(1)
@@ -450,13 +454,13 @@ test.describe('R08A-6 Calendar Month Screen Integration', () => {
     // Switch to 30-day April 2098
     await page.locator('#month-jump-input').fill('2098-04')
     await page.getByRole('button', { name: 'Go', exact: true }).click()
-    await dismissIntroIfPresent(page)
+    await completeIntroIfPresent(page)
     await expect(page.getByRole('heading', { level: 1, name: 'April 2098 (30d)' })).toBeVisible()
     await expect(page.locator('.month-day')).toHaveCount(30)
 
     // Direct #/month opens current civil calendar month
     await page.goto('/#/month')
-    await dismissIntroIfPresent(page)
+    await completeIntroIfPresent(page)
     await expect(page.getByRole('heading', { level: 1, name: `Current ${currentYM}` })).toBeVisible()
   })
 
@@ -854,7 +858,185 @@ test.describe('R08A-6 Calendar Month Screen Integration', () => {
       }),
       [MONTH_INTRO_STORAGE_KEY, PARTICIPATION_STORAGE_KEY],
     )
-    expect(afterReset.intro).toBeNull()
+    await expect(afterReset.intro).toBeNull()
     expect(afterReset.part).toBeNull()
+  })
+
+  test('Closing Introduction or Advance Preview early does not record completion or unlock Skip to Welcome', async ({ page }) => {
+    await seedOnboardedState(page)
+
+    let aprilPhase: 'advancePreview' | 'active' = 'advancePreview'
+
+    await page.route('**/api/months/*/preview', route => {
+      const url = new URL(route.request().url())
+      const ym = url.pathname.split('/')[3]
+      if (ym === '2098-04' && aprilPhase === 'advancePreview') {
+        return route.fulfill({ status: 200, json: buildMonthPreviewPayload('2098-04') })
+      }
+      return route.fulfill({ status: 404, json: { ok: false } })
+    })
+
+    await page.route('**/api/months/*/progress', route => {
+      const url = new URL(route.request().url())
+      const ym = url.pathname.split('/')[3]
+      return route.fulfill({
+        status: 200,
+        json: {
+          ok: true,
+          serverContext: { authorizedLocalDate: `${ym}-15`, effectiveTimeZone: 'America/New_York' },
+          monthId: ym,
+          rosterVersion: 1,
+          completedInMonthCount: 0,
+          totalChallenges: 28,
+          thematicEarnedCount: 0,
+          thematicTotalCount: 1,
+          discoveries: [],
+        },
+      })
+    })
+
+    await page.route('**/api/months/*', route => {
+      const url = new URL(route.request().url())
+      const ym = url.pathname.split('/')[3]
+      if (ym === '2096-02') {
+        return route.fulfill({
+          status: 200,
+          json: buildMonthDetailPayload('2096-02', { phase: 'historical', title: 'Historical Feb 2096' }),
+        })
+      }
+      if (ym === '2096-01') {
+        return route.fulfill({
+          status: 200,
+          json: buildMonthDetailPayload('2096-01', { phase: 'historical', title: 'Historical Jan 2096' }),
+        })
+      }
+      if (ym === '2098-04' && aprilPhase === 'active') {
+        return route.fulfill({
+          status: 200,
+          json: buildMonthDetailPayload('2098-04', { phase: 'active', title: 'Active April 2098' }),
+        })
+      }
+      return route.fulfill({ status: 404, json: { ok: false } })
+    })
+
+    // 1. Historical month: Close on Screen 1 dismisses overlay without persisting completion
+    await page.goto('/#/month/2096-02')
+    await expect(page.getByRole('heading', { level: 1, name: 'Entering 2096-02' })).toBeVisible()
+    await page.getByRole('button', { name: /Close introduction/i }).click()
+
+    await expect(page.getByRole('heading', { level: 1, name: 'Historical Feb 2096' })).toBeVisible()
+    const afterEarlyClose = await page.evaluate(k => window.localStorage.getItem(k), MONTH_INTRO_STORAGE_KEY)
+    expect(afterEarlyClose).toBeNull()
+
+    // Navigate away to another month and return -> incomplete intro reappears automatically
+    await page.getByRole('button', { name: /2096-01/ }).click()
+    await expect(page.getByRole('heading', { level: 1, name: 'Entering 2096-01' })).toBeVisible()
+    await page.getByRole('button', { name: /Close introduction/i }).click()
+    await page.getByRole('button', { name: /2096-02/ }).click()
+    await expect(page.getByRole('heading', { level: 1, name: 'Entering 2096-02' })).toBeVisible()
+
+    // Navigate away to Hub and return via reload -> incomplete intro still reappears
+    await page.getByRole('button', { name: /Close introduction/i }).click()
+    await page.reload()
+    await expect(page.getByRole('heading', { level: 1, name: 'Entering 2096-02' })).toBeVisible()
+
+    // Now explicitly complete through Welcome final CTA -> subsequent reload skips intro
+    await page.getByRole('button', { name: /Continue/i }).click()
+    await page.getByRole('button', { name: /Continue/i }).click()
+    await expect(page.getByRole('heading', { level: 1, name: 'Welcome to 2096-02' })).toBeVisible()
+    await page.getByRole('button', { name: 'Begin the Month' }).click()
+    await expect(page.getByRole('heading', { level: 1, name: 'Historical Feb 2096' })).toBeVisible()
+
+    await page.reload()
+    await expect(page.getByRole('heading', { level: 1, name: 'Historical Feb 2096' })).toBeVisible()
+    await expect(page.locator('.month-intro')).toHaveCount(0)
+
+    // 2. Advance Preview: Close early does NOT persist previewSeen or unlock Skip to Welcome on rollover
+    await page.goto('/#/month/2098-04')
+    await expect(page.getByRole('heading', { level: 1, name: 'Entering 2098-04' })).toBeVisible()
+    await page.getByRole('button', { name: /Close introduction/i }).click()
+    await expect(page.getByText('Advance Preview')).toBeVisible()
+
+    const previewRecord = await page.evaluate(k => window.localStorage.getItem(k), MONTH_INTRO_STORAGE_KEY)
+    expect(previewRecord ?? '').not.toContain('"2098-04"')
+
+    await page.reload()
+    await expect(page.getByRole('heading', { level: 1, name: 'Entering 2098-04' })).toBeVisible()
+
+    // Roll 2098-04 over to active while preview was only closed early -> NO Skip to Welcome
+    aprilPhase = 'active'
+    await page.reload()
+    await expect(page.getByRole('heading', { level: 1, name: 'Entering 2098-04' })).toBeVisible()
+    await expect(page.getByRole('button', { name: /Skip to Welcome/i })).toHaveCount(0)
+  })
+
+  test('Privacy Reset reports partial failure accurately when monthly introduction storage clear fails', async ({ page }) => {
+    await seedOnboardedState(page)
+
+    await page.addInitScript(
+      ([introKey, partKey]) => {
+        window.localStorage.setItem(
+          introKey,
+          JSON.stringify({
+            schemaVersion: 1,
+            months: {
+              '2098-03': {
+                previewSeen: true,
+                welcomeSeen: true,
+                previewVersion: 'v1-2098-03',
+                welcomeVersion: 'v1-2098-03',
+              },
+            },
+          }),
+        )
+        window.localStorage.setItem(
+          partKey,
+          JSON.stringify({
+            schemaVersion: 1,
+            completedChallenges: {
+              'cms:march-day-01-doc': { completedOn: '2098-03-01', updatedAt: '2098-03-01T10:00:00Z' },
+            },
+            inProgressChallenges: {},
+            savedChallenges: {},
+            savedScriptures: {},
+          }),
+        )
+      },
+      [MONTH_INTRO_STORAGE_KEY, PARTICIPATION_STORAGE_KEY],
+    )
+
+    await page.goto('/')
+
+    // Inject storage remove failure strictly for bibleberry-month-intro-v1
+    await page.evaluate(introKey => {
+      const originalRemoveItem = window.Storage.prototype.removeItem
+      window.Storage.prototype.removeItem = function patchedRemoveItem(key: string) {
+        if (key === introKey) {
+          throw new DOMException('Injected storage unavailable error', 'SecurityError')
+        }
+        return originalRemoveItem.call(this, key)
+      }
+    }, MONTH_INTRO_STORAGE_KEY)
+
+    await page.getByRole('button', { name: 'More' }).first().click()
+    await page.getByRole('button', { name: /Privacy & local data/i }).click()
+    await page.getByRole('button', { name: /Reset local app data/i }).click()
+    await page.getByRole('button', { name: /Erase & reset/i }).click()
+
+    await expect(page.locator('.onboarding')).toBeVisible()
+    const toast = page.locator('.toast.is-visible')
+    await expect(toast).toBeVisible()
+    await expect(toast).toContainText('monthly introduction storage could not be cleared')
+    await expect(toast).not.toContainText('Local app data cleared. Welcome restored.')
+
+    const storageAfter = await page.evaluate(
+      ([introKey, partKey]) => ({
+        intro: window.localStorage.getItem(introKey),
+        part: window.localStorage.getItem(partKey),
+      }),
+      [MONTH_INTRO_STORAGE_KEY, PARTICIPATION_STORAGE_KEY],
+    )
+    expect(storageAfter.part).toBeNull()
+    expect(storageAfter.intro).toContain('"welcomeSeen":true')
   })
 })

@@ -27,9 +27,9 @@ Issue: #91 (R08A-6)
 
 ### Playwright Smoke Tests (`tests/smoke/month-screen.spec.ts` + `tests/smoke/build-isolation.spec.ts`)
 - Mocked gateway HTTP envelopes (`GET /api/months/:yearMonth`, `GET /api/months/:yearMonth/preview`, `POST /api/months/:yearMonth/progress`, `GET /api/challenges/:slug`, `GET /api/news?category=monthlyPreview`) while blocking `https://*.api.sanity.io/**` (`0` direct Sanity requests).
-- Verified pre-preview 404 -> advance preview -> month rollover (`Skip to Welcome`) -> reload skipping -> `Read Monthly Introduction` / `Read Monthly Preview` replay.
+- Verified pre-preview 404 -> advance preview -> month rollover (`Skip to Welcome`) -> reload skipping -> `Read Monthly Introduction` / `Read Monthly Preview` replay, and verified early `Close` exit never records completion or unlocks `Skip to Welcome`.
 - Verified multi-screen mid-way pause (`Continue` / `In progress`), last-screen exit without `Finish`, `Finish` silent return & ticker/discovery refresh, duplicate `Finish` idempotency, and withdrawn `Unavailable` slot handling (`29/29` active denominator).
-- Verified Preview News banner links to `#/month/:yearMonth` while respecting gateway 404 authorization boundaries, and verified Privacy -> `Reset local app data` clears both `bibleberry-reader-participation-v1` and `bibleberry-month-intro-v1`.
+- Verified Preview News banner links to `#/month/:yearMonth` while respecting gateway 404 authorization boundaries, and verified Privacy -> `Reset local app data` clears both `bibleberry-reader-participation-v1` and `bibleberry-month-intro-v1` and reports partial reset failures if monthly intro storage is unavailable.
 
 ## 3. Accessibility & Basic Responsive Performance Summary
 

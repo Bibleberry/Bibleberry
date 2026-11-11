@@ -275,6 +275,11 @@ export function MonthScreenHost({
     }
   }
 
+  // Closing early dismisses the overlay for this view without recording preview or Welcome completion.
+  const handleIntroClose = () => {
+    setShowIntro(false)
+  }
+
   const handleOpenIntroManually = () => {
     if (monthState.status === 'readyDetail') {
       const record = introEnvelope?.months[cleanYearMonth]
@@ -426,7 +431,7 @@ export function MonthScreenHost({
           mode="preview"
           previewScreens={monthState.month.introduction.previewScreens}
           onComplete={handleIntroComplete}
-          onClose={handleIntroComplete}
+          onClose={handleIntroClose}
         />
       )
     }
@@ -439,7 +444,7 @@ export function MonthScreenHost({
         welcomeScreen={monthState.month.introduction.welcomeScreen}
         canSkipToWelcome={introCanSkip}
         onComplete={handleIntroComplete}
-        onClose={handleIntroComplete}
+        onClose={handleIntroClose}
       />
     )
   }

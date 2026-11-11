@@ -1003,12 +1003,14 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
     if (participationPilotEnabled) {
       void import('./pilot/participationPilotModel').then(module => module.resetParticipationPilotData())
     }
+    let monthIntroCleared = true
     if (monthScreenEnabled) {
       try {
         const monthIntroModule = await import('./components/month/monthIntroStorage')
-        await monthIntroModule.defaultMonthIntroStore.clear()
+        const clearResult = await monthIntroModule.defaultMonthIntroStore.clear()
+        monthIntroCleared = clearResult.ok
       } catch {
-        // Non-fatal UI-only intro storage clear fallback
+        monthIntroCleared = false
       }
     }
     setState({ ...initialState })
@@ -1023,7 +1025,11 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
     setResetConfirm(false)
     window.history.replaceState(null, '', window.location.pathname)
     scrollTop()
-    notify('Local app data cleared. Welcome restored.')
+    notify(
+      monthIntroCleared
+        ? 'Local app data cleared. Welcome restored.'
+        : 'App and participation data cleared, but monthly introduction storage could not be cleared (storage unavailable).',
+    )
   }
 
   useEffect(() => {
@@ -1036,7 +1042,21 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
     if (view !== 'today' || detail || previewDate || simulatedDate) recordedOpening.current = ''
   }, [state.onboarded, view, detail, previewDate, simulatedDate, addActivity])
 
-  if (!state.onboarded) return <Onboarding state={state} update={update} finish={finishOnboarding} />
+  const toastBanner = (
+    <div className={`toast ${toast ? 'is-visible' : ''}`} role="status" aria-live="polite">
+      {toast}
+      <button aria-label="Dismiss notification" onClick={() => setToast('')}><X size={16} /></button>
+    </div>
+  )
+
+  if (!state.onboarded) {
+    return (
+      <>
+        <Onboarding state={state} update={update} finish={finishOnboarding} />
+        {toastBanner}
+      </>
+    )
+  }
 
   const previewedEntry = previewDate
     ? (developmentCollection === 'pilot' ? weeklyPilotEntries : allTeachings.filter(item => item.id.startsWith('sabbath-'))).find(entry => entry.date === previewDate)
@@ -1393,7 +1413,7 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
         )}
         {content}
       </AppShell>
-      <div className={`toast ${toast ? 'is-visible' : ''}`} role="status" aria-live="polite">{toast}<button aria-label="Dismiss notification" onClick={() => setToast('')}><X size={16} /></button></div>
+      {toastBanner}
     </div>
   )
 }
