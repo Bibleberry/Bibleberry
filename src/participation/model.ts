@@ -1,8 +1,12 @@
 import type { CmsScripture } from '../cms/sanity/types.ts'
+import { validateEarnedCardSnapshot } from './awards.ts'
 import {
   createSavedScriptureKey,
   normalizeSavedScriptureInput,
+  parseCanonicalMonthlyAwardId,
+  parseCardDocumentId,
   parseLocalCalendarDate,
+  parseMonthlyAwardIdParts,
   parseStoredChallengeId,
 } from './identity.ts'
 import type {
@@ -11,6 +15,7 @@ import type {
   ChallengeParticipationView,
   ChallengeResumeRecord,
   CompletedChallengeRecord,
+  EarnedAwardRecord,
   LastOpenedChallengePointer,
   LocalCalendarDate,
   ParticipationCommand,
@@ -32,6 +37,7 @@ const EMPTY_DATA: ReaderParticipationData = Object.freeze({
   savedChallenges: Object.freeze({}),
   savedScriptures: Object.freeze([]),
   lastOpenedChallenge: null,
+  earnedAwards: Object.freeze({}),
 })
 
 export function emptyReaderParticipationData(): ReaderParticipationData {
@@ -185,6 +191,7 @@ export function reconcileChallengeAliases(
     savedChallenges: changed ? Object.freeze(nextSaved) : data.savedChallenges,
     savedScriptures: scripturesChanged ? Object.freeze(nextScriptures) : data.savedScriptures,
     lastOpenedChallenge: nextLastOpened,
+    earnedAwards: data.earnedAwards,
   })
 }
 
@@ -365,6 +372,135 @@ export function reduceParticipationCommand(
 
     case 'reconcileChallengeAliases':
       return reconcileChallengeAliases(data, command.aliases, allowedNamespace)
+
+    case 'recordEarnedAwards': {
+      if (!Array.isArray(command.awards) || command.awards.length === 0) {
+        return data
+      }
+
+      let changed = false
+      const nextAwards: Record<string, EarnedAwardRecord> = { ...data.earnedAwards }
+
+      for (const input of command.awards) {
+        if (!input || typeof input !== 'object') continue
+
+        const parsedId = parseMonthlyAwardIdParts(input.awardId)
+        if (!parsedId || input.discoveryId !== parsedId.discoveryId) continue
+
+        const earnedOn = parseLocalCalendarDate(input.earnedOn)
+        if (!earnedOn) continue
+
+        const validatedCard =
+          input.earnedCard !== undefined
+            ? validateEarnedCardSnapshot(input.earnedCard, parsedId.publicationYearMonth)
+            : null
+        const validatedCardDocId =
+          validatedCard?.cardDocumentId
+          ?? parseCardDocumentId(input.cardDocumentId)
+          ?? undefined
+
+        const existing = Object.hasOwn(nextAwards, parsedId.awardId)
+          ? nextAwards[parsedId.awardId]
+          : undefined
+
+        if (!existing) {
+          nextAwards[parsedId.awardId] = Object.freeze({
+            awardId: parsedId.awardId,
+            kind: parsedId.kind,
+            publicationYearMonth: parsedId.publicationYearMonth,
+            discoveryId: parsedId.discoveryId,
+            earnedOn,
+            hubAnnouncementAcked: false,
+            cardViewed: false,
+            ...(validatedCardDocId ? { cardDocumentId: validatedCardDocId } : {}),
+            ...(validatedCard ? { earnedCard: validatedCard } : {}),
+          })
+          changed = true
+          continue
+        }
+
+        // Monotonic preservation:
+        // - Keep original `earnedOn`, `hubAnnouncementAcked`, and `cardViewed`.
+        // - Never drop an already-captured valid `earnedCard` or `cardDocumentId`.
+        // - Backfill `earnedCard` / `cardDocumentId` only when previously absent.
+        // - Live replacement of an already-captured valid snapshot on editorial revision
+        //   is deferred pending owner policy approval.
+        const shouldBackfillCard = !existing.earnedCard && validatedCard !== null
+        const shouldBackfillDocId =
+          !shouldBackfillCard && !existing.cardDocumentId && validatedCardDocId !== undefined
+
+        if (shouldBackfillCard) {
+          nextAwards[parsedId.awardId] = Object.freeze({
+            ...existing,
+            cardDocumentId: validatedCard.cardDocumentId,
+            earnedCard: validatedCard,
+          })
+          changed = true
+        } else if (shouldBackfillDocId) {
+          nextAwards[parsedId.awardId] = Object.freeze({
+            ...existing,
+            cardDocumentId: validatedCardDocId,
+          })
+          changed = true
+        }
+      }
+
+      if (!changed) return data
+
+      return Object.freeze({
+        ...data,
+        earnedAwards: Object.freeze(nextAwards),
+      })
+    }
+
+    case 'markEarnedCardViewed': {
+      const awardId = parseCanonicalMonthlyAwardId(command.awardId)
+      if (!awardId || !Object.hasOwn(data.earnedAwards, awardId)) return data
+
+      const existing = data.earnedAwards[awardId]
+      if (existing.cardViewed) return data
+
+      return Object.freeze({
+        ...data,
+        earnedAwards: Object.freeze({
+          ...data.earnedAwards,
+          [awardId]: Object.freeze({
+            ...existing,
+            cardViewed: true,
+          }),
+        }),
+      })
+    }
+
+    case 'acknowledgeAwardAnnouncements': {
+      if (!Array.isArray(command.awardIds) || command.awardIds.length === 0) {
+        return data
+      }
+
+      let changed = false
+      const nextAwards: Record<string, EarnedAwardRecord> = { ...data.earnedAwards }
+
+      for (const rawId of command.awardIds) {
+        const awardId = parseCanonicalMonthlyAwardId(rawId)
+        if (!awardId || !Object.hasOwn(nextAwards, awardId)) continue
+
+        const existing = nextAwards[awardId]
+        if (existing.hubAnnouncementAcked) continue
+
+        nextAwards[awardId] = Object.freeze({
+          ...existing,
+          hubAnnouncementAcked: true,
+        })
+        changed = true
+      }
+
+      if (!changed) return data
+
+      return Object.freeze({
+        ...data,
+        earnedAwards: Object.freeze(nextAwards),
+      })
+    }
   }
 }
 
