@@ -14,7 +14,7 @@ The first native run, [43076940894](https://github.com/ContraPhilosophy/Bibleber
 
 The follow-up attempt [43082571779, job 130738622131](https://github.com/ContraPhilosophy/Bibleberry/actions/runs/43082571779/job/130738622131) confirmed the distinction: Xcode 26.0.1 had the `iphonesimulator26.0` SDK, while available runtimes were iOS 26.2, 26.4 (build 26.4.1), and 26.5. Apple’s download service reported `iOS 26.0 is not available for download`, so this retry also stopped before compilation. The workflow now selects the documented Xcode 26.4.1 / iOS 26.4 pair already represented in that runner inventory.
 
-This Linux session successfully generated and synchronized the iOS source, but has no `xcodebuild`, Apple SDK, or simulator. The corrected macOS build and `.app` validation are pending; app launch and device behavior are not inferred from source generation or compilation.
+This Linux session successfully generated and synchronized the iOS source, but has no `xcodebuild`, Apple SDK, or simulator. The corrected macOS runner has compiled and validated the unsigned simulator `.app`; that compile does not establish app launch or runtime/device behavior.
 
 ## Development and reproduction
 
@@ -80,8 +80,9 @@ The resulting app is at `$TMPDIR/BibleberryDerivedData/Build/Products/Debug-ipho
 | `npm run check:staging` | Passed Wrangler dry-run; packaged 13 assets and did not deploy. |
 | Initial Xcode Simulator compile | Failed before Swift compilation in [run 43076940894, job 130719098603](https://github.com/ContraPhilosophy/Bibleberry/actions/runs/43076940894/job/130719098603): Xcode could not select an iOS Simulator destination because iOS 26.0 was not installed (exit 70). No `.app` was produced. |
 | Runtime provisioning attempt | [Run 43082571779, job 130738622131](https://github.com/ContraPhilosophy/Bibleberry/actions/runs/43082571779/job/130738622131) confirmed the 26.0 Simulator SDK existed but its runtime was not installed and was no longer downloadable. No compilation or artifact validation occurred. |
-| Compatible Xcode/runtime retry | Pending. Record run/job IDs, PR head SHA, synthetic merge SHA, Xcode/SDK/runtime output, and conclusion here after the pinned Xcode 26.4.1 / iOS 26.4 build runs. |
-| `.app` identity and asset validation | Pending a successful retry; no artifact is claimed until the job builds and verifies the simulator `.app`. |
+| Compatible Xcode/runtime retry | Passed in [run 43083090748, job 130740444002](https://github.com/ContraPhilosophy/Bibleberry/actions/runs/43083090748/job/130740444002), on PR head `457a9a3b8d70d876e145234fa00052c6493612ac`; the synthetic merge SHA (`GITHUB_SHA`) was `de313b20e738bcc3c7eac38995aa5e997369aa29`. The runner selected Xcode 26.4.1 (build 17E202), reported the `iphonesimulator26.4` SDK, and had the iOS 26.4 Simulator runtime (26.4.1, build 23E254a) available. Xcode enumerated the generic iOS Simulator destination and reported `** BUILD SUCCEEDED **`. The build log shows arm64 and x86_64 simulator targets. |
+| `.app` identity and asset validation | Passed in the same native job: nonempty `App.app` (5.9 MB), bundle identifier `com.example.bibleberry.r20poc`, `public/index.html`, and a nonempty bundled JavaScript asset all passed CI assertions. The short-lived artifact `bibleberry-r20-3-ios-simulator-app` (ID `13884947883`) is 1,928,736 bytes, SHA-256 `7e3801fd20e14fc97d626b709b575a757d4be9437c46c6dffcdf96a4be7b580c`, and expires 2026-11-18. It is a simulator development app, not an IPA or distribution build. |
+| Regular PR CI on the same head | Run `43083090719` was in progress at the time this record was updated; check the linked workflow run for its final conclusion. It tested head `457a9a3b8d70d876e145234fa00052c6493612ac`. |
 | `git diff --check` | Passed. |
 
 CI is configured to run on relevant iOS project, Capacitor, native lifecycle/Preferences, and workflow changes, or by manual dispatch. It has read-only repository permissions and does not receive signing secrets or write generated files back to the repository.
