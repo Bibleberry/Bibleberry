@@ -10,6 +10,7 @@ import {
 import { persistGatewayMonthProgressAwards } from '../../cms/reader/monthAwardReconciliation.ts'
 import { defaultGuestParticipationStore } from '../../participation/defaultGuestStore.ts'
 import type { ReaderParticipationStore } from '../../participation/store.ts'
+import type { CanonicalAwardId } from '../../participation/types.ts'
 import { useReaderParticipation } from '../../participation/useReaderParticipation.ts'
 import { MonthIntroductionView } from './MonthIntroductionView.tsx'
 import { MonthScreenView } from './MonthScreenView.tsx'
@@ -27,7 +28,9 @@ import {
   getAdjacentYearMonths,
   groupMonthSlotsByWeek,
   isValidYearMonth,
+  resolveDurableDiscoveryAward,
   resolveMonthDiscoveryPresentations,
+  type MonthDiscoveryPresentation,
 } from './monthScreenModel.ts'
 import './monthScreen.css'
 
@@ -82,6 +85,10 @@ export function MonthScreenHost({
   const [progressLoading, setProgressLoading] = useState(false)
   const [progressError, setProgressError] = useState<string | null>(null)
   const [progressAttempt, setProgressAttempt] = useState(0)
+  const [viewerState, setViewerState] = useState<{
+    yearMonth: string
+    awardId: CanonicalAwardId
+  } | null>(null)
 
   const [jumpInput, setJumpInput] = useState(cleanYearMonth)
   useEffect(() => {
@@ -285,6 +292,7 @@ export function MonthScreenHost({
   }
 
   const handleOpenIntroManually = () => {
+    setViewerState(null)
     if (monthState.status === 'readyDetail') {
       const record = introEnvelope?.months[cleanYearMonth]
       setIntroCanSkip(Boolean(record?.previewSeen))
@@ -293,6 +301,58 @@ export function MonthScreenHost({
     }
     setShowIntro(true)
   }
+
+  const handleOpenEarnedCard = useCallback(
+    (discovery: MonthDiscoveryPresentation) => {
+      if (monthState.status !== 'readyDetail') return
+      if (
+        !discovery.isEarned
+        || !discovery.hasStoredAward
+        || !discovery.hasCardDisplay
+        || !discovery.awardId
+        || !discovery.earnedCard
+      ) {
+        return
+      }
+
+      const currentData =
+        participationSnapshot.status === 'ready' ? participationSnapshot.data : undefined
+      const durable = resolveDurableDiscoveryAward(
+        currentData,
+        discovery.discoveryId,
+        discovery.kind,
+        monthState.month.monthId,
+      )
+      if (
+        !durable
+        || !durable.validatedCard
+        || durable.awardRecord.awardId !== discovery.awardId
+      ) {
+        return
+      }
+
+      setViewerState({
+        yearMonth: monthState.month.monthId,
+        awardId: durable.awardRecord.awardId,
+      })
+
+      if (!durable.awardRecord.cardViewed) {
+        void store
+          .dispatch({
+            type: 'markEarnedCardViewed',
+            awardId: durable.awardRecord.awardId,
+          })
+          .catch(() => {
+            // Store queues pending commands safely; viewer remains open.
+          })
+      }
+    },
+    [monthState, participationSnapshot, store],
+  )
+
+  const handleCloseEarnedCard = useCallback(() => {
+    setViewerState(null)
+  }, [])
 
   const renderFallbackSwitcher = () => {
     const valid = isValidYearMonth(cleanYearMonth)
@@ -499,6 +559,18 @@ export function MonthScreenHost({
     monthState.month.monthId,
     participationData,
   )
+  const openAwardId =
+    viewerState?.yearMonth === monthState.month.monthId ? viewerState.awardId : null
+  const activeEarnedCardDiscovery = openAwardId
+    ? (discoveries.find(
+        d =>
+          d.isEarned
+          && d.hasStoredAward
+          && d.hasCardDisplay
+          && d.awardId === openAwardId
+          && d.earnedCard !== undefined,
+      ) ?? null)
+    : null
 
   return (
     <MonthScreenView
@@ -515,6 +587,9 @@ export function MonthScreenHost({
       onSelectYearMonth={onSelectYearMonth}
       onExit={onExit}
       exitLabel={exitLabel}
+      activeEarnedCardDiscovery={activeEarnedCardDiscovery}
+      onOpenEarnedCard={handleOpenEarnedCard}
+      onCloseEarnedCard={handleCloseEarnedCard}
     />
   )
 }

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import {
   ArrowLeft,
   ArrowRight,
@@ -11,6 +11,7 @@ import {
   RotateCcw,
 } from 'lucide-react'
 import type { MonthDetailData, MonthPreviewData } from '../../cms/reader/monthProvider.ts'
+import { EarnedScriptureCardViewer } from '../cards/EarnedScriptureCardViewer.tsx'
 import {
   formatYearMonthHeading,
   getAdjacentYearMonths,
@@ -36,6 +37,9 @@ export type MonthScreenViewProps = {
   onSelectYearMonth: (yearMonth: string) => void
   onExit?: () => void
   exitLabel?: string
+  activeEarnedCardDiscovery?: MonthDiscoveryPresentation | null
+  onOpenEarnedCard?: (discovery: MonthDiscoveryPresentation) => void
+  onCloseEarnedCard?: () => void
 }
 
 function SlotStatusIcon({ status }: { status: MonthSlotPresentation['status'] }) {
@@ -75,7 +79,11 @@ export function MonthScreenView({
   onSelectYearMonth,
   onExit,
   exitLabel = 'Return to Today',
+  activeEarnedCardDiscovery = null,
+  onOpenEarnedCard,
+  onCloseEarnedCard,
 }: MonthScreenViewProps) {
+  const lastCardTriggerRef = useRef<HTMLButtonElement | null>(null)
   const [jumpDraft, setJumpDraft] = useState<{ monthId: string; value: string }>({
     monthId: month.monthId,
     value: month.monthId,
@@ -323,12 +331,60 @@ export function MonthScreenView({
                     >
                       <span style={{ width: `${percent}%` }} />
                     </div>
-                    {discovery.isEarned && (
+                    {discovery.isEarned && !(
+                      discovery.hasStoredAward
+                      && discovery.hasCardDisplay
+                      && discovery.earnedCard
+                      && discovery.awardId
+                      && onOpenEarnedCard
+                    ) && (
                       <p className="month-discovery__earned-note">
-                        Scripture card earned
-                        {!discovery.hasCardDisplay && ' · Card artwork is unavailable'}
+                        Scripture card earned · Card artwork is unavailable
                       </p>
                     )}
+                    {discovery.isEarned
+                      && discovery.hasStoredAward
+                      && discovery.hasCardDisplay
+                      && discovery.earnedCard
+                      && discovery.awardId
+                      && onOpenEarnedCard && (
+                        <div className="month-discovery__earned-card">
+                          <div className="month-discovery__earned-status">
+                            <p className="month-discovery__earned-note">Scripture card earned</p>
+                            {discovery.cardViewed === false && (
+                              <span className="month-discovery__new-badge">New</span>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            className="month-discovery__card-button"
+                            onClick={event => {
+                              lastCardTriggerRef.current = event.currentTarget
+                              onOpenEarnedCard(discovery)
+                            }}
+                            aria-label={`Open earned Scripture card: ${discovery.earnedCard.title}, ${discovery.earnedCard.scripture.reference}${discovery.cardViewed === false ? ', New' : ''}`}
+                          >
+                            <span className="month-discovery__thumb">
+                              <img
+                                src={discovery.earnedCard.imageUrl}
+                                alt={discovery.earnedCard.illustrationAlt}
+                              />
+                            </span>
+                            <span className="month-discovery__card-copy">
+                              <strong className="month-discovery__card-title">
+                                {discovery.earnedCard.title}
+                              </strong>
+                              <span className="month-discovery__card-ref">
+                                {discovery.earnedCard.scripture.reference} ·{' '}
+                                {discovery.earnedCard.scripture.translation}
+                              </span>
+                              <span className="month-discovery__card-cta">
+                                View Scripture Card
+                              </span>
+                            </span>
+                          </button>
+                        </div>
+                      )}
                   </article>
                 )
               })}
@@ -336,6 +392,22 @@ export function MonthScreenView({
           )}
         </section>
       )}
+
+      {mode === 'detail'
+        && activeEarnedCardDiscovery?.isEarned
+        && activeEarnedCardDiscovery.hasStoredAward
+        && activeEarnedCardDiscovery.hasCardDisplay
+        && activeEarnedCardDiscovery.earnedCard
+        && onCloseEarnedCard && (
+          <EarnedScriptureCardViewer
+            card={activeEarnedCardDiscovery.earnedCard}
+            earnedOn={activeEarnedCardDiscovery.earnedOn}
+            kind={activeEarnedCardDiscovery.kind}
+            discoveryTitle={activeEarnedCardDiscovery.title}
+            returnFocusRef={lastCardTriggerRef}
+            onClose={onCloseEarnedCard}
+          />
+        )}
     </div>
   )
 }
