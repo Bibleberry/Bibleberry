@@ -247,11 +247,18 @@ test('attaches X-Bibleberry-Timezone header on every request with fallback for i
   await provider.loadMonthProgress('2026-11', ['cms:doc-1'], { timeZone: '+14:00' })
   await provider.loadNews({ category: 'monthlyPreview', timeZone: 'Mars/Olympus' })
 
+  const undefinedTzProvider = createGatewayMonthProvider({
+    fetchImpl: mockFetch,
+    resolveTimeZone: () => undefined,
+  })
+  await undefinedTzProvider.loadMonthPreview('2027-03')
+
   assert.deepEqual(capturedHeaders, [
     { url: '/api/months/2027-03/preview', timeZone: 'Asia/Tokyo' },
     { url: '/api/months/2026-11', timeZone: 'Pacific/Honolulu' },
     { url: '/api/months/2026-11/progress', timeZone: DEFAULT_READER_TIME_ZONE },
     { url: '/api/news?category=monthlyPreview', timeZone: DEFAULT_READER_TIME_ZONE },
+    { url: '/api/months/2027-03/preview', timeZone: DEFAULT_READER_TIME_ZONE },
   ])
 })
 

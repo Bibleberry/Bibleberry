@@ -264,13 +264,13 @@ export function isValidIanaTimeZone(candidate: unknown): candidate is string {
   }
 }
 
-export function resolveReaderTimeZone(candidate?: string | null): string {
-  if (candidate !== undefined) {
-    return isValidIanaTimeZone(candidate) ? candidate.trim() : DEFAULT_READER_TIME_ZONE
-  }
+export function resolveReaderTimeZone(candidate: string | null | undefined): string {
+  return isValidIanaTimeZone(candidate) ? candidate.trim() : DEFAULT_READER_TIME_ZONE
+}
+
+export function detectReaderTimeZone(): string {
   try {
-    const detected = new Intl.DateTimeFormat().resolvedOptions().timeZone
-    return isValidIanaTimeZone(detected) ? detected.trim() : DEFAULT_READER_TIME_ZONE
+    return resolveReaderTimeZone(new Intl.DateTimeFormat().resolvedOptions().timeZone)
   } catch {
     return DEFAULT_READER_TIME_ZONE
   }
@@ -700,9 +700,13 @@ export function createGatewayMonthProvider(
       }
     }
 
-    const timeZone = resolveReaderTimeZone(
-      options?.timeZone !== undefined ? options.timeZone : config?.resolveTimeZone?.(),
-    )
+    const rawTimeZone =
+      options?.timeZone !== undefined
+        ? options.timeZone
+        : config?.resolveTimeZone
+          ? config.resolveTimeZone()
+          : detectReaderTimeZone()
+    const timeZone = resolveReaderTimeZone(rawTimeZone)
     const fetchFn = options?.fetchImpl ?? config?.fetchImpl ?? fetch
     const url = `${base}${path}`
     const headers = new Headers(init.headers)
