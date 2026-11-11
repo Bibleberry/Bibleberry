@@ -251,10 +251,23 @@ def main() -> int:
         ).stdout.strip()
         summary["installedContainer"] = container1
 
+        launch1_stdout = evidence_dir / "01-simctl-launch-stdout.log"
+        launch1_stderr = evidence_dir / "01-simctl-launch-stderr.log"
         t0 = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-        launch1 = run_cmd(["xcrun", "simctl", "launch", udid, args.bundle_id], timeout=30)
+        launch1 = run_cmd(
+            [
+                "xcrun",
+                "simctl",
+                "launch",
+                f"--stdout={launch1_stdout}",
+                f"--stderr={launch1_stderr}",
+                udid,
+                args.bundle_id,
+            ],
+            timeout=30,
+        )
         pid1 = parse_simctl_launch_pid(launch1.stdout, args.bundle_id)
-        time.sleep(5)
+        time.sleep(8)
         verify_pid_alive(udid, args.bundle_id, pid1, evidence_dir / "01-launch-process.txt")
         shot1 = evidence_dir / "01-simctl-launch.png"
         run_cmd(["xcrun", "simctl", "io", udid, "screenshot", str(shot1)], timeout=20)
@@ -279,8 +292,21 @@ def main() -> int:
         )
 
         # Relaunch without reinstalling
+        launch2_stdout = evidence_dir / "02-simctl-relaunch-stdout.log"
+        launch2_stderr = evidence_dir / "02-simctl-relaunch-stderr.log"
         t1 = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-        launch2 = run_cmd(["xcrun", "simctl", "launch", udid, args.bundle_id], timeout=30)
+        launch2 = run_cmd(
+            [
+                "xcrun",
+                "simctl",
+                "launch",
+                f"--stdout={launch2_stdout}",
+                f"--stderr={launch2_stderr}",
+                udid,
+                args.bundle_id,
+            ],
+            timeout=30,
+        )
         pid2 = parse_simctl_launch_pid(launch2.stdout, args.bundle_id)
         if pid2 == pid1:
             raise RuntimeError(f"Relaunch returned identical PID {pid2}; expected fresh process.")

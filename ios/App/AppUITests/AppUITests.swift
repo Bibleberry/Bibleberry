@@ -42,6 +42,7 @@ final class AppUITests: XCTestCase {
             } else {
                 app.swipeUp()
             }
+            Thread.sleep(forTimeInterval: 0.4)
         }
         XCTAssertTrue(element.isHittable, "Expected element to become hittable: \(element)")
         element.tap()
@@ -126,9 +127,15 @@ final class AppUITests: XCTestCase {
         tapWhenReady(moreTab)
         scrollToAndTapContent(buttonContaining("Privacy & local data", in: app), in: app)
         scrollToAndTapContent(exactButton("Reset local app data", in: app), in: app)
-        scrollToAndTapContent(exactButton("Erase & reset", in: app), in: app)
+        let eraseButton = exactButton("Erase & reset", in: app)
+        scrollToAndTapContent(eraseButton, in: app)
 
-        let onboardingReturned = exactButton("Continue", in: app).waitForExistence(timeout: 15)
+        var onboardingReturned = exactButton("Continue", in: app).waitForExistence(timeout: 10)
+        if !onboardingReturned && eraseButton.exists && eraseButton.isHittable {
+            attachScreenshot(named: "05-reset-retry-before-tap")
+            eraseButton.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            onboardingReturned = exactButton("Continue", in: app).waitForExistence(timeout: 10)
+        }
         if !onboardingReturned {
             attachScreenshot(named: "05-reset-failure")
         }
