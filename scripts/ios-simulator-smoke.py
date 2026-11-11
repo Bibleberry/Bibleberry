@@ -240,12 +240,6 @@ def main() -> int:
     try:
         run_cmd(["xcrun", "simctl", "boot", udid], timeout=60)
         run_cmd(["xcrun", "simctl", "bootstatus", udid, "-b"], timeout=180)
-        sim_arch = run_cmd(
-            ["xcrun", "simctl", "spawn", udid, "uname", "-m"],
-            timeout=15,
-            check=False,
-        ).stdout.strip()
-        summary["simulatorArch"] = sim_arch
 
         # ------------------------------------------------------------------
         # Phase 1: Deliverable A — simctl install, launch, terminate, relaunch
@@ -348,6 +342,22 @@ def main() -> int:
                 (evidence_dir / "03-xcuitest-summary.json").write_text(
                     xc_summary.stdout, encoding="utf-8"
                 )
+            attachments_dir = evidence_dir / "xcuitest-attachments"
+            attachments_dir.mkdir(parents=True, exist_ok=True)
+            run_cmd(
+                [
+                    "xcrun",
+                    "xcresulttool",
+                    "export",
+                    "attachments",
+                    "--path",
+                    str(xcresult_path),
+                    "--output-path",
+                    str(attachments_dir),
+                ],
+                timeout=30,
+                check=False,
+            )
 
         if test_proc.returncode != 0:
             raise RuntimeError(

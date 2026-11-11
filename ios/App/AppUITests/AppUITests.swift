@@ -20,10 +20,24 @@ final class AppUITests: XCTestCase {
         app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", text)).firstMatch
     }
 
-    private func scrollToAndTap(_ element: XCUIElement, in app: XCUIApplication) {
+    private func tapWhenReady(_ element: XCUIElement) {
         XCTAssertTrue(element.waitForExistence(timeout: 15), "Expected element to exist before tapping: \(element)")
-        for _ in 0..<4 where !element.isHittable {
-            app.swipeUp()
+        XCTAssertTrue(element.isHittable, "Expected element to be hittable: \(element)")
+        element.tap()
+    }
+
+    private func scrollToAndTapContent(_ element: XCUIElement, in app: XCUIApplication) {
+        XCTAssertTrue(element.waitForExistence(timeout: 15), "Expected element to exist before tapping: \(element)")
+        let maxSafeMidY = app.frame.height - 120
+        for _ in 0..<5 {
+            if element.isHittable && element.frame.midY > 60 && element.frame.midY < maxSafeMidY {
+                break
+            }
+            if element.frame.midY <= 60 {
+                app.swipeDown()
+            } else {
+                app.swipeUp()
+            }
         }
         XCTAssertTrue(element.isHittable, "Expected element to become hittable: \(element)")
         element.tap()
@@ -46,10 +60,10 @@ final class AppUITests: XCTestCase {
         attachScreenshot(named: "01-onboarding-step1")
 
         // Complete onboarding -> Today screen.
-        scrollToAndTap(continueButton, in: app)
+        scrollToAndTapContent(continueButton, in: app)
         let continueToTodayButton = buttonContaining("Continue to Today", in: app)
         XCTAssertTrue(continueToTodayButton.waitForExistence(timeout: 10), "Onboarding step 2 did not appear")
-        scrollToAndTap(continueToTodayButton, in: app)
+        scrollToAndTapContent(continueToTodayButton, in: app)
 
         // Verify primary tabs are exposed in the WebView accessibility tree and Today content renders.
         let todayTab = buttonContaining("Today", in: app)
@@ -68,17 +82,17 @@ final class AppUITests: XCTestCase {
         attachScreenshot(named: "02-today-screen")
 
         // Ordinary shell tab navigation.
-        scrollToAndTap(foundationsTab, in: app)
+        tapWhenReady(foundationsTab)
         XCTAssertTrue(
             staticTextContaining("A Place to Begin", in: app).waitForExistence(timeout: 10),
             "Foundations view did not render"
         )
-        scrollToAndTap(archiveTab, in: app)
+        tapWhenReady(archiveTab)
         XCTAssertTrue(
             staticTextContaining("Explore Past Scripture Challenges", in: app).waitForExistence(timeout: 10),
             "Archive view did not render"
         )
-        scrollToAndTap(todayTab, in: app)
+        tapWhenReady(todayTab)
 
         // Background and return to foreground.
         XCUIDevice.shared.press(.home)
@@ -86,7 +100,7 @@ final class AppUITests: XCTestCase {
         app.activate()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 15), "App failed to resume to foreground")
         XCTAssertTrue(foundationsTab.waitForExistence(timeout: 10), "Primary UI missing after foreground resume")
-        scrollToAndTap(foundationsTab, in: app)
+        tapWhenReady(foundationsTab)
         XCTAssertTrue(
             staticTextContaining("A Place to Begin", in: app).waitForExistence(timeout: 10),
             "WebView UI unresponsive after foreground resume"
@@ -105,14 +119,18 @@ final class AppUITests: XCTestCase {
         attachScreenshot(named: "04-after-terminate-relaunch")
 
         // Reset local data via More -> Privacy & local data (exercises defaultGuestParticipationStore.clearLocalData).
-        scrollToAndTap(moreTab, in: app)
-        scrollToAndTap(buttonContaining("Privacy & local data", in: app), in: app)
-        scrollToAndTap(buttonContaining("Reset local app data", in: app), in: app)
-        scrollToAndTap(buttonContaining("Erase & reset", in: app), in: app)
+        tapWhenReady(moreTab)
+        scrollToAndTapContent(buttonContaining("Privacy & local data", in: app), in: app)
+        scrollToAndTapContent(buttonContaining("Reset local app data", in: app), in: app)
+        scrollToAndTapContent(buttonContaining("Erase & reset", in: app), in: app)
 
+        let onboardingReturned = buttonContaining("Continue", in: app).waitForExistence(timeout: 15)
+        if !onboardingReturned {
+            attachScreenshot(named: "05-reset-failure")
+        }
         XCTAssertTrue(
-            buttonContaining("Continue", in: app).waitForExistence(timeout: 15),
-            "Onboarding did not return after resetting local app data"
+            onboardingReturned,
+            "Onboarding did not return after resetting local app data. Tree:\n\(app.debugDescription)"
         )
         attachScreenshot(named: "05-after-reset")
     }
