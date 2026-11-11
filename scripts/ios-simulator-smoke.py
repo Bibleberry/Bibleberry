@@ -17,7 +17,9 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import pty
 import re
+import select
 import subprocess
 import sys
 import time
@@ -174,6 +176,58 @@ def capture_scoped_logs(udid: str, start_time: str, out_file: Path) -> str:
     return content
 
 
+def capture_console_pty_launch(udid: str, bundle_id: str, out_file: Path, duration_s: float = 6.0) -> None:
+    master_fd, slave_fd = pty.openpty()
+    chunks: list[bytes] = []
+    proc = subprocess.Popen(
+        ["xcrun", "simctl", "launch", "--console-pty", udid, bundle_id],
+        stdin=slave_fd,
+        stdout=slave_fd,
+        stderr=slave_fd,
+        close_fds=True,
+    )
+    os.close(slave_fd)
+    deadline = time.monotonic() + duration_s
+    try:
+        while time.monotonic() < deadline:
+            ready, _, _ = select.select([master_fd], [], [], 0.25)
+            if ready:
+                try:
+                    data = os.read(master_fd, 4096)
+                except OSError:
+                    break
+                if not data:
+                    break
+                chunks.append(data)
+            if proc.poll() is not None:
+                break
+        run_cmd(["xcrun", "simctl", "terminate", udid, bundle_id], timeout=20, check=False)
+        drain_deadline = time.monotonic() + 2.0
+        while time.monotonic() < drain_deadline:
+            ready, _, _ = select.select([master_fd], [], [], 0.1)
+            if not ready:
+                if proc.poll() is not None:
+                    break
+                continue
+            try:
+                data = os.read(master_fd, 4096)
+            except OSError:
+                break
+            if not data:
+                break
+            chunks.append(data)
+    finally:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+        os.close(master_fd)
+    text = b"".join(chunks).decode("utf-8", errors="replace")
+    out_file.write_text(text, encoding="utf-8")
+
+
 def find_new_app_crashes(since_epoch: float) -> list[str]:
     diag_dir = Path.home() / "Library" / "Logs" / "DiagnosticReports"
     if not diag_dir.is_dir():
@@ -324,6 +378,10 @@ def main() -> int:
             "initialScreenshotBytes": shot1.stat().st_size,
             "relaunchScreenshotBytes": shot2.stat().st_size,
         }
+
+        # Capture line-buffered Capacitor stdout/CAPLog via PTY before clean uninstall.
+        run_cmd(["xcrun", "simctl", "terminate", udid, args.bundle_id], timeout=20, check=False)
+        capture_console_pty_launch(udid, args.bundle_id, evidence_dir / "02b-simctl-console-pty.log", duration_s=6.0)
 
         # Uninstall before XCUITest so UI tests start from a clean install -> onboarding state.
         run_cmd(["xcrun", "simctl", "terminate", udid, args.bundle_id], timeout=20, check=False)
