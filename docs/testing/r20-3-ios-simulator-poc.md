@@ -6,11 +6,13 @@ This is a development shell and unsigned simulator-build proof, not an App Store
 
 The generated project is in `ios/`. Its tracked source includes the Xcode project, App Swift/storyboard/plist/assets, Capacitor-managed `CapApp-SPM/Package.swift`, and CLI-generated support files. `ios/.gitignore` excludes copied web assets, generated Capacitor config, local build output, Pods, DerivedData, and Cordova plugin output; `CapApp-SPM/.gitignore` excludes SwiftPM build/cache state. Regenerate and synchronize managed files with the Capacitor CLI rather than editing them by hand.
 
-The iOS Simulator workflow uses GitHub's fixed `macos-26` image and selects Xcode 26.0.1 (build 17A400), documented in the [runner-images macOS 26 image inventory](https://github.com/actions/runner-images/blob/main/images/macos/macos-26-Readme.md). The generated project sets its minimum iOS version to 15.0. It uses SPM; CocoaPods is not required.
+The iOS Simulator workflow uses GitHub's fixed `macos-26` image and selects Xcode 26.4.1 (build 17E202), documented in the [runner-images macOS 26 image inventory](https://github.com/actions/runner-images/blob/main/images/macos/macos-26-Readme.md). It pairs the iOS 26.4 Simulator SDK with the iOS 26.4 runtime (runtime build 26.4.1), which was present on the runner. The generated project sets its minimum iOS version to 15.0. It uses SPM; CocoaPods is not required.
 
-The iOS Simulator SDK and the bootable Simulator runtime are separate Xcode components. CI records `xcodebuild -showsdks` and `xcrun simctl list runtimes`; if the iOS 26.0 runtime is absent, it downloads that exact runtime using `xcodebuild -downloadPlatform iOS -buildVersion 26.0` and installs the exported disk image with `xcodebuild -importPlatform`. It then enumerates project destinations before compiling. This keeps the compiler/toolchain pinned while provisioning the missing runtime instead of treating SDK presence as runtime availability.
+The iOS Simulator SDK and the bootable Simulator runtime are separate Xcode components. CI records `xcodebuild -showsdks` and `xcrun simctl list runtimes`; if the iOS 26.4 runtime is absent, it downloads that runtime using `xcodebuild -downloadPlatform iOS -buildVersion 26.4` and installs the exported disk image with `xcodebuild -importPlatform`. It then enumerates project destinations before compiling. The pinned Xcode/SDK/runtime pair is supported by the hosted image inventory and the observed runner runtime list; missing components fail clearly rather than being silently skipped.
 
-The first native run, [43076940894](https://github.com/ContraPhilosophy/Bibleberry/actions/runs/43076940894), used runner image `macos-26-arm64` version `20261102.0473.1` and Xcode 26.0.1 (build 17A400). `npm ci`, the web build, Capacitor sync, and SPM dependency resolution passed. The build then exited 70 before Swift compilation because the iOS 26.0 Simulator platform/runtime was not installed; no `.app` was produced or validated. The workflow now provisions and verifies that runtime before retrying compilation.
+The first native run, [43076940894](https://github.com/ContraPhilosophy/Bibleberry/actions/runs/43076940894), used runner image `macos-26-arm64` version `20261102.0473.1` and Xcode 26.0.1 (build 17A400). `npm ci`, the web build, Capacitor sync, and SPM dependency resolution passed. The build then exited 70 before Swift compilation because the iOS 26.0 Simulator platform/runtime was not installed; no `.app` was produced or validated.
+
+The follow-up attempt [43082571779, job 130738622131](https://github.com/ContraPhilosophy/Bibleberry/actions/runs/43082571779/job/130738622131) confirmed the distinction: Xcode 26.0.1 had the `iphonesimulator26.0` SDK, while available runtimes were iOS 26.2, 26.4 (build 26.4.1), and 26.5. Apple’s download service reported `iOS 26.0 is not available for download`, so this retry also stopped before compilation. The workflow now selects the documented Xcode 26.4.1 / iOS 26.4 pair already represented in that runner inventory.
 
 This Linux session successfully generated and synchronized the iOS source, but has no `xcodebuild`, Apple SDK, or simulator. The corrected macOS build and `.app` validation are pending; app launch and device behavior are not inferred from source generation or compilation.
 
@@ -30,17 +32,17 @@ npx cap add ios
 npm run build && npx cap sync ios
 ```
 
-On macOS with Xcode 26.0.1, the signing-free simulator build used by CI is:
+On macOS with Xcode 26.4.1, the signing-free simulator build used by CI is:
 
 ```sh
-sudo xcode-select --switch /Applications/Xcode_26.0.1.app/Contents/Developer
+sudo xcode-select --switch /Applications/Xcode_26.4.1.app/Contents/Developer
 xcodebuild -version
 xcodebuild -showsdks
 xcrun simctl list runtimes
 if ! xcrun simctl list runtimes -j \
-  | python3 -c 'import json,sys; runtimes=json.load(sys.stdin)["runtimes"]; sys.exit(0 if any(r["name"] == "iOS 26.0" and r["isAvailable"] for r in runtimes) else 1)'; then
+  | python3 -c 'import json,sys; runtimes=json.load(sys.stdin)["runtimes"]; sys.exit(0 if any(r["name"] == "iOS 26.4" and r["isAvailable"] for r in runtimes) else 1)'; then
   mkdir -p "$TMPDIR/ios-simulator-runtime"
-  xcodebuild -downloadPlatform iOS -buildVersion 26.0 \
+  xcodebuild -downloadPlatform iOS -buildVersion 26.4 \
     -exportPath "$TMPDIR/ios-simulator-runtime"
   RUNTIME_DMG="$(find "$TMPDIR/ios-simulator-runtime" -maxdepth 1 -type f -name '*.dmg' -print -quit)"
   test -n "$RUNTIME_DMG"
@@ -77,7 +79,8 @@ The resulting app is at `$TMPDIR/BibleberryDerivedData/Build/Products/Debug-ipho
 | `npm run test:smoke` | Passed, 47 Playwright tests across seven build variants. Chromium was installed with the existing Playwright command after the first local attempt found no browser binary. |
 | `npm run check:staging` | Passed Wrangler dry-run; packaged 13 assets and did not deploy. |
 | Initial Xcode Simulator compile | Failed before Swift compilation in [run 43076940894, job 130719098603](https://github.com/ContraPhilosophy/Bibleberry/actions/runs/43076940894/job/130719098603): Xcode could not select an iOS Simulator destination because iOS 26.0 was not installed (exit 70). No `.app` was produced. |
-| Runtime provisioning and retry | Pending the corrected macOS workflow run. Record its run/job IDs, PR head SHA, synthetic merge SHA, Xcode/SDK/runtime output, and conclusion here. |
+| Runtime provisioning attempt | [Run 43082571779, job 130738622131](https://github.com/ContraPhilosophy/Bibleberry/actions/runs/43082571779/job/130738622131) confirmed the 26.0 Simulator SDK existed but its runtime was not installed and was no longer downloadable. No compilation or artifact validation occurred. |
+| Compatible Xcode/runtime retry | Pending. Record run/job IDs, PR head SHA, synthetic merge SHA, Xcode/SDK/runtime output, and conclusion here after the pinned Xcode 26.4.1 / iOS 26.4 build runs. |
 | `.app` identity and asset validation | Pending a successful retry; no artifact is claimed until the job builds and verifies the simulator `.app`. |
 | `git diff --check` | Passed. |
 
