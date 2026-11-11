@@ -96,7 +96,7 @@ test.describe('Ordinary-Shell ChallengePlayer Controlled Pilot (A2)', () => {
     const nav = page.getByRole('navigation', { name: 'Challenge screen navigation' });
     await expect(nav.getByRole('button', { name: 'Back' })).toBeDisabled();
     await expect(nav.getByRole('button', { name: 'Continue' })).toBeEnabled();
-    await expect(nav.getByRole('button', { name: /Complete Challenge/i })).toHaveCount(0);
+    await expect(nav.getByRole('button', { name: /Complete Challenge|Finish/i })).toHaveCount(0);
 
     // Save Challenge and Save Scripture remain separate from completion
     const demoStatus = page.locator('.pilot-disclosure__status');
@@ -140,7 +140,7 @@ test.describe('Ordinary-Shell ChallengePlayer Controlled Pilot (A2)', () => {
     await optionalToggle.click();
     await expect(optionalToggle).toHaveAttribute('aria-expanded', 'false');
 
-    const completeBtn = nav.getByRole('button', { name: 'Complete Challenge' });
+    const completeBtn = nav.getByRole('button', { name: 'Finish' });
     await expect(completeBtn).toBeEnabled();
     await completeBtn.click();
 

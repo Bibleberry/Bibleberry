@@ -169,9 +169,18 @@ test.describe('Gateway-Backed Released Challenge Integration (R05 Stage 2A)', ()
     await expect(page.locator('.lab-screen .eyebrow')).toHaveText('Step 2')
     await expect(page.locator('.lab-screen h2')).toHaveText('Second Step Heading')
 
-    // Explicitly complete the Challenge on the final screen
-    await page.locator('.lab-screen-nav button:has-text("Complete Challenge")').click()
-    await expect(page.locator('.lab-completion')).toBeVisible()
+    // Reaching the final screen without tapping Finish must NOT complete the Challenge
+    stored = await page.evaluate(key => JSON.parse(localStorage.getItem(key) || '{}'), PARTICIPATION_STORAGE_KEY)
+    expect(stored.data.completedChallenges['cms:mock-gateway-challenge-doc-1']).toBeUndefined()
+
+    // Explicitly Finish the Challenge on the final screen -> records once and returns immediately to origin without confirmation panel or toast
+    const finishBtn = page.locator('.lab-screen-nav button:has-text("Finish")')
+    await expect(finishBtn).toHaveText('Finish')
+    await finishBtn.click()
+    await expect(page.locator('#daily-teaching')).toBeVisible()
+    await expect(page.locator('.lab-completion')).toHaveCount(0)
+    await expect(page.locator('.toast.is-visible')).toHaveCount(0)
+    expect(page.url()).not.toContain('#/challenge/')
 
     // Verify durable completion recorded under cms:mock-gateway-challenge-doc-1 and inProgress cleared
     stored = await page.evaluate(key => JSON.parse(localStorage.getItem(key) || '{}'), PARTICIPATION_STORAGE_KEY)
@@ -463,9 +472,11 @@ test.describe('Gateway-Backed Released Challenge Integration (R05 Stage 2A)', ()
     await page.locator('.lab-screen-nav button:has-text("Continue")').click()
     await expect(page.locator('.lab-screen .eyebrow')).toHaveText('Step 2')
 
-    // Complete the Challenge
-    await page.locator('.lab-screen-nav button:has-text("Complete Challenge")').click()
-    await expect(page.locator('.lab-completion')).toBeVisible()
+    // Finish the Challenge and return immediately to Today without intermediate confirmation
+    await page.locator('.lab-screen-nav button:has-text("Finish")').click()
+    await expect(page.locator('#daily-teaching')).toBeVisible()
+    await expect(page.locator('.lab-completion')).toHaveCount(0)
+    expect(page.url()).not.toContain('#/challenge/')
 
     // Verify stored participation under canonical cms:<documentId>
     const stored = await page.evaluate(key => {
@@ -523,5 +534,109 @@ test.describe('Gateway-Backed Released Challenge Integration (R05 Stage 2A)', ()
     await expect(page.locator('.lab-challenge-header')).toHaveCount(0)
     await expect(page.locator('.lab-screen')).toHaveCount(0)
     expect(sanityRequestCount).toBe(0)
+  })
+
+  test('preserves injected Month, Shelf, and Library origin contexts on Finish and exit without bypassing release checks', async ({
+    page,
+  }) => {
+    await page.route('**/api/challenges/**', async route => {
+      if (route.request().url().includes('embargoed-secret')) {
+        await route.fulfill({
+          status: 404,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: false, error: { kind: 'notFound', message: 'Challenge not found' } }),
+        })
+        return
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: true,
+          challenge: makeMockGatewayChallenge({
+            releaseAt: undefined,
+            series: undefined,
+            sequence: undefined,
+            calendarSlot: {
+              monthId: '2027-03',
+              documentId: 'month-2027-03',
+              monthTitle: 'Abiding in the Vine',
+              publicationDate: '2027-03-01',
+              dayOfMonth: 1,
+            },
+          }),
+        }),
+      })
+    })
+
+    await page.addInitScript(storageKey => {
+      localStorage.setItem(
+        storageKey,
+        JSON.stringify({
+          onboarded: true,
+          appearance: 'system',
+          textSize: 'default',
+          reminderEnabled: false,
+          reminderTime: '08:00',
+          explored: [],
+          journey: [],
+          lastOpened: null,
+          resumeDismissedDate: '',
+        }),
+      )
+    }, PROTOTYPE_STORAGE_KEY)
+
+    // 1. Month origin: Finish records completion and returns with Month origin metadata
+    await page.goto('/#/challenge/walking-in-the-light?origin=month&yearMonth=2027-03')
+    await expect(page.locator('.challenge-player__exit')).toHaveText('Return to March 2027')
+    await page.locator('.lab-screen-nav button:has-text("Continue")').click()
+    await page.locator('.lab-screen-nav button:has-text("Finish")').click()
+
+    await expect(page.locator('#daily-teaching')).toBeVisible()
+    await expect(page.locator('.lab-completion')).toHaveCount(0)
+    await expect(page.locator('.toast.is-visible')).toHaveCount(0)
+    const monthReturnedOrigin = await page.evaluate(() => window.history.state?.returnedChallengeOrigin)
+    expect(monthReturnedOrigin).toEqual({ kind: 'month', yearMonth: '2027-03' })
+
+    // 2. Shelf origin: already-completed Challenge hydrates cleanly without spurious navigation, supports reread & Finish exit
+    await page.goto('/#/challenge/walking-in-the-light?origin=shelf&yearMonth=2026-10')
+    await expect(page.locator('.lab-challenge-header h1')).toHaveText('Walking in the Light')
+    await expect(page.locator('.challenge-player__exit')).toHaveText('Return to Shelf · October 2026')
+    await expect(page.locator('.lab-screen h2')).toHaveText('First Step Heading')
+    await page.locator('.lab-screen-nav button:has-text("Continue")').click()
+    await expect(page.locator('.lab-screen h2')).toHaveText('Second Step Heading')
+    await expect(page.locator('.lab-completion')).toHaveCount(0)
+    await page.locator('.lab-screen-nav button:has-text("Finish")').click()
+
+    await expect(page.locator('#daily-teaching')).toBeVisible()
+    const shelfReturnedOrigin = await page.evaluate(() => window.history.state?.returnedChallengeOrigin)
+    expect(shelfReturnedOrigin).toEqual({ kind: 'shelf', yearMonth: '2026-10' })
+
+    // Verify completedOn date was NOT duplicated or altered during reread
+    const storedAfterReread = await page.evaluate(
+      key => JSON.parse(localStorage.getItem(key) || '{}'),
+      PARTICIPATION_STORAGE_KEY,
+    )
+    expect(storedAfterReread.data.completedChallenges['cms:mock-gateway-challenge-doc-1']).toEqual({
+      completedOn: '2026-11-06',
+    })
+
+    // 3. Library origin: exit control uses captured origin
+    await page.goto('/#/challenge/walking-in-the-light?origin=library&yearMonth=2026-09')
+    await expect(page.locator('.challenge-player__exit')).toHaveText('Return to Library · September 2026')
+    await page.locator('.challenge-player__exit').click()
+    await expect(page.locator('#daily-teaching')).toBeVisible()
+    const libraryReturnedOrigin = await page.evaluate(() => window.history.state?.returnedChallengeOrigin)
+    expect(libraryReturnedOrigin).toEqual({ kind: 'library', yearMonth: '2026-09' })
+
+    // 4. Malformed origin degrades gracefully to Hub fallback
+    await page.goto('/#/challenge/walking-in-the-light?origin=month&yearMonth=bad')
+    await expect(page.locator('.challenge-player__exit')).toHaveText('Return to Today')
+
+    // 5. User-supplied origin never bypasses content-release checks
+    await page.goto('/#/challenge/embargoed-secret?origin=month&yearMonth=2027-03')
+    await expect(page.locator('.empty-state h2')).toHaveText('Challenge not found')
+    await expect(page.locator('.challenge-player__exit')).toHaveText('Return to March 2027')
+    await expect(page.locator('.lab-screen')).toHaveCount(0)
   })
 })

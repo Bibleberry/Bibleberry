@@ -129,7 +129,7 @@ test.describe('Participation Persistence Reload Pilot (A3 / Issue #46)', () => {
     ]);
 
     // 5. Explicit completion on final screen records once, keeps reader on Screen 2 with completion acknowledgment, and clears durable inProgress
-    const completeBtn = nav.getByRole('button', { name: 'Complete Challenge' });
+    const completeBtn = nav.getByRole('button', { name: 'Finish' });
     await expect(completeBtn).toBeEnabled();
     await completeBtn.click();
 
@@ -338,7 +338,7 @@ test.describe('Participation Persistence Reload Pilot (A3 / Issue #46)', () => {
 
     // 2. Trigger explicit completion (800ms getItem + 800ms setItem), wait 900ms so `setItem` is actively in flight, then reset
     const nav = page.getByRole('navigation', { name: 'Challenge screen navigation' });
-    await nav.getByRole('button', { name: 'Complete Challenge' }).click();
+    await nav.getByRole('button', { name: 'Finish' }).click();
     await expect(page.locator('.pilot-disclosure__status')).toContainText('Distinct completed: 1');
     await page.waitForTimeout(900);
 
@@ -382,7 +382,7 @@ test.describe('Participation Persistence Reload Pilot (A3 / Issue #46)', () => {
     const statusLine = page.locator('.pilot-disclosure__status');
     const nav = page.getByRole('navigation', { name: 'Challenge screen navigation' });
     const startBtn = nav.getByRole('button', { name: 'Start Challenge' });
-    const completeBtn = nav.getByRole('button', { name: 'Complete Challenge' });
+    const completeBtn = nav.getByRole('button', { name: 'Finish' });
 
     await expect(page.locator('#a3-pilot-screen-one-title')).toBeVisible();
     await expect(statusLine).toContainText('Distinct completed: 0 · Status: notStarted');
