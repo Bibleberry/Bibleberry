@@ -199,6 +199,26 @@ async function main() {
     } finally {
       await stopPreviewServer(server6);
     }
+
+    // ---------------------------------------------------------
+    // PASS 7: Month-Screen-Enabled Bundle (R08A-6)
+    // ---------------------------------------------------------
+    console.log('\n>>> [Pass 7] Building and testing Month-Screen-Enabled Bundle...');
+    cleanDist();
+    await runCommand('npm run build', {
+      VITE_ENABLE_MONTH_SCREEN: 'true',
+    });
+
+    console.log('>>> Starting preview server for Month-Screen-Enabled Bundle...');
+    const server7 = await startPreviewServer();
+    try {
+      console.log('>>> Running Playwright smoke tests against Month-Screen-Enabled Bundle...');
+      await runCommand('npx playwright test tests/smoke/month-screen.spec.ts', {
+        PLAYWRIGHT_TEST_BASE_URL: `http://localhost:${PORT}`,
+      });
+    } finally {
+      await stopPreviewServer(server7);
+    }
   } catch (err) {
     executionError = err as Error;
   } finally {
