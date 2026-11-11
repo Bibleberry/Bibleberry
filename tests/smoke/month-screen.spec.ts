@@ -618,8 +618,8 @@ test.describe('R08A-6 Calendar Month Screen Integration', () => {
       },
       // Put fullMonth FIRST on wire to assert UI places fullMonth strictly LAST
       discoveries: [
-        { discoveryId: 'disc-full', kind: 'fullMonth', title: 'Full Month Walk', targetCount: 29 },
-        { discoveryId: 'disc-light', kind: 'thematic', title: 'Light Discovery', targetCount: 2 },
+        { discoveryId: 'discovery:2098-03:full-month', kind: 'fullMonth', title: 'Full Month Walk', targetCount: 29 },
+        { discoveryId: 'discovery:2098-03:light-discovery', kind: 'thematic', title: 'Light Discovery', targetCount: 2 },
       ],
     })
 
@@ -644,7 +644,7 @@ test.describe('R08A-6 Calendar Month Screen Integration', () => {
           thematicTotalCount: 1,
           discoveries: [
             {
-              discoveryId: 'disc-full',
+              discoveryId: 'discovery:2098-03:full-month',
               kind: 'fullMonth',
               title: 'Full Month Walk',
               achievedCount: ids.length,
@@ -652,13 +652,35 @@ test.describe('R08A-6 Calendar Month Screen Integration', () => {
               isEarned: false,
             },
             {
-              discoveryId: 'disc-light',
+              discoveryId: 'discovery:2098-03:light-discovery',
               kind: 'thematic',
               title: 'Light Discovery',
               achievedCount: lightAchieved,
               targetCount: 2,
               isEarned: lightAchieved >= 2,
-              ...(lightAchieved >= 2 ? { awardId: 'award-light', reservedCardId: 'card-light-1' } : {}),
+              ...(lightAchieved >= 2
+                ? {
+                    awardId: 'card:monthly:2098-03:light-discovery',
+                    reservedCardId: 'card-2098-03-light-discovery',
+                    earnedCard: {
+                      cardDocumentId: 'card-2098-03-light-discovery',
+                      title: 'A Light for the Path',
+                      publicationYearMonth: '2098-03',
+                      imageUrl: 'https://cdn.sanity.io/images/80016lrq/staging/card-light-discovery.png',
+                      assetRevision: 'v1',
+                      illustrationAlt: 'A hand-drawn lamp on a path',
+                      accessibleTranscription: 'Psalm 119:105 — Your word is a lamp to my feet.',
+                      scripture: {
+                        book: 'Psalms',
+                        reference: 'Psalm 119:105',
+                        translation: 'WEBP',
+                      },
+                      attribution: 'Bibleberry',
+                      rightsStatus: 'approved-ministry-use',
+                      shareEligible: true,
+                    },
+                  }
+                : {}),
             },
           ],
         },
@@ -761,7 +783,7 @@ test.describe('R08A-6 Calendar Month Screen Integration', () => {
     await page.getByRole('button', { name: 'Finish' }).click()
     await expect(page.locator('.month-ticker')).toContainText('1 of 29')
 
-    // 6. Resume Day 1 (Part 2 -> Part 3 -> Finish) -> silent discovery updates to 2 of 2 (earned without invented art)
+    // 6. Resume Day 1 (Part 2 -> Part 3 -> Finish) -> silent discovery update and durable award
     await page.getByRole('button', { name: /Light in Darkness/ }).click()
     await expect(page.getByRole('heading', { level: 2, name: 'Light in Darkness — Middle' })).toBeVisible()
     await nextScreenBtn.click()
@@ -769,9 +791,36 @@ test.describe('R08A-6 Calendar Month Screen Integration', () => {
 
     await expect(page.locator('.month-ticker')).toContainText('2 of 29')
     await expect(page.locator('.month-discovery').first()).toContainText('2 of 2')
-    await expect(page.locator('.month-discovery').first()).toContainText('Goal reached (2 of 2)')
+    await expect(page.locator('.month-discovery').first()).toContainText('Scripture card earned')
     await expect(page.locator('.month-discovery img')).toHaveCount(0)
     expect(progressRequests.some(ids => ids.includes('cms:march-day-01-doc') && ids.includes('cms:march-day-02-doc'))).toBe(true)
+
+    await page.waitForFunction(({ storageKey, awardId }) => {
+      const envelope = JSON.parse(window.localStorage.getItem(storageKey) ?? 'null')
+      return Boolean(envelope?.data?.earnedAwards?.[awardId])
+    }, {
+      storageKey: PARTICIPATION_STORAGE_KEY,
+      awardId: 'card:monthly:2098-03:light-discovery',
+    })
+    const savedAward = await page.evaluate(storageKey => {
+      const envelope = JSON.parse(window.localStorage.getItem(storageKey) ?? 'null')
+      return {
+        schemaVersion: envelope?.schemaVersion,
+        completed: Object.keys(envelope?.data?.completedChallenges ?? {}),
+        award: envelope?.data?.earnedAwards?.['card:monthly:2098-03:light-discovery'],
+      }
+    }, PARTICIPATION_STORAGE_KEY)
+    expect(savedAward.schemaVersion).toBe(2)
+    expect(savedAward.completed).toContain('cms:march-day-01-doc')
+    expect(savedAward.completed).toContain('cms:march-day-02-doc')
+    expect(savedAward.award.earnedOn).toBe('2098-03-02')
+    expect(savedAward.award.cardDocumentId).toBe('card-2098-03-light-discovery')
+    expect(savedAward.award.earnedCard.imageUrl).toContain('cdn.sanity.io')
+
+    await page.reload()
+    await expect(page.getByRole('heading', { level: 1, name: 'March 2098 Challenges' })).toBeVisible()
+    await expect(page.locator('.month-discovery').first()).toContainText('Scripture card earned')
+    await expect(page.locator('.month-discovery img')).toHaveCount(0)
   })
 
   test('Preview News banner respects month authorization boundary + guest reset clears intro + responsive layout', async ({ page }) => {

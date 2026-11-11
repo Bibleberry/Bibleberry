@@ -7,6 +7,7 @@ import {
   type MonthPreviewData,
   type MonthProgressData,
 } from '../../cms/reader/monthProvider.ts'
+import { persistGatewayMonthProgressAwards } from '../../cms/reader/monthAwardReconciliation.ts'
 import { defaultGuestParticipationStore } from '../../participation/defaultGuestStore.ts'
 import type { ReaderParticipationStore } from '../../participation/store.ts'
 import { useReaderParticipation } from '../../participation/useReaderParticipation.ts'
@@ -237,6 +238,9 @@ export function MonthScreenHost({
         if (res.status === 'ready') {
           setProgressData(res.progress)
           setProgressError(null)
+          void persistGatewayMonthProgressAwards(store, res, cleanYearMonth).catch(() => {
+            if (!ignore) setProgressError('Unable to save earned discovery progress.')
+          })
         } else if (res.status === 'requestError') {
           setProgressError(res.message || 'Unable to refresh discovery progress.')
         } else if (res.status === 'validationError') {
@@ -255,7 +259,7 @@ export function MonthScreenHost({
       ignore = true
       controller.abort()
     }
-  }, [cleanYearMonth, monthProvider, monthState.status, participationSnapshot.status, completedKey, progressAttempt])
+  }, [cleanYearMonth, monthProvider, monthState.status, participationSnapshot.status, completedKey, progressAttempt, store])
 
   const handleIntroComplete = () => {
     if (monthState.status === 'readyPreview') {
@@ -493,6 +497,7 @@ export function MonthScreenHost({
     monthState.month.discoveries,
     progressData,
     monthState.month.monthId,
+    participationData,
   )
 
   return (

@@ -48,6 +48,7 @@ export type PersistedChallengeHostProps = {
   getToday?: () => LocalCalendarDate
   origin?: ChallengeOrigin
   onReturn?: (origin: ChallengeOrigin) => void
+  onCompletionDispatched?: (completionWrite: Promise<void>) => void
   returnOnFinish?: boolean
   onExit?: () => void
   exitLabel?: string
@@ -71,6 +72,7 @@ function ReadyPersistedChallengeHost({
   challenge,
   getToday,
   effectiveReturnOnFinish,
+  onCompletionDispatched,
   onExit,
   exitLabel = 'Return',
   eyebrow,
@@ -199,11 +201,12 @@ function ReadyPersistedChallengeHost({
             returnOnFinish: effectiveReturnOnFinish,
             onStayOnFinalScreen: activeScreenId => setRereadScreenId(activeScreenId),
             dispatchComplete: () => {
-              void store.dispatch({
+              const completionWrite = store.dispatch({
                 type: 'completeChallenge',
                 challengeId,
                 completedOn: getToday(),
               })
+              onCompletionDispatched?.(completionWrite)
             },
             onExit,
           })
@@ -221,6 +224,7 @@ export function PersistedChallengeHost({
   getToday = formatLocalCalendarDate,
   origin,
   onReturn,
+  onCompletionDispatched,
   returnOnFinish,
   onExit,
   exitLabel,
@@ -271,6 +275,7 @@ export function PersistedChallengeHost({
       challenge={challenge}
       getToday={getToday}
       effectiveReturnOnFinish={effectiveReturnOnFinish}
+      onCompletionDispatched={onCompletionDispatched}
       onExit={handleExit}
       exitLabel={effectiveExitLabel}
       eyebrow={eyebrow}

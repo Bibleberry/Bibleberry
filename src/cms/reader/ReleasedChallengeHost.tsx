@@ -10,6 +10,11 @@ import {
   type ChallengeOrigin,
 } from './challengeOrigin.ts'
 import {
+  defaultGatewayMonthProvider,
+  type MonthGatewayProvider,
+} from './monthProvider.ts'
+import { reconcileFinishedChallengeMonthAwards } from './monthAwardReconciliation.ts'
+import {
   adaptCatalogProviderToDetailProvider,
   defaultGatewayChallengeProvider,
   resolveDefaultChallengeProvider,
@@ -25,6 +30,7 @@ export type ReleasedChallengeHostProps = {
   slug: string
   challengeProvider?: ChallengeDetailProvider
   catalogProvider?: ChallengeCatalogProvider
+  monthProvider?: MonthGatewayProvider
   store?: ReaderParticipationStore
   getNow?: () => Date
   origin?: ChallengeOrigin
@@ -48,6 +54,7 @@ export function ReleasedChallengeHost({
   slug,
   challengeProvider,
   catalogProvider,
+  monthProvider = defaultGatewayMonthProvider,
   store = defaultGuestParticipationStore,
   getNow = () => new Date(),
   origin,
@@ -240,6 +247,15 @@ export function ReleasedChallengeHost({
       expectedNamespace="cms"
       origin={resolvedOrigin}
       onReturn={onReturn}
+      onCompletionDispatched={completionWrite => {
+        void reconcileFinishedChallengeMonthAwards({
+          store,
+          monthProvider,
+          challenge: state.challenge,
+          admittedChallenge: state.admittedChallenge,
+          completionWrite,
+        }).catch(() => undefined)
+      }}
       onExit={onExit}
       returnOnFinish={Boolean(onReturn || onExit)}
       exitLabel={effectiveExitLabel}

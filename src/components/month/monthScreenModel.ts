@@ -6,6 +6,8 @@ import type {
   MonthSlotPreview,
 } from '../../cms/reader/monthProvider.ts'
 import { formatCanonicalChallengeId, parseStoredChallengeId } from '../../participation/identity.ts'
+import { combineGatewayProgressWithStoredAwards } from '../../participation/awards.ts'
+import { emptyReaderParticipationData } from '../../participation/model.ts'
 import { selectChallengeParticipationView } from '../../participation/model.ts'
 import type {
   CanonicalChallengeId,
@@ -71,6 +73,7 @@ export interface MonthDiscoveryPresentation {
   readonly achievedCount: number
   readonly targetCount: number
   readonly isEarned: boolean
+  readonly hasCardDisplay: boolean
 }
 
 export interface MonthCompletionSummary {
@@ -364,21 +367,43 @@ export function resolveMonthDiscoveryPresentations(
   summaries: readonly MonthDiscoverySummary[],
   progress: MonthProgressData | null,
   expectedMonthId: string,
+  participationData?: ReaderParticipationData,
 ): MonthDiscoveryPresentation[] {
   const validProgress = progress && progress.monthId === expectedMonthId ? progress : null
   const progressById = new Map(
     (validProgress?.discoveries ?? []).map(item => [item.discoveryId, item] as const),
   )
+  const combinedById = new Map(
+    combineGatewayProgressWithStoredAwards(
+      {
+        monthId: expectedMonthId,
+        discoveries: summaries.map(summary => {
+          const current = progressById.get(summary.discoveryId)
+          return current ?? {
+            discoveryId: summary.discoveryId,
+            kind: summary.kind,
+            title: summary.title,
+            achievedCount: 0,
+            targetCount: summary.targetCount,
+            isEarned: false,
+          }
+        }),
+      },
+      participationData ?? emptyReaderParticipationData(),
+    ).map(discovery => [discovery.discoveryId, discovery] as const),
+  )
 
   const combined: MonthDiscoveryPresentation[] = summaries.map(summary => {
     const prog = progressById.get(summary.discoveryId)
+    const stored = combinedById.get(summary.discoveryId)
     return {
       discoveryId: summary.discoveryId,
       kind: summary.kind,
       title: summary.title,
       achievedCount: prog ? prog.achievedCount : 0,
       targetCount: prog ? prog.targetCount : summary.targetCount,
-      isEarned: prog ? prog.isEarned : false,
+      isEarned: stored?.effectiveEarned ?? false,
+      hasCardDisplay: stored?.hasCardDisplay ?? false,
     }
   })
 

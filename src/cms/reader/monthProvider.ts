@@ -1,4 +1,11 @@
 import { z } from 'zod'
+import { validateEarnedCardSnapshot } from '../../participation/awards.ts'
+import {
+  parseCanonicalMonthlyDiscoveryId,
+  parseCardDocumentId,
+  parseMonthlyAwardIdParts,
+} from '../../participation/identity.ts'
+import type { EarnedScriptureCardSnapshot } from '../../participation/types.ts'
 
 /**
  * Typed front-end gateway providers for monthly publications, stateless progress
@@ -18,6 +25,32 @@ const MAX_TIMEZONE_LENGTH = 64
 const YEAR_MONTH_PATTERN = /^\d{4}-(?:0[1-9]|1[0-2])$/
 const ISO_CIVIL_DATE_PATTERN = /^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/
 const RAW_OFFSET_PATTERN = /^(?:[+-]\d+(?::?\d+)?|(?:GMT|UTC)[+-].*)$/i
+const CARD_METADATA_FIELDS = [
+  'awardId',
+  'reservedCardId',
+  'earnedCard',
+  'card',
+  'scriptureCard',
+  'cardId',
+  'fullMonthCard',
+  'thumbnailUrl',
+  'fullImageUrl',
+  'cardDocumentId',
+  'imageUrl',
+  'assetRevision',
+  'illustrationAlt',
+  'accessibleTranscription',
+  'scripture',
+  'attribution',
+  'rightsStatus',
+  'shareEligible',
+  'theologicalThemes',
+  'keywords',
+] as const
+
+function hasCardMetadata(record: Record<string, unknown>): boolean {
+  return CARD_METADATA_FIELDS.some(field => field in record)
+}
 
 export type MonthGatewayChallengeType = 'teaching' | 'discipline' | 'reflection' | 'memorization'
 export type NewsCategory = 'monthlyPreview' | 'ministryUpdate' | 'announcement'
@@ -131,6 +164,7 @@ export interface MonthProgressDiscovery {
   readonly isEarned: boolean
   readonly awardId?: string
   readonly reservedCardId?: string
+  readonly earnedCard?: EarnedScriptureCardSnapshot
 }
 
 export interface MonthProgressData {
@@ -361,7 +395,10 @@ function findPreviewPrivacyViolations(payload: unknown): string[] {
   const issues: string[] = []
   if (!isPlainRecord(payload) || !isPlainRecord(payload.month)) return issues
   const m = payload.month
-  if ('discoveries' in m || 'fullMonthCard' in m || 'earnedCard' in m) {
+  if ('fullMonthCard' in m || hasCardMetadata(m)) {
+    issues.push('month: Month detail must not expose Card metadata.')
+  }
+  if ('discoveries' in m || 'fullMonthCard' in m || hasCardMetadata(m)) {
     issues.push('month: Advance preview must not expose discoveries or card metadata.')
   }
   if (isPlainRecord(m.introduction) && 'welcomeScreen' in m.introduction) {
@@ -402,9 +439,7 @@ function findMonthDetailPrivacyViolations(payload: unknown): string[] {
       if (
         'qualifyingChallenges' in disc ||
         'qualifyingChallengeIds' in disc ||
-        'earnedCard' in disc ||
-        'thumbnailUrl' in disc ||
-        'fullImageUrl' in disc
+        hasCardMetadata(disc)
       ) {
         issues.push(`month.discoveries[${index}]: Discovery summary must not expose hidden qualifying Challenges or card art.`)
       }
@@ -416,12 +451,15 @@ function findMonthDetailPrivacyViolations(payload: unknown): string[] {
 function findMonthProgressPrivacyViolations(payload: unknown): string[] {
   const issues: string[] = []
   if (!isPlainRecord(payload) || !Array.isArray(payload.discoveries)) return issues
+  if ('fullMonthCard' in payload || hasCardMetadata(payload)) {
+    issues.push('Month progress response must not expose Card metadata outside earned discoveries.')
+  }
   payload.discoveries.forEach((disc, index) => {
     if (!isPlainRecord(disc)) return
     if ('qualifyingChallenges' in disc || 'qualifyingChallengeIds' in disc) {
       issues.push(`discoveries[${index}]: Progress discovery must not expose qualifying Challenge mappings.`)
     }
-    if (disc.isEarned === false && ('awardId' in disc || 'reservedCardId' in disc || 'earnedCard' in disc || 'thumbnailUrl' in disc || 'fullImageUrl' in disc)) {
+    if (disc.isEarned === false && hasCardMetadata(disc)) {
       issues.push(`discoveries[${index}]: Unearned discovery must not expose awardId or card metadata.`)
     }
   })
@@ -577,6 +615,7 @@ const progressDiscoverySchema = z.object({
   isEarned: z.boolean(),
   awardId: requiredText.nullish(),
   reservedCardId: requiredText.nullish(),
+  earnedCard: z.unknown().optional(),
 }).superRefine((disc, ctx) => {
   const raw = disc as Record<string, unknown>
   if ('qualifyingChallenges' in raw || 'qualifyingChallengeIds' in raw) {
@@ -1138,6 +1177,29 @@ export function createGatewayMonthProvider(
     }
 
     const data = parsed.data
+    const invalidEarnedIdentity = data.discoveries.find(disc => {
+      if (!disc.isEarned) return false
+      const discovery = parseCanonicalMonthlyDiscoveryId(disc.discoveryId)
+      const award = parseMonthlyAwardIdParts(disc.awardId)
+      return (
+        !discovery
+        || discovery.publicationYearMonth !== data.monthId
+        || discovery.kind !== disc.kind
+        || !award
+        || award.publicationYearMonth !== data.monthId
+        || award.kind !== disc.kind
+        || award.awardId !== discovery.awardId
+      )
+    })
+    if (invalidEarnedIdentity) {
+      return {
+        status: 'validationError',
+        message: 'Month progress response contained an untrusted earned-award identity',
+        issues: ['Earned discovery and award IDs must be canonical and match the requested month.'],
+        source: 'gateway',
+      }
+    }
+
     return {
       status: 'ready',
       serverContext: {
@@ -1151,18 +1213,24 @@ export function createGatewayMonthProvider(
         totalChallenges: data.totalChallenges,
         thematicEarnedCount: data.thematicEarnedCount,
         thematicTotalCount: data.thematicTotalCount,
-        discoveries: data.discoveries.map(disc => ({
-          discoveryId: disc.discoveryId.trim(),
-          kind: disc.kind,
-          title: disc.title.trim(),
-          achievedCount: disc.achievedCount,
-          targetCount: disc.targetCount,
-          isEarned: disc.isEarned,
-          ...(disc.isEarned && disc.awardId?.trim() ? { awardId: disc.awardId.trim() } : {}),
-          ...(disc.isEarned && disc.reservedCardId?.trim()
-            ? { reservedCardId: disc.reservedCardId.trim() }
-            : {}),
-        })),
+        discoveries: data.discoveries.map(disc => {
+          const earnedCard = disc.isEarned
+            ? validateEarnedCardSnapshot(disc.earnedCard, data.monthId) ?? undefined
+            : undefined
+          const reservedCardId =
+            disc.isEarned ? parseCardDocumentId(disc.reservedCardId) ?? undefined : undefined
+          return {
+            discoveryId: disc.discoveryId.trim(),
+            kind: disc.kind,
+            title: disc.title.trim(),
+            achievedCount: disc.achievedCount,
+            targetCount: disc.targetCount,
+            isEarned: disc.isEarned,
+            ...(disc.isEarned && disc.awardId?.trim() ? { awardId: disc.awardId.trim() } : {}),
+            ...(reservedCardId ? { reservedCardId } : {}),
+            ...(earnedCard ? { earnedCard } : {}),
+          }
+        }),
       },
       source: 'gateway',
     }

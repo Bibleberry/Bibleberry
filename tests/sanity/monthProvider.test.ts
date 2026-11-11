@@ -151,6 +151,24 @@ function makeProgressPayload(yearMonth = '2026-11', total = 30) {
         isEarned: true,
         awardId: `card:monthly:${yearMonth}:table-fellowship`,
         reservedCardId: 'card-table-fellowship',
+        earnedCard: {
+          cardDocumentId: `card-${yearMonth}-table-fellowship`,
+          title: 'At Table with the Lord',
+          publicationYearMonth: yearMonth,
+          imageUrl: 'https://cdn.sanity.io/images/80016lrq/staging/card-table-fellowship.png',
+          assetRevision: 'v1',
+          illustrationAlt: 'Hand-drawn loaves and a shared table',
+          accessibleTranscription: 'Luke 24:30–31 (WEBP) — Jesus took the bread and gave thanks.',
+          scripture: {
+            book: 'Luke',
+            reference: 'Luke 24:30–31',
+            translation: 'WEBP',
+          },
+          attribution: 'Alexis Waid / Bibleberry',
+          rightsStatus: 'approved-ministry-use',
+          shareEligible: true,
+          passage: 'Unapproved raw passage field must not survive.',
+        },
       },
       {
         discoveryId: `discovery:${yearMonth}:full-month`,
@@ -320,6 +338,11 @@ test('loads month preview, active/historical month, progress, and news using rel
   if (progress.status === 'ready') {
     assert.equal(progress.progress.completedInMonthCount, 3)
     assert.equal(progress.progress.discoveries[0].isEarned, true)
+    assert.equal(
+      progress.progress.discoveries[0].earnedCard?.cardDocumentId,
+      'card-2026-11-table-fellowship',
+    )
+    assert.equal('passage' in (progress.progress.discoveries[0].earnedCard ?? {}), false)
     assert.equal(progress.progress.discoveries[1].isEarned, false)
   }
 
@@ -491,6 +514,44 @@ test('fails closed on leaked embargoed or private fields across preview, month, 
     fetchImpl: async () => new Response(JSON.stringify(leakedNews), { status: 200 }),
   })
   assert.equal((await p6.loadNews({ category: 'monthlyPreview' })).status, 'validationError')
+})
+
+test('drops malformed optional earned artwork without dropping earning, but rejects untrusted award identities', async () => {
+  const invalidCardPayload = makeProgressPayload('2026-11', 30)
+  ;(invalidCardPayload.discoveries[0].earnedCard as Record<string, unknown>).imageUrl =
+    'https://example.org/not-approved.png'
+  const invalidCardProvider = createGatewayMonthProvider({
+    fetchImpl: async () => new Response(JSON.stringify(invalidCardPayload), { status: 200 }),
+  })
+  const invalidCardResult = await invalidCardProvider.loadMonthProgress('2026-11', ['cms:doc-1'])
+  assert.equal(invalidCardResult.status, 'ready')
+  if (invalidCardResult.status === 'ready') {
+    assert.equal(invalidCardResult.progress.discoveries[0].isEarned, true)
+    assert.equal(invalidCardResult.progress.discoveries[0].earnedCard, undefined)
+    assert.equal(invalidCardResult.progress.discoveries[0].awardId, 'card:monthly:2026-11:table-fellowship')
+  }
+
+  const invalidRightsPayload = makeProgressPayload('2026-11', 30)
+  ;(invalidRightsPayload.discoveries[0].earnedCard as Record<string, unknown>).rightsStatus = ''
+  const invalidRightsProvider = createGatewayMonthProvider({
+    fetchImpl: async () => new Response(JSON.stringify(invalidRightsPayload), { status: 200 }),
+  })
+  const invalidRightsResult = await invalidRightsProvider.loadMonthProgress('2026-11', ['cms:doc-1'])
+  assert.equal(invalidRightsResult.status, 'ready')
+  if (invalidRightsResult.status === 'ready') {
+    assert.equal(invalidRightsResult.progress.discoveries[0].isEarned, true)
+    assert.equal(invalidRightsResult.progress.discoveries[0].earnedCard, undefined)
+  }
+
+  const mismatchedIdentityPayload = makeProgressPayload('2026-11', 30)
+  mismatchedIdentityPayload.discoveries[0].awardId = 'card:monthly:2026-12:table-fellowship'
+  const mismatchedProvider = createGatewayMonthProvider({
+    fetchImpl: async () => new Response(JSON.stringify(mismatchedIdentityPayload), { status: 200 }),
+  })
+  assert.equal(
+    (await mismatchedProvider.loadMonthProgress('2026-11', ['cms:doc-1'])).status,
+    'validationError',
+  )
 })
 
 test('POST progress sends exact canonical cms: payload, filters non-cms values, and enforces 500-ID ceiling', async () => {

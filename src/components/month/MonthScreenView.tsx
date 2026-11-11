@@ -273,7 +273,7 @@ export function MonthScreenView({
 
           <p className="month-discoveries__intro">
             Goals update silently as you finish Challenges. Unearned card artwork and qualifying
-            Challenge locations stay hidden; earned card artwork arrives in a later phase.
+            Challenge locations stay hidden.
           </p>
 
           {progressError && (
@@ -325,7 +325,8 @@ export function MonthScreenView({
                     </div>
                     {discovery.isEarned && (
                       <p className="month-discovery__earned-note">
-                        Goal reached ({discovery.achievedCount} of {discovery.targetCount}) · Scripture card artwork coming in Phase 04
+                        Scripture card earned
+                        {!discovery.hasCardDisplay && ' · Card artwork is unavailable'}
                       </p>
                     )}
                   </article>
