@@ -1,0 +1,199 @@
+/* Provisional Earned Scripture Card Viewer styles (R14-5) */
+
+.earned-card-viewer__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+  background: rgba(20, 26, 22, 0.68);
+  backdrop-filter: blur(4px);
+}
+
+.earned-card-viewer__dialog {
+  width: min(100%, 680px);
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  padding: clamp(18px, 3.5vw, 28px);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.24);
+}
+
+.earned-card-viewer__dialog:focus {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.earned-card-viewer__topbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.earned-card-viewer__eyebrow {
+  margin-bottom: 0;
+}
+
+.earned-card-viewer__close {
+  flex: 0 0 auto;
+  min-height: 44px;
+}
+
+.earned-card-viewer__header {
+  margin-bottom: 18px;
+}
+
+.earned-card-viewer__title {
+  margin: 0 0 8px;
+  font-family: 'Lora', serif;
+  font-size: clamp(1.45rem, 3vw, 2rem);
+  font-weight: 500;
+  line-height: 1.25;
+}
+
+.earned-card-viewer__context {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.earned-card-viewer__figure {
+  margin: 0 0 20px;
+  padding: 12px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--page);
+}
+
+.earned-card-viewer__image {
+  display: block;
+  width: 100%;
+  max-height: 62dvh;
+  height: auto;
+  margin-inline: auto;
+  object-fit: contain;
+  border-radius: 2px;
+}
+
+.earned-card-viewer__image-fallback {
+  padding: 16px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.earned-card-viewer__image-fallback p:last-child {
+  margin-bottom: 0;
+}
+
+.earned-card-viewer__image-alt {
+  color: var(--ink);
+}
+
+.earned-card-viewer__body {
+  display: grid;
+  gap: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--rule);
+}
+
+.earned-card-viewer__reference {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--accent);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.earned-card-viewer__reference span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.earned-card-viewer__section-label {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-family: 'Poppins', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.earned-card-viewer__transcription {
+  margin: 0;
+  font-family: 'Lora', serif;
+  font-size: var(--reading-size);
+  line-height: 1.75;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.earned-card-viewer__themes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.earned-card-viewer__themes li {
+  padding: 4px 10px;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: var(--page);
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.earned-card-viewer__footer {
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px solid var(--rule);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.earned-card-viewer__rights {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: 0 0 8px;
+}
+
+.earned-card-viewer__provisional {
+  margin: 0;
+  font-size: 11px;
+}
+
+@media (max-width: 520px) {
+  .earned-card-viewer__backdrop {
+    align-items: flex-start;
+    padding: max(10px, env(safe-area-inset-top)) 10px max(10px, env(safe-area-inset-bottom));
+  }
+
+  .earned-card-viewer__dialog {
+    max-height: calc(100dvh - 20px);
+    padding: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .earned-card-viewer__backdrop {
+    backdrop-filter: none;
+  }
+}

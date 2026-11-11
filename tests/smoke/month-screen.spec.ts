@@ -3,6 +3,10 @@ import { test, expect } from './helpers/frameSafeTest'
 const PROTOTYPE_STORAGE_KEY = 'bibleberry-prototype-v1'
 const PARTICIPATION_STORAGE_KEY = 'bibleberry-reader-participation-v1'
 const MONTH_INTRO_STORAGE_KEY = 'bibleberry-month-intro-v1'
+const TINY_PNG_BUFFER = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aW0cAAAAASUVORK5CYII=',
+  'base64',
+)
 
 type SlotOverride =
   | { availability: 'available'; title: string; slug: string; challengeId: string; challengeType?: 'teaching' | 'discipline' | 'reflection' | 'memorization' }
@@ -704,6 +708,9 @@ test.describe('R08A-6 Calendar Month Screen Integration', () => {
       publicationDate: '2098-03-02',
     })
 
+    await page.route('https://cdn.sanity.io/images/**', route =>
+      route.fulfill({ status: 200, contentType: 'image/png', body: TINY_PNG_BUFFER }),
+    )
     await page.route('**/api/challenges/march-day-01-light', route =>
       route.fulfill({ status: 200, json: { ok: true, serverContext: marchPayload.serverContext, challenge: day1Challenge } }),
     )
@@ -792,7 +799,8 @@ test.describe('R08A-6 Calendar Month Screen Integration', () => {
     await expect(page.locator('.month-ticker')).toContainText('2 of 29')
     await expect(page.locator('.month-discovery').first()).toContainText('2 of 2')
     await expect(page.locator('.month-discovery').first()).toContainText('Scripture card earned')
-    await expect(page.locator('.month-discovery img')).toHaveCount(0)
+    await expect(page.locator('.month-discovery').first().locator('img')).toHaveCount(1)
+    await expect(page.locator('.month-discovery').last().locator('img')).toHaveCount(0)
     expect(progressRequests.some(ids => ids.includes('cms:march-day-01-doc') && ids.includes('cms:march-day-02-doc'))).toBe(true)
 
     await page.waitForFunction(({ storageKey, awardId }) => {
@@ -820,7 +828,8 @@ test.describe('R08A-6 Calendar Month Screen Integration', () => {
     await page.reload()
     await expect(page.getByRole('heading', { level: 1, name: 'March 2098 Challenges' })).toBeVisible()
     await expect(page.locator('.month-discovery').first()).toContainText('Scripture card earned')
-    await expect(page.locator('.month-discovery img')).toHaveCount(0)
+    await expect(page.locator('.month-discovery').first().locator('img')).toHaveCount(1)
+    await expect(page.locator('.month-discovery').last().locator('img')).toHaveCount(0)
   })
 
   test('Preview News banner respects month authorization boundary + guest reset clears intro + responsive layout', async ({ page }) => {
@@ -1087,5 +1096,461 @@ test.describe('R08A-6 Calendar Month Screen Integration', () => {
     )
     expect(storageAfter.part).toBeNull()
     expect(storageAfter.intro).toContain('"welcomeSeen":true')
+  })
+
+  test('R14-5 Earned Scripture Card viewer: keyboard/click open, Escape/focus return, distinct cards, no-art noninteractive, markEarnedCardViewed persistence', async ({ page }) => {
+    await seedOnboardedState(page)
+
+    const lightCardUrl = 'https://cdn.sanity.io/images/80016lrq/staging/card-light-r14-5.png'
+    const breadCardUrl = 'https://cdn.sanity.io/images/80016lrq/staging/card-bread-r14-5.png'
+    const leakedUnearnedUrl = 'https://cdn.sanity.io/images/80016lrq/staging/card-should-never-leak.png'
+    const assetRequests: string[] = []
+
+    await page.route('https://cdn.sanity.io/images/**', route => {
+      assetRequests.push(route.request().url())
+      return route.fulfill({ status: 200, contentType: 'image/png', body: TINY_PNG_BUFFER })
+    })
+
+    await page.addInitScript(
+      ([introKey, partKey, lightUrl, breadUrl]) => {
+        if (!window.localStorage.getItem(introKey)) {
+          window.localStorage.setItem(
+            introKey,
+            JSON.stringify({
+              schemaVersion: 1,
+              months: {
+                '2098-03': {
+                  previewSeen: true,
+                  welcomeSeen: true,
+                  previewVersion: 'v1-2098-03',
+                  welcomeVersion: 'v1-2098-03',
+                },
+              },
+            }),
+          )
+        }
+        if (!window.localStorage.getItem(partKey)) {
+          window.localStorage.setItem(
+            partKey,
+            JSON.stringify({
+              schemaVersion: 2,
+              data: {
+                completedChallenges: {
+                  'cms:2098-03-day-01-doc': { completedOn: '2098-03-01' },
+                  'cms:2098-03-day-02-doc': { completedOn: '2098-03-02' },
+                },
+                inProgressChallenges: {},
+                savedChallenges: {},
+                savedScriptures: [],
+                lastOpenedChallenge: null,
+                earnedAwards: {
+                  'card:monthly:2098-03:light-discovery': {
+                    awardId: 'card:monthly:2098-03:light-discovery',
+                    kind: 'thematic',
+                    publicationYearMonth: '2098-03',
+                    discoveryId: 'discovery:2098-03:light-discovery',
+                    earnedOn: '2098-03-02',
+                    hubAnnouncementAcked: false,
+                    cardViewed: false,
+                    cardDocumentId: 'card-2098-03-light-discovery',
+                    earnedCard: {
+                      cardDocumentId: 'card-2098-03-light-discovery',
+                      title: 'A Light for the Path',
+                      publicationYearMonth: '2098-03',
+                      imageUrl: lightUrl,
+                      assetRevision: 'v1',
+                      illustrationAlt: 'Hand-drawn brass lamp beside open scroll',
+                      accessibleTranscription: 'Psalm 119:105 (WEBP) — Your word is a lamp to my feet, and a light for my path.',
+                      scripture: {
+                        book: 'Psalms',
+                        reference: 'Psalm 119:105',
+                        translation: 'WEBP',
+                      },
+                      attribution: 'Alexis Waid / Bibleberry',
+                      rightsStatus: 'approved-ministry-use',
+                      shareEligible: true,
+                      theologicalThemes: ['Guidance', 'Light'],
+                    },
+                  },
+                  'card:monthly:2098-03:bread-discovery': {
+                    awardId: 'card:monthly:2098-03:bread-discovery',
+                    kind: 'thematic',
+                    publicationYearMonth: '2098-03',
+                    discoveryId: 'discovery:2098-03:bread-discovery',
+                    earnedOn: '2098-03-01',
+                    hubAnnouncementAcked: false,
+                    cardViewed: false,
+                    cardDocumentId: 'card-2098-03-bread-discovery',
+                    earnedCard: {
+                      cardDocumentId: 'card-2098-03-bread-discovery',
+                      title: 'The Bread of Life',
+                      publicationYearMonth: '2098-03',
+                      imageUrl: breadUrl,
+                      assetRevision: 'v1',
+                      illustrationAlt: 'Hand-drawn basket of loaves on linen cloth',
+                      accessibleTranscription: 'John 6:35 (WEBP) — Jesus said to them, I am the bread of life.',
+                      scripture: {
+                        book: 'John',
+                        reference: 'John 6:35',
+                        translation: 'WEBP',
+                      },
+                      attribution: 'Alexis Waid / Bibleberry',
+                      rightsStatus: 'approved-ministry-use',
+                      shareEligible: true,
+                      theologicalThemes: ['Provision'],
+                    },
+                  },
+                  'card:monthly:2098-03:no-art-discovery': {
+                    awardId: 'card:monthly:2098-03:no-art-discovery',
+                    kind: 'thematic',
+                    publicationYearMonth: '2098-03',
+                    discoveryId: 'discovery:2098-03:no-art-discovery',
+                    earnedOn: '2098-03-02',
+                    hubAnnouncementAcked: false,
+                    cardViewed: false,
+                  },
+                },
+              },
+            }),
+          )
+        }
+      },
+      [MONTH_INTRO_STORAGE_KEY, PARTICIPATION_STORAGE_KEY, lightCardUrl, breadCardUrl],
+    )
+
+    const marchPayload = buildMonthDetailPayload('2098-03', {
+      phase: 'historical',
+      title: 'March 2098 Historical',
+      discoveries: [
+        { discoveryId: 'discovery:2098-03:full-month', kind: 'fullMonth', title: 'Full Month Walk', targetCount: 31 },
+        { discoveryId: 'discovery:2098-03:light-discovery', kind: 'thematic', title: 'Light Discovery', targetCount: 2 },
+        { discoveryId: 'discovery:2098-03:bread-discovery', kind: 'thematic', title: 'Bread Discovery', targetCount: 2 },
+        { discoveryId: 'discovery:2098-03:no-art-discovery', kind: 'thematic', title: 'No-Art Discovery', targetCount: 1 },
+      ],
+    })
+
+    await page.route('**/api/months/2098-03', route =>
+      route.fulfill({ status: 200, json: marchPayload }),
+    )
+    await page.route('**/api/months/2098-03/progress', route =>
+      route.fulfill({
+        status: 200,
+        json: {
+          ok: true,
+          serverContext: marchPayload.serverContext,
+          monthId: '2098-03',
+          rosterVersion: 1,
+          completedInMonthCount: 2,
+          totalChallenges: 31,
+          thematicEarnedCount: 3,
+          thematicTotalCount: 3,
+          discoveries: [
+            {
+              discoveryId: 'discovery:2098-03:full-month',
+              kind: 'fullMonth',
+              title: 'Full Month Walk',
+              achievedCount: 2,
+              targetCount: 31,
+              isEarned: false,
+              earnedCard: {
+                cardDocumentId: 'card-2098-03-full-month',
+                title: 'Leaked Full Month Title',
+                publicationYearMonth: '2098-03',
+                imageUrl: leakedUnearnedUrl,
+                assetRevision: 'v1',
+                illustrationAlt: 'Should never leak',
+                accessibleTranscription: 'Should never appear on unearned discovery.',
+                scripture: { book: 'John', reference: 'John 1:1', translation: 'WEBP' },
+                attribution: 'Bibleberry',
+                rightsStatus: 'approved-ministry-use',
+                shareEligible: false,
+              },
+            },
+            {
+              discoveryId: 'discovery:2098-03:light-discovery',
+              kind: 'thematic',
+              title: 'Light Discovery',
+              achievedCount: 2,
+              targetCount: 2,
+              isEarned: true,
+              awardId: 'card:monthly:2098-03:light-discovery',
+            },
+            {
+              discoveryId: 'discovery:2098-03:bread-discovery',
+              kind: 'thematic',
+              title: 'Bread Discovery',
+              achievedCount: 2,
+              targetCount: 2,
+              isEarned: true,
+              awardId: 'card:monthly:2098-03:bread-discovery',
+            },
+            {
+              discoveryId: 'discovery:2098-03:no-art-discovery',
+              kind: 'thematic',
+              title: 'No-Art Discovery',
+              achievedCount: 1,
+              targetCount: 1,
+              isEarned: true,
+              awardId: 'card:monthly:2098-03:no-art-discovery',
+            },
+          ],
+        },
+      }),
+    )
+
+    await page.goto('/#/month/2098-03')
+    await expect(page.getByRole('heading', { level: 1, name: 'March 2098 Historical' })).toBeVisible()
+
+    // Full-month discovery stays strictly last; unearned discovery has zero img or button
+    const items = page.locator('.month-discovery')
+    await expect(items).toHaveCount(4)
+    await expect(items.nth(3)).toContainText('Full Month Walk')
+    await expect(items.nth(3)).not.toContainText('Leaked Full Month Title')
+    await expect(page.locator('body')).not.toContainText('Should never appear on unearned discovery.')
+    await expect(items.nth(3).locator('img')).toHaveCount(0)
+    await expect(items.nth(3).getByRole('button')).toHaveCount(0)
+    expect(assetRequests.includes(leakedUnearnedUrl)).toBe(false)
+
+    // No-art earned discovery is non-interactive with clear message
+    await expect(items.nth(2)).toContainText('No-Art Discovery')
+    await expect(items.nth(2)).toContainText('Card artwork is unavailable')
+    await expect(items.nth(2).getByRole('button')).toHaveCount(0)
+    await expect(items.nth(2).locator('img')).toHaveCount(0)
+
+    // Keyboard open Card 1 via Enter
+    const lightBtn = page.getByRole('button', { name: /A Light for the Path/ })
+    const breadBtn = page.getByRole('button', { name: /The Bread of Life/ })
+    await expect(items.nth(0)).toContainText('New')
+    await expect(items.nth(1)).toContainText('New')
+
+    await lightBtn.focus()
+    await page.keyboard.press('Enter')
+
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toBeVisible()
+    await expect(dialog).toContainText('A Light for the Path')
+    await expect(dialog).toContainText('Psalm 119:105')
+    await expect(dialog).toContainText('Your word is a lamp to my feet, and a light for my path.')
+    await expect(dialog).toContainText('Alexis Waid / Bibleberry')
+    await expect(dialog).toContainText('approved-ministry-use')
+    await expect(dialog.locator('img')).toHaveAttribute('src', lightCardUrl)
+    await expect(dialog).not.toContainText('The Bread of Life')
+    await expect(page.locator('.toast.is-visible')).toHaveCount(0)
+
+    // Image actually loaded in browser
+    const lightLoaded = await dialog.locator('img').evaluate((img: HTMLImageElement) => img.naturalWidth > 0)
+    expect(lightLoaded).toBe(true)
+
+    // Focus containment: Tab stays inside dialog
+    const closeBtn = dialog.getByRole('button', { name: /Close Scripture card/i })
+    await expect(closeBtn).toBeFocused()
+    await page.keyboard.press('Tab')
+    const focusInsideDialog = await dialog.evaluate(el => el.contains(document.activeElement))
+    expect(focusInsideDialog).toBe(true)
+
+    // Escape closes dialog and restores focus to lightBtn
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+    await expect(lightBtn).toBeFocused()
+
+    // Only light-discovery marked viewed; bread-discovery and no-art remain unviewed; hubAnnouncementAcked stays false
+    await expect(items.nth(0)).not.toContainText('New')
+    await expect(items.nth(1)).toContainText('New')
+
+    const afterFirstView = await page.evaluate(storageKey => {
+      return JSON.parse(window.localStorage.getItem(storageKey) ?? 'null')?.data?.earnedAwards
+    }, PARTICIPATION_STORAGE_KEY)
+    expect(afterFirstView['card:monthly:2098-03:light-discovery'].cardViewed).toBe(true)
+    expect(afterFirstView['card:monthly:2098-03:light-discovery'].hubAnnouncementAcked).toBe(false)
+    expect(afterFirstView['card:monthly:2098-03:light-discovery'].earnedOn).toBe('2098-03-02')
+    expect(afterFirstView['card:monthly:2098-03:bread-discovery'].cardViewed).toBe(false)
+    expect(afterFirstView['card:monthly:2098-03:bread-discovery'].hubAnnouncementAcked).toBe(false)
+    expect(afterFirstView['card:monthly:2098-03:no-art-discovery'].cardViewed).toBe(false)
+
+    // Click Card 2 and close via Close button -> distinct card content, focus returns to breadBtn
+    await breadBtn.click()
+    await expect(dialog).toBeVisible()
+    await expect(dialog).toContainText('The Bread of Life')
+    await expect(dialog).toContainText('John 6:35')
+    await expect(dialog.locator('img')).toHaveAttribute('src', breadCardUrl)
+    await closeBtn.click()
+    await expect(dialog).toHaveCount(0)
+    await expect(breadBtn).toBeFocused()
+
+    // Reload preserves cardViewed, earnedOn, and hubAnnouncementAcked: false
+    await page.reload()
+    await expect(page.getByRole('heading', { level: 1, name: 'March 2098 Historical' })).toBeVisible()
+    await expect(items.nth(0)).not.toContainText('New')
+    await expect(items.nth(1)).not.toContainText('New')
+    const afterReload = await page.evaluate(storageKey => {
+      return JSON.parse(window.localStorage.getItem(storageKey) ?? 'null')?.data?.earnedAwards
+    }, PARTICIPATION_STORAGE_KEY)
+    expect(afterReload['card:monthly:2098-03:light-discovery'].cardViewed).toBe(true)
+    expect(afterReload['card:monthly:2098-03:light-discovery'].hubAnnouncementAcked).toBe(false)
+    expect(afterReload['card:monthly:2098-03:light-discovery'].earnedOn).toBe('2098-03-02')
+    expect(afterReload['card:monthly:2098-03:bread-discovery'].cardViewed).toBe(true)
+    expect(afterReload['card:monthly:2098-03:bread-discovery'].hubAnnouncementAcked).toBe(false)
+  })
+
+  test('R14-5 Earned Scripture Card privacy & resilience: blocks un-admitted provisional art, survives progress network failure, and scales on mobile large text', async ({ page }) => {
+    await seedOnboardedState(page)
+
+    const validUrl = 'https://cdn.sanity.io/images/80016lrq/staging/card-offline-safe.png'
+    const provisionalRejectedUrl = 'https://cdn.sanity.io/images/80016lrq/staging/card-provisional-unadmitted.png'
+    const requestedImages: string[] = []
+
+    await page.route('https://cdn.sanity.io/images/**', route => {
+      requestedImages.push(route.request().url())
+      return route.fulfill({ status: 200, contentType: 'image/png', body: TINY_PNG_BUFFER })
+    })
+
+    await page.addInitScript(
+      ([protoKey, introKey, partKey, storedUrl]) => {
+        const proto = JSON.parse(window.localStorage.getItem(protoKey) ?? '{}')
+        window.localStorage.setItem(
+          protoKey,
+          JSON.stringify({ ...proto, onboarded: true, textSize: 'large' }),
+        )
+        window.localStorage.setItem(
+          introKey,
+          JSON.stringify({
+            schemaVersion: 1,
+            months: {
+              '2098-03': {
+                previewSeen: true,
+                welcomeSeen: true,
+                previewVersion: 'v1-2098-03',
+                welcomeVersion: 'v1-2098-03',
+              },
+            },
+          }),
+        )
+        window.localStorage.setItem(
+          partKey,
+          JSON.stringify({
+            schemaVersion: 2,
+            data: {
+              completedChallenges: {},
+              inProgressChallenges: {},
+              savedChallenges: {},
+              savedScriptures: [],
+              lastOpenedChallenge: null,
+              earnedAwards: {
+                'card:monthly:2098-03:light-discovery': {
+                  awardId: 'card:monthly:2098-03:light-discovery',
+                  kind: 'thematic',
+                  publicationYearMonth: '2098-03',
+                  discoveryId: 'discovery:2098-03:light-discovery',
+                  earnedOn: '2098-03-02',
+                  hubAnnouncementAcked: false,
+                  cardViewed: false,
+                  cardDocumentId: 'card-2098-03-light-discovery',
+                  earnedCard: {
+                    cardDocumentId: 'card-2098-03-light-discovery',
+                    title: 'Stored Offline Card',
+                    publicationYearMonth: '2098-03',
+                    imageUrl: storedUrl,
+                    assetRevision: 'v1',
+                    illustrationAlt: 'Hand-drawn olive branch',
+                    accessibleTranscription: 'Long transcription paragraph to verify large-text wrapping without truncation on compact mobile viewports.',
+                    scripture: {
+                      book: 'Psalms',
+                      reference: 'Psalm 119:105',
+                      translation: 'WEBP',
+                    },
+                    attribution: 'Alexis Waid / Bibleberry',
+                    rightsStatus: 'approved-ministry-use',
+                    shareEligible: false,
+                  },
+                },
+              },
+            },
+          }),
+        )
+      },
+      [PROTOTYPE_STORAGE_KEY, MONTH_INTRO_STORAGE_KEY, PARTICIPATION_STORAGE_KEY, validUrl],
+    )
+
+    const marchPayload = buildMonthDetailPayload('2098-03', {
+      phase: 'historical',
+      title: 'March 2098 Resilient',
+      discoveries: [
+        { discoveryId: 'discovery:2098-03:light-discovery', kind: 'thematic', title: 'Light Discovery', targetCount: 2 },
+        { discoveryId: 'discovery:2098-03:unadmitted-discovery', kind: 'thematic', title: 'Unadmitted Discovery', targetCount: 1 },
+      ],
+    })
+
+    let failProgress = false
+    await page.route('**/api/months/2098-03', route =>
+      route.fulfill({ status: 200, json: marchPayload }),
+    )
+    await page.route('**/api/months/2098-03/progress', route => {
+      if (failProgress) {
+        return route.fulfill({ status: 500, json: { ok: false, error: 'Gateway offline' } })
+      }
+      // Return invalid authorizedLocalDate so durable admission rejects provisional award
+      return route.fulfill({
+        status: 200,
+        json: {
+          ok: true,
+          serverContext: { authorizedLocalDate: 'invalid-date', effectiveTimeZone: 'America/New_York' },
+          monthId: '2098-03',
+          rosterVersion: 1,
+          completedInMonthCount: 1,
+          totalChallenges: 31,
+          thematicEarnedCount: 1,
+          thematicTotalCount: 2,
+          discoveries: [
+            {
+              discoveryId: 'discovery:2098-03:unadmitted-discovery',
+              kind: 'thematic',
+              title: 'Unadmitted Discovery',
+              achievedCount: 1,
+              targetCount: 1,
+              isEarned: true,
+              awardId: 'card:monthly:2098-03:unadmitted-discovery',
+              earnedCard: {
+                cardDocumentId: 'card-2098-03-unadmitted',
+                title: 'Should Not Render',
+                publicationYearMonth: '2098-03',
+                imageUrl: provisionalRejectedUrl,
+                assetRevision: 'v1',
+                illustrationAlt: 'Provisional un-admitted image',
+                accessibleTranscription: 'Should never appear when not durably admitted.',
+                scripture: { book: 'John', reference: 'John 1:1', translation: 'WEBP' },
+                attribution: 'Bibleberry',
+                rightsStatus: 'approved-ministry-use',
+                shareEligible: false,
+              },
+            },
+          ],
+        },
+      })
+    })
+
+    // 1. Provisional un-admitted response must NOT render or fetch provisionalRejectedUrl
+    await page.setViewportSize({ width: 375, height: 812 })
+    await page.goto('/#/month/2098-03')
+    await expect(page.getByRole('heading', { level: 1, name: 'March 2098 Resilient' })).toBeVisible()
+    await expect(page.locator('.month-discovery').nth(1)).not.toContainText('Should Not Render')
+    await expect(page.locator('.month-discovery').nth(1).locator('img')).toHaveCount(0)
+    await expect(page.locator('.month-discovery').nth(1).getByRole('button')).toHaveCount(0)
+    expect(requestedImages.includes(provisionalRejectedUrl)).toBe(false)
+
+    // 2. Network failure on progress still lets stored earned Card open cleanly on 375px large-text viewport
+    failProgress = true
+    await page.reload()
+    await expect(page.locator('.month-discoveries__error')).toBeVisible()
+    const openBtn = page.getByRole('button', { name: /Stored Offline Card/ })
+    await expect(openBtn).toBeVisible()
+    await openBtn.click()
+
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toBeVisible()
+    await expect(dialog).toContainText('Long transcription paragraph to verify large-text wrapping without truncation on compact mobile viewports.')
+    const mobileOverflow = await page.evaluate(
+      () => document.documentElement.scrollWidth > window.innerWidth + 1,
+    )
+    expect(mobileOverflow).toBe(false)
   })
 })

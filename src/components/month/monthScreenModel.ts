@@ -5,12 +5,24 @@ import type {
   MonthSlot,
   MonthSlotPreview,
 } from '../../cms/reader/monthProvider.ts'
-import { formatCanonicalChallengeId, parseStoredChallengeId } from '../../participation/identity.ts'
-import { combineGatewayProgressWithStoredAwards } from '../../participation/awards.ts'
+import {
+  formatCanonicalChallengeId,
+  parseCanonicalMonthlyDiscoveryId,
+  parsePublicationYearMonth,
+  parseStoredChallengeId,
+} from '../../participation/identity.ts'
+import {
+  combineGatewayProgressWithStoredAwards,
+  selectEarnedAward,
+  validateEarnedCardSnapshot,
+} from '../../participation/awards.ts'
 import { emptyReaderParticipationData } from '../../participation/model.ts'
 import { selectChallengeParticipationView } from '../../participation/model.ts'
 import type {
+  CanonicalAwardId,
   CanonicalChallengeId,
+  EarnedAwardRecord,
+  EarnedScriptureCardSnapshot,
   LocalCalendarDate,
   ReaderParticipationData,
 } from '../../participation/types.ts'
@@ -73,7 +85,17 @@ export interface MonthDiscoveryPresentation {
   readonly achievedCount: number
   readonly targetCount: number
   readonly isEarned: boolean
+  readonly hasStoredAward: boolean
   readonly hasCardDisplay: boolean
+  readonly awardId?: CanonicalAwardId
+  readonly earnedOn?: LocalCalendarDate
+  readonly cardViewed?: boolean
+  readonly earnedCard?: EarnedScriptureCardSnapshot
+}
+
+export interface ResolvedDurableDiscoveryAward {
+  readonly awardRecord: EarnedAwardRecord
+  readonly validatedCard: EarnedScriptureCardSnapshot | null
 }
 
 export interface MonthCompletionSummary {
@@ -359,9 +381,58 @@ export function groupMonthSlotsByWeek(
 }
 
 /**
+ * Resolves a durable `ReaderParticipationStore` award record and validates its stored
+ * `EarnedScriptureCardSnapshot` against canonical discovery/month identity.
+ * Returns `null` if no durable award exists or if month/discovery/card identity mismatches.
+ */
+export function resolveDurableDiscoveryAward(
+  participationData: ReaderParticipationData | undefined,
+  discoveryId: string,
+  kind: 'thematic' | 'fullMonth',
+  expectedMonthId: string,
+): ResolvedDurableDiscoveryAward | null {
+  const normalizedMonth = parsePublicationYearMonth(expectedMonthId)
+  const parsedDiscovery = parseCanonicalMonthlyDiscoveryId(discoveryId)
+  if (
+    !participationData
+    || !normalizedMonth
+    || !parsedDiscovery
+    || parsedDiscovery.publicationYearMonth !== normalizedMonth
+    || parsedDiscovery.kind !== kind
+  ) {
+    return null
+  }
+
+  const candidate = selectEarnedAward(participationData, parsedDiscovery.awardId)
+  if (
+    !candidate
+    || candidate.awardId !== parsedDiscovery.awardId
+    || candidate.publicationYearMonth !== normalizedMonth
+    || candidate.discoveryId !== parsedDiscovery.discoveryId
+    || candidate.kind !== parsedDiscovery.kind
+  ) {
+    return null
+  }
+
+  let validatedCard: EarnedScriptureCardSnapshot | null = null
+  if (candidate.earnedCard) {
+    const snapshot = validateEarnedCardSnapshot(candidate.earnedCard, normalizedMonth)
+    if (snapshot && (!candidate.cardDocumentId || candidate.cardDocumentId === snapshot.cardDocumentId)) {
+      validatedCard = snapshot
+    }
+  }
+
+  return {
+    awardRecord: candidate,
+    validatedCard,
+  }
+}
+
+/**
  * Resolves Monthly Discoveries for an active or historical month, placing thematic
  * goals first and the full-month completion goal strictly LAST.
- * Never invents qualifying mappings or card art.
+ * Never invents qualifying mappings, exposes unearned Card details, or treats
+ * un-admitted provisional gateway progress as a viewable stored Card.
  */
 export function resolveMonthDiscoveryPresentations(
   summaries: readonly MonthDiscoverySummary[],
@@ -369,14 +440,18 @@ export function resolveMonthDiscoveryPresentations(
   expectedMonthId: string,
   participationData?: ReaderParticipationData,
 ): MonthDiscoveryPresentation[] {
-  const validProgress = progress && progress.monthId === expectedMonthId ? progress : null
+  const normalizedExpectedMonth = parsePublicationYearMonth(expectedMonthId)
+  const validProgress =
+    progress && normalizedExpectedMonth && progress.monthId === normalizedExpectedMonth
+      ? progress
+      : null
   const progressById = new Map(
     (validProgress?.discoveries ?? []).map(item => [item.discoveryId, item] as const),
   )
   const combinedById = new Map(
     combineGatewayProgressWithStoredAwards(
       {
-        monthId: expectedMonthId,
+        monthId: normalizedExpectedMonth ?? expectedMonthId,
         discoveries: summaries.map(summary => {
           const current = progressById.get(summary.discoveryId)
           return current ?? {
@@ -395,15 +470,35 @@ export function resolveMonthDiscoveryPresentations(
 
   const combined: MonthDiscoveryPresentation[] = summaries.map(summary => {
     const prog = progressById.get(summary.discoveryId)
-    const stored = combinedById.get(summary.discoveryId)
+    const combinedEntry = combinedById.get(summary.discoveryId)
+    const durable = resolveDurableDiscoveryAward(
+      participationData,
+      summary.discoveryId,
+      summary.kind,
+      expectedMonthId,
+    )
+    const hasStoredAward = durable !== null
+    const hasCardDisplay = durable !== null && durable.validatedCard !== null
+
     return {
       discoveryId: summary.discoveryId,
       kind: summary.kind,
       title: summary.title,
       achievedCount: prog ? prog.achievedCount : 0,
       targetCount: prog ? prog.targetCount : summary.targetCount,
-      isEarned: stored?.effectiveEarned ?? false,
-      hasCardDisplay: stored?.hasCardDisplay ?? false,
+      isEarned: combinedEntry?.effectiveEarned ?? false,
+      hasStoredAward,
+      hasCardDisplay,
+      ...(durable
+        ? {
+            awardId: durable.awardRecord.awardId,
+            earnedOn: durable.awardRecord.earnedOn,
+            cardViewed: durable.awardRecord.cardViewed,
+          }
+        : {}),
+      ...(hasCardDisplay && durable?.validatedCard
+        ? { earnedCard: durable.validatedCard }
+        : {}),
     }
   })
 
