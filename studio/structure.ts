@@ -1,10 +1,12 @@
 import type {StructureResolver} from 'sanity/structure'
+import {DeterministicCardOpener} from './components/DeterministicCardOpener'
 import {DeterministicMonthOpener} from './components/DeterministicMonthOpener'
 import {NOV2_DOCUMENT_ID, NOV2_TEMPLATE_ID, SERIES_DOCUMENT_ID, SERIES_TEMPLATE_ID} from './initialValues/nov2'
 import {GENERAL_NEWS_TEMPLATE_ID} from './initialValues/templates'
 import {
   listYearMonthKeys,
   MONTH_PLANNING_YEARS,
+  resolveDeterministicCardChild,
   resolveDeterministicMonthChild,
   resolveMonthlyPublicationDocumentNode,
   resolvePreviewNewsDocumentNode,
@@ -76,6 +78,70 @@ export const structure: StructureResolver = S => S.list()
       ),
     S.documentTypeListItem('challenge').title('Challenges'),
     S.documentTypeListItem('challengeSeries').title('Series'),
+    S.listItem()
+      .id('scripture-cards-workspace')
+      .title('Scripture Cards')
+      .child(
+        S.list()
+          .id('scripture-cards-menu')
+          .title('Scripture Cards')
+          .items([
+            S.listItem()
+              .id('all-scripture-cards')
+              .title('All Scripture Cards')
+              .child(
+                S.documentTypeList('scriptureCard')
+                  .title('All Scripture Cards')
+                  .initialValueTemplates([]),
+              ),
+            S.listItem()
+              .id('open-create-scripture-card')
+              .title('Open or create Scripture Card (card-<slug>)')
+              .child(
+                S.component(DeterministicCardOpener)
+                  .id('deterministic-card-opener')
+                  .title('Open or create Scripture Card (card-<slug>)')
+                  .child(childId => resolveDeterministicCardChild(S, childId)),
+              ),
+            S.divider(),
+            S.listItem()
+              .id('monthly-thematic-cards')
+              .title('Monthly thematic Cards')
+              .child(
+                S.documentList()
+                  .id('monthly-thematic-cards-list')
+                  .title('Monthly thematic Cards')
+                  .schemaType('scriptureCard')
+                  .apiVersion('2026-11-01')
+                  .filter('_type == "scriptureCard" && cardCategory == "monthlyThematic"')
+                  .initialValueTemplates([]),
+              ),
+            S.listItem()
+              .id('monthly-full-cards')
+              .title('Monthly full-month Cards')
+              .child(
+                S.documentList()
+                  .id('monthly-full-cards-list')
+                  .title('Monthly full-month Cards')
+                  .schemaType('scriptureCard')
+                  .apiVersion('2026-11-01')
+                  .filter('_type == "scriptureCard" && cardCategory == "monthlyFull"')
+                  .initialValueTemplates([]),
+              ),
+            S.listItem()
+              .id('other-collection-cards')
+              .title('Foundation, tutorial & event Cards')
+              .child(
+                S.documentList()
+                  .id('other-collection-cards-list')
+                  .title('Foundation, tutorial & event Cards')
+                  .schemaType('scriptureCard')
+                  .apiVersion('2026-11-01')
+                  .filter('_type == "scriptureCard" && cardCategory in ["foundation", "tutorial", "specialExperience"]')
+                  .initialValueTemplates([]),
+              ),
+          ]),
+      ),
     S.listItem()
       .id('ministry-news')
       .title('Ministry news')

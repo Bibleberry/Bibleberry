@@ -31,6 +31,22 @@ type DiscoveryRecord = {
   discoverySlug?: unknown
   title?: unknown
   qualifyingChallenges?: {_ref?: unknown}[]
+  card?: {_ref?: unknown}
+  reservedCardId?: unknown
+}
+
+type FullMonthCardRecord = {
+  title?: unknown
+  card?: {_ref?: unknown}
+  reservedCardId?: unknown
+}
+
+type LinkedCardReference = {
+  baseRef: string
+  rawRef: string
+  expectedCategory: 'monthlyThematic' | 'monthlyFull'
+  path: (string | number)[]
+  label: string
 }
 
 type IntroScreenRecord = {
@@ -64,6 +80,7 @@ type MonthlyPublicationValue = {
     priorRosters?: PriorRosterRecord[]
   }
   discoveries?: DiscoveryRecord[]
+  fullMonthCard?: FullMonthCardRecord
 }
 
 type RemoteChallengeProjection = {
@@ -79,6 +96,96 @@ type RemoteOtherMonthProjection = {
   challengeRefs?: string[]
 }
 
+type RemoteScriptureCardProjection = {
+  _id: string
+  cardCategory?: string
+  plannedYearMonth?: string
+  editorialStatus?: string
+  withdrawn?: boolean
+  hasArtwork?: boolean
+  illustrationAlt?: string
+  accessibleTranscription?: string
+  artworkRightsConfirmed?: boolean
+  translation?: string
+  scriptureRightsConfirmed?: boolean
+}
+
+function validateRemoteLinkedCard(
+  entry: LinkedCardReference,
+  remote: RemoteScriptureCardProjection | undefined,
+  monthYearMonth: string | null,
+  issues: ValidationIssue[],
+): void {
+  if (!remote) {
+    issues.push({
+      message: `Referenced Scripture Card "${entry.baseRef}" for ${entry.label} was not found in the published Sanity perspective. Publish and approve it before approving, finalizing, or scheduling this month.`,
+      path: entry.path,
+    })
+    return
+  }
+
+  if (remote.withdrawn === true) {
+    issues.push({
+      message: `Referenced Scripture Card "${entry.baseRef}" (${entry.label}) is marked withdrawn in its published document.`,
+      path: entry.path,
+    })
+  }
+
+  if (remote.editorialStatus !== 'approved') {
+    issues.push({
+      message: `Referenced Scripture Card "${entry.baseRef}" (${entry.label}) has not reached editorialStatus "approved" in its published document.`,
+      path: entry.path,
+    })
+  }
+
+  if (remote.cardCategory !== entry.expectedCategory) {
+    issues.push({
+      message: `Mislinked Scripture Card "${entry.baseRef}" (${entry.label}): expected cardCategory "${entry.expectedCategory}", found "${String(remote.cardCategory ?? 'unset')}".`,
+      path: entry.path,
+    })
+  }
+
+  if (
+    monthYearMonth &&
+    typeof remote.plannedYearMonth === 'string' &&
+    remote.plannedYearMonth.trim() &&
+    remote.plannedYearMonth.trim() !== monthYearMonth
+  ) {
+    issues.push({
+      message: `Mislinked Scripture Card "${entry.baseRef}" (${entry.label}): Card plannedYearMonth "${remote.plannedYearMonth.trim()}" does not match this month "${monthYearMonth}".`,
+      path: entry.path,
+    })
+  }
+
+  if (
+    remote.hasArtwork !== true ||
+    typeof remote.illustrationAlt !== 'string' ||
+    !remote.illustrationAlt.trim() ||
+    typeof remote.accessibleTranscription !== 'string' ||
+    !remote.accessibleTranscription.trim()
+  ) {
+    issues.push({
+      message: `Referenced Scripture Card "${entry.baseRef}" (${entry.label}) is missing required finished artwork or accessibility metadata (illustrationAlt / accessibleTranscription).`,
+      path: entry.path,
+    })
+  }
+
+  const requiresScriptureRights =
+    typeof remote.translation === 'string' &&
+    remote.translation.trim().length > 0 &&
+    remote.translation.trim().toLowerCase() !== 'not configured'
+
+  if (
+    remote.artworkRightsConfirmed !== true ||
+    (requiresScriptureRights && remote.scriptureRightsConfirmed !== true)
+  ) {
+    issues.push({
+      message: `Referenced Scripture Card "${entry.baseRef}" (${entry.label}) is missing confirmed artwork or Scripture usage rights.`,
+      path: entry.path,
+    })
+  }
+}
+
 export const monthlyPublication = defineType({
   name: 'monthlyPublication',
   title: 'Monthly publication',
@@ -87,7 +194,7 @@ export const monthlyPublication = defineType({
     {name: 'overview', title: 'Month overview', default: true},
     {name: 'slots', title: 'Calendar slots'},
     {name: 'introduction', title: 'Introduction & Welcome'},
-    {name: 'discoveries', title: 'Discoveries (Phase 04 prep)'},
+    {name: 'discoveries', title: 'Discoveries & Scripture Cards'},
     {name: 'finalization', title: 'Roster finalization'},
     {name: 'review', title: 'Editorial review & status'},
   ],
@@ -227,21 +334,21 @@ export const monthlyPublication = defineType({
     }),
     defineField({
       name: 'discoveries',
-      title: 'Monthly discoveries (Phase 04 prep)',
+      title: 'Monthly discoveries',
       type: 'array',
       group: 'discoveries',
       description:
-        'Thematic discovery rules. Qualifying Challenge references must remain a strict subset of finalizedChallengeIds (V-DISC-SUBSET). Card artwork linking is deferred to Phase 04.',
+        'Thematic discovery rules. Qualifying Challenge references must remain a strict subset of finalizedChallengeIds (V-DISC-SUBSET). Link each discovery’s scriptureCard via card (or retain reservedCardId on legacy synthetic fixtures).',
       of: [defineArrayMember({type: 'monthlyDiscovery'})],
       initialValue: [],
     }),
     defineField({
       name: 'fullMonthCard',
-      title: 'Full-month Scripture Card placeholder (Phase 04 prep)',
+      title: 'Full-month Scripture Card',
       type: 'object',
       group: 'discoveries',
       description:
-        'Reserved structure for the Phase 04 full-month completion card. Full scriptureCard asset/artwork reference is deliberately deferred to Phase 04.',
+        'Earned only by completing every active Challenge in the finalized monthly roster. Link a monthlyFull scriptureCard document via card; reservedCardId remains supported for legacy synthetic fixtures.',
       fields: [
         defineField({
           name: 'title',
@@ -250,10 +357,20 @@ export const monthlyPublication = defineType({
           description: 'For example, Complete March.',
         }),
         defineField({
+          name: 'card',
+          title: 'Linked Scripture Card',
+          type: 'reference',
+          to: [{type: 'scriptureCard'}],
+          weak: true,
+          description:
+            'Optional reference to a monthlyFull scriptureCard document (card-<slug>). Linking a Card defines the full-month goal target only; it never records reader awards or exposes unearned artwork.',
+        }),
+        defineField({
           name: 'reservedCardId',
-          title: 'Reserved Scripture Card ID (Phase 04 deferral)',
+          title: 'Legacy reserved Scripture Card ID',
           type: 'string',
-          description: 'Optional placeholder card-<slug> ID until Phase 04 adds scriptureCard references.',
+          description:
+            'Optional legacy placeholder card-<slug> ID retained for R08A synthetic fixtures. Prefer linking a scriptureCard document in card.',
           validation: Rule =>
             Rule.custom(value => {
               if (value === undefined || value === null || value === '') return true
@@ -377,9 +494,61 @@ export const monthlyPublication = defineType({
         }
       }
 
-      // 4. Discovery local structural checks (unique slugs & unique refs per discovery)
+      // 4. Discovery & fullMonthCard local structural checks (unique slugs, unique Card refs, legacy ID consistency)
       const discoveries = Array.isArray(doc.discoveries) ? doc.discoveries : []
       const seenDiscoverySlugs = new Set<string>()
+      const seenCardRefs = new Map<string, string>()
+      const linkedCardEntries: LinkedCardReference[] = []
+
+      const collectCardRef = (
+        rawCardRef: unknown,
+        legacyReservedId: unknown,
+        expectedCategory: 'monthlyThematic' | 'monthlyFull',
+        path: (string | number)[],
+        label: string,
+      ) => {
+        const rawRef = typeof rawCardRef === 'string' ? rawCardRef.trim() : ''
+        if (!rawRef) return
+
+        const baseRef = stripDraftPrefix(rawRef)
+        if (!CARD_PLACEHOLDER_PATTERN.test(baseRef)) {
+          issues.push({
+            message: `Linked Scripture Card reference "${rawRef}" (${label}) must follow deterministic identity card-<slug>.`,
+            path,
+          })
+          return
+        }
+
+        const priorLabel = seenCardRefs.get(baseRef)
+        if (priorLabel !== undefined) {
+          issues.push({
+            message: `Duplicate Scripture Card "${baseRef}" within this month (already linked in ${priorLabel}).`,
+            path,
+          })
+        } else {
+          seenCardRefs.set(baseRef, label)
+        }
+
+        if (
+          typeof legacyReservedId === 'string' &&
+          legacyReservedId.trim() &&
+          legacyReservedId.trim() !== baseRef
+        ) {
+          issues.push({
+            message: `Linked Scripture Card "${baseRef}" (${label}) conflicts with legacy reservedCardId "${legacyReservedId.trim()}".`,
+            path,
+          })
+        }
+
+        linkedCardEntries.push({
+          baseRef,
+          rawRef,
+          expectedCategory,
+          path,
+          label,
+        })
+      }
+
       for (let d = 0; d < discoveries.length; d++) {
         const disc = discoveries[d]
         if (typeof disc.discoverySlug === 'string' && disc.discoverySlug.trim()) {
@@ -391,7 +560,27 @@ export const monthlyPublication = defineType({
           }
           seenDiscoverySlugs.add(disc.discoverySlug)
         }
+
+        const discLabel =
+          typeof disc.discoverySlug === 'string' && disc.discoverySlug.trim()
+            ? `discovery "${disc.discoverySlug.trim()}"`
+            : `discovery #${d + 1}`
+        collectCardRef(
+          disc.card?._ref,
+          disc.reservedCardId,
+          'monthlyThematic',
+          ['discoveries', d, 'card'],
+          discLabel,
+        )
       }
+
+      collectCardRef(
+        doc.fullMonthCard?.card?._ref,
+        doc.fullMonthCard?.reservedCardId,
+        'monthlyFull',
+        ['fullMonthCard', 'card'],
+        'fullMonthCard',
+      )
 
       // 5. Reviewer role sanity even in draft
       if (
@@ -627,7 +816,16 @@ export const monthlyPublication = defineType({
           })
         }
 
-        // 6d. V-DISC-SUBSET Invariant
+        // 6d. V-DISC-SUBSET Invariant & draft-card-ref guard
+        for (const entry of linkedCardEntries) {
+          if (entry.rawRef.startsWith('drafts.')) {
+            issues.push({
+              message: `${entry.label} cannot reference draft Scripture Card ID "${entry.rawRef}". Reference the published base ID "${entry.baseRef}".`,
+              path: entry.path,
+            })
+          }
+        }
+
         for (let d = 0; d < discoveries.length; d++) {
           const disc = discoveries[d]
           const refs = Array.isArray(disc.qualifyingChallenges) ? disc.qualifyingChallenges : []
@@ -677,12 +875,13 @@ export const monthlyPublication = defineType({
             })
           } else {
             const activeIdsToVerify = [...new Set(activeSlotChallengeRefs.map(entry => entry.baseRef))]
+            const linkedCardIds = [...new Set(linkedCardEntries.map(entry => entry.baseRef))]
             const selfBase = typeof doc._id === 'string'
               ? stripDraftPrefix(doc._id)
               : (doc.yearMonth ? `month-${String(doc.yearMonth)}` : '')
 
             try {
-              const [otherMonths, publishedChallenges] = await Promise.all([
+              const [otherMonths, publishedChallenges, publishedCards] = await Promise.all([
                 slotAssignedIds.length > 0
                   ? publishedClient.fetch<RemoteOtherMonthProjection[]>(
                       `*[_type == "monthlyPublication" && !(_id in [$baseId, $draftId]) && !(_id in path("drafts.**")) && defined(slots)]{
@@ -704,11 +903,33 @@ export const monthlyPublication = defineType({
                       {ids: activeIdsToVerify},
                     )
                   : Promise.resolve([] as RemoteChallengeProjection[]),
+                linkedCardIds.length > 0
+                  ? publishedClient.fetch<RemoteScriptureCardProjection[]>(
+                      `*[_type == "scriptureCard" && _id in $cardIds && !(_id in path("drafts.**"))]{
+                        _id,
+                        cardCategory,
+                        plannedYearMonth,
+                        editorialStatus,
+                        withdrawn,
+                        "hasArtwork": defined(artwork.asset._ref),
+                        illustrationAlt,
+                        accessibleTranscription,
+                        "artworkRightsConfirmed": rightsAndAttribution.usageRightsConfirmed,
+                        "translation": scriptureCitation.translation,
+                        "scriptureRightsConfirmed": scriptureCitation.usageRightsConfirmed
+                      }`,
+                      {cardIds: linkedCardIds},
+                    )
+                  : Promise.resolve([] as RemoteScriptureCardProjection[]),
               ])
 
-              if (!Array.isArray(otherMonths) || !Array.isArray(publishedChallenges)) {
+              if (
+                !Array.isArray(otherMonths) ||
+                !Array.isArray(publishedChallenges) ||
+                !Array.isArray(publishedCards)
+              ) {
                 issues.push({
-                  message: 'Fail-closed: Remote Sanity verification returned an invalid response; cannot confirm published Challenge dependencies.',
+                  message: 'Fail-closed: Remote Sanity verification returned an invalid response; cannot confirm published Challenge or Scripture Card dependencies.',
                   path: ['rosterFinalization'],
                 })
               } else {
@@ -761,6 +982,27 @@ export const monthlyPublication = defineType({
                         path: ['slots', entry.index, 'challenge'],
                       })
                     }
+                  }
+                }
+
+                if (linkedCardEntries.length > 0) {
+                  const publishedCardById = new Map<string, RemoteScriptureCardProjection>()
+                  for (const card of publishedCards) {
+                    if (card && typeof card._id === 'string' && !card._id.startsWith('drafts.')) {
+                      publishedCardById.set(card._id, card)
+                    }
+                  }
+                  const normalizedMonthYM =
+                    typeof doc.yearMonth === 'string' && doc.yearMonth.trim()
+                      ? doc.yearMonth.trim()
+                      : null
+                  for (const entry of linkedCardEntries) {
+                    validateRemoteLinkedCard(
+                      entry,
+                      publishedCardById.get(entry.baseRef),
+                      normalizedMonthYM,
+                      issues,
+                    )
                   }
                 }
               }
