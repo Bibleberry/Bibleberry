@@ -412,7 +412,6 @@ export const LIBRARY_MONTHS_GROQ_QUERY = `
     && !(_id in path("drafts.**"))
     && !(_id in path("versions.**"))
     && _id == "month-" + yearMonth
-    && yearMonth match "^[0-9]{4}-(0[1-9]|1[0-2])$"
     && yearMonth < $upperBoundYearMonth
     && editorialStatus == "scheduled"
     && withdrawn != true

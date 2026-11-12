@@ -259,6 +259,8 @@ test('GET /api/library/months returns authorized historical month A while exclud
   const queryText = capturedUrl?.searchParams.get('query') ?? ''
   assert.equal(queryText.includes('!(_id in path("drafts.**"))'), true)
   assert.equal(queryText.includes('!(_id in path("versions.**"))'), true)
+  assert.equal(queryText.includes('_id == "month-" + yearMonth'), true)
+  assert.equal(/\bmatch\b/.test(queryText), false, 'GROQ query must not misuse match as regex')
 
   const rawText = await res.text()
   // Negative confidentiality checks: zero leaked titles, bodies, card art, Sanity IDs, or editorial fields
@@ -1127,7 +1129,7 @@ test('deduplicates colliding/duplicate month documents without duplicating valid
   assert.equal(body.page.nextCursor, null)
 })
 
-test('malformed non-canonical yearMonth records ahead of valid historical months never cause false terminal exhaustion', async () => {
+test('simulated ordered-slice upstream with malformed non-canonical yearMonth records ahead of valid historical months never causes false terminal exhaustion', async () => {
   // 5 malformed candidates (2026-11E..2026-11A) sort lexicographically ahead of valid 2026-10
   const malformedBatch = ['2026-11E', '2026-11D', '2026-11C', '2026-11B', '2026-11A'].map(badYm => ({
     _id: `month-${badYm}`,
