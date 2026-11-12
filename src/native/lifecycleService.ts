@@ -27,5 +27,6 @@ if (
   && import.meta.env
   && import.meta.env.VITE_ENABLE_NATIVE_LIFECYCLE_PROBE === 'true'
 ) {
+  console.info('[native-lifecycle-probe] JavaScript probe enabled')
   nativeLifecycleEvents.subscribe(() => {})
 }

@@ -176,12 +176,24 @@ def capture_scoped_logs(udid: str, start_time: str, out_file: Path) -> str:
     return content
 
 
+def find_probe_marker_assets(app_path: Path, marker: str) -> list[str]:
+    assets_dir = app_path / "public" / "assets"
+    if not assets_dir.is_dir():
+        return []
+    return [
+        str(asset.relative_to(app_path))
+        for asset in sorted(assets_dir.glob("*.js"))
+        if marker in asset.read_text(encoding="utf-8", errors="replace")
+    ]
+
+
 def capture_console_pty_launch(
     udid: str,
     bundle_id: str,
     out_file: Path,
     duration_s: float = 10.0,
     ready_patterns: tuple[str, ...] = (r"To Native ->\s+Preferences\s+get\b",),
+    observed_patterns: dict[str, float] | None = None,
 ) -> str:
     master_fd, slave_fd = pty.openpty()
     chunks: list[bytes] = []
@@ -193,7 +205,8 @@ def capture_console_pty_launch(
         close_fds=True,
     )
     os.close(slave_fd)
-    deadline = time.monotonic() + duration_s
+    capture_started = time.monotonic()
+    deadline = capture_started + duration_s
     seen_ready_deadline: float | None = None
     try:
         while time.monotonic() < deadline:
@@ -210,8 +223,13 @@ def capture_console_pty_launch(
                     time.sleep(0.1)
                     continue
                 chunks.append(data)
+                current_text = b"".join(chunks).decode("utf-8", errors="replace")
+                if observed_patterns is not None:
+                    elapsed = round(time.monotonic() - capture_started, 2)
+                    for pattern in ready_patterns:
+                        if pattern not in observed_patterns and re.search(pattern, current_text):
+                            observed_patterns[pattern] = elapsed
                 if seen_ready_deadline is None:
-                    current_text = b"".join(chunks).decode("utf-8", errors="replace")
                     if all(re.search(pattern, current_text) for pattern in ready_patterns):
                         seen_ready_deadline = min(deadline, time.monotonic() + 0.5)
         run_cmd(["xcrun", "simctl", "terminate", udid, bundle_id], timeout=20, check=False)
@@ -318,22 +336,90 @@ def main() -> int:
         run_cmd(["xcrun", "simctl", "bootstatus", udid, "-b"], timeout=180)
 
         if args.lifecycle_probe_only:
+            probe_marker = "[native-lifecycle-probe] JavaScript probe enabled"
+            marker_assets = find_probe_marker_assets(app_path, probe_marker)
+            summary["lifecycleProbeBundle"] = {
+                "probeMarker": probe_marker,
+                "javascriptAssetsWithMarker": marker_assets,
+            }
+            if not marker_assets:
+                raise RuntimeError(
+                    "Probe-enabled JavaScript marker is missing from the installed app bundle."
+                )
             run_cmd(["xcrun", "simctl", "install", udid, str(app_path)], timeout=60)
+            probe_started_at = datetime.now(timezone.utc)
+            probe_started_monotonic = time.monotonic()
+            readiness_times: dict[str, float] = {}
+            readiness_patterns = (
+                r"\[native-lifecycle-probe\] JavaScript probe enabled",
+                r"WebView loaded",
+                r"To Native ->\s+Preferences\s+get\b",
+                r"To Native ->\s+App\s+addListener\b",
+                r"To Native ->\s+App\s+getState\b",
+            )
             probe_log = capture_console_pty_launch(
                 udid,
                 args.bundle_id,
                 evidence_dir / "01-lifecycle-probe-console-pty.log",
-                duration_s=12.0,
-                ready_patterns=(
-                    r"To Native ->\s+Preferences\s+get\b",
-                    r"To Native ->\s+App\s+addListener\b",
-                    r"To Native ->\s+App\s+getState\b",
-                ),
+                duration_s=60.0,
+                ready_patterns=readiness_patterns,
+                observed_patterns=readiness_times,
             )
+            probe_duration = round(time.monotonic() - probe_started_monotonic, 2)
+            probe_observations = {
+                "captureDurationSeconds": probe_duration,
+                "readinessAfterSeconds": readiness_times,
+                "javascriptProbeMarkerObserved": bool(
+                    re.search(readiness_patterns[0], probe_log)
+                ),
+                "webViewLoadedObserved": bool(re.search(readiness_patterns[1], probe_log)),
+                "nativePreferencesGetObserved": bool(re.search(readiness_patterns[2], probe_log)),
+                "nativeAppAddListenerObserved": bool(re.search(readiness_patterns[3], probe_log)),
+                "nativeAppGetStateObserved": bool(re.search(readiness_patterns[4], probe_log)),
+            }
+            summary["lifecycleProbe"] = probe_observations
+            all_probe_calls_observed = all(
+                probe_observations[key]
+                for key in (
+                    "javascriptProbeMarkerObserved",
+                    "webViewLoadedObserved",
+                    "nativePreferencesGetObserved",
+                    "nativeAppAddListenerObserved",
+                    "nativeAppGetStateObserved",
+                )
+            )
+            if not all_probe_calls_observed:
+                capture_scoped_logs(
+                    udid,
+                    probe_started_at.strftime("%Y-%m-%d %H:%M:%S"),
+                    evidence_dir / "02-lifecycle-probe-simulator-logs.txt",
+                )
+                run_cmd(
+                    [
+                        "xcrun",
+                        "simctl",
+                        "io",
+                        udid,
+                        "screenshot",
+                        str(evidence_dir / "03-lifecycle-probe-screenshot.png"),
+                    ],
+                    timeout=30,
+                    check=False,
+                )
             if "App.then" in probe_log:
                 raise RuntimeError("Detected Capacitor App.then() Proxy trap in simulator probe PTY log.")
             if "Preferences.then" in probe_log:
                 raise RuntimeError("Detected Capacitor Preferences.then() Proxy trap in simulator probe PTY log.")
+            if not probe_observations["javascriptProbeMarkerObserved"]:
+                raise RuntimeError(
+                    "Probe-enabled JavaScript did not report execution within "
+                    f"{probe_duration}s; see lifecycle probe evidence."
+                )
+            if not probe_observations["webViewLoadedObserved"]:
+                raise RuntimeError(
+                    "Capacitor WebView did not report a completed page load within "
+                    f"{probe_duration}s; see lifecycle probe evidence."
+                )
             if not re.search(r"To Native ->\s+App\s+addListener\b", probe_log):
                 raise RuntimeError(
                     "Expected native Capacitor App.addListener bridge call in 01-lifecycle-probe-console-pty.log."
@@ -346,11 +432,6 @@ def main() -> int:
                 raise RuntimeError(
                     "Expected native Capacitor Preferences.get bridge call in 01-lifecycle-probe-console-pty.log."
                 )
-            summary["lifecycleProbe"] = {
-                "nativeAppAddListenerObserved": True,
-                "nativeAppGetStateObserved": True,
-                "nativePreferencesGetObserved": True,
-            }
             crashes = find_new_app_crashes(run_start_epoch)
             summary["newAppCrashReports"] = crashes
             if crashes:
