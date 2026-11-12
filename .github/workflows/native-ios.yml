@@ -26,6 +26,15 @@ on:
       - scripts/ios-simulator-smoke.py
       - .github/workflows/native-ios.yml
   workflow_dispatch:
+    inputs:
+      run_lifecycle_probe:
+        description: 'Build and run secondary test-only @capacitor/app lifecycle probe'
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -163,6 +172,7 @@ jobs:
 
       - name: Build and probe test-only @capacitor/app registration in iOS Simulator
         id: lifecycle-probe
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_lifecycle_probe == true }}
         env:
           VITE_ENABLE_NATIVE_LIFECYCLE_PROBE: 'true'
         run: |
