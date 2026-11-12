@@ -3,6 +3,7 @@ import {
   isValidChallengeYearMonth,
   parseChallengeOrigin,
   parseChallengeOriginFromSearchParams,
+  serializeChallengeOriginToSearchParams,
   type ChallengeOrigin,
 } from '../cms/reader/challengeOrigin.ts'
 
@@ -21,6 +22,42 @@ export interface InternalDestinationOptions {
 const CHALLENGE_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const CHALLENGE_QUERY_KEYS = new Set(['origin', 'yearMonth'])
 
+function hasOnlyKeys(
+  value: object,
+  allowedKeys: readonly string[],
+  requiredKeys: readonly string[] = allowedKeys,
+): boolean {
+  const keys = Reflect.ownKeys(value)
+  return keys.every(key => typeof key === 'string' && allowedKeys.includes(key)) &&
+    requiredKeys.every(key => Object.hasOwn(value, key))
+}
+
+function isCanonicalYearMonth(value: unknown): value is string {
+  return isValidChallengeYearMonth(value) && value === value.trim()
+}
+
+function isValidDestinationOrigin(origin: unknown): origin is ChallengeOrigin {
+  if (!origin || typeof origin !== 'object' || Array.isArray(origin)) return false
+
+  const candidate = origin as Record<string, unknown>
+  if (candidate.kind === 'hub') {
+    return hasOnlyKeys(origin, ['kind'])
+  }
+
+  if (candidate.kind === 'month') {
+    return hasOnlyKeys(origin, ['kind', 'yearMonth']) &&
+      isCanonicalYearMonth(candidate.yearMonth)
+  }
+
+  if (candidate.kind === 'shelf' || candidate.kind === 'library') {
+    return hasOnlyKeys(origin, ['kind', 'yearMonth'], ['kind']) &&
+      (!Object.hasOwn(candidate, 'yearMonth') || candidate.yearMonth === undefined ||
+        isCanonicalYearMonth(candidate.yearMonth))
+  }
+
+  return false
+}
+
 function parseChallengeQuery(query: string): URLSearchParams | null {
   const params = new URLSearchParams(query)
   const seen = new Set<string>()
@@ -31,6 +68,36 @@ function parseChallengeQuery(query: string): URLSearchParams | null {
   }
 
   return params
+}
+
+/**
+ * Builds a canonical local hash for an existing Month or released-Challenge destination.
+ * The parser remains responsible for feature gates and released-content authorization.
+ */
+export function buildInternalDestination(destination: InternalDestination): string | null {
+  if (!destination || typeof destination !== 'object' || Array.isArray(destination)) return null
+
+  if (destination.type === 'month') {
+    return hasOnlyKeys(destination, ['type', 'yearMonth']) &&
+      isCanonicalYearMonth(destination.yearMonth)
+      ? `#/month/${destination.yearMonth}`
+      : null
+  }
+
+  if (destination.type === 'releasedChallenge') {
+    if (
+      !hasOnlyKeys(destination, ['type', 'slug', 'origin']) ||
+      typeof destination.slug !== 'string' ||
+      !CHALLENGE_SLUG_PATTERN.test(destination.slug) ||
+      !isValidDestinationOrigin(destination.origin)
+    ) {
+      return null
+    }
+
+    return `#/challenge/${destination.slug}?${serializeChallengeOriginToSearchParams(destination.origin)}`
+  }
+
+  return null
 }
 
 /**
