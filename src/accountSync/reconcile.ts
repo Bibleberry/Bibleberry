@@ -1705,16 +1705,20 @@ function mergeLastOpenedPointers(
  * Pure crash- and retry-safety guard for clearing local guest storage after account transfer/merge.
  *
  * Guest local storage MUST NEVER be cleared unless:
- * 1. A durable commit ACK (`committed` or `alreadyCommittedDuplicate`) was received;
- * 2. The receipt matches the authenticated `accountId`, `idempotencyKey`, and `expectedGuestFingerprint`;
- * 3. No local guest mutation occurred in flight (`currentGuestFingerprint === expectedGuestFingerprint`); and
- * 4. Any unresolved items were durably persisted on the server (`unresolvedCount === 0 || unresolvedPersistedOnServer`).
+ * 1. The reconciliation result succeeded and permits clearance (`reconciliation.ok && reconciliation.guestClearanceEligible`);
+ * 2. A durable commit ACK (`committed` or `alreadyCommittedDuplicate`) was received;
+ * 3. The receipt matches the authenticated `accountId`, `idempotencyKey`, and `expectedGuestFingerprint`;
+ * 4. No local guest mutation occurred in flight (`currentGuestFingerprint === expectedGuestFingerprint`); and
+ * 5. Any unresolved items were durably persisted on the server (`unresolvedCount === 0 || unresolvedPersistedOnServer`).
  */
 export function canSafelyClearGuestStorage(input: {
   readonly expectedAccountId: string
   readonly expectedIdempotencyKey: string
   readonly expectedGuestFingerprint: string
   readonly currentGuestFingerprint: string
+  readonly reconciliation: Pick<ReconciliationResult, 'ok' | 'guestClearanceEligible'> & {
+    readonly guestPayloadFingerprint?: string
+  }
   readonly receipt: CommitAckReceipt | null | undefined
 }): GuestClearanceDecision {
   const {
@@ -1722,11 +1726,24 @@ export function canSafelyClearGuestStorage(input: {
     expectedIdempotencyKey,
     expectedGuestFingerprint,
     currentGuestFingerprint,
+    reconciliation,
     receipt,
   } = input
 
   if (!parseAccountId(expectedAccountId)) {
     return Object.freeze({ shouldClearGuestStorage: false, reason: 'invalidAccountId' })
+  }
+  if (!reconciliation || !reconciliation.ok || !reconciliation.guestClearanceEligible) {
+    return Object.freeze({ shouldClearGuestStorage: false, reason: 'reconciliationRequiresRetention' })
+  }
+  if (
+    reconciliation.guestPayloadFingerprint !== undefined
+    && reconciliation.guestPayloadFingerprint !== expectedGuestFingerprint
+  ) {
+    return Object.freeze({
+      shouldClearGuestStorage: false,
+      reason: 'fingerprintMismatchWithReconciliation',
+    })
   }
   if (!receipt) {
     return Object.freeze({ shouldClearGuestStorage: false, reason: 'missingReceipt' })

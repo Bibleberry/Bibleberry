@@ -276,6 +276,8 @@ export interface CommitAckReceipt {
 
 export type GuestClearanceBlockReason =
   | 'verifiedDurableCommit'
+  | 'reconciliationRequiresRetention'
+  | 'fingerprintMismatchWithReconciliation'
   | 'missingReceipt'
   | 'commitFailed'
   | 'invalidAccountId'

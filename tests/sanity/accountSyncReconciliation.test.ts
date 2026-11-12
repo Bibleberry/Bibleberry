@@ -976,6 +976,16 @@ test('crash and acknowledgment guard allows clearing guest storage ONLY after ma
   const fp2 = computeGuestPayloadFingerprint({ envelope: guest2 })
   assert.notEqual(fp1, fp2)
 
+  const eligibleRecon = reconcileGuestIntoAccount({
+    mode: 'newAccountTransfer',
+    guest: guest1,
+    account: createEmptyAccountEnvelope({ accountId: ACCT_A }),
+    context: { expectedAccountId: ACCT_A, idempotencyKey: 'idem-123' },
+  })
+  assert.equal(eligibleRecon.ok, true)
+  if (!eligibleRecon.ok) return
+  assert.equal(eligibleRecon.guestClearanceEligible, true)
+
   const validReceipt: CommitAckReceipt = {
     ok: true,
     status: 'committed',
@@ -994,6 +1004,7 @@ test('crash and acknowledgment guard allows clearing guest storage ONLY after ma
       expectedIdempotencyKey: 'idem-123',
       expectedGuestFingerprint: fp1,
       currentGuestFingerprint: fp1,
+      reconciliation: eligibleRecon,
       receipt: validReceipt,
     }),
     { shouldClearGuestStorage: true, reason: 'verifiedDurableCommit' },
@@ -1006,6 +1017,7 @@ test('crash and acknowledgment guard allows clearing guest storage ONLY after ma
       expectedIdempotencyKey: 'idem-123',
       expectedGuestFingerprint: fp1,
       currentGuestFingerprint: fp1,
+      reconciliation: eligibleRecon,
       receipt: { ...validReceipt, status: 'alreadyCommittedDuplicate' },
     }).shouldClearGuestStorage,
     true,
@@ -1018,6 +1030,7 @@ test('crash and acknowledgment guard allows clearing guest storage ONLY after ma
       expectedIdempotencyKey: 'idem-123',
       expectedGuestFingerprint: fp1,
       currentGuestFingerprint: fp1,
+      reconciliation: eligibleRecon,
       receipt: null,
     }).reason,
     'missingReceipt',
@@ -1030,6 +1043,7 @@ test('crash and acknowledgment guard allows clearing guest storage ONLY after ma
       expectedIdempotencyKey: 'idem-123',
       expectedGuestFingerprint: fp1,
       currentGuestFingerprint: fp2,
+      reconciliation: eligibleRecon,
       receipt: validReceipt,
     }).reason,
     'localGuestMutatedInFlight',
@@ -1042,6 +1056,7 @@ test('crash and acknowledgment guard allows clearing guest storage ONLY after ma
       expectedIdempotencyKey: 'idem-123',
       expectedGuestFingerprint: fp1,
       currentGuestFingerprint: fp1,
+      reconciliation: eligibleRecon,
       receipt: { ...validReceipt, unresolvedCount: 1, unresolvedPersistedOnServer: false },
     }).reason,
     'unresolvedNotPersistedOnServer',
@@ -1054,9 +1069,23 @@ test('crash and acknowledgment guard allows clearing guest storage ONLY after ma
       expectedIdempotencyKey: 'idem-123',
       expectedGuestFingerprint: fp1,
       currentGuestFingerprint: fp1,
+      reconciliation: eligibleRecon,
       receipt: validReceipt,
     }).reason,
     'accountIdMismatch',
+  )
+
+  // Rejected reconciliation cannot be overridden by a successful receipt
+  assert.deepEqual(
+    canSafelyClearGuestStorage({
+      expectedAccountId: ACCT_A,
+      expectedIdempotencyKey: 'idem-123',
+      expectedGuestFingerprint: fp1,
+      currentGuestFingerprint: fp1,
+      reconciliation: { ok: false, guestClearanceEligible: false },
+      receipt: validReceipt,
+    }),
+    { shouldClearGuestStorage: false, reason: 'reconciliationRequiresRetention' },
   )
 })
 
@@ -1124,7 +1153,7 @@ test('rejects invalid/cross-namespace or mismatched account IDs and quarantines 
     mode: 'newAccountTransfer',
     guest: { envelope: dirtyGuest },
     account: createEmptyAccountEnvelope({ accountId: ACCT_A }),
-    context: { expectedAccountId: ACCT_A },
+    context: { expectedAccountId: ACCT_A, idempotencyKey: 'idem-dirty-guest' },
   })
   assert.equal(sanitized.ok, true)
   if (!sanitized.ok) return
@@ -1135,6 +1164,29 @@ test('rejects invalid/cross-namespace or mismatched account IDs and quarantines 
   assert.equal(sanitized.rejectedRecords.every(r => r.source === 'guest'), true)
   // Rejected guest records omitted from mergedAccount must block automatic guest clearance
   assert.equal(sanitized.guestClearanceEligible, false)
+
+  // Even a successful commit receipt must NOT override guest data retention when guest records were rejected
+  const dirtyClearance = canSafelyClearGuestStorage({
+    expectedAccountId: ACCT_A,
+    expectedIdempotencyKey: 'idem-dirty-guest',
+    expectedGuestFingerprint: sanitized.guestPayloadFingerprint,
+    currentGuestFingerprint: sanitized.guestPayloadFingerprint,
+    reconciliation: sanitized,
+    receipt: {
+      ok: true,
+      status: 'committed',
+      accountId: ACCT_A,
+      idempotencyKey: 'idem-dirty-guest',
+      committedGuestFingerprint: sanitized.guestPayloadFingerprint,
+      durableRevision: sanitized.mergedAccount.revision,
+      unresolvedCount: 0,
+      unresolvedPersistedOnServer: false,
+    },
+  })
+  assert.deepEqual(dirtyClearance, {
+    shouldClearGuestStorage: false,
+    reason: 'reconciliationRequiresRetention',
+  })
 })
 
 test('alias collisions preserve actual date provenance without promoting earlier unverified dates to serverVerified', () => {
