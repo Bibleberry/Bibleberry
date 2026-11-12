@@ -9,6 +9,7 @@ import {
   resolveDeterministicCardChild,
   resolveDeterministicMonthChild,
   resolveMonthlyPublicationDocumentNode,
+  resolveMonthlyReadinessNode,
   resolvePreviewNewsDocumentNode,
 } from './structureHelpers'
 
@@ -41,6 +42,10 @@ export const structure: StructureResolver = S => S.list()
                   .title('Open or create any month (YYYY-MM)')
                   .child(childId => resolveDeterministicMonthChild(S, childId)),
               ),
+            S.listItem()
+              .id('inspect-monthly-readiness')
+              .title('Inspect monthly readiness (YYYY-MM)')
+              .child(resolveMonthlyReadinessNode(S)),
             S.divider(),
             ...MONTH_PLANNING_YEARS.map(year =>
               S.listItem()
@@ -68,6 +73,10 @@ export const structure: StructureResolver = S => S.list()
                                   .id(`open-preview-news-${yearMonth}`)
                                   .title(`Advance preview News (news-preview-${yearMonth})`)
                                   .child(resolvePreviewNewsDocumentNode(S, yearMonth)),
+                                S.listItem()
+                                  .id(`inspect-readiness-${yearMonth}`)
+                                  .title(`Editorial readiness report (${yearMonth})`)
+                                  .child(resolveMonthlyReadinessNode(S, yearMonth)),
                               ]),
                           ),
                       ),
