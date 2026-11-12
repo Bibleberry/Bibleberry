@@ -38,6 +38,17 @@ test.describe('Shared Challenge reader accessibility', () => {
     await expect(finalHeading).toBeFocused();
     await expect(page.getByRole('progressbar', { name: 'Challenge screen position' }))
       .toHaveAttribute('aria-valuetext', '2 of 2');
+    expect(await finalHeading.evaluate(element => getComputedStyle(element).outlineStyle)).not.toBe('none');
+
+    const backButton = navigation.getByRole('button', { name: 'Back' });
+    await backButton.focus();
+    await page.keyboard.press('Enter');
+    await expect(firstHeading).toBeFocused();
+    expect(await firstHeading.evaluate(element => getComputedStyle(element).outlineStyle)).not.toBe('none');
+
+    await continueButton.focus();
+    await page.keyboard.press('Enter');
+    await expect(finalHeading).toBeFocused();
     await expect(page.locator('.lab-completion')).toHaveCount(0);
     await expect(page.locator('.pilot-disclosure__status')).toContainText('Not completed');
 
@@ -53,6 +64,7 @@ test.describe('Shared Challenge reader accessibility', () => {
   });
 
   test('reflows substantive reader text at large size on a narrow zoom-equivalent viewport', async ({ page }) => {
+    // A 640 CSS-pixel viewport exercises the reflow expected from a 1280px viewport at 200% zoom.
     await page.setViewportSize({ width: 640, height: 812 });
     await expect(page.locator('#root > .reading-large')).toBeVisible();
     await expect(page.locator('#pilot-screen-overview-title')).toBeFocused();

@@ -1,0 +1,9 @@
+.lab-screen {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.challenge-player__screen-heading:focus {
+  outline: 2px solid var(--focus);
+  outline-offset: 6px;
+}

@@ -14,6 +14,7 @@ import {
   type ChallengePlayerChallenge,
   type ChallengePlayerLabels,
 } from './challengePlayerModel.ts'
+import './challengePlayerAccessibility.css'
 
 /**
  * The narrowly documented presentation subset the player needs. Identity, series, release
@@ -151,7 +152,7 @@ export function ChallengePlayer({
         <div className="lab-progress__segments" role="progressbar" aria-label={copy.progressAriaLabel} aria-valuemin={1} aria-valuemax={position.total} aria-valuenow={position.index + 1} aria-valuetext={`${position.index + 1} of ${position.total}`}>{challenge.screens.map((item, index) => <span key={item.id} className={index <= position.index ? 'is-filled' : ''} />)}</div>
       </div>
       <article className="lab-screen" key={screen.id} aria-labelledby={`${screen.id}-title`}>
-        <p className="eyebrow">{screen.stepLabel}</p><h2 id={`${screen.id}-title`} ref={screenHeading} tabIndex={-1}>{screen.title}</h2>
+        <p className="eyebrow">{screen.stepLabel}</p><h2 id={`${screen.id}-title`} className="challenge-player__screen-heading" ref={screenHeading} tabIndex={-1}>{screen.title}</h2>
         <div className="lab-screen__blocks">{screen.blocks.map(block => <CmsBlockView key={block.id} block={block} scriptureSave={scriptureSave} diagnostics={diagnostics} />)}</div>
       </article>
       {isCompleted && position.isLast && !effectiveReturnOnFinish && <section className="lab-completion" role="status" aria-live="polite"><Check size={22} aria-hidden="true" /><div><h2>Challenge complete</h2><p>{copy.completionMessage}</p></div></section>}
