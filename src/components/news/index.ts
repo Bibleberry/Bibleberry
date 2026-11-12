@@ -4,12 +4,15 @@ export { NewsArticleCard, type NewsArticleCardProps } from './NewsArticleCard.ts
 export { NewsPortableTextView, type NewsPortableTextViewProps } from './NewsPortableText.tsx'
 export { NewsErrorBoundary, type NewsErrorBoundaryProps } from './NewsErrorBoundary.tsx'
 export {
+  classifyNewsLink,
   formatMonthPreviewHeading,
   formatNewsCategory,
   formatNewsDate,
   filterNewsArticles,
   isAuthorizedInternalDestination,
   isExternalLink,
+  parseAuthorizedNewsLink,
   NEWS_FILTER_OPTIONS,
   type NewsFilterCategory,
+  type NewsLinkClassification,
 } from './newsModel.ts'

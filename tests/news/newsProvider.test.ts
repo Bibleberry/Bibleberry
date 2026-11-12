@@ -9,6 +9,7 @@ import {
   isValidSanityCdnCoverUrl,
   parseNewsFeedResponse,
   resolveReaderTimeZone,
+  validateBaseUrl,
 } from '../../src/cms/reader/newsProvider.ts'
 
 const TEST_GATEWAY_ENV: GatewayEnv = {
@@ -493,4 +494,70 @@ test('createNewsGatewayProvider end-to-end integration with handleGatewayRequest
     assert.equal(serialized.includes('editorialReview'), false)
   }
 })
+
+test('security regression: validateBaseUrl rejects backslash same-origin bypass and validates normalized origins', () => {
+  // Slash-prefixed paths with backslashes that can normalize into cross-origin authorities in WHATWG URL
+  const maliciousBypassInputs = [
+    '/\\evil.com',
+    '/\\evil.com/api',
+    '/\\\\evil.com',
+    '/\\\\evil.com/path',
+    '\\evil.com',
+    '\\\\evil.com',
+    '/api\\evil',
+    'http://localhost\\evil.com',
+    '/\\80016lrq.api.sanity.io',
+  ]
+
+  for (const candidate of maliciousBypassInputs) {
+    const res = validateBaseUrl(candidate, false)
+    assert.equal(res.ok, false, `Expected rejection for: ${candidate}`)
+    assert.ok(res.message.includes('backslashes'), `Expected backslash error for: ${candidate}`)
+  }
+
+  // Protocol-relative URLs
+  assert.equal(validateBaseUrl('//evil.com', false).ok, false)
+  assert.equal(validateBaseUrl('//evil.com/api', false).ok, false)
+
+  // Query and hash fragments rejected
+  assert.equal(validateBaseUrl('/api?foo=bar', false).ok, false)
+  assert.equal(validateBaseUrl('/api#fragment', false).ok, false)
+
+  // Valid relative paths accepted and normalized
+  assert.deepEqual(validateBaseUrl('', false), { ok: true, baseUrl: '' })
+  assert.deepEqual(validateBaseUrl('   ', false), { ok: true, baseUrl: '' })
+  assert.deepEqual(validateBaseUrl('/api', false), { ok: true, baseUrl: '/api' })
+  assert.deepEqual(validateBaseUrl('/api/news/', false), { ok: true, baseUrl: '/api/news' })
+
+  // Same-origin enforcement in simulated browser environment
+  const originalWindow = globalThis.window
+  try {
+    // @ts-expect-error test mock window
+    globalThis.window = {
+      location: { origin: 'https://bibleberry.example.org' },
+    }
+
+    // Cross-origin absolute URL rejected when allowCrossOrigin is false
+    const crossOrigin = validateBaseUrl('https://evil.example.org', false)
+    assert.equal(crossOrigin.ok, false)
+    assert.ok(crossOrigin.message.includes('same-origin policy'))
+
+    // Same-origin absolute URL accepted
+    const sameOrigin = validateBaseUrl('https://bibleberry.example.org/api', false)
+    assert.equal(sameOrigin.ok, true)
+    if (sameOrigin.ok) {
+      assert.equal(sameOrigin.baseUrl, 'https://bibleberry.example.org/api')
+    }
+
+    // Cross-origin allowed when allowCrossOrigin is explicitly true
+    const crossOriginAllowed = validateBaseUrl('https://other.example.org/api', true)
+    assert.equal(crossOriginAllowed.ok, true)
+    if (crossOriginAllowed.ok) {
+      assert.equal(crossOriginAllowed.baseUrl, 'https://other.example.org/api')
+    }
+  } finally {
+    globalThis.window = originalWindow
+  }
+})
+
 

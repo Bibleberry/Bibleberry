@@ -24,6 +24,53 @@ const MONTH_NAMES = [
   'December',
 ] as const
 
+const AUTHORIZED_MONTH_LINK_PATTERN = /^#\/month\/(\d{4}-(?:0[1-9]|1[0-2]))$/
+
+export type NewsLinkClassification =
+  | { readonly kind: 'authorizedMonth'; readonly monthId: string }
+  | { readonly kind: 'unauthorizedInternal'; readonly href: string }
+  | { readonly kind: 'external'; readonly href: string }
+  | { readonly kind: 'invalid' }
+
+/**
+ * Classifies link hrefs in ministry News PortableText.
+ *
+ * Explicitly restricts authorized internal navigation to `#/month/YYYY-MM`.
+ * All other internal destinations (#/challenge/*, #/developer, hash-only links,
+ * and malformed month fragments) are classified as unauthorized internal.
+ */
+export function classifyNewsLink(href: string): NewsLinkClassification {
+  if (typeof href !== 'string') {
+    return { kind: 'invalid' }
+  }
+  const trimmed = href.trim()
+  if (!trimmed || href.includes('\\')) {
+    return { kind: 'invalid' }
+  }
+
+  if (href.startsWith('#')) {
+    const match = AUTHORIZED_MONTH_LINK_PATTERN.exec(href)
+    if (match) {
+      return { kind: 'authorizedMonth', monthId: match[1] }
+    }
+    return { kind: 'unauthorizedInternal', href }
+  }
+
+  return { kind: 'external', href: trimmed }
+}
+
+/**
+ * Parses and validates an internal link in News PortableText.
+ * Currently, ONLY #/month/YYYY-MM is an explicitly authorized internal destination.
+ */
+export function parseAuthorizedNewsLink(href: string): { kind: 'month'; monthId: string } | null {
+  const classification = classifyNewsLink(href)
+  if (classification.kind === 'authorizedMonth') {
+    return { kind: 'month', monthId: classification.monthId }
+  }
+  return null
+}
+
 /**
  * Formats an ISO civil date string (YYYY-MM-DD) into an accessible, human-readable date.
  * Uses UTC date parts to avoid client timezone shifting bugs.
@@ -71,13 +118,9 @@ export function formatMonthPreviewHeading(yearMonth: string): string {
 
 /**
  * Determines whether a link URL is external to Bibleberry.
- * Any non-hash URL, absolute HTTP(S) URL, or scheme is external.
  */
 export function isExternalLink(href: string): boolean {
-  const trimmed = href.trim()
-  if (!trimmed) return false
-  if (trimmed.startsWith('#/') || trimmed.startsWith('#')) return false
-  return true
+  return classifyNewsLink(href).kind === 'external'
 }
 
 /**

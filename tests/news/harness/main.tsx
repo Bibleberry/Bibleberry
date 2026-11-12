@@ -33,6 +33,31 @@ const FIXTURE_ARTICLES = [
             _type: 'link',
             href: 'https://external-website.example.org/blocked-link',
           },
+          {
+            _key: 'ch-link-1',
+            _type: 'link',
+            href: '#/challenge/the-true-vine',
+          },
+          {
+            _key: 'dev-link-1',
+            _type: 'link',
+            href: '#/developer',
+          },
+          {
+            _key: 'hash-link-1',
+            _type: 'link',
+            href: '#',
+          },
+          {
+            _key: 'malformed-month-link-1',
+            _type: 'link',
+            href: '#/month/2026-13',
+          },
+          {
+            _key: 'auth-month-link-1',
+            _type: 'link',
+            href: '#/month/2026-12',
+          },
         ],
         children: [
           {
@@ -50,7 +75,67 @@ const FIXTURE_ARTICLES = [
           {
             _key: 's3',
             _type: 'span',
-            text: ' that must remain inert in the reader.',
+            text: ', an unauthorized ',
+            marks: [],
+          },
+          {
+            _key: 's4',
+            _type: 'span',
+            text: 'Challenge link',
+            marks: ['ch-link-1'],
+          },
+          {
+            _key: 's5',
+            _type: 'span',
+            text: ', an unauthorized ',
+            marks: [],
+          },
+          {
+            _key: 's6',
+            _type: 'span',
+            text: 'Developer link',
+            marks: ['dev-link-1'],
+          },
+          {
+            _key: 's7',
+            _type: 'span',
+            text: ', a ',
+            marks: [],
+          },
+          {
+            _key: 's8',
+            _type: 'span',
+            text: 'hash-only link',
+            marks: ['hash-link-1'],
+          },
+          {
+            _key: 's9',
+            _type: 'span',
+            text: ', a ',
+            marks: [],
+          },
+          {
+            _key: 's10',
+            _type: 'span',
+            text: 'malformed month link',
+            marks: ['malformed-month-link-1'],
+          },
+          {
+            _key: 's11',
+            _type: 'span',
+            text: ', and an ',
+            marks: [],
+          },
+          {
+            _key: 's12',
+            _type: 'span',
+            text: 'authorized month link',
+            marks: ['auth-month-link-1'],
+          },
+          {
+            _key: 's13',
+            _type: 'span',
+            text: ' in the reader.',
             marks: [],
           },
         ],

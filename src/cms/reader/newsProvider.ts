@@ -182,10 +182,19 @@ function isSanityApiHost(hostname: string): boolean {
   return lower === 'sanity.io' || lower.endsWith('.sanity.io')
 }
 
-function validateBaseUrl(
+export function validateBaseUrl(
   rawBase: string,
   allowCrossOrigin: boolean,
 ): { ok: true; baseUrl: string } | { ok: false; message: string } {
+  if (typeof rawBase !== 'string') {
+    return { ok: false, message: 'Gateway base URL must be a string' }
+  }
+
+  // Reject any backslashes - prevents normalization into cross-origin authorities in WHATWG URL (e.g. /\evil.com)
+  if (rawBase.includes('\\')) {
+    return { ok: false, message: 'Gateway base URL must not contain backslashes' }
+  }
+
   const trimmed = rawBase.trim().replace(/\/+$/, '')
   if (trimmed === '') {
     return { ok: true, baseUrl: '' }
@@ -193,16 +202,26 @@ function validateBaseUrl(
   if (trimmed.startsWith('//')) {
     return { ok: false, message: 'Protocol-relative gateway base URL is not allowed' }
   }
-  if (trimmed.startsWith('/')) {
-    if (trimmed.includes('?') || trimmed.includes('#')) {
-      return { ok: false, message: 'Gateway base path must not include query or hash fragments' }
-    }
-    return { ok: true, baseUrl: trimmed }
+  if (trimmed.includes('?') || trimmed.includes('#')) {
+    return { ok: false, message: 'Gateway base path must not include query or hash fragments' }
   }
+
+  const currentOrigin =
+    typeof window !== 'undefined' &&
+    typeof window.location?.origin === 'string' &&
+    window.location.origin !== 'null' &&
+    window.location.origin !== ''
+      ? window.location.origin
+      : undefined
 
   let parsed: URL
   try {
-    parsed = new URL(trimmed)
+    if (trimmed.startsWith('/')) {
+      // Validate normalized URL origin against currentOrigin rather than blindly trusting startsWith('/')
+      parsed = new URL(trimmed, currentOrigin ?? 'http://127.0.0.1')
+    } else {
+      parsed = new URL(trimmed)
+    }
   } catch {
     return { ok: false, message: 'Invalid gateway base URL configuration' }
   }
@@ -219,15 +238,17 @@ function validateBaseUrl(
 
   if (
     !allowCrossOrigin &&
-    typeof window !== 'undefined' &&
-    typeof window.location?.origin === 'string' &&
-    window.location.origin !== 'null' &&
-    parsed.origin !== window.location.origin
+    currentOrigin &&
+    parsed.origin !== currentOrigin
   ) {
     return {
       ok: false,
       message: 'Cross-origin gateway base URL blocked by same-origin policy',
     }
+  }
+
+  if (trimmed.startsWith('/')) {
+    return { ok: true, baseUrl: parsed.pathname.replace(/\/+$/, '') }
   }
 
   return { ok: true, baseUrl: trimmed }

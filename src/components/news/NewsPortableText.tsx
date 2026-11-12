@@ -1,5 +1,5 @@
 import { PortableText, type PortableTextComponents } from '@portabletext/react'
-import { isExternalLink } from './newsModel.ts'
+import { classifyNewsLink } from './newsModel.ts'
 
 export interface NewsPortableTextViewProps {
   readonly value?: readonly Record<string, unknown>[]
@@ -9,8 +9,9 @@ export interface NewsPortableTextViewProps {
 /**
  * Portable Text renderer for ministry News body content.
  *
- * Enforces strict link safety by neutralizing/blocking any external hrefs,
- * while honoring valid internal month destinations.
+ * Enforces strict link safety by neutralizing/blocking any external hrefs and
+ * unauthorized internal destinations, while dispatching only authorized
+ * month destinations (`#/month/YYYY-MM`) through `onNavigate`.
  */
 export function NewsPortableTextView({ value, onNavigate }: NewsPortableTextViewProps) {
   if (!Array.isArray(value) || value.length === 0) {
@@ -35,50 +36,56 @@ export function NewsPortableTextView({ value, onNavigate }: NewsPortableTextView
         const href = typeof markValue?.href === 'string' ? markValue.href.trim() : ''
         if (!href) return <>{children}</>
 
-        if (isExternalLink(href)) {
+        const classification = classifyNewsLink(href)
+
+        if (classification.kind === 'authorizedMonth' && onNavigate) {
           return (
-            <span
-              className="news-link news-link--blocked"
-              role="link"
-              aria-disabled="true"
-              data-blocked-external-link="true"
-              tabIndex={0}
-              title="External links are not permitted in ministry News"
+            <a
+              href={href}
+              className="news-link news-link--internal"
               onClick={event => {
                 event.preventDefault()
-                event.stopPropagation()
-              }}
-              onKeyDown={event => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault()
-                  event.stopPropagation()
-                }
+                onNavigate({ kind: 'month', monthId: classification.monthId })
               }}
             >
               {children}
-              <span className="sr-only"> (external link disabled)</span>
-            </span>
+            </a>
           )
         }
 
-        const handleInternalClick = (event: React.MouseEvent<HTMLAnchorElement>) => {
-          if (href.startsWith('#/month/')) {
-            const targetMonth = href.slice('#/month/'.length).trim()
-            if (/^\d{4}-(?:0[1-9]|1[0-2])$/.test(targetMonth)) {
-              event.preventDefault()
-              onNavigate?.({ kind: 'month', monthId: targetMonth })
-            }
-          }
-        }
+        const isExternal = classification.kind === 'external'
+        const isUnauthorizedInternal = classification.kind === 'unauthorizedInternal'
+        const tooltipTitle = isExternal
+          ? 'External links are not permitted in ministry News'
+          : 'This internal destination is not authorized in ministry News'
+        const screenReaderNote = isExternal
+          ? ' (external link disabled)'
+          : ' (link disabled)'
 
         return (
-          <a
-            href={href}
-            className="news-link news-link--internal"
-            onClick={handleInternalClick}
+          <span
+            className="news-link news-link--blocked"
+            role="link"
+            aria-disabled="true"
+            data-blocked-link="true"
+            data-blocked-external-link={isExternal ? 'true' : undefined}
+            data-blocked-internal-link={isUnauthorizedInternal ? 'true' : undefined}
+            tabIndex={0}
+            title={tooltipTitle}
+            onClick={event => {
+              event.preventDefault()
+              event.stopPropagation()
+            }}
+            onKeyDown={event => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault()
+                event.stopPropagation()
+              }
+            }}
           >
             {children}
-          </a>
+            <span className="sr-only">{screenReaderNote}</span>
+          </span>
         )
       },
     },

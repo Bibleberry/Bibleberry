@@ -117,6 +117,79 @@ test.describe('Issue #130: Standalone News Reader View and Security Invariants',
     expect(page.url()).toBe(currentUrl)
   })
 
+  test('internal link navigation: restricts internal links strictly to authorized #/month/YYYY-MM, dispatches onNavigate, renders inert unauthorized links (#/challenge/*, #/developer, hash-only, malformed month), and preserves visible text', async ({
+    page,
+  }) => {
+    await page.goto(`${baseUrl}?scenario=standard`)
+
+    const currentUrl = page.url()
+    const navOutput = page.locator('#harness-nav-output')
+    await expect(navOutput).toHaveAttribute('data-destination', '')
+
+    // 1. Unauthorized Challenge link: #/challenge/the-true-vine
+    const challengeLink = page.locator('[data-blocked-internal-link="true"]', {
+      hasText: 'Challenge link',
+    })
+    await expect(challengeLink).toBeVisible()
+    await expect(challengeLink).toHaveAttribute('role', 'link')
+    await expect(challengeLink).toHaveAttribute('aria-disabled', 'true')
+    // Text preservation: visible link text must be intact
+    await expect(challengeLink).toContainText('Challenge link')
+    // Clicking must not trigger navigation
+    await challengeLink.click({ force: true })
+    expect(page.url()).toBe(currentUrl)
+    await expect(navOutput).toHaveAttribute('data-destination', '')
+
+    // 2. Unauthorized Developer link: #/developer
+    const devLink = page.locator('[data-blocked-internal-link="true"]', {
+      hasText: 'Developer link',
+    })
+    await expect(devLink).toBeVisible()
+    await expect(devLink).toHaveAttribute('role', 'link')
+    await expect(devLink).toHaveAttribute('aria-disabled', 'true')
+    await expect(devLink).toContainText('Developer link')
+    await devLink.click({ force: true })
+    expect(page.url()).toBe(currentUrl)
+    await expect(navOutput).toHaveAttribute('data-destination', '')
+
+    // 3. Hash-only link: #
+    const hashOnlyLink = page.locator('[data-blocked-internal-link="true"]', {
+      hasText: 'hash-only link',
+    })
+    await expect(hashOnlyLink).toBeVisible()
+    await expect(hashOnlyLink).toHaveAttribute('role', 'link')
+    await expect(hashOnlyLink).toHaveAttribute('aria-disabled', 'true')
+    await expect(hashOnlyLink).toContainText('hash-only link')
+    await hashOnlyLink.click({ force: true })
+    expect(page.url()).toBe(currentUrl)
+    await expect(navOutput).toHaveAttribute('data-destination', '')
+
+    // 4. Malformed month link: #/month/2026-13
+    const malformedMonthLink = page.locator('[data-blocked-internal-link="true"]', {
+      hasText: 'malformed month link',
+    })
+    await expect(malformedMonthLink).toBeVisible()
+    await expect(malformedMonthLink).toHaveAttribute('role', 'link')
+    await expect(malformedMonthLink).toHaveAttribute('aria-disabled', 'true')
+    await expect(malformedMonthLink).toContainText('malformed month link')
+    await malformedMonthLink.click({ force: true })
+    expect(page.url()).toBe(currentUrl)
+    await expect(navOutput).toHaveAttribute('data-destination', '')
+
+    // 5. Authorized internal month link: #/month/2026-12
+    const authorizedMonthLink = page.locator('a.news-link--internal', {
+      hasText: 'authorized month link',
+    })
+    await expect(authorizedMonthLink).toBeVisible()
+    await expect(authorizedMonthLink).toHaveAttribute('href', '#/month/2026-12')
+    await expect(authorizedMonthLink).toContainText('authorized month link')
+
+    // Clicking authorized internal link must dispatch onNavigate and prevent default hash change
+    await authorizedMonthLink.click()
+    expect(page.url()).toBe(currentUrl)
+    await expect(navOutput).toHaveAttribute('data-destination', 'month:2026-12')
+  })
+
   test('supports safe internal navigation for monthly preview without leaking discoveries or unreleased manuscripts', async ({
     page,
   }) => {
