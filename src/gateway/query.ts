@@ -318,17 +318,7 @@ export const MONTHLY_PREVIEW_BY_ID_GROQ_QUERY = `
   }
 `
 
-/**
- * Parameterized GROQ query for active/historical monthly publication calendar and discovery evaluation.
- */
-export const MONTHLY_DETAIL_BY_ID_GROQ_QUERY = `
-  *[_type == "monthlyPublication"
-    && !(_id in path("drafts.**"))
-    && _id == $monthDocId
-    && yearMonth == $yearMonth
-    && editorialStatus == "scheduled"
-    && withdrawn != true
-  ][0] {
+const MONTHLY_DETAIL_FIELDS_GROQ = `
     _id,
     _type,
     yearMonth,
@@ -396,7 +386,36 @@ export const MONTHLY_DETAIL_BY_ID_GROQ_QUERY = `
       title,
       reservedCardId,
       ${LINKED_SCRIPTURE_CARD_PROJECTION_GROQ}
-    }
+    }`
+
+/**
+ * Parameterized GROQ query for active/historical monthly publication calendar and discovery evaluation.
+ */
+export const MONTHLY_DETAIL_BY_ID_GROQ_QUERY = `
+  *[_type == "monthlyPublication"
+    && !(_id in path("drafts.**"))
+    && _id == $monthDocId
+    && yearMonth == $yearMonth
+    && editorialStatus == "scheduled"
+    && withdrawn != true
+  ][0] {${MONTHLY_DETAIL_FIELDS_GROQ}
+  }
+`
+
+/**
+ * Parameterized GROQ query for bounded, newest-first historical Library month index candidates.
+ * Projects the full validation fields so the gateway can re-verify publication, review, slot,
+ * and roster invariants fail-closed before projecting minimal reader-safe Library summaries.
+ */
+export const LIBRARY_MONTHS_GROQ_QUERY = `
+  *[_type == "monthlyPublication"
+    && !(_id in path("drafts.**"))
+    && !(_id in path("versions.**"))
+    && _id == "month-" + yearMonth
+    && yearMonth < $upperBoundYearMonth
+    && editorialStatus == "scheduled"
+    && withdrawn != true
+  ] | order(yearMonth desc, _id asc) [0...$fetchLimit] {${MONTHLY_DETAIL_FIELDS_GROQ}
   }
 `
 
@@ -443,7 +462,7 @@ export function buildSanityQueryUrl(
   dataset: string,
   apiVersion: string = DEFAULT_SANITY_API_VERSION,
   query: string,
-  params: Record<string, string> = {},
+  params: Record<string, string | number> = {},
 ): URL {
   const url = new URL(`https://${projectId}.api.sanity.io/v${apiVersion}/data/query/${dataset}`)
   url.searchParams.set('query', query)
