@@ -18,6 +18,7 @@ import type {
   GatewayCoverImage,
   GatewayEarnedScriptureCard,
   GatewayIntroductionScreen,
+  GatewayLibraryMonthSummary,
   GatewayMonthDetailResponse,
   GatewayMonthDiscoverySummary,
   GatewayMonthPreviewResponse,
@@ -1371,6 +1372,98 @@ export function validateAndProjectNewsArticle(
       summary,
       ...(body.length > 0 ? { body } : {}),
       ...(coverCheck.coverImage ? { coverImage: coverCheck.coverImage } : {}),
+    },
+  }
+}
+
+function hasNamespaceDelimiter(value: unknown): boolean {
+  return typeof value === 'string' && value.includes('.')
+}
+
+/**
+ * Validates and projects a single `monthlyPublication` into a minimal, reader-safe
+ * historical Library summary for `GET /api/library/months`.
+ *
+ * Reuses `validateAndProjectMonthDetail` so only fully qualified, finalized,
+ * editorially reviewed, scheduled, non-withdrawn historical months strictly earlier
+ * than `serverContext.authorizedLocalDate.slice(0, 7)` are admitted. Omits all
+ * Sanity document IDs, slots, Challenge titles/bodies, discovery rules, Card data,
+ * editorial metadata, and non-Sanity-CDN URLs.
+ */
+export function validateAndProjectLibraryMonthSummary(
+  rawDoc: unknown,
+  serverContext: GatewayServerContext,
+  options?: MonthlyProjectionOptions,
+): ProjectionValidationResult<GatewayLibraryMonthSummary> {
+  if (!isPlainObject(rawDoc)) {
+    return { ok: false, reason: 'malformedDocument' }
+  }
+  if (!isValidCivilDate(serverContext.authorizedLocalDate)) {
+    return { ok: false, reason: 'invalidCalendarAssignment' }
+  }
+  if (rawDoc._type !== undefined && rawDoc._type !== 'monthlyPublication') {
+    return { ok: false, reason: 'malformedDocument' }
+  }
+
+  const rawYearMonth = rawDoc.yearMonth
+  if (typeof rawYearMonth !== 'string' || !parseYearMonth(rawYearMonth)) {
+    return { ok: false, reason: 'invalidCalendarAssignment' }
+  }
+
+  const currentYearMonth = serverContext.authorizedLocalDate.slice(0, 7)
+  if (rawYearMonth >= currentYearMonth) {
+    return { ok: false, reason: 'embargoed' }
+  }
+
+  // Reject cross-namespace IDs (e.g. drafts.*, versions.*) on roster or slot references.
+  if (isPlainObject(rawDoc.rosterFinalization) && Array.isArray(rawDoc.rosterFinalization.finalizedChallengeIds)) {
+    for (const id of rawDoc.rosterFinalization.finalizedChallengeIds) {
+      if (hasNamespaceDelimiter(id)) {
+        return { ok: false, reason: 'draftDocument' }
+      }
+    }
+  }
+  if (Array.isArray(rawDoc.slots)) {
+    for (const slot of rawDoc.slots) {
+      if (!isPlainObject(slot)) continue
+      if (hasNamespaceDelimiter(slot.rawChallengeRef)) {
+        return { ok: false, reason: 'draftDocument' }
+      }
+      if (isPlainObject(slot.challenge)) {
+        if (hasNamespaceDelimiter(slot.challenge._id) || hasNamespaceDelimiter(slot.challenge._ref)) {
+          return { ok: false, reason: 'draftDocument' }
+        }
+      }
+    }
+  }
+
+  const detailResult = validateAndProjectMonthDetail(rawDoc, rawYearMonth, serverContext, options)
+  if (!detailResult.ok) {
+    return detailResult
+  }
+
+  const m = detailResult.document.month
+  if (m.phase !== 'historical') {
+    return { ok: false, reason: 'embargoed' }
+  }
+
+  // Library index cover URLs must strictly match the Sanity asset CDN for this project/dataset.
+  if (m.coverImage) {
+    const cdnCheck = sanitizeCardArtworkUrl({ url: m.coverImage.url }, options)
+    if (!cdnCheck.ok) {
+      return { ok: false, reason: 'malformedDocument' }
+    }
+  }
+
+  return {
+    ok: true,
+    document: {
+      yearMonth: m.monthId,
+      year: m.year,
+      month: m.month,
+      title: m.title,
+      ...(m.subtitle ? { subtitle: m.subtitle } : {}),
+      ...(m.coverImage ? { coverImage: m.coverImage } : {}),
     },
   }
 }
