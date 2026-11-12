@@ -4,13 +4,11 @@ import { handleGatewayRequest } from '../../src/gateway/handler.ts'
 import type { GatewayEnv } from '../../src/gateway/types.ts'
 import {
   createNewsGatewayProvider,
-  detectReaderTimeZone,
   isValidCivilDate,
   isValidIanaTimeZone,
   isValidSanityCdnCoverUrl,
   parseNewsFeedResponse,
   resolveReaderTimeZone,
-  type NewsArticle,
 } from '../../src/cms/reader/newsProvider.ts'
 
 const TEST_GATEWAY_ENV: GatewayEnv = {
