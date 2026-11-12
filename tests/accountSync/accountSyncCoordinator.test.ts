@@ -5,6 +5,7 @@ import {
   coordinateGuestSync,
   createMockAuthorizedAccountTransport,
   GuestToAccountSyncCoordinator,
+  isAccountEmpty,
   maskAccountId,
   parseAccountId,
   sanitizeLogMessage,
@@ -208,6 +209,194 @@ describe('R13-1 Guest-to-Account Sync Orchestration', () => {
     assert.ok(merged.data.completedChallenges[c2])
     // Existing shelf won over guest shelf
     assert.equal(merged.data.shelf?.months[0]?.yearMonth, ym202611)
+  })
+
+  test('auto mode selects existingAccountMerge when existing account has explicitly empty shelf ({ months: [] }), preserving account shelf precedence over guest shelf', async () => {
+    const transport = createMockAuthorizedAccountTransport()
+    const existingAccountWithEmptyShelf: ProposedAccountParticipationEnvelope = {
+      schemaVersion: 1,
+      accountId: ACCT_A,
+      namespace: 'cms',
+      revision: 2,
+      data: {
+        completedChallenges: {},
+        inProgressChallenges: {},
+        savedChallenges: {},
+        savedScriptures: [],
+        lastOpenedChallenge: null,
+        earnedAwards: {},
+        shelf: {
+          months: [],
+        },
+      },
+    }
+    transport.seedAccount(existingAccountWithEmptyShelf)
+
+    const guestEnvelope = makeGuestWithRecords()
+    const accessor = new TestGuestStorageAccessor({
+      envelope: guestEnvelope,
+      shelf: {
+        months: [{ yearMonth: parsePublicationYearMonth('2026-10')!, admissionKind: 'readerSelected' }],
+      },
+    })
+
+    const outcome = await coordinateGuestSync(transport, {
+      session: { accountId: ACCT_A },
+      guest: accessor,
+      mode: 'auto',
+    })
+
+    assert.equal(outcome.ok, true)
+    assert.equal(outcome.status, 'committed')
+    assert.equal(outcome.mode, 'existingAccountMerge')
+    assert.equal(outcome.committedRevision, 3)
+    assert.equal(outcome.guestCleared, true)
+    assert.equal(accessor.clearCount, 1)
+
+    // Stored account must retain the authoritative empty shelf
+    const stored = transport.getStoredAccount(ACCT_A)!
+    assert.ok(stored.data.shelf)
+    assert.equal(stored.data.shelf.months.length, 0)
+    // Underlying guest accomplishments must be preserved and merged
+    assert.ok(stored.data.completedChallenges[c1])
+    assert.ok(stored.data.inProgressChallenges[c2])
+    assert.ok(stored.data.savedChallenges[c3])
+    assert.equal(stored.data.savedScriptures.length, 1)
+    assert.ok(stored.data.earnedAwards[awardThematic])
+
+    // Shelf conflict was detected and guest month preserved in library not on shelf
+    assert.ok(outcome.reconciliation)
+    assert.equal(outcome.reconciliation.shelfConflicts.length, 1)
+    assert.equal(outcome.reconciliation.shelfConflicts[0]?.yearMonth, parsePublicationYearMonth('2026-10')!)
+    assert.equal(outcome.reconciliation.shelfConflicts[0]?.disposition, 'preservedInLibraryNotOnShelf')
+  })
+
+  test('auto mode selects newAccountTransfer when existing account has absent shelf and zero records, transferring guest shelf', async () => {
+    const transport = createMockAuthorizedAccountTransport()
+    const existingAccountWithAbsentShelf: ProposedAccountParticipationEnvelope = {
+      schemaVersion: 1,
+      accountId: ACCT_A,
+      namespace: 'cms',
+      revision: 1,
+      data: {
+        completedChallenges: {},
+        inProgressChallenges: {},
+        savedChallenges: {},
+        savedScriptures: [],
+        lastOpenedChallenge: null,
+        earnedAwards: {},
+        // shelf is undefined (absent)
+      },
+    }
+    transport.seedAccount(existingAccountWithAbsentShelf)
+
+    const guestEnvelope = makeGuestWithRecords()
+    const accessor = new TestGuestStorageAccessor({
+      envelope: guestEnvelope,
+      shelf: {
+        months: [{ yearMonth: parsePublicationYearMonth('2026-10')!, admissionKind: 'readerSelected' }],
+      },
+    })
+
+    const outcome = await coordinateGuestSync(transport, {
+      session: { accountId: ACCT_A },
+      guest: accessor,
+      mode: 'auto',
+    })
+
+    assert.equal(outcome.ok, true)
+    assert.equal(outcome.status, 'committed')
+    assert.equal(outcome.mode, 'newAccountTransfer')
+    assert.equal(outcome.committedRevision, 2)
+    assert.equal(outcome.guestCleared, true)
+
+    // Stored account adopts the guest shelf because existing account had absent shelf
+    const stored = transport.getStoredAccount(ACCT_A)!
+    assert.ok(stored.data.shelf)
+    assert.equal(stored.data.shelf.months.length, 1)
+    assert.equal(stored.data.shelf.months[0]?.yearMonth, parsePublicationYearMonth('2026-10')!)
+  })
+
+  test('explicit newAccountTransfer rejects existing account with explicitly empty shelf ({ months: [] })', async () => {
+    const transport = createMockAuthorizedAccountTransport()
+    transport.seedAccount({
+      schemaVersion: 1,
+      accountId: ACCT_A,
+      namespace: 'cms',
+      revision: 1,
+      data: {
+        completedChallenges: {},
+        inProgressChallenges: {},
+        savedChallenges: {},
+        savedScriptures: [],
+        lastOpenedChallenge: null,
+        earnedAwards: {},
+        shelf: {
+          months: [],
+        },
+      },
+    })
+
+    const accessor = new TestGuestStorageAccessor({ envelope: makeGuestWithRecords() })
+    const outcome = await coordinateGuestSync(
+      transport,
+      { session: { accountId: ACCT_A }, guest: accessor, mode: 'newAccountTransfer' },
+    )
+
+    assert.equal(outcome.ok, false)
+    assert.equal(outcome.status, 'reconciliationRejected')
+    assert.equal(outcome.guestCleared, false)
+    assert.equal(accessor.clearCount, 0)
+  })
+
+  test('isAccountEmpty correctly distinguishes explicit empty shelf from absent shelf and other preferences', () => {
+    const baseEnvelope: ProposedAccountParticipationEnvelope = {
+      schemaVersion: 1,
+      accountId: ACCT_A,
+      namespace: 'cms',
+      revision: 1,
+      data: {
+        completedChallenges: {},
+        inProgressChallenges: {},
+        savedChallenges: {},
+        savedScriptures: [],
+        lastOpenedChallenge: null,
+        earnedAwards: {},
+      },
+    }
+
+    // Absent shelf + zero records -> truly empty
+    assert.equal(isAccountEmpty(baseEnvelope), true)
+
+    // Explicit empty shelf -> NOT empty
+    const withEmptyShelf: ProposedAccountParticipationEnvelope = {
+      ...baseEnvelope,
+      data: {
+        ...baseEnvelope.data,
+        shelf: { months: [] },
+      },
+    }
+    assert.equal(isAccountEmpty(withEmptyShelf), false)
+
+    // Explicit empty shelf with active focus month -> NOT empty
+    const withFocusMonth: ProposedAccountParticipationEnvelope = {
+      ...baseEnvelope,
+      data: {
+        ...baseEnvelope.data,
+        shelf: { months: [], activeFocusMonth: ym202611 },
+      },
+    }
+    assert.equal(isAccountEmpty(withFocusMonth), false)
+
+    // Absent shelf but has 1 completed challenge -> NOT empty
+    const withCompletion: ProposedAccountParticipationEnvelope = {
+      ...baseEnvelope,
+      data: {
+        ...baseEnvelope.data,
+        completedChallenges: { [c1]: { completedOn: dNov01, dateProvenance: 'serverVerified' } },
+      },
+    }
+    assert.equal(isAccountEmpty(withCompletion), false)
   })
 
   test('duplicate submission with same idempotency key returns cached receipt without bumping revision or corrupting data', async () => {

@@ -114,6 +114,11 @@ export interface CoordinateGuestSyncOutcome {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Determines whether an account envelope is genuinely empty / uninitialized.
+ * An account with an explicit Shelf state (even if empty, e.g. `shelf: { months: [] }`)
+ * represents authoritative existing account configuration and is NOT considered empty.
+ */
 export function isAccountEmpty(envelope: ProposedAccountParticipationEnvelope): boolean {
   const data = envelope.data
   if (!data) return true
@@ -122,7 +127,7 @@ export function isAccountEmpty(envelope: ProposedAccountParticipationEnvelope): 
   const hasSavedChallenges = Object.keys(data.savedChallenges ?? {}).length > 0
   const hasSavedScriptures = (data.savedScriptures ?? []).length > 0
   const hasAwards = Object.keys(data.earnedAwards ?? {}).length > 0
-  const hasShelf = (data.shelf?.months ?? []).length > 0
+  const hasExplicitShelf = data.shelf !== undefined && data.shelf !== null
   const hasLastOpened = Boolean(data.lastOpenedChallenge)
   return (
     !hasCompleted &&
@@ -130,7 +135,7 @@ export function isAccountEmpty(envelope: ProposedAccountParticipationEnvelope): 
     !hasSavedChallenges &&
     !hasSavedScriptures &&
     !hasAwards &&
-    !hasShelf &&
+    !hasExplicitShelf &&
     !hasLastOpened
   )
 }
@@ -291,17 +296,21 @@ export async function coordinateGuestSync(
       expectedRevision = fetchRes.revision
     } else {
       // mode === 'auto'
-      if (fetchRes.status === 'notFound' || isAccountEmpty(fetchRes.envelope)) {
+      if (fetchRes.status === 'notFound') {
+        // Genuinely new/uninitialized account not yet present in remote storage
         effectiveMode = 'newAccountTransfer'
-        targetAccountEnvelope =
-          fetchRes.status === 'found'
-            ? fetchRes.envelope
-            : createEmptyAccountEnvelope({
-                accountId: validAccountId,
-                namespace: context?.expectedNamespace ?? 'cms',
-              })
-        expectedRevision = fetchRes.status === 'found' ? fetchRes.revision : 0
+        targetAccountEnvelope = createEmptyAccountEnvelope({
+          accountId: validAccountId,
+          namespace: context?.expectedNamespace ?? 'cms',
+        })
+        expectedRevision = 0
+      } else if (isAccountEmpty(fetchRes.envelope)) {
+        // Existing account envelope with absent shelf and zero participation records
+        effectiveMode = 'newAccountTransfer'
+        targetAccountEnvelope = fetchRes.envelope
+        expectedRevision = fetchRes.revision
       } else {
+        // Existing account with participation records or explicit shelf state (including explicit empty shelf)
         effectiveMode = 'existingAccountMerge'
         targetAccountEnvelope = fetchRes.envelope
         expectedRevision = fetchRes.revision

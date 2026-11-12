@@ -102,9 +102,9 @@ export async function coordinateGuestSync(
 3. **Idempotency key generation:** Allocates stable idempotency key for the sync attempt.
 4. **Remote account retrieval:** Queries transport for remote account state at revision $R$.
 5. **Mode adjudication:**
-   - `newAccountTransfer`: verifies remote account is empty or non-existent; initializes fresh envelope at revision 0.
+   - `newAccountTransfer`: verifies remote account is empty (zero participation records and absent Shelf) or non-existent; initializes fresh envelope at revision 0. Rejects existing accounts with prior records or explicit Shelf state.
    - `existingAccountMerge`: verifies remote account exists.
-   - `auto`: dynamically selects `newAccountTransfer` if target is empty, or `existingAccountMerge` if prior records exist.
+   - `auto`: dynamically distinguishes genuinely new accounts (not found in remote storage, or present with absent Shelf and zero records) from existing accounts. When an existing account holds an explicit Shelf state (including an explicitly empty Shelf `shelf: { months: [] }`), `auto` selects `existingAccountMerge` to guarantee account-first Shelf precedence per November 8 / R13-0 rules.
 6. **Pure reconciliation:** Executes `reconcileGuestIntoAccount` without side effects. If reconciliation fails closed (schema mismatch, cross-namespace claim), coordinator aborts and retains guest data.
 7. **Revision-aware commit:** Sends reconciled envelope with `expectedRevision: R`.
    - On revision conflict: re-fetches latest remote state, re-runs reconciliation, and re-submits up to `maxRetries` (default: 3).
@@ -148,26 +148,30 @@ Output:
 
 ```
 ▶ R13-1 Guest-to-Account Sync Orchestration
-  ✔ first-account creation (newAccountTransfer) moves accomplishments and safely clears guest storage (9.580947ms)
-  ✔ existing-account merge combines accomplishments, preserves existing account shelf, and advances revision (1.700224ms)
-  ✔ duplicate submission with same idempotency key returns cached receipt without bumping revision or corrupting data (3.142252ms)
-  ✔ idempotency key reuse with differing payload rejects with conflict without mutating account (2.794754ms)
-  ✔ concurrent revision conflict automatically re-merges and succeeds on retry (1.481268ms)
-  ✔ persistent conflict exceeding maxRetries stops and preserves guest records intact (1.434533ms)
-  ✔ network failure during commit retries and recovers when retry succeeds (1.149338ms)
-  ✔ permanent network failure returns recoverable networkError and leaves guest data intact (0.500291ms)
-  ✔ authorization failure halts immediately without retries and preserves guest records (0.897576ms)
-  ✔ invalid session account ID fails closed with zero transport calls (0.295955ms)
-  ✔ target account with prior data rejects explicit newAccountTransfer and preserves guest data (0.466838ms)
-  ✔ local in-flight mutation blocks guest clearance even after successful remote commit (1.52816ms)
-  ✔ unresolved reconciliation items unpersisted on server blocks guest clearance (1.000778ms)
-  ✔ abort signal immediately cancels sync and preserves guest records (0.414962ms)
-  ✔ privacy & security: no account IDs, UUIDs, or tokens leak into logged messages (0.858265ms)
-  ✔ strict dependency isolation: src/accountSync/** contains zero browser, react, capacitor, or node dependencies (1.24778ms)
-✔ R13-1 Guest-to-Account Sync Orchestration (30.894803ms)
-ℹ tests 16
+  ✔ first-account creation (newAccountTransfer) moves accomplishments and safely clears guest storage (11.454295ms)
+  ✔ existing-account merge combines accomplishments, preserves existing account shelf, and advances revision (1.884763ms)
+  ✔ auto mode selects existingAccountMerge when existing account has explicitly empty shelf ({ months: [] }), preserving account shelf precedence over guest shelf (1.606773ms)
+  ✔ auto mode selects newAccountTransfer when existing account has absent shelf and zero records, transferring guest shelf (1.730766ms)
+  ✔ explicit newAccountTransfer rejects existing account with explicitly empty shelf ({ months: [] }) (0.525938ms)
+  ✔ isAccountEmpty correctly distinguishes explicit empty shelf from absent shelf and other preferences (0.234691ms)
+  ✔ duplicate submission with same idempotency key returns cached receipt without bumping revision or corrupting data (2.464455ms)
+  ✔ idempotency key reuse with differing payload rejects with conflict without mutating account (3.633472ms)
+  ✔ concurrent revision conflict automatically re-merges and succeeds on retry (1.642957ms)
+  ✔ persistent conflict exceeding maxRetries stops and preserves guest records intact (1.446142ms)
+  ✔ network failure during commit retries and recovers when retry succeeds (1.679421ms)
+  ✔ permanent network failure returns recoverable networkError and leaves guest data intact (0.42666ms)
+  ✔ authorization failure halts immediately without retries and preserves guest records (0.769974ms)
+  ✔ invalid session account ID fails closed with zero transport calls (0.196593ms)
+  ✔ target account with prior data rejects explicit newAccountTransfer and preserves guest data (0.472175ms)
+  ✔ local in-flight mutation blocks guest clearance even after successful remote commit (1.165228ms)
+  ✔ unresolved reconciliation items unpersisted on server blocks guest clearance (1.085783ms)
+  ✔ abort signal immediately cancels sync and preserves guest records (0.89782ms)
+  ✔ privacy & security: no account IDs, UUIDs, or tokens leak into logged messages (1.272824ms)
+  ✔ strict dependency isolation: src/accountSync/** contains zero browser, react, capacitor, or node dependencies (1.235761ms)
+✔ R13-1 Guest-to-Account Sync Orchestration (38.237014ms)
+ℹ tests 20
 ℹ suites 1
-ℹ pass 16
+ℹ pass 20
 ℹ fail 0
 ```
 
