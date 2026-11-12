@@ -52,7 +52,8 @@ const MAX_PROGRESS_CHALLENGE_IDS = 500
 const MAX_CHALLENGE_ID_LENGTH = 160
 const DEFAULT_LIBRARY_PAGE_SIZE = 12
 const MAX_LIBRARY_PAGE_SIZE = 24
-const MAX_LIBRARY_UPSTREAM_FETCH = 50
+const MAX_LIBRARY_SCAN_BATCH_SIZE = 25
+const MAX_LIBRARY_SCAN_ROUNDS = 4
 const SANITY_PROJECT_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/
 const SANITY_DATASET_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/
 const DISALLOWED_DATASETS = new Set(['berrymark-development'])
@@ -939,65 +940,111 @@ async function handleLibraryMonthsRequest(
   const currentYearMonth = serverContext.authorizedLocalDate.slice(0, 7)
   const upperBoundYearMonth =
     cursor && cursor < currentYearMonth ? cursor : currentYearMonth
-  const fetchLimit = Math.min(limit * 2 + 1, MAX_LIBRARY_UPSTREAM_FETCH)
+  const batchSize = Math.min(Math.max(limit * 2 + 1, 5), MAX_LIBRARY_SCAN_BATCH_SIZE)
 
   const fetchImpl = options.fetchImpl ?? fetch
-  const upstreamUrl = buildSanityQueryUrl(
-    env.SANITY_PROJECT_ID.trim(),
-    env.SANITY_DATASET.trim(),
-    env.SANITY_API_VERSION,
-    LIBRARY_MONTHS_GROQ_QUERY,
-    {
-      $upperBoundYearMonth: upperBoundYearMonth,
-      $fetchLimit: fetchLimit,
-    },
-  )
-
-  const upstream = await fetchSanityQueryResult(upstreamUrl, env, fetchImpl, corsHeaders)
-  if (!upstream.ok) {
-    return upstream.response
-  }
-
-  if (!Array.isArray(upstream.result)) {
-    return errorResponse(
-      'upstreamError',
-      'Upstream content service unavailable',
-      502,
-      corsHeaders,
-    )
-  }
-
   const byYearMonth = new Map<string, GatewayLibraryMonthSummary>()
   const projectionOptions = {
     sanityProjectId: env.SANITY_PROJECT_ID.trim(),
     sanityDataset: env.SANITY_DATASET.trim(),
   }
 
-  for (const rawItem of upstream.result) {
-    const projected = validateAndProjectLibraryMonthSummary(
-      rawItem,
-      serverContext,
-      projectionOptions,
+  let scanUpperBound = upperBoundYearMonth
+  let upstreamExhausted = false
+  let round = 0
+
+  while (round < MAX_LIBRARY_SCAN_ROUNDS) {
+    round += 1
+    const upstreamUrl = buildSanityQueryUrl(
+      env.SANITY_PROJECT_ID.trim(),
+      env.SANITY_DATASET.trim(),
+      env.SANITY_API_VERSION,
+      LIBRARY_MONTHS_GROQ_QUERY,
+      {
+        $upperBoundYearMonth: scanUpperBound,
+        $fetchLimit: batchSize,
+      },
     )
-    if (!projected.ok) {
-      continue
+
+    const upstream = await fetchSanityQueryResult(upstreamUrl, env, fetchImpl, corsHeaders)
+    if (!upstream.ok) {
+      return upstream.response
     }
-    const summary = projected.document
-    if (summary.yearMonth >= upperBoundYearMonth) {
-      continue
+
+    if (!Array.isArray(upstream.result)) {
+      return errorResponse(
+        'upstreamError',
+        'Upstream content service unavailable',
+        502,
+        corsHeaders,
+      )
     }
-    if (!byYearMonth.has(summary.yearMonth)) {
-      byYearMonth.set(summary.yearMonth, summary)
+
+    const batch = upstream.result
+    let minBatchYearMonth: string | null = null
+
+    for (const rawItem of batch) {
+      if (
+        isPlainObject(rawItem) &&
+        typeof rawItem.yearMonth === 'string' &&
+        parseYearMonth(rawItem.yearMonth) &&
+        rawItem.yearMonth < scanUpperBound
+      ) {
+        if (minBatchYearMonth === null || rawItem.yearMonth < minBatchYearMonth) {
+          minBatchYearMonth = rawItem.yearMonth
+        }
+      }
+
+      const projected = validateAndProjectLibraryMonthSummary(
+        rawItem,
+        serverContext,
+        projectionOptions,
+      )
+      if (!projected.ok) {
+        continue
+      }
+      const summary = projected.document
+      if (summary.yearMonth >= upperBoundYearMonth) {
+        continue
+      }
+      if (!byYearMonth.has(summary.yearMonth)) {
+        byYearMonth.set(summary.yearMonth, summary)
+      }
     }
+
+    if (byYearMonth.size > limit) {
+      break
+    }
+
+    if (batch.length < batchSize || minBatchYearMonth === null) {
+      upstreamExhausted = true
+      break
+    }
+
+    scanUpperBound = minBatchYearMonth
   }
 
   const sortedItems = Array.from(byYearMonth.values()).sort((a, b) =>
     a.yearMonth > b.yearMonth ? -1 : a.yearMonth < b.yearMonth ? 1 : 0,
   )
 
-  const hasMore = sortedItems.length > limit
+  const hasMoreValidFound = sortedItems.length > limit
   const items = sortedItems.slice(0, limit)
-  const nextCursor = hasMore && items.length > 0 ? items[items.length - 1].yearMonth : null
+
+  let hasMore: boolean
+  let nextCursor: string | null
+
+  if (hasMoreValidFound) {
+    hasMore = true
+    nextCursor = items[items.length - 1].yearMonth
+  } else if (upstreamExhausted) {
+    hasMore = false
+    nextCursor = null
+  } else {
+    // Bounded scan limit reached before exhausting upstream; return honest continuation cursor.
+    hasMore = true
+    nextCursor = scanUpperBound
+  }
 
   return jsonResponse(
     {

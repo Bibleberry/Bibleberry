@@ -652,25 +652,46 @@ export function createGatewayLibraryMonthIndexProvider(
       }
     }
 
-    if (items.length === 0) {
-      if (page.hasMore || page.nextCursor !== null) {
+    if (page.hasMore) {
+      if (page.nextCursor === null) {
         return {
           status: 'validationError',
-          message: 'Empty Library index page must not indicate hasMore or nextCursor',
-          issues: ['page: Expected hasMore=false and nextCursor=null when items is empty.'],
+          message: 'Gateway pagination hasMore=true requires a non-null nextCursor',
+          issues: ['page.nextCursor: Expected YYYY-MM cursor when hasMore=true.'],
           source: 'gateway',
         }
       }
-    } else if (page.hasMore) {
-      const lastYearMonth = items[items.length - 1].yearMonth
-      if (page.nextCursor !== lastYearMonth) {
+      if (page.nextCursor >= currentYearMonth) {
         return {
           status: 'validationError',
-          message: 'Gateway pagination nextCursor does not match last returned month',
+          message: 'Gateway pagination nextCursor must remain strictly historical',
           issues: [
-            `page.nextCursor: Expected "${lastYearMonth}", received "${String(page.nextCursor)}".`,
+            `page.nextCursor: "${page.nextCursor}" must be strictly earlier than "${currentYearMonth}".`,
           ],
           source: 'gateway',
+        }
+      }
+      if (requestedCursor !== undefined && page.nextCursor >= requestedCursor) {
+        return {
+          status: 'validationError',
+          message: 'Gateway pagination nextCursor did not advance past requested cursor',
+          issues: [
+            `page.nextCursor: "${page.nextCursor}" must be strictly earlier than requested cursor "${requestedCursor}".`,
+          ],
+          source: 'gateway',
+        }
+      }
+      if (items.length > 0) {
+        const lastYearMonth = items[items.length - 1].yearMonth
+        if (page.nextCursor > lastYearMonth) {
+          return {
+            status: 'validationError',
+            message: 'Gateway pagination nextCursor cannot follow a month newer than last returned item',
+            issues: [
+              `page.nextCursor: "${page.nextCursor}" must be <= last item "${lastYearMonth}".`,
+            ],
+            source: 'gateway',
+          }
         }
       }
     } else if (page.nextCursor !== null) {

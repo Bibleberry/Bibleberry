@@ -141,6 +141,29 @@ test('returns typed empty outcome when no historical months exist', async () => 
     assert.deepEqual(res.page, { limit: 12, hasMore: false, nextCursor: null })
     assert.equal(res.source, 'gateway')
   }
+
+  // Honest continuation when bounded gateway scan hits limit with 0 valid items in first window
+  const continuationProvider = createGatewayLibraryMonthIndexProvider({
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify(
+          makeIndexResponsePayload({
+            authorizedLocalDate: '2026-12-10',
+            items: [],
+            limit: 2,
+            hasMore: true,
+            nextCursor: '2025-04',
+          }),
+        ),
+        { status: 200 },
+      ),
+  })
+  const contRes = await continuationProvider.loadHistoricalMonths({ limit: 2 })
+  assert.equal(contRes.status, 'empty')
+  if (contRes.status === 'empty') {
+    assert.deepEqual(contRes.items, [])
+    assert.deepEqual(contRes.page, { limit: 2, hasMore: true, nextCursor: '2025-04' })
+  }
 })
 
 test('rejects invalid pagination params, Sanity API URLs, and cross-origin browser URLs with zero network calls', async () => {
@@ -298,18 +321,43 @@ test('rejects untrusted JSON, embedded hidden fields, current/future months, arb
       }),
     },
     {
-      label: 'mismatched nextCursor',
+      label: 'mismatched nextCursor (newer than last returned item)',
       payload: makeIndexResponsePayload({
         hasMore: true,
-        nextCursor: '2026-01',
+        nextCursor: '2026-10',
       }),
     },
     {
-      label: 'empty page with hasMore=true',
+      label: 'hasMore=true with nextCursor=null',
+      payload: makeIndexResponsePayload({
+        hasMore: true,
+        nextCursor: null,
+      }),
+    },
+    {
+      label: 'empty page with hasMore=true and nextCursor=null',
       payload: makeIndexResponsePayload({
         items: [],
         hasMore: true,
-        nextCursor: '2026-10',
+        nextCursor: null,
+      }),
+    },
+    {
+      label: 'empty page with hasMore=true and non-historical nextCursor',
+      payload: makeIndexResponsePayload({
+        authorizedLocalDate: '2026-11-15',
+        items: [],
+        hasMore: true,
+        nextCursor: '2026-11',
+      }),
+    },
+    {
+      label: 'empty page with hasMore=true and nextCursor not advancing past requested cursor',
+      cursor: '2026-05',
+      payload: makeIndexResponsePayload({
+        items: [],
+        hasMore: true,
+        nextCursor: '2026-05',
       }),
     },
   ]

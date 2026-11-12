@@ -921,3 +921,208 @@ test('fails closed on Sanity upstream errors, disallowed datasets, and unsupport
     }
   }
 })
+
+test('sparse-valid-month pagination discovers older valid months past >2*limit+1 consecutive invalid candidates without duplicates or skips', async () => {
+  // 6 consecutive invalid months (2026-11..2026-06) followed by 3 valid older months (2026-05..2026-03)
+  const invalidMonths = ['2026-11', '2026-10', '2026-09', '2026-08', '2026-07', '2026-06'].map(
+    ym =>
+      makeMonthlyPublicationDoc(ym, {
+        rosterFinalization: {
+          isFinalized: false,
+          rosterVersion: 1,
+          finalizedChallengeIds: [],
+        },
+        title: `INVALID_SPARSE_${ym}`,
+      }),
+  )
+  const validMonths = ['2026-05', '2026-04', '2026-03'].map(ym => makeMonthlyPublicationDoc(ym))
+  const allDocs = [...invalidMonths, ...validMonths]
+
+  const mockFetch = createMockFetch(url => {
+    const upperBound = JSON.parse(url.searchParams.get('$upperBoundYearMonth') ?? '""') as string
+    const fetchLimit = JSON.parse(url.searchParams.get('$fetchLimit') ?? '12') as number
+    const sliced = allDocs
+      .filter(d => d.yearMonth < upperBound)
+      .sort((a, b) => (a.yearMonth > b.yearMonth ? -1 : a.yearMonth < b.yearMonth ? 1 : 0))
+      .slice(0, fetchLimit)
+    return new Response(JSON.stringify({ result: sliced }), { status: 200 })
+  })
+
+  const now = () => new Date('2026-12-10T12:00:00.000Z')
+
+  // limit=2: 6 consecutive invalid months exceed 2*limit+1 (5); must still discover 2026-05 & 2026-04
+  const page1Res = await handleGatewayRequest(
+    new Request('http://localhost/api/library/months?limit=2'),
+    TEST_ENV,
+    { getNow: now, fetchImpl: mockFetch },
+  )
+  assert.equal(page1Res.status, 200)
+  const page1Text = await page1Res.text()
+  assert.equal(page1Text.includes('INVALID_SPARSE_'), false)
+  const page1 = JSON.parse(page1Text) as {
+    items: Array<{ yearMonth: string }>
+    page: { limit: number; hasMore: boolean; nextCursor: string | null }
+  }
+  assert.deepEqual(
+    page1.items.map(i => i.yearMonth),
+    ['2026-05', '2026-04'],
+  )
+  assert.equal(page1.page.hasMore, true)
+  assert.equal(page1.page.nextCursor, '2026-04')
+
+  const page2Res = await handleGatewayRequest(
+    new Request(`http://localhost/api/library/months?limit=2&cursor=${page1.page.nextCursor}`),
+    TEST_ENV,
+    { getNow: now, fetchImpl: mockFetch },
+  )
+  assert.equal(page2Res.status, 200)
+  const page2 = (await page2Res.json()) as typeof page1
+  assert.deepEqual(
+    page2.items.map(i => i.yearMonth),
+    ['2026-03'],
+  )
+  assert.equal(page2.page.hasMore, false)
+  assert.equal(page2.page.nextCursor, null)
+})
+
+test('bounded scan limit returns honest continuation cursor without claiming end-of-catalogue and terminates on entirely invalid catalogues', async () => {
+  // Build 22 consecutive invalid months (2026-11 down to 2025-02) followed by 2 valid older months (2025-01, 2024-12)
+  const invalidMonths: ReturnType<typeof makeMonthlyPublicationDoc>[] = []
+  let y = 2026
+  let m = 11
+  for (let i = 0; i < 22; i++) {
+    const ym = `${y}-${String(m).padStart(2, '0')}`
+    invalidMonths.push(
+      makeMonthlyPublicationDoc(ym, {
+        withdrawn: false,
+        editorialReview: { reviewerRole: 'technical_synthetic' }, // unreviewed
+        title: `INVALID_SCAN_LIMIT_${ym}`,
+      }),
+    )
+    m -= 1
+    if (m === 0) {
+      y -= 1
+      m = 12
+    }
+  }
+  const validOlder = [makeMonthlyPublicationDoc('2025-01'), makeMonthlyPublicationDoc('2024-12')]
+  const docsWithOlder = [...invalidMonths, ...validOlder]
+
+  let upstreamCalls = 0
+  const mockWithOlder = createMockFetch(url => {
+    upstreamCalls += 1
+    const upperBound = JSON.parse(url.searchParams.get('$upperBoundYearMonth') ?? '""') as string
+    const fetchLimit = JSON.parse(url.searchParams.get('$fetchLimit') ?? '12') as number
+    const sliced = docsWithOlder
+      .filter(d => d.yearMonth < upperBound)
+      .sort((a, b) => (a.yearMonth > b.yearMonth ? -1 : a.yearMonth < b.yearMonth ? 1 : 0))
+      .slice(0, fetchLimit)
+    return new Response(JSON.stringify({ result: sliced }), { status: 200 })
+  })
+
+  const now = () => new Date('2026-12-10T12:00:00.000Z')
+
+  // Request 1: hits bounded scan limit (4 rounds * 5 = 20 scanned), must return hasMore=true and honest nextCursor
+  const res1 = await handleGatewayRequest(
+    new Request('http://localhost/api/library/months?limit=2'),
+    TEST_ENV,
+    { getNow: now, fetchImpl: mockWithOlder },
+  )
+  assert.equal(res1.status, 200)
+  assert.equal(upstreamCalls, 4)
+  const text1 = await res1.text()
+  assert.equal(text1.includes('INVALID_SCAN_LIMIT_'), false)
+  const body1 = JSON.parse(text1) as {
+    items: Array<{ yearMonth: string }>
+    page: { limit: number; hasMore: boolean; nextCursor: string | null }
+  }
+  assert.deepEqual(body1.items, [])
+  assert.equal(body1.page.hasMore, true)
+  assert.equal(body1.page.nextCursor, '2025-04')
+
+  // Request 2 with continuation cursor discovers 2025-01 & 2024-12 and establishes true end-of-catalogue
+  upstreamCalls = 0
+  const res2 = await handleGatewayRequest(
+    new Request(`http://localhost/api/library/months?limit=2&cursor=${body1.page.nextCursor}`),
+    TEST_ENV,
+    { getNow: now, fetchImpl: mockWithOlder },
+  )
+  assert.equal(res2.status, 200)
+  assert.equal(upstreamCalls, 1)
+  const body2 = (await res2.json()) as typeof body1
+  assert.deepEqual(
+    body2.items.map(i => i.yearMonth),
+    ['2025-01', '2024-12'],
+  )
+  assert.equal(body2.page.hasMore, false)
+  assert.equal(body2.page.nextCursor, null)
+
+  // Entirely invalid catalogue terminates cleanly with bounded work and eventual exhaustion
+  const mockAllInvalid = createMockFetch(url => {
+    const upperBound = JSON.parse(url.searchParams.get('$upperBoundYearMonth') ?? '""') as string
+    const fetchLimit = JSON.parse(url.searchParams.get('$fetchLimit') ?? '12') as number
+    const sliced = invalidMonths
+      .filter(d => d.yearMonth < upperBound)
+      .sort((a, b) => (a.yearMonth > b.yearMonth ? -1 : a.yearMonth < b.yearMonth ? 1 : 0))
+      .slice(0, fetchLimit)
+    return new Response(JSON.stringify({ result: sliced }), { status: 200 })
+  })
+
+  let cursor: string | null = null
+  let iterations = 0
+  while (iterations < 5) {
+    iterations += 1
+    const url = cursor
+      ? `http://localhost/api/library/months?limit=2&cursor=${cursor}`
+      : 'http://localhost/api/library/months?limit=2'
+    const res = await handleGatewayRequest(new Request(url), TEST_ENV, {
+      getNow: now,
+      fetchImpl: mockAllInvalid,
+    })
+    assert.equal(res.status, 200)
+    const body = (await res.json()) as typeof body1
+    assert.deepEqual(body.items, [])
+    if (!body.page.hasMore) {
+      assert.equal(body.page.nextCursor, null)
+      break
+    }
+    assert.ok(body.page.nextCursor)
+    cursor = body.page.nextCursor
+  }
+  assert.equal(iterations, 2)
+})
+
+test('deduplicates colliding/duplicate month documents without duplicating valid months or skipping', async () => {
+  const validOct = makeMonthlyPublicationDoc('2026-10')
+  const draftOct = makeMonthlyPublicationDoc('2026-10', {
+    _id: 'drafts.month-2026-10',
+    title: 'DRAFT_COLLISION_2026_10',
+  })
+  const duplicateValidOct = makeMonthlyPublicationDoc('2026-10')
+  const validSep = makeMonthlyPublicationDoc('2026-09')
+
+  const mockFetch = createMockFetch(() =>
+    new Response(JSON.stringify({ result: [draftOct, validOct, duplicateValidOct, validSep] }), {
+      status: 200,
+    }),
+  )
+
+  const res = await handleGatewayRequest(
+    new Request('http://localhost/api/library/months?limit=2'),
+    TEST_ENV,
+    { getNow: () => new Date('2026-11-15T12:00:00.000Z'), fetchImpl: mockFetch },
+  )
+  assert.equal(res.status, 200)
+  const text = await res.text()
+  assert.equal(text.includes('DRAFT_COLLISION_2026_10'), false)
+  const body = JSON.parse(text) as {
+    items: Array<{ yearMonth: string }>
+    page: { hasMore: boolean; nextCursor: string | null }
+  }
+  assert.deepEqual(
+    body.items.map(i => i.yearMonth),
+    ['2026-10', '2026-09'],
+  )
+  assert.equal(body.page.hasMore, false)
+  assert.equal(body.page.nextCursor, null)
+})
