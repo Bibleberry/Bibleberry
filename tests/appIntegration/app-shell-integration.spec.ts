@@ -6,7 +6,6 @@ import { fileURLToPath } from 'node:url'
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const PROTOTYPE_STORAGE_KEY = 'bibleberry-prototype-v1'
 const PARTICIPATION_STORAGE_KEY = 'bibleberry-reader-participation-v1'
-const PREFS_STORAGE_KEY = 'bibleberry-card-announcement-prefs-v1'
 
 const TINY_PNG_BUFFER = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aW0cAAAAASUVORK5CYII=',
