@@ -2,11 +2,14 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   createCapacitorLifecycleEventSource,
+  createAppLifecyclePluginFacade,
   type CapacitorAppLifecycleListenerHandle,
+  type CapacitorAppLifecycleModule,
   type CapacitorAppLifecyclePlugin,
   type CapacitorAppLifecycleState,
 } from '../../src/native/capacitorLifecycleSource.ts'
 import { createLifecycleEventAdapter, type AppLifecycleEvent } from '../../src/native/lifecycleAdapter.ts'
+import { createNativeLifecycleEvents } from '../../src/native/lifecycleService.ts'
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -215,4 +218,381 @@ test('contains plugin registration and initial-state errors', async () => {
   await flushMicrotasks()
   assert.doesNotThrow(() => unsubscribeRetried())
   assert.equal(attempts, 2)
+})
+
+function createCapacitorAppRegisterPluginProxy(
+  initialState: CapacitorAppLifecycleState = { isActive: true },
+  options: { readonly suppressThenUnhandledForControl?: boolean } = {},
+) {
+  let thenAccessCount = 0
+  const unimplementedErrors: string[] = []
+  const methodCalls: string[] = []
+  const listeners = new Set<(state: CapacitorAppLifecycleState) => void>()
+  let removals = 0
+  let state = initialState
+
+  const proxy = new Proxy({} as CapacitorAppLifecyclePlugin, {
+    get(_target, prop) {
+      if (prop === '$$typeof') return undefined
+      if (prop === 'toJSON') return () => ({})
+      if (prop === 'addListener') {
+        return (eventName: 'appStateChange', listener: (next: CapacitorAppLifecycleState) => void) => {
+          methodCalls.push('addListener')
+          assert.equal(eventName, 'appStateChange')
+          listeners.add(listener)
+          return Promise.resolve({
+            remove() {
+              removals += 1
+              listeners.delete(listener)
+            },
+          })
+        }
+      }
+      if (prop === 'getState') {
+        return () => {
+          methodCalls.push('getState')
+          return Promise.resolve(state)
+        }
+      }
+      if (prop === 'then') {
+        thenAccessCount += 1
+      }
+      const methodName = String(prop)
+      return () => {
+        const message = `"App.${methodName}()" is not implemented on ios`
+        unimplementedErrors.push(message)
+        const rejected = Promise.reject(new Error(message))
+        if (options.suppressThenUnhandledForControl) {
+          rejected.catch(() => {})
+        }
+        return rejected
+      }
+    },
+  })
+
+  return {
+    proxy,
+    emit(isActive: boolean) {
+      state = { isActive }
+      for (const listener of [...listeners]) listener(state)
+    },
+    get thenAccessCount() {
+      return thenAccessCount
+    },
+    get unimplementedErrors() {
+      return unimplementedErrors
+    },
+    get methodCalls() {
+      return methodCalls
+    },
+    get removals() {
+      return removals
+    },
+    get activeListenerCount() {
+      return listeners.size
+    },
+  }
+}
+
+test('Capacitor registerPlugin-style Proxy triggers thenable trap when returned directly, and module-container loader avoids Proxy.then across full lifecycle', async () => {
+  const control = createCapacitorAppRegisterPluginProxy(
+    { isActive: true },
+    { suppressThenUnhandledForControl: true },
+  )
+
+  // Reproduce the defect: returning the Capacitor Proxy directly from `.then(...)` / `async`
+  // reads `Proxy.then`, triggers `"App.then()" is not implemented on ios`, and leaves the
+  // outer Promise permanently pending before `addListener` or `getState` can run.
+  const settledOrTimedOut = await Promise.race([
+    Promise.resolve({ App: control.proxy })
+      .then(module => module.App)
+      .then(() => 'settled', () => 'rejected'),
+    new Promise<string>(resolve => setTimeout(() => resolve('hung-pending'), 20)),
+  ])
+  assert.equal(settledOrTimedOut, 'hung-pending')
+  assert.equal(control.thenAccessCount, 1)
+  assert.deepEqual(control.unimplementedErrors, ['"App.then()" is not implemented on ios'])
+  assert.deepEqual(control.methodCalls, [])
+
+  // Fixed boundary via module-container seam (`loadAppPluginModule`) + plain facade.
+  const strict = createCapacitorAppRegisterPluginProxy({ isActive: true })
+  const lifecycle = createNativeLifecycleEvents({
+    isNativePlatform: () => true,
+    loadAppPluginModule: async () => ({ App: strict.proxy }),
+  })
+  const received: AppLifecycleEvent[] = []
+
+  const unsubscribe = lifecycle.subscribe(event => received.push(event))
+  await flushMicrotasks()
+
+  assert.equal(strict.thenAccessCount, 0)
+  assert.deepEqual(strict.unimplementedErrors, [])
+  assert.deepEqual(strict.methodCalls, ['addListener', 'getState'])
+  assert.equal(strict.activeListenerCount, 1)
+  assert.deepEqual(received, [])
+
+  strict.emit(false)
+  strict.emit(false)
+  strict.emit(true)
+  strict.emit(true)
+  assert.deepEqual(received, ['background', 'foreground'])
+
+  unsubscribe()
+  assert.equal(strict.removals, 1)
+  assert.equal(strict.activeListenerCount, 0)
+
+  strict.emit(false)
+  assert.deepEqual(received, ['background', 'foreground'])
+  assert.equal(strict.thenAccessCount, 0)
+
+  // Direct facade helper also wraps a Proxy without reading `.then`.
+  const facade = createAppLifecyclePluginFacade(strict.proxy)
+  assert.equal('then' in facade, false)
+  assert.equal(strict.thenAccessCount, 0)
+})
+
+test('default @capacitor/app dynamic loader in createNativeLifecycleEvents works on native without Proxy.then assimilation and stays a no-op on web', async () => {
+  const webEvents = createNativeLifecycleEvents()
+  const webReceived: AppLifecycleEvent[] = []
+  const unsubscribeWeb = webEvents.subscribe(event => webReceived.push(event))
+  await flushMicrotasks()
+  unsubscribeWeb()
+  assert.deepEqual(webReceived, [])
+
+  const listeners = new Map<string, Set<() => void>>()
+  const docState = { hidden: false }
+  const visibilityListenerRegistered = deferred<void>()
+  const originalDocumentDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'document')
+  const originalNavigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
+
+  Object.defineProperty(globalThis, 'document', {
+    configurable: true,
+    writable: true,
+    value: {
+      get hidden() {
+        return docState.hidden
+      },
+      addEventListener(type: string, cb: () => void) {
+        if (!listeners.has(type)) listeners.set(type, new Set())
+        listeners.get(type)!.add(cb)
+        if (type === 'visibilitychange') visibilityListenerRegistered.resolve()
+      },
+      removeEventListener(type: string, cb: () => void) {
+        listeners.get(type)?.delete(cb)
+      },
+    },
+  })
+  Object.defineProperty(globalThis, 'navigator', {
+    configurable: true,
+    writable: true,
+    value: { language: 'en-US' },
+  })
+
+  try {
+    const nativeEvents = createNativeLifecycleEvents({ isNativePlatform: () => true })
+    const received: AppLifecycleEvent[] = []
+    const unsubscribe = nativeEvents.subscribe(event => received.push(event))
+    await visibilityListenerRegistered.promise
+    await new Promise(resolve => setTimeout(resolve, 10))
+    await flushMicrotasks()
+
+    const fireVisibilityChange = (hidden: boolean) => {
+      docState.hidden = hidden
+      for (const cb of [...(listeners.get('visibilitychange') ?? [])]) cb()
+    }
+
+    assert.deepEqual(received, [])
+    fireVisibilityChange(true)
+    fireVisibilityChange(true)
+    fireVisibilityChange(false)
+    assert.deepEqual(received, ['background', 'foreground'])
+
+    unsubscribe()
+    await flushMicrotasks()
+    fireVisibilityChange(true)
+    assert.deepEqual(received, ['background', 'foreground'])
+  } finally {
+    if (originalDocumentDescriptor) {
+      Object.defineProperty(globalThis, 'document', originalDocumentDescriptor)
+    } else {
+      Reflect.deleteProperty(globalThis, 'document')
+    }
+    if (originalNavigatorDescriptor) {
+      Object.defineProperty(globalThis, 'navigator', originalNavigatorDescriptor)
+    } else {
+      Reflect.deleteProperty(globalThis, 'navigator')
+    }
+  }
+})
+
+test('contains sync/async module load failures and invalid plugin shapes and recovers on retry', async () => {
+  const strict = createCapacitorAppRegisterPluginProxy({ isActive: true })
+  let attempt = 0
+  const source = createCapacitorLifecycleEventSource({
+    isNativePlatform: () => true,
+    loadAppPluginModule: () => {
+      attempt += 1
+      if (attempt === 1) throw new Error('Sync import failure')
+      if (attempt === 2) return Promise.reject(new Error('Async import failure'))
+      if (attempt === 3) return Promise.resolve({} as CapacitorAppLifecycleModule)
+      return Promise.resolve({ App: strict.proxy })
+    },
+  })
+
+  const received: AppLifecycleEvent[] = []
+  for (let i = 0; i < 3; i += 1) {
+    const unsubscribe = source.subscribe(event => received.push(event))
+    await flushMicrotasks()
+    assert.doesNotThrow(() => unsubscribe())
+  }
+  assert.equal(attempt, 3)
+  assert.deepEqual(strict.methodCalls, [])
+
+  const unsubscribeRecovered = source.subscribe(event => received.push(event))
+  await flushMicrotasks()
+  strict.emit(false)
+  strict.emit(true)
+  unsubscribeRecovered()
+
+  assert.equal(attempt, 4)
+  assert.deepEqual(received, ['background', 'foreground'])
+  assert.equal(strict.thenAccessCount, 0)
+  assert.equal(strict.removals, 1)
+})
+
+test('handles asynchronous races across module load, getState, duplicate listeners, and late cleanup', async () => {
+  // 1. Unsubscribe while loadAppPluginModule is pending prevents addListener/getState calls.
+  const pendingModule = deferred<CapacitorAppLifecycleModule>()
+  const lateStrict = createCapacitorAppRegisterPluginProxy({ isActive: true })
+  const sourcePendingLoad = createCapacitorLifecycleEventSource({
+    isNativePlatform: () => true,
+    loadAppPluginModule: () => pendingModule.promise,
+  })
+  const lateReceived: AppLifecycleEvent[] = []
+  const unsubEarly = sourcePendingLoad.subscribe(event => lateReceived.push(event))
+  unsubEarly()
+  pendingModule.resolve({ App: lateStrict.proxy })
+  await flushMicrotasks()
+  assert.deepEqual(lateStrict.methodCalls, [])
+  assert.deepEqual(lateReceived, [])
+
+  // 2. Unsubscribe while getState is pending removes handle immediately and discards late state.
+  const pendingState = deferred<CapacitorAppLifecycleState>()
+  let removedWhileGetStatePending = 0
+  const sourcePendingGetState = createCapacitorLifecycleEventSource({
+    isNativePlatform: () => true,
+    loadAppPluginModule: async () => ({
+      App: {
+        addListener: async () => ({
+          remove() {
+            removedWhileGetStatePending += 1
+            return Promise.reject(new Error('late cleanup rejection'))
+          },
+        }),
+        getState: () => pendingState.promise,
+      },
+    }),
+  })
+  const getStateRaceReceived: AppLifecycleEvent[] = []
+  const unsubDuringGetState = sourcePendingGetState.subscribe(event => getStateRaceReceived.push(event))
+  await flushMicrotasks()
+  unsubDuringGetState()
+  assert.equal(removedWhileGetStatePending, 1)
+  pendingState.resolve({ isActive: false })
+  await flushMicrotasks()
+  assert.deepEqual(getStateRaceReceived, [])
+
+  // 3. appStateChange arriving before getState resolves flushes only if distinct from getState,
+  // and flushes cleanly if initial getState rejects.
+  const initialStateGate = deferred<CapacitorAppLifecycleState>()
+  let raceCallback: ((state: CapacitorAppLifecycleState) => void) | undefined
+  const raceSource = createCapacitorLifecycleEventSource({
+    isNativePlatform: () => true,
+    loadAppPluginModule: async () => ({
+      App: {
+        addListener: async (_eventName, cb) => {
+          raceCallback = cb
+          return { remove() {} }
+        },
+        getState: () => initialStateGate.promise,
+      },
+    }),
+  })
+  const earlyTransitionEvents: AppLifecycleEvent[] = []
+  const unsubRace = raceSource.subscribe(event => earlyTransitionEvents.push(event))
+  await flushMicrotasks()
+  raceCallback?.({ isActive: false })
+  assert.deepEqual(earlyTransitionEvents, [])
+  initialStateGate.resolve({ isActive: true })
+  await flushMicrotasks()
+  assert.deepEqual(earlyTransitionEvents, ['background'])
+  unsubRace()
+
+  const sameStateGate = deferred<CapacitorAppLifecycleState>()
+  let sameCallback: ((state: CapacitorAppLifecycleState) => void) | undefined
+  const sameRaceSource = createCapacitorLifecycleEventSource({
+    isNativePlatform: () => true,
+    loadAppPluginModule: async () => ({
+      App: {
+        addListener: async (_eventName, cb) => {
+          sameCallback = cb
+          return { remove() {} }
+        },
+        getState: () => sameStateGate.promise,
+      },
+    }),
+  })
+  const sameStateEvents: AppLifecycleEvent[] = []
+  const unsubSame = sameRaceSource.subscribe(event => sameStateEvents.push(event))
+  await flushMicrotasks()
+  sameCallback?.({ isActive: true })
+  sameStateGate.resolve({ isActive: true })
+  await flushMicrotasks()
+  assert.deepEqual(sameStateEvents, [])
+  unsubSame()
+
+  const rejectedStateGate = deferred<CapacitorAppLifecycleState>()
+  let rejectedCallback: ((state: CapacitorAppLifecycleState) => void) | undefined
+  const rejectedRaceSource = createCapacitorLifecycleEventSource({
+    isNativePlatform: () => true,
+    loadAppPluginModule: async () => ({
+      App: {
+        addListener: async (_eventName, cb) => {
+          rejectedCallback = cb
+          return { remove() {} }
+        },
+        getState: () => rejectedStateGate.promise,
+      },
+    }),
+  })
+  const rejectedStateEvents: AppLifecycleEvent[] = []
+  const unsubRejected = rejectedRaceSource.subscribe(event => rejectedStateEvents.push(event))
+  await flushMicrotasks()
+  rejectedCallback?.({ isActive: false })
+  rejectedStateGate.reject(new Error('getState unavailable'))
+  await flushMicrotasks()
+  assert.deepEqual(rejectedStateEvents, ['background'])
+  unsubRejected()
+
+  // 4. Duplicate listener registrations share one Proxy registration and clean up on final unsubscribe.
+  const sharedProxy = createCapacitorAppRegisterPluginProxy({ isActive: true })
+  const sharedAdapter = createNativeLifecycleEvents({
+    isNativePlatform: () => true,
+    loadAppPluginModule: async () => ({ App: sharedProxy.proxy }),
+  })
+  const dupReceived: AppLifecycleEvent[] = []
+  const dupListener = (event: AppLifecycleEvent) => dupReceived.push(event)
+  const unsubDup1 = sharedAdapter.subscribe(dupListener)
+  const unsubDup2 = sharedAdapter.subscribe(dupListener)
+  await flushMicrotasks()
+  assert.deepEqual(sharedProxy.methodCalls, ['addListener', 'getState'])
+
+  sharedProxy.emit(false)
+  unsubDup1()
+  assert.equal(sharedProxy.removals, 0)
+  sharedProxy.emit(true)
+  unsubDup2()
+  assert.equal(sharedProxy.removals, 1)
+  assert.deepEqual(dupReceived, ['background', 'foreground'])
+  assert.equal(sharedProxy.thenAccessCount, 0)
 })

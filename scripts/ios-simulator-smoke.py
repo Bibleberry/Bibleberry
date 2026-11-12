@@ -176,7 +176,25 @@ def capture_scoped_logs(udid: str, start_time: str, out_file: Path) -> str:
     return content
 
 
-def capture_console_pty_launch(udid: str, bundle_id: str, out_file: Path, duration_s: float = 10.0) -> str:
+def find_probe_marker_assets(app_path: Path, marker: str) -> list[str]:
+    assets_dir = app_path / "public" / "assets"
+    if not assets_dir.is_dir():
+        return []
+    return [
+        str(asset.relative_to(app_path))
+        for asset in sorted(assets_dir.glob("*.js"))
+        if marker in asset.read_text(encoding="utf-8", errors="replace")
+    ]
+
+
+def capture_console_pty_launch(
+    udid: str,
+    bundle_id: str,
+    out_file: Path,
+    duration_s: float = 10.0,
+    ready_patterns: tuple[str, ...] = (r"To Native ->\s+Preferences\s+get\b",),
+    observed_patterns: dict[str, float] | None = None,
+) -> str:
     master_fd, slave_fd = pty.openpty()
     chunks: list[bytes] = []
     proc = subprocess.Popen(
@@ -187,27 +205,33 @@ def capture_console_pty_launch(udid: str, bundle_id: str, out_file: Path, durati
         close_fds=True,
     )
     os.close(slave_fd)
-    deadline = time.monotonic() + duration_s
-    seen_preferences_deadline: float | None = None
+    capture_started = time.monotonic()
+    deadline = capture_started + duration_s
+    seen_ready_deadline: float | None = None
     try:
         while time.monotonic() < deadline:
-            if seen_preferences_deadline is not None and time.monotonic() >= seen_preferences_deadline:
+            if seen_ready_deadline is not None and time.monotonic() >= seen_ready_deadline:
                 break
             ready, _, _ = select.select([master_fd], [], [], 0.25)
             if ready:
                 try:
                     data = os.read(master_fd, 4096)
                 except OSError:
-                    break
+                    time.sleep(0.1)
+                    continue
                 if not data:
-                    break
+                    time.sleep(0.1)
+                    continue
                 chunks.append(data)
-                if seen_preferences_deadline is None:
-                    current_text = b"".join(chunks).decode("utf-8", errors="replace")
-                    if re.search(r"To Native ->\s+Preferences\s+get\b", current_text):
-                        seen_preferences_deadline = min(deadline, time.monotonic() + 0.5)
-            if proc.poll() is not None:
-                break
+                current_text = b"".join(chunks).decode("utf-8", errors="replace")
+                if observed_patterns is not None:
+                    elapsed = round(time.monotonic() - capture_started, 2)
+                    for pattern in ready_patterns:
+                        if pattern not in observed_patterns and re.search(pattern, current_text):
+                            observed_patterns[pattern] = elapsed
+                if seen_ready_deadline is None:
+                    if all(re.search(pattern, current_text) for pattern in ready_patterns):
+                        seen_ready_deadline = min(deadline, time.monotonic() + 0.5)
         run_cmd(["xcrun", "simctl", "terminate", udid, bundle_id], timeout=20, check=False)
         drain_deadline = time.monotonic() + 2.0
         while time.monotonic() < drain_deadline:
@@ -259,11 +283,19 @@ def main() -> int:
     parser.add_argument("--app-path", required=True, help="Path to built Debug-iphonesimulator/App.app")
     parser.add_argument("--project", default="ios/App/App.xcodeproj", help="Path to Xcode project")
     parser.add_argument("--scheme", default="App", help="Xcode scheme name")
-    parser.add_argument("--derived-data", required=True, help="DerivedData path")
+    parser.add_argument("--derived-data", default=None, help="DerivedData path (required unless --lifecycle-probe-only)")
     parser.add_argument("--bundle-id", default="com.example.bibleberry.r20poc", help="App bundle identifier")
     parser.add_argument("--runtime-version", default="26.4", help="Target iOS simulator runtime version")
     parser.add_argument("--evidence-dir", required=True, help="Directory for logs, screenshots, and summary")
+    parser.add_argument(
+        "--lifecycle-probe-only",
+        action="store_true",
+        help="Run only the test-only @capacitor/app registration PTY probe on --app-path",
+    )
     args = parser.parse_args()
+
+    if not args.lifecycle_probe_only and not args.derived_data:
+        parser.error("--derived-data is required unless --lifecycle-probe-only is set")
 
     app_path = Path(args.app_path)
     if not app_path.is_dir():
@@ -302,6 +334,112 @@ def main() -> int:
     try:
         run_cmd(["xcrun", "simctl", "boot", udid], timeout=60)
         run_cmd(["xcrun", "simctl", "bootstatus", udid, "-b"], timeout=180)
+
+        if args.lifecycle_probe_only:
+            probe_marker = "[native-lifecycle-probe] JavaScript probe enabled"
+            marker_assets = find_probe_marker_assets(app_path, probe_marker)
+            summary["lifecycleProbeBundle"] = {
+                "probeMarker": probe_marker,
+                "javascriptAssetsWithMarker": marker_assets,
+            }
+            if not marker_assets:
+                raise RuntimeError(
+                    "Probe-enabled JavaScript marker is missing from the installed app bundle."
+                )
+            run_cmd(["xcrun", "simctl", "install", udid, str(app_path)], timeout=60)
+            probe_started_at = datetime.now(timezone.utc)
+            probe_started_monotonic = time.monotonic()
+            readiness_times: dict[str, float] = {}
+            readiness_patterns = (
+                r"\[native-lifecycle-probe\] JavaScript probe enabled",
+                r"WebView loaded",
+                r"To Native ->\s+Preferences\s+get\b",
+                r"To Native ->\s+App\s+addListener\b",
+                r"To Native ->\s+App\s+getState\b",
+            )
+            probe_log = capture_console_pty_launch(
+                udid,
+                args.bundle_id,
+                evidence_dir / "01-lifecycle-probe-console-pty.log",
+                duration_s=60.0,
+                ready_patterns=readiness_patterns,
+                observed_patterns=readiness_times,
+            )
+            probe_duration = round(time.monotonic() - probe_started_monotonic, 2)
+            probe_observations = {
+                "captureDurationSeconds": probe_duration,
+                "readinessAfterSeconds": readiness_times,
+                "javascriptProbeMarkerObserved": bool(
+                    re.search(readiness_patterns[0], probe_log)
+                ),
+                "webViewLoadedObserved": bool(re.search(readiness_patterns[1], probe_log)),
+                "nativePreferencesGetObserved": bool(re.search(readiness_patterns[2], probe_log)),
+                "nativeAppAddListenerObserved": bool(re.search(readiness_patterns[3], probe_log)),
+                "nativeAppGetStateObserved": bool(re.search(readiness_patterns[4], probe_log)),
+            }
+            summary["lifecycleProbe"] = probe_observations
+            all_probe_calls_observed = all(
+                probe_observations[key]
+                for key in (
+                    "javascriptProbeMarkerObserved",
+                    "webViewLoadedObserved",
+                    "nativePreferencesGetObserved",
+                    "nativeAppAddListenerObserved",
+                    "nativeAppGetStateObserved",
+                )
+            )
+            if not all_probe_calls_observed:
+                capture_scoped_logs(
+                    udid,
+                    probe_started_at.strftime("%Y-%m-%d %H:%M:%S"),
+                    evidence_dir / "02-lifecycle-probe-simulator-logs.txt",
+                )
+                run_cmd(
+                    [
+                        "xcrun",
+                        "simctl",
+                        "io",
+                        udid,
+                        "screenshot",
+                        str(evidence_dir / "03-lifecycle-probe-screenshot.png"),
+                    ],
+                    timeout=30,
+                    check=False,
+                )
+            if "App.then" in probe_log:
+                raise RuntimeError("Detected Capacitor App.then() Proxy trap in simulator probe PTY log.")
+            if "Preferences.then" in probe_log:
+                raise RuntimeError("Detected Capacitor Preferences.then() Proxy trap in simulator probe PTY log.")
+            if not probe_observations["javascriptProbeMarkerObserved"]:
+                raise RuntimeError(
+                    "Probe-enabled JavaScript did not report execution within "
+                    f"{probe_duration}s; see lifecycle probe evidence."
+                )
+            if not probe_observations["webViewLoadedObserved"]:
+                raise RuntimeError(
+                    "Capacitor WebView did not report a completed page load within "
+                    f"{probe_duration}s; see lifecycle probe evidence."
+                )
+            if not re.search(r"To Native ->\s+App\s+addListener\b", probe_log):
+                raise RuntimeError(
+                    "Expected native Capacitor App.addListener bridge call in 01-lifecycle-probe-console-pty.log."
+                )
+            if not re.search(r"To Native ->\s+App\s+getState\b", probe_log):
+                raise RuntimeError(
+                    "Expected native Capacitor App.getState bridge call in 01-lifecycle-probe-console-pty.log."
+                )
+            if not re.search(r"To Native ->\s+Preferences\s+get\b", probe_log):
+                raise RuntimeError(
+                    "Expected native Capacitor Preferences.get bridge call in 01-lifecycle-probe-console-pty.log."
+                )
+            crashes = find_new_app_crashes(run_start_epoch)
+            summary["newAppCrashReports"] = crashes
+            if crashes:
+                raise RuntimeError(f"Detected new crash reports during lifecycle probe: {crashes}")
+            summary["status"] = "passed"
+            (evidence_dir / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+            print(json.dumps(summary, indent=2), flush=True)
+            return 0
 
         # ------------------------------------------------------------------
         # Phase 1: Deliverable A — simctl install, launch, terminate, relaunch
