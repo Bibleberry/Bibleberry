@@ -145,6 +145,12 @@ export function MonthIntroductionView({
     mode === 'preview'
       ? 'View Preview Calendar'
       : currentScreen.ctaLabel || 'Open Calendar'
+  const returnFocusToMonth = (callback: () => void) => {
+    callback()
+    requestAnimationFrame(() => {
+      document.getElementById(`month-screen-heading-${yearMonth}`)?.focus({ preventScroll: true })
+    })
+  }
 
   return (
     <section
@@ -200,7 +206,7 @@ export function MonthIntroductionView({
             <button
               type="button"
               className="button button--text month-intro__close"
-              onClick={onClose}
+              onClick={() => onClose && returnFocusToMonth(onClose)}
               aria-label="Close introduction"
             >
               <X size={16} aria-hidden="true" /> Close
@@ -260,7 +266,11 @@ export function MonthIntroductionView({
             Continue <ArrowRight size={17} aria-hidden="true" />
           </button>
         ) : (
-          <button type="button" className="button button--primary" onClick={onComplete}>
+          <button
+            type="button"
+            className="button button--primary"
+            onClick={() => returnFocusToMonth(onComplete)}
+          >
             {finalCtaLabel} <ArrowRight size={17} aria-hidden="true" />
           </button>
         )}

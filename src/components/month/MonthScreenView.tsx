@@ -153,7 +153,9 @@ export function MonthScreenView({
           <p className="eyebrow">
             {monthHeading} · {phaseLabel}
           </p>
-          <h1>{month.title}</h1>
+          <h1 id={`month-screen-heading-${month.monthId}`} tabIndex={-1}>
+            {month.title}
+          </h1>
           {month.subtitle && <p className="month-header__subtitle">{month.subtitle}</p>}
           <div className="month-header__actions">
             <button type="button" className="button button--secondary" onClick={onOpenIntro}>
@@ -245,6 +247,10 @@ export function MonthScreenView({
                     <div
                       key={slot.date}
                       className={`month-day month-day--${slot.status} month-day--locked`}
+                      role="group"
+                      aria-label={`${monthHeading}, ${slot.weekdayLabel} ${slot.dayOfMonth}: ${
+                        slot.status === 'unavailable' ? 'Challenge unavailable' : slot.title
+                      }, ${slot.statusLabel}. Not available to open.`}
                       aria-disabled="true"
                     >
                       {cardHeader}
