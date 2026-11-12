@@ -4,6 +4,10 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
@@ -14,25 +18,38 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
 
+      - name: Evaluate change scope
+        id: scope
+        run: node scripts/ci/check-scope.mjs --target collections-browser
+
       - name: Install dependencies
+        if: steps.scope.outputs.should_run == 'true'
         run: npm ci
 
       - name: Install Playwright Chromium
+        if: steps.scope.outputs.should_run == 'true'
         run: npx playwright install chromium
 
       - name: Run collection browser suites
+        if: steps.scope.outputs.should_run == 'true'
         run: npm run test:collections
 
       - name: Upload browser failure artifacts
-        if: failure()
+        if: failure() && steps.scope.outputs.should_run == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: collections-browser-failure-artifacts
           path: test-results/
           if-no-files-found: ignore
           retention-days: 7
+
+      - name: Report skipped collection browser suites
+        if: steps.scope.outputs.should_run != 'true'
+        run: echo "Collection browser suites skipped because no collections or application source files changed."
