@@ -1,0 +1,895 @@
+{
+  "schemaVersion": "r21-baseline-v1",
+  "measuredAt": "2026-11-12T05:59:04.721Z",
+  "gitCommitSha": "0009751fb6caa6439620590565ef4974ca894aac",
+  "gitBranch": "perf/122-low-end-android-baseline",
+  "gitDirty": false,
+  "note": "Desktop Chromium mobile-viewport emulation only; not Android hardware or Capacitor WebView evidence.",
+  "browserVersion": "156.0.8078.4",
+  "runtime": {
+    "nodeVersion": "v24.22.1",
+    "browserName": "chromium",
+    "browserVersion": "156.0.8078.4"
+  },
+  "host": {
+    "platform": "linux",
+    "arch": "x64",
+    "osRelease": "7.2.6-arch2-1",
+    "cpuModel": "Intel(R) Core(TM) i5-6500 CPU @ 3.20GHz",
+    "logicalCpuCount": 4,
+    "totalMemoryMb": 31986
+  },
+  "runCountPerEnvironment": 3,
+  "productionBuild": {
+    "mode": "production-public",
+    "totalDistBytes": 633672,
+    "totalDistGzipBytes": 229489,
+    "fileCount": 12,
+    "allFiles": [
+      {
+        "file": "assets/FormationViews-D2k9AF4L.js",
+        "bytes": 19432,
+        "gzipBytes": 4110
+      },
+      {
+        "file": "assets/index-BwGAMRHI.js",
+        "bytes": 352,
+        "gzipBytes": 235
+      },
+      {
+        "file": "assets/index-CV0na8cf.js",
+        "bytes": 328,
+        "gzipBytes": 231
+      },
+      {
+        "file": "assets/index-D7jdw_ab.css",
+        "bytes": 142046,
+        "gzipBytes": 23681
+      },
+      {
+        "file": "assets/index-DpW-_DHW.js",
+        "bytes": 378711,
+        "gzipBytes": 119061
+      },
+      {
+        "file": "assets/web-Cs7EMiyz.js",
+        "bytes": 842,
+        "gzipBytes": 398
+      },
+      {
+        "file": "assets/web-n4muHfHY.js",
+        "bytes": 1245,
+        "gzipBytes": 584
+      },
+      {
+        "file": "favicon.svg",
+        "bytes": 387,
+        "gzipBytes": 275
+      },
+      {
+        "file": "images/sabbath-development-study.svg",
+        "bytes": 2472,
+        "gzipBytes": 964
+      },
+      {
+        "file": "index.html",
+        "bytes": 674,
+        "gzipBytes": 403
+      },
+      {
+        "file": "worksheets/weekly-rhythm-pilot-journal.pdf",
+        "bytes": 2944,
+        "gzipBytes": 1786
+      },
+      {
+        "file": "worksheets/weekly-rhythm-pilot-journal.png",
+        "bytes": 84239,
+        "gzipBytes": 77761
+      }
+    ],
+    "initialEntryAssets": [
+      {
+        "file": "assets/index-DpW-_DHW.js",
+        "bytes": 378711,
+        "gzipBytes": 119061
+      },
+      {
+        "file": "assets/index-D7jdw_ab.css",
+        "bytes": 142046,
+        "gzipBytes": 23681
+      }
+    ],
+    "initialEntryTotals": {
+      "rawBytes": 520757,
+      "gzipBytes": 142742,
+      "jsRawBytes": 378711,
+      "jsGzipBytes": 119061,
+      "cssRawBytes": 142046,
+      "cssGzipBytes": 23681
+    }
+  },
+  "results": [
+    {
+      "environment": {
+        "name": "unthrottled",
+        "viewport": "390x844 CSS px, touch enabled, device scale factor 1",
+        "cpuThrottlingRate": 1,
+        "network": "No explicit CPU/network throttling"
+      },
+      "summary": {
+        "cold load wall-clock ms": {
+          "median": 1010,
+          "min": 781,
+          "max": 1393,
+          "availableSamples": 3,
+          "samples": [
+            1393,
+            1010,
+            781
+          ]
+        },
+        "repeat load wall-clock ms": {
+          "median": 515,
+          "min": 324,
+          "max": 606,
+          "availableSamples": 3,
+          "samples": [
+            515,
+            606,
+            324
+          ]
+        },
+        "navigation to Archive ms": {
+          "median": 138.59999990463257,
+          "min": 116.09999990463257,
+          "max": 180.90000009536743,
+          "availableSamples": 3,
+          "samples": [
+            180.90000009536743,
+            138.59999990463257,
+            116.09999990463257
+          ]
+        },
+        "resume open ms": {
+          "median": 151.10000038146973,
+          "min": 141.40000009536743,
+          "max": 398.90000009536743,
+          "availableSamples": 3,
+          "samples": [
+            398.90000009536743,
+            151.10000038146973,
+            141.40000009536743
+          ]
+        },
+        "Archive Challenge open ms": {
+          "median": 148.7000002861023,
+          "min": 144.5,
+          "max": 166.59999990463257,
+          "availableSamples": 3,
+          "samples": [
+            166.59999990463257,
+            144.5,
+            148.7000002861023
+          ]
+        },
+        "full-page scroll ms": {
+          "median": 630.3000001907349,
+          "min": 538.5,
+          "max": 653.5999999046326,
+          "availableSamples": 3,
+          "samples": [
+            653.5999999046326,
+            630.3000001907349,
+            538.5
+          ]
+        },
+        "cold FCP ms": {
+          "median": 744,
+          "min": 652,
+          "max": 1072,
+          "availableSamples": 3,
+          "samples": [
+            1072,
+            744,
+            652
+          ]
+        },
+        "repeat FCP ms": {
+          "median": 428,
+          "min": 272,
+          "max": 440,
+          "availableSamples": 3,
+          "samples": [
+            440,
+            428,
+            272
+          ]
+        },
+        "cold LCP ms": {
+          "median": 744,
+          "min": 652,
+          "max": 1072,
+          "availableSamples": 3,
+          "samples": [
+            1072,
+            744,
+            652
+          ]
+        },
+        "repeat LCP ms": {
+          "median": 428,
+          "min": 272,
+          "max": 440,
+          "availableSamples": 3,
+          "samples": [
+            440,
+            428,
+            272
+          ]
+        },
+        "cold domContentLoaded ms": {
+          "median": 348,
+          "min": 339.40000009536743,
+          "max": 784.5999999046326,
+          "availableSamples": 3,
+          "samples": [
+            784.5999999046326,
+            339.40000009536743,
+            348
+          ]
+        },
+        "cold loadEvent ms": {
+          "median": 354,
+          "min": 339.5,
+          "max": 784.7999997138977,
+          "availableSamples": 3,
+          "samples": [
+            784.7999997138977,
+            339.5,
+            354
+          ]
+        },
+        "cold same-origin transfer bytes": {
+          "median": 143342,
+          "min": 143342,
+          "max": 143342,
+          "availableSamples": 3,
+          "samples": [
+            143342,
+            143342,
+            143342
+          ]
+        },
+        "cold JS+CSS transfer bytes": {
+          "median": 143342,
+          "min": 143342,
+          "max": 143342,
+          "availableSamples": 3,
+          "samples": [
+            143342,
+            143342,
+            143342
+          ]
+        },
+        "repeat same-origin transfer bytes": {
+          "median": 600,
+          "min": 600,
+          "max": 600,
+          "availableSamples": 3,
+          "samples": [
+            600,
+            600,
+            600
+          ]
+        },
+        "cold long-task count": {
+          "median": 2,
+          "min": 2,
+          "max": 3,
+          "availableSamples": 3,
+          "samples": [
+            3,
+            2,
+            2
+          ]
+        },
+        "cold long-task duration ms": {
+          "median": 186,
+          "min": 149,
+          "max": 407,
+          "availableSamples": 3,
+          "samples": [
+            407,
+            186,
+            149
+          ]
+        },
+        "scroll long-task count": {
+          "median": 0,
+          "min": 0,
+          "max": 0,
+          "availableSamples": 3,
+          "samples": [
+            0,
+            0,
+            0
+          ]
+        },
+        "scroll long-task duration ms": {
+          "median": 0,
+          "min": 0,
+          "max": 0,
+          "availableSamples": 3,
+          "samples": [
+            0,
+            0,
+            0
+          ]
+        },
+        "cold JS heap used bytes": {
+          "median": 10000000,
+          "min": 10000000,
+          "max": 10000000,
+          "availableSamples": 3,
+          "samples": [
+            10000000,
+            10000000,
+            10000000
+          ]
+        },
+        "rendered paragraphs": {
+          "median": 27,
+          "min": 27,
+          "max": 27,
+          "availableSamples": 3,
+          "samples": [
+            27,
+            27,
+            27
+          ]
+        }
+      },
+      "runs": [
+        {
+          "initialLoad": {
+            "wallClockMs": 1393,
+            "domContentLoadedMs": 784.5999999046326,
+            "loadEventMs": 784.7999997138977,
+            "firstContentfulPaintMs": 1072,
+            "largestContentfulPaintMs": 1072,
+            "sameOriginTransferBytes": 143342,
+            "sameOriginJavaScriptCssBytes": 143342,
+            "externalFontResources": [
+              "https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600&family=Poppins:wght@400;500;600&display=swap"
+            ],
+            "longTaskCount": 3,
+            "longTaskDurationMs": 407,
+            "jsHeapUsedBytes": 10000000
+          },
+          "repeatLoad": {
+            "wallClockMs": 515,
+            "domContentLoadedMs": 153.60000038146973,
+            "loadEventMs": 165.2000002861023,
+            "firstContentfulPaintMs": 440,
+            "largestContentfulPaintMs": 440,
+            "sameOriginTransferBytes": 600,
+            "sameOriginJavaScriptCssBytes": 600,
+            "externalFontResources": [
+              "https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600&family=Poppins:wght@400;500;600&display=swap",
+              "https://fonts.gstatic.com/s/lora/v37/0QIvMX1D_JOuMwr7Iw.woff2",
+              "https://fonts.gstatic.com/s/poppins/v24/pxiEyp8kv8JHgFVrJJfecg.woff2",
+              "https://fonts.gstatic.com/s/poppins/v24/pxiByp8kv8JHgFVrLGT9Z1xlFQ.woff2",
+              "https://fonts.gstatic.com/s/poppins/v24/pxiByp8kv8JHgFVrLEj6Z1xlFQ.woff2"
+            ],
+            "longTaskCount": 1,
+            "longTaskDurationMs": 94,
+            "jsHeapUsedBytes": 10000000
+          },
+          "navigationToArchiveMs": 180.90000009536743,
+          "resumeOpenMs": 398.90000009536743,
+          "archiveChallengeOpenMs": 166.59999990463257,
+          "scrollMs": 653.5999999046326,
+          "scrollDistancePx": 5553,
+          "scrollLongTaskCount": 0,
+          "scrollLongTaskDurationMs": 0,
+          "renderedParagraphs": 27,
+          "consoleErrors": [],
+          "pageErrors": [],
+          "requestFailures": []
+        },
+        {
+          "initialLoad": {
+            "wallClockMs": 1010,
+            "domContentLoadedMs": 339.40000009536743,
+            "loadEventMs": 339.5,
+            "firstContentfulPaintMs": 744,
+            "largestContentfulPaintMs": 744,
+            "sameOriginTransferBytes": 143342,
+            "sameOriginJavaScriptCssBytes": 143342,
+            "externalFontResources": [
+              "https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600&family=Poppins:wght@400;500;600&display=swap"
+            ],
+            "longTaskCount": 2,
+            "longTaskDurationMs": 186,
+            "jsHeapUsedBytes": 10000000
+          },
+          "repeatLoad": {
+            "wallClockMs": 606,
+            "domContentLoadedMs": 183.2000002861023,
+            "loadEventMs": 211.2000002861023,
+            "firstContentfulPaintMs": 428,
+            "largestContentfulPaintMs": 428,
+            "sameOriginTransferBytes": 600,
+            "sameOriginJavaScriptCssBytes": 600,
+            "externalFontResources": [
+              "https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600&family=Poppins:wght@400;500;600&display=swap",
+              "https://fonts.gstatic.com/s/lora/v37/0QIvMX1D_JOuMwr7Iw.woff2",
+              "https://fonts.gstatic.com/s/poppins/v24/pxiEyp8kv8JHgFVrJJfecg.woff2",
+              "https://fonts.gstatic.com/s/poppins/v24/pxiByp8kv8JHgFVrLGT9Z1xlFQ.woff2",
+              "https://fonts.gstatic.com/s/poppins/v24/pxiByp8kv8JHgFVrLEj6Z1xlFQ.woff2"
+            ],
+            "longTaskCount": 1,
+            "longTaskDurationMs": 83,
+            "jsHeapUsedBytes": 10000000
+          },
+          "navigationToArchiveMs": 138.59999990463257,
+          "resumeOpenMs": 151.10000038146973,
+          "archiveChallengeOpenMs": 144.5,
+          "scrollMs": 630.3000001907349,
+          "scrollDistancePx": 5553,
+          "scrollLongTaskCount": 0,
+          "scrollLongTaskDurationMs": 0,
+          "renderedParagraphs": 27,
+          "consoleErrors": [],
+          "pageErrors": [],
+          "requestFailures": []
+        },
+        {
+          "initialLoad": {
+            "wallClockMs": 781,
+            "domContentLoadedMs": 348,
+            "loadEventMs": 354,
+            "firstContentfulPaintMs": 652,
+            "largestContentfulPaintMs": 652,
+            "sameOriginTransferBytes": 143342,
+            "sameOriginJavaScriptCssBytes": 143342,
+            "externalFontResources": [
+              "https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600&family=Poppins:wght@400;500;600&display=swap"
+            ],
+            "longTaskCount": 2,
+            "longTaskDurationMs": 149,
+            "jsHeapUsedBytes": 10000000
+          },
+          "repeatLoad": {
+            "wallClockMs": 324,
+            "domContentLoadedMs": 133.2000002861023,
+            "loadEventMs": 144,
+            "firstContentfulPaintMs": 272,
+            "largestContentfulPaintMs": 272,
+            "sameOriginTransferBytes": 600,
+            "sameOriginJavaScriptCssBytes": 600,
+            "externalFontResources": [
+              "https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600&family=Poppins:wght@400;500;600&display=swap",
+              "https://fonts.gstatic.com/s/lora/v37/0QIvMX1D_JOuMwr7Iw.woff2",
+              "https://fonts.gstatic.com/s/poppins/v24/pxiEyp8kv8JHgFVrJJfecg.woff2",
+              "https://fonts.gstatic.com/s/poppins/v24/pxiByp8kv8JHgFVrLGT9Z1xlFQ.woff2",
+              "https://fonts.gstatic.com/s/poppins/v24/pxiByp8kv8JHgFVrLEj6Z1xlFQ.woff2"
+            ],
+            "longTaskCount": 0,
+            "longTaskDurationMs": 0,
+            "jsHeapUsedBytes": 10000000
+          },
+          "navigationToArchiveMs": 116.09999990463257,
+          "resumeOpenMs": 141.40000009536743,
+          "archiveChallengeOpenMs": 148.7000002861023,
+          "scrollMs": 538.5,
+          "scrollDistancePx": 5553,
+          "scrollLongTaskCount": 0,
+          "scrollLongTaskDurationMs": 0,
+          "renderedParagraphs": 27,
+          "consoleErrors": [],
+          "pageErrors": [],
+          "requestFailures": []
+        }
+      ]
+    },
+    {
+      "environment": {
+        "name": "constrained",
+        "viewport": "390x844 CSS px, touch enabled, device scale factor 1",
+        "cpuThrottlingRate": 4,
+        "network": {
+          "latencyMs": 150,
+          "downloadKbps": 1638,
+          "uploadKbps": 786
+        }
+      },
+      "summary": {
+        "cold load wall-clock ms": {
+          "median": 2757,
+          "min": 2530,
+          "max": 3235,
+          "availableSamples": 3,
+          "samples": [
+            2757,
+            3235,
+            2530
+          ]
+        },
+        "repeat load wall-clock ms": {
+          "median": 1230,
+          "min": 1096,
+          "max": 1856,
+          "availableSamples": 3,
+          "samples": [
+            1856,
+            1096,
+            1230
+          ]
+        },
+        "navigation to Archive ms": {
+          "median": 409.5,
+          "min": 339.40000009536743,
+          "max": 451.80000019073486,
+          "availableSamples": 3,
+          "samples": [
+            409.5,
+            451.80000019073486,
+            339.40000009536743
+          ]
+        },
+        "resume open ms": {
+          "median": 708.2999997138977,
+          "min": 429.80000019073486,
+          "max": 834.0999999046326,
+          "availableSamples": 3,
+          "samples": [
+            708.2999997138977,
+            834.0999999046326,
+            429.80000019073486
+          ]
+        },
+        "Archive Challenge open ms": {
+          "median": 406.7999997138977,
+          "min": 355,
+          "max": 528.6999998092651,
+          "availableSamples": 3,
+          "samples": [
+            406.7999997138977,
+            355,
+            528.6999998092651
+          ]
+        },
+        "full-page scroll ms": {
+          "median": 769.9000000953674,
+          "min": 717.5,
+          "max": 1013.5,
+          "availableSamples": 3,
+          "samples": [
+            1013.5,
+            769.9000000953674,
+            717.5
+          ]
+        },
+        "cold FCP ms": {
+          "median": 2412,
+          "min": 2216,
+          "max": 2416,
+          "availableSamples": 3,
+          "samples": [
+            2412,
+            2416,
+            2216
+          ]
+        },
+        "repeat FCP ms": {
+          "median": 1120,
+          "min": 948,
+          "max": 1656,
+          "availableSamples": 3,
+          "samples": [
+            1656,
+            948,
+            1120
+          ]
+        },
+        "cold LCP ms": {
+          "median": 2412,
+          "min": 2216,
+          "max": 2416,
+          "availableSamples": 3,
+          "samples": [
+            2412,
+            2416,
+            2216
+          ]
+        },
+        "repeat LCP ms": {
+          "median": 1120,
+          "min": 948,
+          "max": 1656,
+          "availableSamples": 3,
+          "samples": [
+            1656,
+            948,
+            1120
+          ]
+        },
+        "cold domContentLoaded ms": {
+          "median": 1518.2999997138977,
+          "min": 1448.1000003814697,
+          "max": 1756.1000003814697,
+          "availableSamples": 3,
+          "samples": [
+            1448.1000003814697,
+            1756.1000003814697,
+            1518.2999997138977
+          ]
+        },
+        "cold loadEvent ms": {
+          "median": 1539.5,
+          "min": 1448.1000003814697,
+          "max": 1758.5,
+          "availableSamples": 3,
+          "samples": [
+            1448.1000003814697,
+            1758.5,
+            1539.5
+          ]
+        },
+        "cold same-origin transfer bytes": {
+          "median": 143342,
+          "min": 143342,
+          "max": 143342,
+          "availableSamples": 3,
+          "samples": [
+            143342,
+            143342,
+            143342
+          ]
+        },
+        "cold JS+CSS transfer bytes": {
+          "median": 143342,
+          "min": 143342,
+          "max": 143342,
+          "availableSamples": 3,
+          "samples": [
+            143342,
+            143342,
+            143342
+          ]
+        },
+        "repeat same-origin transfer bytes": {
+          "median": 600,
+          "min": 600,
+          "max": 600,
+          "availableSamples": 3,
+          "samples": [
+            600,
+            600,
+            600
+          ]
+        },
+        "cold long-task count": {
+          "median": 4,
+          "min": 3,
+          "max": 5,
+          "availableSamples": 3,
+          "samples": [
+            3,
+            4,
+            5
+          ]
+        },
+        "cold long-task duration ms": {
+          "median": 860,
+          "min": 602,
+          "max": 908,
+          "availableSamples": 3,
+          "samples": [
+            602,
+            908,
+            860
+          ]
+        },
+        "scroll long-task count": {
+          "median": 1,
+          "min": 0,
+          "max": 2,
+          "availableSamples": 3,
+          "samples": [
+            2,
+            0,
+            1
+          ]
+        },
+        "scroll long-task duration ms": {
+          "median": 80,
+          "min": 0,
+          "max": 126,
+          "availableSamples": 3,
+          "samples": [
+            126,
+            0,
+            80
+          ]
+        },
+        "cold JS heap used bytes": {
+          "median": 10000000,
+          "min": 10000000,
+          "max": 10000000,
+          "availableSamples": 3,
+          "samples": [
+            10000000,
+            10000000,
+            10000000
+          ]
+        },
+        "rendered paragraphs": {
+          "median": 27,
+          "min": 27,
+          "max": 27,
+          "availableSamples": 3,
+          "samples": [
+            27,
+            27,
+            27
+          ]
+        }
+      },
+      "runs": [
+        {
+          "initialLoad": {
+            "wallClockMs": 2757,
+            "domContentLoadedMs": 1448.1000003814697,
+            "loadEventMs": 1448.1000003814697,
+            "firstContentfulPaintMs": 2412,
+            "largestContentfulPaintMs": 2412,
+            "sameOriginTransferBytes": 143342,
+            "sameOriginJavaScriptCssBytes": 143342,
+            "externalFontResources": [
+              "https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600&family=Poppins:wght@400;500;600&display=swap"
+            ],
+            "longTaskCount": 3,
+            "longTaskDurationMs": 602,
+            "jsHeapUsedBytes": 10000000
+          },
+          "repeatLoad": {
+            "wallClockMs": 1856,
+            "domContentLoadedMs": 667.9000000953674,
+            "loadEventMs": 672.8000001907349,
+            "firstContentfulPaintMs": 1656,
+            "largestContentfulPaintMs": 1656,
+            "sameOriginTransferBytes": 600,
+            "sameOriginJavaScriptCssBytes": 600,
+            "externalFontResources": [
+              "https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600&family=Poppins:wght@400;500;600&display=swap",
+              "https://fonts.gstatic.com/s/lora/v37/0QIvMX1D_JOuMwr7Iw.woff2",
+              "https://fonts.gstatic.com/s/poppins/v24/pxiEyp8kv8JHgFVrJJfecg.woff2",
+              "https://fonts.gstatic.com/s/poppins/v24/pxiByp8kv8JHgFVrLGT9Z1xlFQ.woff2",
+              "https://fonts.gstatic.com/s/poppins/v24/pxiByp8kv8JHgFVrLEj6Z1xlFQ.woff2"
+            ],
+            "longTaskCount": 2,
+            "longTaskDurationMs": 214,
+            "jsHeapUsedBytes": 10000000
+          },
+          "navigationToArchiveMs": 409.5,
+          "resumeOpenMs": 708.2999997138977,
+          "archiveChallengeOpenMs": 406.7999997138977,
+          "scrollMs": 1013.5,
+          "scrollDistancePx": 5553,
+          "scrollLongTaskCount": 2,
+          "scrollLongTaskDurationMs": 126,
+          "renderedParagraphs": 27,
+          "consoleErrors": [],
+          "pageErrors": [],
+          "requestFailures": []
+        },
+        {
+          "initialLoad": {
+            "wallClockMs": 3235,
+            "domContentLoadedMs": 1756.1000003814697,
+            "loadEventMs": 1758.5,
+            "firstContentfulPaintMs": 2416,
+            "largestContentfulPaintMs": 2416,
+            "sameOriginTransferBytes": 143342,
+            "sameOriginJavaScriptCssBytes": 143342,
+            "externalFontResources": [
+              "https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600&family=Poppins:wght@400;500;600&display=swap"
+            ],
+            "longTaskCount": 4,
+            "longTaskDurationMs": 908,
+            "jsHeapUsedBytes": 10000000
+          },
+          "repeatLoad": {
+            "wallClockMs": 1096,
+            "domContentLoadedMs": 607.6999998092651,
+            "loadEventMs": 610.6999998092651,
+            "firstContentfulPaintMs": 948,
+            "largestContentfulPaintMs": 948,
+            "sameOriginTransferBytes": 600,
+            "sameOriginJavaScriptCssBytes": 600,
+            "externalFontResources": [
+              "https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600&family=Poppins:wght@400;500;600&display=swap",
+              "https://fonts.gstatic.com/s/lora/v37/0QIvMX1D_JOuMwr7Iw.woff2",
+              "https://fonts.gstatic.com/s/poppins/v24/pxiEyp8kv8JHgFVrJJfecg.woff2",
+              "https://fonts.gstatic.com/s/poppins/v24/pxiByp8kv8JHgFVrLGT9Z1xlFQ.woff2",
+              "https://fonts.gstatic.com/s/poppins/v24/pxiByp8kv8JHgFVrLEj6Z1xlFQ.woff2"
+            ],
+            "longTaskCount": 1,
+            "longTaskDurationMs": 52,
+            "jsHeapUsedBytes": 10000000
+          },
+          "navigationToArchiveMs": 451.80000019073486,
+          "resumeOpenMs": 834.0999999046326,
+          "archiveChallengeOpenMs": 355,
+          "scrollMs": 769.9000000953674,
+          "scrollDistancePx": 5553,
+          "scrollLongTaskCount": 0,
+          "scrollLongTaskDurationMs": 0,
+          "renderedParagraphs": 27,
+          "consoleErrors": [],
+          "pageErrors": [],
+          "requestFailures": []
+        },
+        {
+          "initialLoad": {
+            "wallClockMs": 2530,
+            "domContentLoadedMs": 1518.2999997138977,
+            "loadEventMs": 1539.5,
+            "firstContentfulPaintMs": 2216,
+            "largestContentfulPaintMs": 2216,
+            "sameOriginTransferBytes": 143342,
+            "sameOriginJavaScriptCssBytes": 143342,
+            "externalFontResources": [
+              "https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600&family=Poppins:wght@400;500;600&display=swap"
+            ],
+            "longTaskCount": 5,
+            "longTaskDurationMs": 860,
+            "jsHeapUsedBytes": 10000000
+          },
+          "repeatLoad": {
+            "wallClockMs": 1230,
+            "domContentLoadedMs": 670.7000002861023,
+            "loadEventMs": 671.3000001907349,
+            "firstContentfulPaintMs": 1120,
+            "largestContentfulPaintMs": 1120,
+            "sameOriginTransferBytes": 600,
+            "sameOriginJavaScriptCssBytes": 600,
+            "externalFontResources": [
+              "https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600&family=Poppins:wght@400;500;600&display=swap",
+              "https://fonts.gstatic.com/s/poppins/v24/pxiEyp8kv8JHgFVrJJfecg.woff2",
+              "https://fonts.gstatic.com/s/poppins/v24/pxiByp8kv8JHgFVrLGT9Z1xlFQ.woff2",
+              "https://fonts.gstatic.com/s/poppins/v24/pxiByp8kv8JHgFVrLEj6Z1xlFQ.woff2"
+            ],
+            "longTaskCount": 4,
+            "longTaskDurationMs": 321,
+            "jsHeapUsedBytes": 10000000
+          },
+          "navigationToArchiveMs": 339.40000009536743,
+          "resumeOpenMs": 429.80000019073486,
+          "archiveChallengeOpenMs": 528.6999998092651,
+          "scrollMs": 717.5,
+          "scrollDistancePx": 5553,
+          "scrollLongTaskCount": 1,
+          "scrollLongTaskDurationMs": 80,
+          "renderedParagraphs": 27,
+          "consoleErrors": [],
+          "pageErrors": [],
+          "requestFailures": []
+        }
+      ]
+    }
+  ],
+  "networkInterruptionCheck": {
+    "scenario": "4x CPU + 3G constrained initial load with blocked external fonts, then offline Archive -> Teaching navigation",
+    "contentSource": "bundled-historical-prototype-in-js",
+    "serverBackedChallengeVerified": false,
+    "offlineNavigationSucceeded": true,
+    "openedTeachingTitle": "Rest Requires Trust",
+    "renderedParagraphs": 27,
+    "blockedExternalFontFallbackReadable": true,
+    "pageErrors": [],
+    "note": "Historical prototype teachings are statically bundled in the public JS entry, so Archive reading continues offline once loaded. This does NOT validate live server-backed Gateway Challenge fetches; see tests/performance/network-interruption.test.ts for isolated Gateway request failure and Retry verification."
+  }
+}
