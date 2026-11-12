@@ -1,4 +1,3 @@
-
 name: Bibleberry CI
 
 on:
@@ -6,6 +5,10 @@ on:
     branches: [main]
   push:
     branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -19,38 +22,58 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
 
+      - name: Evaluate change scope
+        id: scope
+        run: node scripts/ci/check-scope.mjs --target reader
+
+      - name: Run CI workflow and scope tests
+        if: steps.scope.outputs.should_run == 'true'
+        run: node --experimental-strip-types --test tests/ci/*.test.ts
+
       - name: Install dependencies
+        if: steps.scope.outputs.should_run == 'true'
         run: npm ci
 
       - name: Install Playwright Chromium
         # Runner image supplies OS libraries; avoid apt mirrors during browser provisioning.
         # The reader smoke suite still launches actual Chromium and fails if runtime libraries are missing.
+        if: steps.scope.outputs.should_run == 'true'
         run: npx playwright install chromium
 
       - name: Lint application
+        if: steps.scope.outputs.should_run == 'true'
         run: npm run lint
 
       - name: Build application
+        if: steps.scope.outputs.should_run == 'true'
         run: npm run build
 
       - name: Verify Staging Worker compilation (dry-run)
+        if: steps.scope.outputs.should_run == 'true'
         run: npm run check:staging
 
       - name: Run reader regression smoke suite
+        if: steps.scope.outputs.should_run == 'true'
         run: npm run test:smoke
 
       - name: Upload smoke test failure artifacts
-        if: failure()
+        if: failure() && steps.scope.outputs.should_run == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: playwright-smoke-results
           path: test-results/
           retention-days: 7
+
+      - name: Report skipped reader verification
+        if: steps.scope.outputs.should_run != 'true'
+        run: echo "Reader application tests skipped because no reader source or shared dependencies changed."
 
   cms-adapter-tests:
     name: Verify CMS adapters and BerryMark preview
@@ -58,19 +81,32 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
           cache: npm
 
+      - name: Evaluate change scope
+        id: scope
+        run: node scripts/ci/check-scope.mjs --target cms-adapter
+
       - name: Install dependencies
+        if: steps.scope.outputs.should_run == 'true'
         run: npm ci
 
       - name: Run CMS adapter and BerryMark preview tests
+        if: steps.scope.outputs.should_run == 'true'
         run: npm run test:adapter
 
       - name: Run native participation driver and migration tests
+        if: steps.scope.outputs.should_run == 'true'
         run: npm run test:native-participation
+
+      - name: Report skipped CMS adapter verification
+        if: steps.scope.outputs.should_run != 'true'
+        run: echo "CMS adapter tests skipped because no relevant adapter or application source files changed."
 
   release-gateway-tests:
     name: Verify Release Gateway core
@@ -78,16 +114,28 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
           cache: npm
 
+      - name: Evaluate change scope
+        id: scope
+        run: node scripts/ci/check-scope.mjs --target release-gateway
+
       - name: Install dependencies
+        if: steps.scope.outputs.should_run == 'true'
         run: npm ci
 
       - name: Run Release Gateway tests
+        if: steps.scope.outputs.should_run == 'true'
         run: npm run test:gateway
+
+      - name: Report skipped Release Gateway verification
+        if: steps.scope.outputs.should_run != 'true'
+        run: echo "Release Gateway tests skipped because no gateway source files changed."
 
   sanity-studio:
     name: Verify Sanity Studio
@@ -99,20 +147,35 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
           cache-dependency-path: studio/package-lock.json
 
+      - name: Evaluate change scope
+        id: scope
+        working-directory: .
+        run: node scripts/ci/check-scope.mjs --target studio
+
       - name: Install dependencies
+        if: steps.scope.outputs.should_run == 'true'
         run: npm ci
 
       - name: Run schema validation tests
+        if: steps.scope.outputs.should_run == 'true'
         run: npm run test:schema
 
       - name: TypeScript check
+        if: steps.scope.outputs.should_run == 'true'
         run: npm run typecheck
 
       - name: Build Studio
+        if: steps.scope.outputs.should_run == 'true'
         run: npm run build
+
+      - name: Report skipped Studio verification
+        if: steps.scope.outputs.should_run != 'true'
+        run: echo "Sanity Studio tests skipped because no studio schemas, studio sources, or shared fixtures changed."
