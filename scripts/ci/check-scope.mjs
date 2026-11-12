@@ -5,19 +5,22 @@ import { fileURLToPath } from 'node:url';
 
 /**
  * Universal patterns that trigger all CI jobs.
- * Changes to workflow definitions, shared dependency manifests, or CI logic
- * must never bypass verification.
+ * Changes to workflow definitions, shared dependency manifests, root linting/tooling
+ * configurations, or CI logic must never bypass verification.
  */
 export const UNIVERSAL_PATTERNS = [
   /^\.github\//,
   /^package\.json$/,
   /^package-lock\.json$/,
+  /^eslint\.config\.js$/,
   /^scripts\/ci\//,
   /^tests\/ci\//,
 ];
 
 /**
  * Pattern definitions per target subsystem.
+ * Uses conservative triggers: any test directory change or tooling change
+ * triggers reader application lint and build validation.
  */
 export const TARGET_PATTERNS = {
   reader: [
@@ -30,10 +33,11 @@ export const TARGET_PATTERNS = {
     /^tailwind\.config\.js$/,
     /^postcss\.config\.js$/,
     /^components\.json$/,
+    /^capacitor\.config\.ts$/,
     /^wrangler.*\.jsonc$/,
-    /^playwright\.config\.ts$/,
+    /^playwright.*\.config\.ts$/,
     /^scripts\/(?!ios-simulator-smoke\.py).*/,
-    /^tests\/smoke\//,
+    /^tests\//, // All test directories (cardViewer, monthAccessibility, announcements, performance, smoke, etc.)
   ],
   studio: [
     ...UNIVERSAL_PATTERNS,
@@ -61,8 +65,10 @@ export const TARGET_PATTERNS = {
     /^src\//,
     /^tests\/savedScripture\//,
     /^tests\/notebook\//,
+    /^tests\/cardViewer\//,
+    /^tests\/announcements\//,
     /^scripts\/testing\//,
-    /^playwright\.config\.ts$/,
+    /^playwright.*\.config\.ts$/,
   ],
 };
 
@@ -91,10 +97,29 @@ export function matchesPatterns(files, patterns) {
 }
 
 /**
+ * Computes concurrency group name matching workflow configuration:
+ * group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+ */
+export function getConcurrencyGroup(workflowName, prNumber, ref) {
+  const qualifier = prNumber !== undefined && prNumber !== null && String(prNumber).trim() !== ''
+    ? String(prNumber).trim()
+    : ref;
+  return `${workflowName}-${qualifier}`;
+}
+
+/**
+ * Determines whether in-progress runs should be canceled matching:
+ * cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+ */
+export function shouldCancelInProgress(eventName) {
+  return eventName === 'pull_request';
+}
+
+/**
  * Evaluates whether a target subsystem should run given an event and list of changed files.
  *
  * @param {string} target - Name of the target ('reader', 'studio', etc.)
- * @param {string[]} changedFiles - List of repository-relative changed file paths
+ * @param {string[]|null|undefined} changedFiles - List of repository-relative changed file paths
  * @param {string} eventName - 'push', 'pull_request', 'workflow_dispatch', etc.
  * @returns {{ shouldRun: boolean, reason: string }}
  */
@@ -153,13 +178,16 @@ export function evaluateScope(target, changedFiles, eventName = 'pull_request') 
 
 /**
  * Retrieves changed files via git diff for a pull request.
- * Falls back to null on failure so evaluateScope defaults safely to execution.
+ *
+ * Safety requirement: Must never fall back to HEAD~1 or guess single-commit deltas,
+ * as that would overlook earlier commits on a multi-commit PR branch.
+ * If merge base cannot be resolved against baseRef candidates, returns null so
+ * evaluateScope fails safely open (shouldRun: true).
  */
 export function getChangedFilesFromGit(baseRef = 'main') {
   const candidates = [
     `origin/${baseRef}`,
     baseRef,
-    'HEAD~1',
   ];
 
   for (const ref of candidates) {
@@ -182,6 +210,7 @@ export function getChangedFilesFromGit(baseRef = 'main') {
     }
   }
 
+  // When baseRef cannot be resolved, return null to force conservative execution
   return null;
 }
 
