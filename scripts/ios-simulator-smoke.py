@@ -204,16 +204,16 @@ def capture_console_pty_launch(
                 try:
                     data = os.read(master_fd, 4096)
                 except OSError:
-                    break
+                    time.sleep(0.1)
+                    continue
                 if not data:
-                    break
+                    time.sleep(0.1)
+                    continue
                 chunks.append(data)
                 if seen_ready_deadline is None:
                     current_text = b"".join(chunks).decode("utf-8", errors="replace")
                     if all(re.search(pattern, current_text) for pattern in ready_patterns):
                         seen_ready_deadline = min(deadline, time.monotonic() + 0.5)
-            if proc.poll() is not None:
-                break
         run_cmd(["xcrun", "simctl", "terminate", udid, bundle_id], timeout=20, check=False)
         drain_deadline = time.monotonic() + 2.0
         while time.monotonic() < drain_deadline:
