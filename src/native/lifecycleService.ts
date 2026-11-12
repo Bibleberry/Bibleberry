@@ -1,10 +1,31 @@
 import { Capacitor } from '@capacitor/core'
-import { createCapacitorLifecycleEventSource } from './capacitorLifecycleSource.ts'
+import {
+  createCapacitorLifecycleEventSource,
+  type CapacitorAppLifecycleModule,
+} from './capacitorLifecycleSource.ts'
 import { createLifecycleEventAdapter } from './lifecycleAdapter.ts'
 
-const source = createCapacitorLifecycleEventSource({
-  isNativePlatform: () => Capacitor.isNativePlatform(),
-  loadAppPlugin: async () => (await import('@capacitor/app')).App,
-})
+export interface NativeLifecycleServiceOptions {
+  readonly isNativePlatform?: () => boolean
+  readonly loadAppPluginModule?: () => Promise<CapacitorAppLifecycleModule>
+}
 
-export const nativeLifecycleEvents = createLifecycleEventAdapter(source)
+export function createNativeLifecycleEvents(
+  options: NativeLifecycleServiceOptions = {},
+) {
+  const source = createCapacitorLifecycleEventSource({
+    isNativePlatform: options.isNativePlatform ?? (() => Capacitor.isNativePlatform()),
+    loadAppPluginModule: options.loadAppPluginModule ?? (() => import('@capacitor/app')),
+  })
+  return createLifecycleEventAdapter(source)
+}
+
+export const nativeLifecycleEvents = createNativeLifecycleEvents()
+
+if (
+  typeof import.meta !== 'undefined'
+  && import.meta.env
+  && import.meta.env.VITE_ENABLE_NATIVE_LIFECYCLE_PROBE === 'true'
+) {
+  nativeLifecycleEvents.subscribe(() => {})
+}

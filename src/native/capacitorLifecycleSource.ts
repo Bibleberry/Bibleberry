@@ -16,9 +16,34 @@ export interface CapacitorAppLifecyclePlugin {
   getState(): Promise<CapacitorAppLifecycleState>
 }
 
+export interface CapacitorAppLifecycleModule {
+  readonly App: CapacitorAppLifecyclePlugin
+}
+
 export interface CapacitorLifecycleEventSourceOptions {
   readonly isNativePlatform: () => boolean
-  readonly loadAppPlugin: () => Promise<CapacitorAppLifecyclePlugin>
+  readonly loadAppPlugin?: () => Promise<CapacitorAppLifecyclePlugin>
+  readonly loadAppPluginModule?: () => Promise<CapacitorAppLifecycleModule>
+}
+
+/**
+ * Wraps a Capacitor plugin Proxy in a plain method facade so Promise resolution never
+ * triggers JS thenable assimilation (`Proxy.then` -> `"App.then()" is not implemented`).
+ */
+export function createAppLifecyclePluginFacade(
+  plugin: CapacitorAppLifecyclePlugin,
+): CapacitorAppLifecyclePlugin {
+  if (
+    !plugin
+    || typeof plugin.addListener !== 'function'
+    || typeof plugin.getState !== 'function'
+  ) {
+    throw new TypeError('Capacitor App lifecycle plugin is unavailable.')
+  }
+  return {
+    addListener: (eventName, listener) => plugin.addListener(eventName, listener),
+    getState: () => plugin.getState(),
+  }
 }
 
 export function createCapacitorLifecycleEventSource(
@@ -66,10 +91,22 @@ export function createCapacitorLifecycleEventSource(
         publishState(state.isActive)
       }
 
+      const resolvePlugin = async (): Promise<CapacitorAppLifecyclePlugin> => {
+        if (options.loadAppPluginModule) {
+          const module = await options.loadAppPluginModule()
+          return createAppLifecyclePluginFacade(module?.App)
+        }
+        if (options.loadAppPlugin) {
+          const loaded = await options.loadAppPlugin()
+          return createAppLifecyclePluginFacade(loaded)
+        }
+        throw new TypeError('Capacitor App lifecycle plugin loader is unavailable.')
+      }
+
       const register = async () => {
         let plugin: CapacitorAppLifecyclePlugin
         try {
-          plugin = await options.loadAppPlugin()
+          plugin = await resolvePlugin()
         } catch {
           return
         }
