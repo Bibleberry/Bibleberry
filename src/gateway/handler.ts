@@ -987,7 +987,7 @@ async function handleLibraryMonthsRequest(
       if (
         isPlainObject(rawItem) &&
         typeof rawItem.yearMonth === 'string' &&
-        parseYearMonth(rawItem.yearMonth) &&
+        rawItem.yearMonth.length > 0 &&
         rawItem.yearMonth < scanUpperBound
       ) {
         if (minBatchYearMonth === null || rawItem.yearMonth < minBatchYearMonth) {
@@ -1016,9 +1016,18 @@ async function handleLibraryMonthsRequest(
       break
     }
 
-    if (batch.length < batchSize || minBatchYearMonth === null) {
+    if (batch.length < batchSize) {
       upstreamExhausted = true
       break
+    }
+
+    if (minBatchYearMonth === null) {
+      return errorResponse(
+        'upstreamError',
+        'Upstream content service unavailable',
+        502,
+        corsHeaders,
+      )
     }
 
     scanUpperBound = minBatchYearMonth
@@ -1041,7 +1050,16 @@ async function handleLibraryMonthsRequest(
     hasMore = false
     nextCursor = null
   } else {
-    // Bounded scan limit reached before exhausting upstream; return honest continuation cursor.
+    // Bounded scan limit reached before exhausting upstream.
+    // Only expose canonical YYYY-MM continuation cursors; fail closed with 502 otherwise.
+    if (!parseYearMonth(scanUpperBound) || scanUpperBound >= upperBoundYearMonth) {
+      return errorResponse(
+        'upstreamError',
+        'Upstream content service unavailable',
+        502,
+        corsHeaders,
+      )
+    }
     hasMore = true
     nextCursor = scanUpperBound
   }

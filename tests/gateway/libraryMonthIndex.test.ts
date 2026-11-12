@@ -1126,3 +1126,161 @@ test('deduplicates colliding/duplicate month documents without duplicating valid
   assert.equal(body.page.hasMore, false)
   assert.equal(body.page.nextCursor, null)
 })
+
+test('malformed non-canonical yearMonth records ahead of valid historical months never cause false terminal exhaustion', async () => {
+  // 5 malformed candidates (2026-11E..2026-11A) sort lexicographically ahead of valid 2026-10
+  const malformedBatch = ['2026-11E', '2026-11D', '2026-11C', '2026-11B', '2026-11A'].map(badYm => ({
+    _id: `month-${badYm}`,
+    _type: 'monthlyPublication',
+    yearMonth: badYm,
+    year: 2026,
+    month: 11,
+    title: `MALFORMED_TITLE_${badYm}`,
+    editorialStatus: 'scheduled',
+    withdrawn: false,
+  }))
+  const validOct = makeMonthlyPublicationDoc('2026-10')
+  const allDocs = [...malformedBatch, validOct]
+
+  const mockFetch = createMockFetch(url => {
+    const upperBound = JSON.parse(url.searchParams.get('$upperBoundYearMonth') ?? '""') as string
+    const fetchLimit = JSON.parse(url.searchParams.get('$fetchLimit') ?? '12') as number
+    const sliced = allDocs
+      .filter(d => d.yearMonth < upperBound)
+      .sort((a, b) => (a.yearMonth > b.yearMonth ? -1 : a.yearMonth < b.yearMonth ? 1 : 0))
+      .slice(0, fetchLimit)
+    return new Response(JSON.stringify({ result: sliced }), { status: 200 })
+  })
+
+  const res = await handleGatewayRequest(
+    new Request('http://localhost/api/library/months?limit=2'),
+    TEST_ENV,
+    { getNow: () => new Date('2026-12-10T12:00:00.000Z'), fetchImpl: mockFetch },
+  )
+  assert.equal(res.status, 200)
+  const text = await res.text()
+  assert.equal(text.includes('MALFORMED_TITLE_'), false)
+  const body = JSON.parse(text) as {
+    items: Array<{ yearMonth: string }>
+    page: { limit: number; hasMore: boolean; nextCursor: string | null }
+  }
+  assert.deepEqual(
+    body.items.map(i => i.yearMonth),
+    ['2026-10'],
+  )
+  assert.equal(body.page.hasMore, false)
+  assert.equal(body.page.nextCursor, null)
+
+  // Mixture of canonical and non-canonical rows at a batch boundary (limit=2, batchSize=5)
+  const mixedDocs = [
+    makeMonthlyPublicationDoc('2026-11'),
+    ...['2026-10E', '2026-10D', '2026-10C', '2026-10B', '2026-10A'].map(badYm => ({
+      _id: `month-${badYm}`,
+      _type: 'monthlyPublication',
+      yearMonth: badYm,
+      year: 2026,
+      month: 10,
+      title: `MALFORMED_MIXED_${badYm}`,
+      editorialStatus: 'scheduled',
+      withdrawn: false,
+    })),
+    makeMonthlyPublicationDoc('2026-10'),
+    makeMonthlyPublicationDoc('2026-09'),
+  ]
+
+  const mockMixed = createMockFetch(url => {
+    const upperBound = JSON.parse(url.searchParams.get('$upperBoundYearMonth') ?? '""') as string
+    const fetchLimit = JSON.parse(url.searchParams.get('$fetchLimit') ?? '12') as number
+    const sliced = mixedDocs
+      .filter(d => d.yearMonth < upperBound)
+      .sort((a, b) => (a.yearMonth > b.yearMonth ? -1 : a.yearMonth < b.yearMonth ? 1 : 0))
+      .slice(0, fetchLimit)
+    return new Response(JSON.stringify({ result: sliced }), { status: 200 })
+  })
+
+  const mixedP1Res = await handleGatewayRequest(
+    new Request('http://localhost/api/library/months?limit=2'),
+    TEST_ENV,
+    { getNow: () => new Date('2026-12-10T12:00:00.000Z'), fetchImpl: mockMixed },
+  )
+  assert.equal(mixedP1Res.status, 200)
+  const mixedP1Text = await mixedP1Res.text()
+  assert.equal(mixedP1Text.includes('MALFORMED_MIXED_'), false)
+  const mixedP1 = JSON.parse(mixedP1Text) as typeof body
+  assert.deepEqual(
+    mixedP1.items.map(i => i.yearMonth),
+    ['2026-11', '2026-10'],
+  )
+  assert.equal(mixedP1.page.hasMore, true)
+  assert.equal(mixedP1.page.nextCursor, '2026-10')
+
+  const mixedP2Res = await handleGatewayRequest(
+    new Request(`http://localhost/api/library/months?limit=2&cursor=${mixedP1.page.nextCursor}`),
+    TEST_ENV,
+    { getNow: () => new Date('2026-12-10T12:00:00.000Z'), fetchImpl: mockMixed },
+  )
+  assert.equal(mixedP2Res.status, 200)
+  const mixedP2 = (await mixedP2Res.json()) as typeof body
+  assert.deepEqual(
+    mixedP2.items.map(i => i.yearMonth),
+    ['2026-09'],
+  )
+  assert.equal(mixedP2.page.hasMore, false)
+  assert.equal(mixedP2.page.nextCursor, null)
+
+  // >20 consecutive malformed rows hitting scan limit with non-canonical scanUpperBound -> 502 upstreamError (fail closed, no invalid cursor)
+  const twentyOneMalformed = Array.from({ length: 21 }, (_, idx) => {
+    const suffix = String.fromCharCode(85 - idx) // 'U' down to 'A'
+    const badYm = `2026-11${suffix}`
+    return {
+      _id: `month-${badYm}`,
+      _type: 'monthlyPublication',
+      yearMonth: badYm,
+      year: 2026,
+      month: 11,
+      title: `MALFORMED_SCAN_LIMIT_${badYm}`,
+      editorialStatus: 'scheduled',
+      withdrawn: false,
+    }
+  })
+  const mockScanLimitMalformed = createMockFetch(url => {
+    const upperBound = JSON.parse(url.searchParams.get('$upperBoundYearMonth') ?? '""') as string
+    const fetchLimit = JSON.parse(url.searchParams.get('$fetchLimit') ?? '12') as number
+    const sliced = [...twentyOneMalformed, validOct]
+      .filter(d => d.yearMonth < upperBound)
+      .sort((a, b) => (a.yearMonth > b.yearMonth ? -1 : a.yearMonth < b.yearMonth ? 1 : 0))
+      .slice(0, fetchLimit)
+    return new Response(JSON.stringify({ result: sliced }), { status: 200 })
+  })
+  const scanLimitErrRes = await handleGatewayRequest(
+    new Request('http://localhost/api/library/months?limit=2'),
+    TEST_ENV,
+    { getNow: () => new Date('2026-12-10T12:00:00.000Z'), fetchImpl: mockScanLimitMalformed },
+  )
+  assert.equal(scanLimitErrRes.status, 502)
+  const scanLimitErrText = await scanLimitErrRes.text()
+  assert.equal(scanLimitErrText.includes('MALFORMED_SCAN_LIMIT_'), false)
+
+  // Full batch with missing/non-string yearMonth -> safe 502 upstreamError (never loops or claims false exhaustion)
+  let nonStringCalls = 0
+  const mockNonString = createMockFetch(() => {
+    nonStringCalls += 1
+    return new Response(
+      JSON.stringify({
+        result: Array.from({ length: 5 }, (_, i) => ({
+          _id: `month-bad-${i}`,
+          yearMonth: null,
+          title: 'MALFORMED_NULL_YM',
+        })),
+      }),
+      { status: 200 },
+    )
+  })
+  const nonStringRes = await handleGatewayRequest(
+    new Request('http://localhost/api/library/months?limit=2'),
+    TEST_ENV,
+    { getNow: () => new Date('2026-12-10T12:00:00.000Z'), fetchImpl: mockNonString },
+  )
+  assert.equal(nonStringRes.status, 502)
+  assert.equal(nonStringCalls, 1)
+})

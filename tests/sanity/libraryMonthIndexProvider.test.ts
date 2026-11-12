@@ -544,9 +544,16 @@ test('end-to-end discovery through real gateway handler feeds existing monthProv
     return handleGatewayRequest(req, env, {
       getNow: () => new Date('2026-11-15T12:00:00.000Z'),
       fetchImpl: async sanityUrl => {
-        const query = new URL(String(sanityUrl)).searchParams.get('query') ?? ''
+        const parsedSanityUrl = new URL(String(sanityUrl))
+        const query = parsedSanityUrl.searchParams.get('query') ?? ''
         if (query.includes('yearMonth < $upperBoundYearMonth')) {
-          return new Response(JSON.stringify({ result: docs }), { status: 200 })
+          const upperBound = JSON.parse(parsedSanityUrl.searchParams.get('$upperBoundYearMonth') ?? '""') as string
+          const fetchLimit = JSON.parse(parsedSanityUrl.searchParams.get('$fetchLimit') ?? '12') as number
+          const filtered = docs
+            .filter(d => d.yearMonth < upperBound)
+            .sort((a, b) => (a.yearMonth > b.yearMonth ? -1 : a.yearMonth < b.yearMonth ? 1 : 0))
+            .slice(0, fetchLimit)
+          return new Response(JSON.stringify({ result: filtered }), { status: 200 })
         }
         const ym = JSON.parse(new URL(String(sanityUrl)).searchParams.get('$yearMonth') ?? '""') as string
         return new Response(
