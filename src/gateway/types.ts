@@ -281,3 +281,25 @@ export interface GatewayNewsResponse {
   readonly serverContext: GatewayServerContext
   readonly articles: readonly GatewayNewsArticle[]
 }
+
+export interface GatewayLibraryMonthSummary {
+  readonly yearMonth: string
+  readonly year: number
+  readonly month: number
+  readonly title: string
+  readonly subtitle?: string
+  readonly coverImage?: GatewayCoverImage
+}
+
+export interface GatewayLibraryMonthsPage {
+  readonly limit: number
+  readonly hasMore: boolean
+  readonly nextCursor: string | null
+}
+
+export interface GatewayLibraryMonthsResponse {
+  readonly ok: true
+  readonly serverContext: GatewayServerContext
+  readonly items: readonly GatewayLibraryMonthSummary[]
+  readonly page: GatewayLibraryMonthsPage
+}

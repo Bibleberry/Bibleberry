@@ -15,6 +15,7 @@ export {
 export {
   CATALOG_GROQ_QUERY,
   CHALLENGE_BY_SLUG_GROQ_QUERY,
+  LIBRARY_MONTHS_GROQ_QUERY,
   MONTHLY_PREVIEW_BY_ID_GROQ_QUERY,
   MONTHLY_DETAIL_BY_ID_GROQ_QUERY,
   NEWS_ARTICLES_GROQ_QUERY,
@@ -30,6 +31,7 @@ export {
   validateAndProjectMonthDetail,
   evaluateMonthProgress,
   validateAndProjectNewsArticle,
+  validateAndProjectLibraryMonthSummary,
 } from './monthlyProjection.ts'
 export type {
   AuthorizedReaderDateResolution,
@@ -55,6 +57,9 @@ export type {
   GatewayNewsCategory,
   GatewayNewsArticle,
   GatewayNewsResponse,
+  GatewayLibraryMonthSummary,
+  GatewayLibraryMonthsPage,
+  GatewayLibraryMonthsResponse,
   GatewayErrorResponse,
   GatewayErrorKind,
 } from './types.ts'

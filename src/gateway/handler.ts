@@ -1,6 +1,7 @@
 import {
   CATALOG_GROQ_QUERY,
   CHALLENGE_BY_SLUG_GROQ_QUERY,
+  LIBRARY_MONTHS_GROQ_QUERY,
   MONTHLY_DETAIL_BY_ID_GROQ_QUERY,
   MONTHLY_PREVIEW_BY_ID_GROQ_QUERY,
   NEWS_ARTICLES_GROQ_QUERY,
@@ -13,6 +14,7 @@ import {
 } from './projection.ts'
 import {
   evaluateMonthProgress,
+  validateAndProjectLibraryMonthSummary,
   validateAndProjectMonthDetail,
   validateAndProjectMonthPreview,
   validateAndProjectNewsArticle,
@@ -30,6 +32,8 @@ import type {
   GatewayErrorKind,
   GatewayErrorResponse,
   GatewayFetch,
+  GatewayLibraryMonthSummary,
+  GatewayLibraryMonthsResponse,
   GatewayMonthDetailResponse,
   GatewayMonthPreviewResponse,
   GatewayMonthProgressResponse,
@@ -46,6 +50,13 @@ const PROGRESS_ROUTE_REGEX = /^\/api\/months\/([^/]+)\/progress$/
 const MAX_PROGRESS_BODY_BYTES = 8192
 const MAX_PROGRESS_CHALLENGE_IDS = 500
 const MAX_CHALLENGE_ID_LENGTH = 160
+const DEFAULT_LIBRARY_PAGE_SIZE = 12
+const MAX_LIBRARY_PAGE_SIZE = 24
+const MAX_LIBRARY_SCAN_BATCH_SIZE = 25
+const MAX_LIBRARY_SCAN_ROUNDS = 4
+const SANITY_PROJECT_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/
+const SANITY_DATASET_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/
+const DISALLOWED_DATASETS = new Set(['berrymark-development'])
 const ALLOWED_NEWS_CATEGORIES = new Set<GatewayNewsCategory>([
   'monthlyPreview',
   'ministryUpdate',
@@ -83,6 +94,7 @@ type GatewayResponseBody =
   | GatewayMonthDetailResponse
   | GatewayMonthProgressResponse
   | GatewayNewsResponse
+  | GatewayLibraryMonthsResponse
   | GatewayErrorResponse
 
 function jsonResponse(
@@ -211,6 +223,11 @@ export async function handleGatewayRequest(
   const monthDetailMatch = pathname.match(/^\/api\/months\/([^/]+)$/)
   if (monthDetailMatch) {
     return handleMonthDetailRequest(request, monthDetailMatch[1], env, options, corsHeaders)
+  }
+
+  // Route: GET /api/library/months
+  if (pathname === '/api/library/months') {
+    return handleLibraryMonthsRequest(request, url, env, options, corsHeaders)
   }
 
   // Route: GET /api/news
@@ -814,6 +831,249 @@ async function handleNewsRequest(
       ok: true,
       serverContext,
       articles,
+    },
+    200,
+    corsHeaders,
+  )
+}
+
+function validateSanityTargetEnv(env: GatewayEnv): boolean {
+  const projectId = env.SANITY_PROJECT_ID.trim()
+  const dataset = env.SANITY_DATASET.trim()
+  const token = env.SANITY_READ_TOKEN.trim()
+  if (!projectId || !dataset || !token) {
+    return false
+  }
+  if (!SANITY_PROJECT_ID_PATTERN.test(projectId)) {
+    return false
+  }
+  if (!SANITY_DATASET_PATTERN.test(dataset) || DISALLOWED_DATASETS.has(dataset)) {
+    return false
+  }
+  return true
+}
+
+function parseLibraryMonthsQueryParams(
+  url: URL,
+  corsHeaders: Headers,
+): { ok: true; limit: number; cursor?: string } | { ok: false; response: Response } {
+  for (const key of url.searchParams.keys()) {
+    if (key !== 'limit' && key !== 'cursor') {
+      return {
+        ok: false,
+        response: errorResponse('badRequest', 'Unsupported query parameter', 400, corsHeaders),
+      }
+    }
+  }
+
+  const limitValues = url.searchParams.getAll('limit')
+  let limit = DEFAULT_LIBRARY_PAGE_SIZE
+  if (limitValues.length > 1) {
+    return {
+      ok: false,
+      response: errorResponse('badRequest', 'Duplicate limit query parameter', 400, corsHeaders),
+    }
+  }
+  if (limitValues.length === 1) {
+    const rawLimit = limitValues[0]
+    if (!/^\d+$/.test(rawLimit)) {
+      return {
+        ok: false,
+        response: errorResponse('badRequest', 'Invalid limit query parameter', 400, corsHeaders),
+      }
+    }
+    const parsedLimit = Number(rawLimit)
+    if (!Number.isSafeInteger(parsedLimit) || parsedLimit < 1 || parsedLimit > MAX_LIBRARY_PAGE_SIZE) {
+      return {
+        ok: false,
+        response: errorResponse('badRequest', 'Invalid limit query parameter', 400, corsHeaders),
+      }
+    }
+    limit = parsedLimit
+  }
+
+  const cursorValues = url.searchParams.getAll('cursor')
+  let cursor: string | undefined
+  if (cursorValues.length > 1) {
+    return {
+      ok: false,
+      response: errorResponse('badRequest', 'Duplicate cursor query parameter', 400, corsHeaders),
+    }
+  }
+  if (cursorValues.length === 1) {
+    const rawCursor = cursorValues[0]
+    if (!parseYearMonth(rawCursor)) {
+      return {
+        ok: false,
+        response: errorResponse('badRequest', 'Invalid cursor query parameter', 400, corsHeaders),
+      }
+    }
+    cursor = rawCursor
+  }
+
+  return { ok: true, limit, cursor }
+}
+
+async function handleLibraryMonthsRequest(
+  request: Request,
+  url: URL,
+  env: GatewayEnv,
+  options: GatewayOptions,
+  corsHeaders: Headers,
+): Promise<Response> {
+  if (!validateSanityTargetEnv(env)) {
+    return errorResponse(
+      'serverConfigurationError',
+      'Gateway configuration error',
+      500,
+      corsHeaders,
+    )
+  }
+
+  const queryParams = parseLibraryMonthsQueryParams(url, corsHeaders)
+  if (!queryParams.ok) {
+    return queryParams.response
+  }
+
+  const { limit, cursor } = queryParams
+  const { serverContext } = buildRequestReleaseContext(request, options)
+  const currentYearMonth = serverContext.authorizedLocalDate.slice(0, 7)
+  const upperBoundYearMonth =
+    cursor && cursor < currentYearMonth ? cursor : currentYearMonth
+  const batchSize = Math.min(Math.max(limit * 2 + 1, 5), MAX_LIBRARY_SCAN_BATCH_SIZE)
+
+  const fetchImpl = options.fetchImpl ?? fetch
+  const byYearMonth = new Map<string, GatewayLibraryMonthSummary>()
+  const projectionOptions = {
+    sanityProjectId: env.SANITY_PROJECT_ID.trim(),
+    sanityDataset: env.SANITY_DATASET.trim(),
+  }
+
+  let scanUpperBound = upperBoundYearMonth
+  let upstreamExhausted = false
+  let round = 0
+
+  while (round < MAX_LIBRARY_SCAN_ROUNDS) {
+    round += 1
+    const upstreamUrl = buildSanityQueryUrl(
+      env.SANITY_PROJECT_ID.trim(),
+      env.SANITY_DATASET.trim(),
+      env.SANITY_API_VERSION,
+      LIBRARY_MONTHS_GROQ_QUERY,
+      {
+        $upperBoundYearMonth: scanUpperBound,
+        $fetchLimit: batchSize,
+      },
+    )
+
+    const upstream = await fetchSanityQueryResult(upstreamUrl, env, fetchImpl, corsHeaders)
+    if (!upstream.ok) {
+      return upstream.response
+    }
+
+    if (!Array.isArray(upstream.result)) {
+      return errorResponse(
+        'upstreamError',
+        'Upstream content service unavailable',
+        502,
+        corsHeaders,
+      )
+    }
+
+    const batch = upstream.result
+    let minBatchYearMonth: string | null = null
+
+    for (const rawItem of batch) {
+      if (
+        isPlainObject(rawItem) &&
+        typeof rawItem.yearMonth === 'string' &&
+        rawItem.yearMonth.length > 0 &&
+        rawItem.yearMonth < scanUpperBound
+      ) {
+        if (minBatchYearMonth === null || rawItem.yearMonth < minBatchYearMonth) {
+          minBatchYearMonth = rawItem.yearMonth
+        }
+      }
+
+      const projected = validateAndProjectLibraryMonthSummary(
+        rawItem,
+        serverContext,
+        projectionOptions,
+      )
+      if (!projected.ok) {
+        continue
+      }
+      const summary = projected.document
+      if (summary.yearMonth >= upperBoundYearMonth) {
+        continue
+      }
+      if (!byYearMonth.has(summary.yearMonth)) {
+        byYearMonth.set(summary.yearMonth, summary)
+      }
+    }
+
+    if (byYearMonth.size > limit) {
+      break
+    }
+
+    if (batch.length < batchSize) {
+      upstreamExhausted = true
+      break
+    }
+
+    if (minBatchYearMonth === null) {
+      return errorResponse(
+        'upstreamError',
+        'Upstream content service unavailable',
+        502,
+        corsHeaders,
+      )
+    }
+
+    scanUpperBound = minBatchYearMonth
+  }
+
+  const sortedItems = Array.from(byYearMonth.values()).sort((a, b) =>
+    a.yearMonth > b.yearMonth ? -1 : a.yearMonth < b.yearMonth ? 1 : 0,
+  )
+
+  const hasMoreValidFound = sortedItems.length > limit
+  const items = sortedItems.slice(0, limit)
+
+  let hasMore: boolean
+  let nextCursor: string | null
+
+  if (hasMoreValidFound) {
+    hasMore = true
+    nextCursor = items[items.length - 1].yearMonth
+  } else if (upstreamExhausted) {
+    hasMore = false
+    nextCursor = null
+  } else {
+    // Bounded scan limit reached before exhausting upstream.
+    // Only expose canonical YYYY-MM continuation cursors; fail closed with 502 otherwise.
+    if (!parseYearMonth(scanUpperBound) || scanUpperBound >= upperBoundYearMonth) {
+      return errorResponse(
+        'upstreamError',
+        'Upstream content service unavailable',
+        502,
+        corsHeaders,
+      )
+    }
+    hasMore = true
+    nextCursor = scanUpperBound
+  }
+
+  return jsonResponse(
+    {
+      ok: true,
+      serverContext,
+      items,
+      page: {
+        limit,
+        hasMore,
+        nextCursor,
+      },
     },
     200,
     corsHeaders,
