@@ -49,7 +49,6 @@ export function EarnedScriptureCardViewer({
   const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null)
 
   const titleId = useId()
-  const descId = useId()
   const dialogRef = useRef<HTMLDivElement>(null)
   const closeButtonRef = useRef<HTMLButtonElement>(null)
   const onCloseRef = useRef(onClose)
@@ -138,7 +137,6 @@ export function EarnedScriptureCardViewer({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        aria-describedby={descId}
         tabIndex={-1}
       >
         <div className="earned-card-viewer__topbar">
@@ -190,7 +188,7 @@ export function EarnedScriptureCardViewer({
           )}
         </figure>
 
-        <section id={descId} className="earned-card-viewer__body" aria-label="Scripture and transcription">
+        <section className="earned-card-viewer__body" aria-label="Scripture and transcription">
           <p className="earned-card-viewer__reference">
             <BookOpen size={16} aria-hidden="true" />
             <strong>{validatedCard.scripture.reference}</strong>
@@ -201,9 +199,11 @@ export function EarnedScriptureCardViewer({
 
           <div className="earned-card-viewer__transcription-group">
             <h3 className="earned-card-viewer__section-label">Accessible Transcription</h3>
-            <p className="earned-card-viewer__transcription">
-              {validatedCard.accessibleTranscription}
-            </p>
+            <div className="earned-card-viewer__transcription">
+              {validatedCard.accessibleTranscription.split(/\r?\n(?:[ \t]*\r?\n)+/).map((paragraph, index) => (
+                <p key={index}>{paragraph}</p>
+              ))}
+            </div>
           </div>
 
           {validatedCard.theologicalThemes && validatedCard.theologicalThemes.length > 0 && (
