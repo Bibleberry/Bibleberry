@@ -160,3 +160,34 @@ jobs:
           path: ${{ runner.temp }}/BibleberryDerivedData/Build/Products/Debug-iphonesimulator/App.app
           if-no-files-found: error
           retention-days: 7
+
+      - name: Build and probe test-only @capacitor/app registration in iOS Simulator
+        id: lifecycle-probe
+        env:
+          VITE_ENABLE_NATIVE_LIFECYCLE_PROBE: 'true'
+        run: |
+          npm run build
+          npx cap sync ios
+          xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/BibleberryLifecycleProbeDerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY='' \
+            build
+          python3 scripts/ios-simulator-smoke.py \
+            --lifecycle-probe-only \
+            --app-path "$RUNNER_TEMP/BibleberryLifecycleProbeDerivedData/Build/Products/Debug-iphonesimulator/App.app" \
+            --evidence-dir "$RUNNER_TEMP/ios-simulator-lifecycle-probe-evidence"
+
+      - name: Upload iOS Simulator lifecycle probe evidence
+        if: ${{ !cancelled() && (steps.lifecycle-probe.outcome == 'success' || steps.lifecycle-probe.outcome == 'failure') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: bibleberry-r20-4-ios-lifecycle-probe-evidence
+          path: ${{ runner.temp }}/ios-simulator-lifecycle-probe-evidence
+          if-no-files-found: warn
+          retention-days: 7
