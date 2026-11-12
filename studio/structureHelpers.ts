@@ -1,4 +1,5 @@
 import type {StructureBuilder} from 'sanity/structure'
+import {MonthlyReadinessInspector} from './components/MonthlyReadinessInspector'
 import {
   MONTHLY_PREVIEW_NEWS_TEMPLATE_ID,
   MONTHLY_PUBLICATION_TEMPLATE_ID,
@@ -192,4 +193,48 @@ export function resolveDeterministicCardChild(S: StructureBuilder, childId: stri
   throw new Error(
     `Unsupported deterministic Scripture Card child ID "${childId}". Expected card-<slug>.`,
   )
+}
+
+/**
+ * Dynamic child resolver used by the MonthlyReadinessInspector pane (`ChildLink`)
+ * to open linked month, preview news, Scripture Card, or Challenge editors in an adjacent pane.
+ */
+export function resolveMonthlyReadinessChild(S: StructureBuilder, childId: string) {
+  if (/^month-(\d{4}-(?:0[1-9]|1[0-2]))$/.test(childId) || /^news-preview-(\d{4}-(?:0[1-9]|1[0-2]))$/.test(childId)) {
+    return resolveDeterministicMonthChild(S, childId)
+  }
+
+  if (/^card-([a-z0-9]+(?:-[a-z0-9]+)*)$/.test(childId)) {
+    return resolveDeterministicCardChild(S, childId)
+  }
+
+  const challengeMatch = /^challenge:([a-zA-Z0-9._-]+)$/.exec(childId)
+  if (challengeMatch) {
+    const challengeId = challengeMatch[1].replace(/^drafts\./, '')
+    return S.document()
+      .id(`challenge-${challengeId}`)
+      .schemaType('challenge')
+      .documentId(challengeId)
+  }
+
+  throw new Error(
+    `Unsupported readiness inspector child ID "${childId}". Expected month-YYYY-MM, news-preview-YYYY-MM, card-<slug>, or challenge:<id>.`,
+  )
+}
+
+/**
+ * Deterministic read-only readiness inspector pane for either a specific YYYY-MM month
+ * or an interactive month selector.
+ */
+export function resolveMonthlyReadinessNode(S: StructureBuilder, yearMonth?: string) {
+  const base = S.component(MonthlyReadinessInspector)
+    .id(yearMonth ? `readiness-inspector-${yearMonth}` : 'monthly-readiness-inspector')
+    .title(yearMonth ? `Editorial readiness report (${yearMonth})` : 'Inspect monthly readiness (YYYY-MM)')
+    .child(childId => resolveMonthlyReadinessChild(S, childId))
+
+  if (yearMonth) {
+    deterministicMonthDocumentId(yearMonth)
+    return base.options({yearMonth})
+  }
+  return base
 }
