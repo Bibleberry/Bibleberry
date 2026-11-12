@@ -195,7 +195,7 @@ The pure merge engine (`src/accountSync/reconcile.ts`) **never** masks ambiguity
     - `undecidableAwardDateProvenance`: two `'clientReported'` award dates disagree without server provenance.
     - `completionDateProvenanceConflict` / `undecidableCompletionDateProvenance`: analogous unresolved completion-date provenance conflicts.
     - `inadmissibleDateClaim`: a claimed date falls before month/Challenge availability or after `maxCredibleDateUtcPlus14`.
-  - When `unresolvedItems.length > 0`, `guestClearanceEligible` may remain `true` *only* if the server durably persisted the unresolved conflict record (or `false` if client must retain local candidate evidence until resolved). In the pure contract, `guestClearanceEligible` is `true` only when `ok === true` **and** `unresolvedItems.length === 0` (or explicit server-persisted conflict receipt is confirmed), preventing premature deletion of local evidence when provenance is undecidable!
+  - When `unresolvedItems.length > 0`, `guestClearanceEligible` may remain `true` *only* if the server durably persisted the unresolved conflict record (or `false` if client must retain local candidate evidence until resolved). In the pure contract, `guestClearanceEligible` is `true` only when `ok === true`, `unresolvedItems.length === 0`, **and** no guest records were rejected into `rejectedRecords` (`source === 'guest'`), preventing premature deletion of local evidence when provenance is undecidable or omitted guest records need review!
 
 ---
 

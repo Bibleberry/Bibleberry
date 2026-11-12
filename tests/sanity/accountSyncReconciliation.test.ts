@@ -1132,6 +1132,180 @@ test('rejects invalid/cross-namespace or mismatched account IDs and quarantines 
   assert.deepEqual(sanitized.mergedAccount.data.inProgressChallenges, {})
   assert.deepEqual(sanitized.mergedAccount.data.earnedAwards, {})
   assert.equal(sanitized.rejectedRecords.length, 4)
+  assert.equal(sanitized.rejectedRecords.every(r => r.source === 'guest'), true)
+  // Rejected guest records omitted from mergedAccount must block automatic guest clearance
+  assert.equal(sanitized.guestClearanceEligible, false)
+})
+
+test('alias collisions preserve actual date provenance without promoting earlier unverified dates to serverVerified', () => {
+  // Both key orders: cOld before c1, and c1 before cOld
+  for (const firstKey of [cOld, c1]) {
+    const completedMap: Record<string, { completedOn: LocalCalendarDate; dateProvenance: 'clientReported' | 'serverVerified' }> = {}
+    if (firstKey === cOld) {
+      completedMap[cOld] = { completedOn: dNov05, dateProvenance: 'clientReported' }
+      completedMap[c1] = { completedOn: dNov08, dateProvenance: 'serverVerified' }
+    } else {
+      completedMap[c1] = { completedOn: dNov08, dateProvenance: 'serverVerified' }
+      completedMap[cOld] = { completedOn: dNov05, dateProvenance: 'clientReported' }
+    }
+
+    const account: ProposedAccountParticipationEnvelope = {
+      schemaVersion: 1,
+      accountId: ACCT_A,
+      namespace: 'cms',
+      revision: 2,
+      data: {
+        ...emptyProposedAccountData(),
+        completedChallenges: completedMap,
+      },
+    }
+
+    const res = reconcileGuestIntoAccount({
+      mode: 'existingAccountMerge',
+      guest: { envelope: makeEmptyGuestV2() },
+      account,
+      context: {
+        expectedAccountId: ACCT_A,
+        maxCredibleDateUtcPlus14: dNov11,
+        challengeAliases: { [cOld]: c1 },
+      },
+    })
+
+    assert.equal(res.ok, true)
+    if (!res.ok) return
+    assert.equal(res.status, 'reconciledWithUnresolved')
+    assert.equal(res.guestClearanceEligible, false)
+    assert.deepEqual(Object.keys(res.mergedAccount.data.completedChallenges), [c1])
+    assert.equal(res.mergedAccount.data.completedChallenges[c1]?.completedOn, dNov08)
+    assert.equal(res.mergedAccount.data.completedChallenges[c1]?.dateProvenance, 'serverVerified')
+    assert.equal(res.mergedAccount.data.completedChallenges[c1]?.clientClaimedOn, dNov05)
+    assert.equal(res.unresolvedItems.length, 1)
+    assert.equal(res.unresolvedItems[0]?.kind, 'completionDateProvenanceConflict')
+  }
+
+  // Two disagreeing clientReported guest aliases never manufacture serverVerified provenance
+  const guestConflict: GuestParticipationEnvelopeV2 = {
+    schemaVersion: 2,
+    data: {
+      ...makeEmptyGuestV2().data,
+      completedChallenges: {
+        [cOld]: { completedOn: dNov05 },
+        [c1]: { completedOn: dNov08 },
+      },
+    },
+  }
+  const guestRes = reconcileGuestIntoAccount({
+    mode: 'newAccountTransfer',
+    guest: { envelope: guestConflict },
+    account: createEmptyAccountEnvelope({ accountId: ACCT_A }),
+    context: {
+      expectedAccountId: ACCT_A,
+      challengeAliases: { [cOld]: c1 },
+    },
+  })
+  assert.equal(guestRes.ok, true)
+  if (!guestRes.ok) return
+  assert.equal(guestRes.status, 'reconciledWithUnresolved')
+  assert.equal(guestRes.mergedAccount.data.completedChallenges[c1]?.dateProvenance, 'clientReported')
+  assert.equal(guestRes.unresolvedItems[0]?.kind, 'undecidableCompletionDateProvenance')
+})
+
+test('cyclic Challenge aliases never swap or produce inconsistent identities across merges and retries', () => {
+  const account: ProposedAccountParticipationEnvelope = {
+    schemaVersion: 1,
+    accountId: ACCT_A,
+    namespace: 'cms',
+    revision: 1,
+    data: {
+      ...emptyProposedAccountData(),
+      completedChallenges: {
+        [c1]: { completedOn: dNov05, dateProvenance: 'serverVerified' },
+      },
+    },
+  }
+
+  const guest: GuestParticipationEnvelopeV2 = {
+    schemaVersion: 2,
+    data: {
+      ...makeEmptyGuestV2().data,
+      completedChallenges: {
+        [c2]: { completedOn: dNov08 },
+        [cOld]: { completedOn: dNov10 },
+      },
+      inProgressChallenges: {
+        [c3]: { screenId: 'screen-2', updatedOn: dNov10 },
+      },
+    },
+  }
+
+  // c1 <-> c2 cycle, plus c3 -> c1 tail leading into the cycle; cOld -> c3 is ALSO trapped if c3 enters cycle.
+  // Use a disjoint acyclic alias (cOld -> c3? no, keep c3 disjoint from cycle: cOld -> c3 acyclic, c1 <-> c2 cyclic).
+  const cyclicAliases = {
+    [c1]: c2,
+    [c2]: c1,
+    [cOld]: c3,
+  }
+
+  const first = reconcileGuestIntoAccount({
+    mode: 'existingAccountMerge',
+    guest: { envelope: guest },
+    account,
+    context: {
+      expectedAccountId: ACCT_A,
+      challengeAliases: cyclicAliases,
+    },
+  })
+
+  assert.equal(first.ok, true)
+  if (!first.ok) return
+  // c1 and c2 must NOT swap identities; cOld -> c3 (acyclic) still resolves cleanly and clears in-progress c3
+  assert.equal(first.mergedAccount.data.completedChallenges[c1]?.completedOn, dNov05)
+  assert.equal(first.mergedAccount.data.completedChallenges[c2]?.completedOn, dNov08)
+  assert.equal(first.mergedAccount.data.completedChallenges[c3]?.completedOn, dNov10)
+  assert.deepEqual(first.mergedAccount.data.inProgressChallenges, {})
+  assert.equal(first.appliedAliases[c1], undefined)
+  assert.equal(first.appliedAliases[c2], undefined)
+  assert.equal(first.appliedAliases[cOld], c3)
+
+  // Retrying with the same cyclic aliases must remain 100% idempotent with identical Challenge IDs
+  const retry = reconcileGuestIntoAccount({
+    mode: 'existingAccountMerge',
+    guest: { envelope: guest },
+    account: first.mergedAccount,
+    context: {
+      expectedAccountId: ACCT_A,
+      challengeAliases: cyclicAliases,
+    },
+  })
+  assert.equal(retry.ok, true)
+  if (!retry.ok) return
+  assert.equal(retry.changedFromAccount, false)
+  assert.deepEqual(retry.mergedAccount.data, first.mergedAccount.data)
+
+  // Tail leading into a cycle (cOld -> c1 -> c2 -> c1) must also leave all IDs unmapped rather than picking an arbitrary cycle member
+  const tailIntoCycle = reconcileGuestIntoAccount({
+    mode: 'newAccountTransfer',
+    guest: {
+      envelope: {
+        ...makeEmptyGuestV2(),
+        data: {
+          ...makeEmptyGuestV2().data,
+          completedChallenges: {
+            [cOld]: { completedOn: dNov05 },
+          },
+        },
+      },
+    },
+    account: createEmptyAccountEnvelope({ accountId: ACCT_A }),
+    context: {
+      expectedAccountId: ACCT_A,
+      challengeAliases: { [cOld]: c1, [c1]: c2, [c2]: c1 },
+    },
+  })
+  assert.equal(tailIntoCycle.ok, true)
+  if (!tailIntoCycle.ok) return
+  assert.deepEqual(Object.keys(tailIntoCycle.mergedAccount.data.completedChallenges), [cOld])
+  assert.deepEqual(tailIntoCycle.appliedAliases, {})
 })
 
 test('fails closed on future unsupported guest and account schema versions', () => {

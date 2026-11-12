@@ -288,20 +288,22 @@ function buildValidatedAliasMap(
     clean[fromId] = toId
   }
 
-  // Resolve transitive chains safely while breaking cycles deterministically
+  // Resolve transitive chains safely; drop any chain that enters a cycle so identities never swap or diverge
   const resolved: Record<string, CanonicalChallengeId> = {}
   for (const fromId of Object.keys(clean)) {
     let current: CanonicalChallengeId = fromId as CanonicalChallengeId
     const visited = new Set<string>([current])
+    let hitCycle = false
     while (Object.hasOwn(clean, current)) {
       const next = clean[current]
       if (visited.has(next)) {
+        hitCycle = true
         break
       }
       visited.add(next)
       current = next
     }
-    if (current !== fromId) {
+    if (!hitCycle && current !== fromId) {
       resolved[fromId] = current
     }
   }
@@ -482,6 +484,10 @@ function normalizeSourceData(params: {
   readonly aliases: Readonly<Record<string, CanonicalChallengeId>>
   readonly appliedAliases: Record<string, CanonicalChallengeId>
   readonly rejectedRecords: RejectedRecordDiagnostic[]
+  readonly unresolvedItems: UnresolvedReconciliationItem[]
+  readonly challengeMinReleaseDate?: Readonly<Record<string, LocalCalendarDate>>
+  readonly maxCredibleDate?: LocalCalendarDate
+  readonly serverAuthorizedDate?: LocalCalendarDate
 }): NormalizedSourceState {
   const {
     source,
@@ -493,11 +499,18 @@ function normalizeSourceData(params: {
     aliases,
     appliedAliases,
     rejectedRecords,
+    unresolvedItems,
+    challengeMinReleaseDate,
+    maxCredibleDate,
+    serverAuthorizedDate,
   } = params
 
   const completedChallenges: Record<string, ProposedAccountCompletedChallengeRecord> = {}
   if (isPlainObject(rawData.completedChallenges)) {
-    for (const [rawId, value] of Object.entries(rawData.completedChallenges)) {
+    const entries = Object.entries(rawData.completedChallenges).sort((a, b) =>
+      compareStringsDeterministic(a[0], b[0]),
+    )
+    for (const [rawId, value] of entries) {
       if (!isSafeKey(rawId)) continue
       const parsedId = parseStoredChallengeId(rawId, allowedNamespace)
       if (!parsedId) {
@@ -542,17 +555,30 @@ function normalizeSourceData(params: {
           ...(clientClaimedOn ? { clientClaimedOn } : {}),
         })
       } else {
-        const earlier = earlierDate(existing.completedOn, completedOn)
-        const nextProv: DateProvenance =
-          existing.dateProvenance === 'serverVerified' || provenance === 'serverVerified'
-            ? 'serverVerified'
-            : 'clientReported'
+        const resolution = resolveDatedRecordMerge({
+          entityKind: 'challengeCompletion',
+          entityId: targetId,
+          accountSide: {
+            date: existing.completedOn,
+            dateProvenance: existing.dateProvenance,
+            clientClaimedOn: existing.clientClaimedOn,
+          },
+          guestSide: {
+            date: completedOn,
+            dateProvenance: provenance,
+            clientClaimedOn,
+          },
+          accountSourceLabel: source,
+          guestSourceLabel: source,
+          minDate: challengeMinReleaseDate?.[targetId],
+          maxDate: maxCredibleDate,
+          serverFallbackDate: serverAuthorizedDate,
+          unresolvedItems,
+        })
         completedChallenges[targetId] = Object.freeze({
-          completedOn: earlier,
-          dateProvenance: nextProv,
-          ...(clientClaimedOn ?? existing.clientClaimedOn
-            ? { clientClaimedOn: existing.clientClaimedOn ?? clientClaimedOn }
-            : {}),
+          completedOn: resolution.date,
+          dateProvenance: resolution.dateProvenance,
+          ...(resolution.clientClaimedOn ? { clientClaimedOn: resolution.clientClaimedOn } : {}),
         })
       }
     }
@@ -924,6 +950,8 @@ function resolveDatedRecordMerge(params: {
   readonly entityId: string
   readonly accountSide?: { readonly date: LocalCalendarDate; readonly dateProvenance: DateProvenance; readonly clientClaimedOn?: LocalCalendarDate }
   readonly guestSide?: { readonly date: LocalCalendarDate; readonly dateProvenance: DateProvenance; readonly clientClaimedOn?: LocalCalendarDate }
+  readonly accountSourceLabel?: 'account' | 'guest'
+  readonly guestSourceLabel?: 'account' | 'guest'
   readonly minDate?: LocalCalendarDate
   readonly maxDate?: LocalCalendarDate
   readonly serverFallbackDate?: LocalCalendarDate
@@ -934,6 +962,8 @@ function resolveDatedRecordMerge(params: {
     entityId,
     accountSide,
     guestSide,
+    accountSourceLabel = 'account',
+    guestSourceLabel = 'guest',
     minDate,
     maxDate,
     serverFallbackDate,
@@ -952,7 +982,7 @@ function resolveDatedRecordMerge(params: {
       kind: 'inadmissibleDateClaim',
       entityKind,
       entityId,
-      source: 'account',
+      source: accountSourceLabel,
       claimedDate: accountSide.date,
       ...(minDate ? { minAllowedDate: minDate } : {}),
       ...(maxDate ? { maxAllowedDate: maxDate } : {}),
@@ -964,7 +994,7 @@ function resolveDatedRecordMerge(params: {
       kind: 'inadmissibleDateClaim',
       entityKind,
       entityId,
-      source: 'guest',
+      source: guestSourceLabel,
       claimedDate: guestSide.date,
       ...(minDate ? { minAllowedDate: minDate } : {}),
       ...(maxDate ? { maxAllowedDate: maxDate } : {}),
@@ -1006,12 +1036,20 @@ function resolveDatedRecordMerge(params: {
   const acc = validAcc!
   const gst = validGst!
 
+  const earlierPreservedClaim =
+    acc.clientClaimedOn && gst.clientClaimedOn
+      ? earlierDate(acc.clientClaimedOn, gst.clientClaimedOn)
+      : (acc.clientClaimedOn ?? gst.clientClaimedOn)
+
   if (acc.date === gst.date) {
     const prov: DateProvenance =
       acc.dateProvenance === 'serverVerified' || gst.dateProvenance === 'serverVerified'
         ? 'serverVerified'
         : 'clientReported'
-    const claimed = prov === 'serverVerified' ? undefined : (acc.clientClaimedOn ?? gst.clientClaimedOn)
+    const claimed =
+      prov === 'serverVerified'
+        ? (earlierPreservedClaim && earlierPreservedClaim < acc.date ? earlierPreservedClaim : undefined)
+        : earlierPreservedClaim
     return {
       date: acc.date,
       dateProvenance: prov,
@@ -1020,9 +1058,13 @@ function resolveDatedRecordMerge(params: {
   }
 
   if (acc.dateProvenance === 'serverVerified' && gst.dateProvenance === 'serverVerified') {
+    const chosen = earlierDate(acc.date, gst.date)
     return {
-      date: earlierDate(acc.date, gst.date),
+      date: chosen,
       dateProvenance: 'serverVerified',
+      ...(earlierPreservedClaim && earlierPreservedClaim < chosen
+        ? { clientClaimedOn: earlierPreservedClaim }
+        : {}),
     }
   }
 
@@ -1031,6 +1073,9 @@ function resolveDatedRecordMerge(params: {
       return {
         date: acc.date,
         dateProvenance: 'serverVerified',
+        ...(acc.clientClaimedOn && acc.clientClaimedOn < acc.date
+          ? { clientClaimedOn: acc.clientClaimedOn }
+          : {}),
       }
     }
     // Unverified client date attempts to pre-date a server-verified record: preserve server date & flag
@@ -1065,6 +1110,9 @@ function resolveDatedRecordMerge(params: {
       return {
         date: gst.date,
         dateProvenance: 'serverVerified',
+        ...(gst.clientClaimedOn && gst.clientClaimedOn < gst.date
+          ? { clientClaimedOn: gst.clientClaimedOn }
+          : {}),
       }
     }
     if (entityKind === 'earnedAward') {
@@ -1323,6 +1371,10 @@ export function reconcileGuestIntoAccount(
     aliases,
     appliedAliases,
     rejectedRecords,
+    unresolvedItems,
+    challengeMinReleaseDate: context.challengeMinReleaseDate,
+    maxCredibleDate,
+    serverAuthorizedDate,
   })
 
   const normalizedGuest = normalizeSourceStateForMerge({
@@ -1335,6 +1387,10 @@ export function reconcileGuestIntoAccount(
     aliases,
     appliedAliases,
     rejectedRecords,
+    unresolvedItems,
+    challengeMinReleaseDate: context.challengeMinReleaseDate,
+    maxCredibleDate,
+    serverAuthorizedDate,
   })
 
   // 1. Completed Challenges (union by CanonicalChallengeId with credible date provenance)
@@ -1591,6 +1647,7 @@ export function reconcileGuestIntoAccount(
   })
 
   const hasUnresolved = unresolvedItems.length > 0
+  const hasRejectedGuestRecords = rejectedRecords.some(record => record.source === 'guest')
 
   return Object.freeze({
     ok: true,
@@ -1604,7 +1661,7 @@ export function reconcileGuestIntoAccount(
     shelfConflicts: Object.freeze(shelfConflicts),
     rejectedRecords: Object.freeze(rejectedRecords),
     appliedAliases: Object.freeze(appliedAliases),
-    guestClearanceEligible: !hasUnresolved,
+    guestClearanceEligible: !hasUnresolved && !hasRejectedGuestRecords,
   })
 }
 
