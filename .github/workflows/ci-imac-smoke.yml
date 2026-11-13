@@ -1,6 +1,6 @@
 name: iMac self-hosted runner smoke
 
-# Manual-only infrastructure pilot. Never runs automatically on PRs or pushes.
+# TEMPORARY BRANCH-ONLY BigMac dispatch pilot. Restore before PR merge.
 on:
   workflow_dispatch:
 
@@ -8,31 +8,41 @@ permissions:
   contents: read
 
 concurrency:
-  group: imac-runner-smoke
+  group: bigmac-linux-runner-smoke
   cancel-in-progress: false
 
 jobs:
-  imac-smoke:
-    name: Verify Bibleberry iMac runner
-    runs-on: [self-hosted, macOS, ARM64, bibleberry-macos]
+  linux-smoke:
+    name: Verify Bibleberry BigMac Linux runner
+    runs-on: [self-hosted, Linux, X64, bibleberry-linux]
     timeout-minutes: 10
-    env:
-      DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
-    steps:
-      - name: Verify host and architecture
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$(uname -s)" = "Darwin"
-          test "$(uname -m)" = "arm64"
-          printf 'Runner: %s\n' "$RUNNER_NAME"
-          sw_vers -productVersion
-          uname -m
 
-      - name: Verify Xcode and iOS simulator availability
+    steps:
+      - name: Verify Ubuntu and architecture
         shell: bash
         run: |
           set -euo pipefail
-          xcodebuild -version
-          xcrun simctl list devices available | tee "$RUNNER_TEMP/available-simulators.txt"
-          grep -Fq 'iPhone' "$RUNNER_TEMP/available-simulators.txt"
+          test "$(uname -s)" = "Linux"
+          test "$(uname -m)" = "x86_64"
+          . /etc/os-release
+          test "$ID" = "ubuntu"
+          test "$VERSION_ID" = "24.04"
+          printf 'Runner: %s\n' "$RUNNER_NAME"
+          printf 'OS: %s\n' "$PRETTY_NAME"
+          printf 'Architecture: %s\n' "$(uname -m)"
+
+      - name: Verify VM resource availability
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(nproc)" -ge 2
+          nproc
+          free -h
+          df -h /
+
+      - name: Verify network name resolution
+        shell: bash
+        run: |
+          set -euo pipefail
+          getent ahostsv4 github.com >/dev/null
+          echo "GitHub DNS resolution successful"
