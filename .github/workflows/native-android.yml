@@ -2,6 +2,8 @@ name: Native Android debug build
 
 on:
   pull_request:
+    # Drafts are waiting-room PRs; Ready for review starts real verification.
+    types: [opened, reopened, synchronize, ready_for_review, converted_to_draft]
     branches: [main]
     paths:
       - android/**
@@ -33,6 +35,7 @@ permissions:
 jobs:
   android-debug-apk:
     name: Native Android debug APK
+    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
 
     steps:
