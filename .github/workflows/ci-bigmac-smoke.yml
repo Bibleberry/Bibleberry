@@ -1,0 +1,48 @@
+name: BigMac Linux self-hosted runner smoke
+
+# Manual-only connectivity pilot; no automatic PR or push trigger.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bigmac-linux-runner-smoke
+  cancel-in-progress: false
+
+jobs:
+  linux-smoke:
+    name: Verify Bibleberry BigMac Linux runner
+    runs-on: [self-hosted, Linux, X64, bibleberry-linux]
+    timeout-minutes: 10
+
+    steps:
+      - name: Verify Ubuntu and architecture
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -s)" = "Linux"
+          test "$(uname -m)" = "x86_64"
+          . /etc/os-release
+          test "$ID" = "ubuntu"
+          test "$VERSION_ID" = "24.04"
+          printf 'Runner: %s\n' "$RUNNER_NAME"
+          printf 'OS: %s\n' "$PRETTY_NAME"
+          printf 'Architecture: %s\n' "$(uname -m)"
+
+      - name: Verify VM resource availability
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(nproc)" -ge 2
+          nproc
+          free -h
+          df -h /
+
+      - name: Verify network name resolution
+        shell: bash
+        run: |
+          set -euo pipefail
+          getent ahostsv4 github.com >/dev/null
+          echo "GitHub DNS resolution successful"
