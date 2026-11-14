@@ -1,0 +1,54 @@
+name: Bibleberry Linux CMS pilot
+
+# Manual-only migration pilot. No pull_request or push trigger.
+# Only trusted main is permitted to execute on the persistent self-hosted VM.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bibleberry-linux-cms-pilot
+  cancel-in-progress: false
+
+jobs:
+  cms-adapter-self-hosted:
+    name: Pilot CMS adapters and BerryMark on Ubuntu VM
+    if: github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, Linux, X64, bibleberry-linux]
+    timeout-minutes: 20
+
+    steps:
+      - name: Verify Linux host
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -s)" = "Linux"
+          test "$(uname -m)" = "x86_64"
+          . /etc/os-release
+          test "$ID" = "ubuntu"
+          test "$VERSION_ID" = "24.04"
+          printf 'Runner: %s\n' "$RUNNER_NAME"
+          printf 'Ref: %s\n' "$GITHUB_REF"
+
+      - name: Check out trusted main
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install application dependencies
+        run: npm ci
+
+      - name: Run CMS adapter and BerryMark preview tests
+        run: npm run test:adapter
+
+      - name: Run native participation driver and migration tests
+        run: npm run test:native-participation
