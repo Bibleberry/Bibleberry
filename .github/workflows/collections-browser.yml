@@ -14,12 +14,14 @@ permissions:
 jobs:
   browser-collections:
     name: Saved Scripture and Field Notebook (Chromium)
-    runs-on: ubuntu-24.04
+    # Owner-authored internal PRs run on the BigMac VM; other PRs use hosted Ubuntu.
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login == 'ContraPhilosophy' && fromJSON('["self-hosted","Linux","X64","bibleberry-linux"]') || 'ubuntu-24.04' }}
 
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
