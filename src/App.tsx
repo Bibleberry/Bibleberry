@@ -18,6 +18,21 @@ import {
   type ChallengeOrigin,
 } from './cms/reader/challengeOrigin'
 import { defaultGuestParticipationStore } from './participation/defaultGuestStore'
+import { useReaderParticipation } from './participation/useReaderParticipation'
+import {
+  defaultAnnouncementPreferencesStore,
+  useAnnouncementPreferences,
+} from './components/announcements/announcementPreferencesStorage'
+import {
+  NOTEBOOK_ROUTE_HASH,
+  NOTEBOOK_ROUTE_ALIASES,
+  SAVED_SCRIPTURE_ROUTE_HASH,
+  SAVED_SCRIPTURE_ROUTE_ALIASES,
+  isFieldNotebookRouteEnabled,
+  isSavedScriptureRouteEnabled,
+  isHubCardAnnouncementsEnabled,
+  parseAppIntegrationRoute,
+} from './appIntegration'
 import { parseInternalDestination } from './native/internalDestination'
 import './App.css'
 
@@ -41,6 +56,8 @@ type Detail =
   | { type: 'participationPilot' }
   | { type: 'releasedChallenge'; slug: string; origin: ChallengeOrigin }
   | { type: 'month'; yearMonth: string }
+  | { type: 'notebook' }
+  | { type: 'savedScripture' }
   | null
 type Appearance = 'light' | 'dark' | 'system'
 type TextSize = 'compact' | 'default' | 'large'
@@ -79,6 +96,10 @@ const ParticipationPilotEntryBar = participationPilotEnabled
   : null
 const releasedChallengeRouteEnabled = import.meta.env.VITE_ENABLE_RELEASED_CHALLENGE_ROUTE === 'true'
 const monthScreenEnabled = import.meta.env.VITE_ENABLE_MONTH_SCREEN === 'true'
+const fieldNotebookEnabled = isFieldNotebookRouteEnabled()
+const savedScriptureEnabled = isSavedScriptureRouteEnabled()
+const hubCardAnnouncementsEnabled = isHubCardAnnouncementsEnabled(fieldNotebookEnabled)
+
 const ReleasedChallengeHost = releasedChallengeRouteEnabled || monthScreenEnabled
   ? lazy(() => import('./cms/reader/ReleasedChallengeHost').then(module => ({ default: module.ReleasedChallengeHost })))
   : null
@@ -90,6 +111,21 @@ const MonthPreviewNewsBanner = monthScreenEnabled
   : null
 const MonthScreenEntryBar = monthScreenEnabled
   ? lazy(() => import('./components/month/MonthPreviewNewsBanner').then(module => ({ default: module.MonthScreenEntryBar })))
+  : null
+const FieldNotebookHost = fieldNotebookEnabled
+  ? lazy(() => import('./components/notebook/FieldNotebookHost').then(module => ({ default: module.FieldNotebookHost })))
+  : null
+const SavedScriptureHost = savedScriptureEnabled
+  ? lazy(() => import('./components/savedScripture/SavedScriptureHost').then(module => ({ default: module.SavedScriptureHost })))
+  : null
+const HubCardAnnouncementBoundary = hubCardAnnouncementsEnabled
+  ? lazy(() => import('./components/announcements/HubCardAnnouncementBoundary').then(module => ({ default: module.HubCardAnnouncementBoundary })))
+  : null
+const CardAnnouncementPreferenceControl = hubCardAnnouncementsEnabled
+  ? lazy(() => import('./components/announcements/HubCardAnnouncementBoundary').then(module => ({ default: module.CardAnnouncementPreferenceControl })))
+  : null
+const ProvisionalCollectionsEntryBar = (fieldNotebookEnabled || savedScriptureEnabled)
+  ? lazy(() => import('./appIntegration/ProvisionalCollectionsEntryBar').then(module => ({ default: module.ProvisionalCollectionsEntryBar })))
   : null
 const initialState: PrototypeState = {
   onboarded: false,
@@ -566,13 +602,37 @@ function JourneyView({ journey, clearJourney, onBack }: { journey: Activity[]; c
   )
 }
 
-function AppearanceView({ state, update, onBack }: { state: PrototypeState; update: (patch: Partial<PrototypeState>) => void; onBack: () => void }) {
+function AppearanceView({
+  state,
+  update,
+  onBack,
+  hubCardAnnouncementsEnabled,
+}: {
+  state: PrototypeState
+  update: (patch: Partial<PrototypeState>) => void
+  onBack: () => void
+  hubCardAnnouncementsEnabled: boolean
+}) {
+  const announcementPrefs = useAnnouncementPreferences(defaultAnnouncementPreferencesStore)
   return (
     <section className="standard-page detail-page">
       <DetailHeader title="APPEARANCE & READING" onBack={onBack} />
       <PageIntro eyebrow="YOUR READING SPACE" title="Quiet, comfortable, and adjustable." body="These choices are saved in this browser and apply throughout the app." />
       <div className="settings-group"><h2>Appearance</h2><p>System follows your device’s current light or dark setting.</p><div className="choice-grid">{([{ id: 'light', label: 'Light', icon: Sun }, { id: 'dark', label: 'Dark', icon: Moon }, { id: 'system', label: 'System', icon: Monitor }] as const).map(option => <button key={option.id} className={state.appearance === option.id ? 'is-selected' : ''} onClick={() => update({ appearance: option.id })} aria-pressed={state.appearance === option.id}><option.icon size={20} /><span>{option.label}</span>{state.appearance === option.id && <Check size={15} />}</button>)}</div></div>
       <div className="settings-group"><h2>Teaching text size</h2><p>Adjust long-form Scripture and teaching without changing interface labels.</p><div className="text-size-control">{([{ id: 'compact', label: 'A', name: 'Compact' }, { id: 'default', label: 'A', name: 'Default' }, { id: 'large', label: 'A', name: 'Large' }] as const).map(option => <button key={option.id} className={`${state.textSize === option.id ? 'is-selected' : ''} text-size-${option.id}`} onClick={() => update({ textSize: option.id })} aria-pressed={state.textSize === option.id}><strong>{option.label}</strong><span>{option.name}</span></button>)}</div><div className={`reading-preview reading-${state.textSize}`}><span>READING PREVIEW</span><p>“Rejoice always, pray continually, give thanks in all circumstances.”</p></div></div>
+      {hubCardAnnouncementsEnabled && CardAnnouncementPreferenceControl && (
+        <div className="settings-group">
+          <Suspense fallback={null}>
+            <CardAnnouncementPreferenceControl
+              enabled={announcementPrefs.data.earnedCardAnnouncementsEnabled}
+              disabled={announcementPrefs.status !== 'ready'}
+              onToggle={next => {
+                void defaultAnnouncementPreferencesStore.setAnnouncementsEnabled(next)
+              }}
+            />
+          </Suspense>
+        </div>
+      )}
     </section>
   )
 }
@@ -701,6 +761,40 @@ function parseInitialRoute(): {
       }
     }
   }
+  if (fieldNotebookEnabled) {
+    const parsedAppRoute = parseAppIntegrationRoute(hash, {
+      fieldNotebookEnabled,
+      savedScriptureEnabled: false,
+    })
+    if (parsedAppRoute === 'notebook') {
+      const originView = typeof window !== 'undefined' && isPrimaryView(window.history.state?.originView)
+        ? window.history.state.originView
+        : 'today'
+      return {
+        view: originView,
+        detail: { type: 'notebook' },
+        developmentCollection: 'ordinary',
+        previewDate: '',
+      }
+    }
+  }
+  if (savedScriptureEnabled) {
+    const parsedAppRoute = parseAppIntegrationRoute(hash, {
+      fieldNotebookEnabled: false,
+      savedScriptureEnabled,
+    })
+    if (parsedAppRoute === 'savedScripture') {
+      const originView = typeof window !== 'undefined' && isPrimaryView(window.history.state?.originView)
+        ? window.history.state.originView
+        : 'today'
+      return {
+        view: originView,
+        detail: { type: 'savedScripture' },
+        developmentCollection: 'ordinary',
+        previewDate: '',
+      }
+    }
+  }
   if (hash.startsWith('#/teaching/')) {
     const id = hash.replace('#/teaching/', '')
     const item = allEntries.find(entry => entry.id === id && entry.entryType === 'teaching')
@@ -750,8 +844,19 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
   const [pilotSession, setPilotSession] = useState<OrdinaryChallengeSessionState | undefined>(undefined)
   const [toast, setToast] = useState('')
   const [resetConfirm, setResetConfirm] = useState(false)
+  const [clearedAwardIds, setClearedAwardIds] = useState<ReadonlySet<string>>(() => new Set())
+  const participationSnapshot = useReaderParticipation(defaultGuestParticipationStore)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const recordedOpening = useRef('')
+
+  const hasNewDiscoveries = Object.entries(participationSnapshot.data?.earnedAwards ?? {}).some(
+    ([id, award]) => !award.cardViewed && !clearedAwardIds.has(id),
+  )
+
+  const handleNotebookOpened = () => {
+    const currentAwards = participationSnapshot.data?.earnedAwards ?? {}
+    setClearedAwardIds(new Set(Object.keys(currentAwards)))
+  }
 
   useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)) }, [state])
 
@@ -787,6 +892,8 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
       || (participationPilotEnabled && window.location.hash === '#/pilot/participation')
       || ((releasedChallengeRouteEnabled || monthScreenEnabled) && window.location.hash.startsWith('#/challenge/'))
       || (monthScreenEnabled && (window.location.hash === '#/month' || window.location.hash.startsWith('#/month/')))
+      || (fieldNotebookEnabled && NOTEBOOK_ROUTE_ALIASES.some(alias => window.location.hash.startsWith(alias)))
+      || (savedScriptureEnabled && SAVED_SCRIPTURE_ROUTE_ALIASES.some(alias => window.location.hash.startsWith(alias)))
     ) {
       window.history.pushState({ bibleberryView: destination }, '', window.location.pathname)
     } else {
@@ -797,7 +904,12 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
 
   useEffect(() => {
     if (
-      (!challengePilotEnabled && !participationPilotEnabled && !releasedChallengeRouteEnabled && !monthScreenEnabled) ||
+      (!challengePilotEnabled &&
+        !participationPilotEnabled &&
+        !releasedChallengeRouteEnabled &&
+        !monthScreenEnabled &&
+        !fieldNotebookEnabled &&
+        !savedScriptureEnabled) ||
       !state.onboarded
     )
       return
@@ -849,6 +961,36 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
           return
         }
       }
+      if (fieldNotebookEnabled) {
+        const parsedRoute = parseAppIntegrationRoute(currentHash, {
+          fieldNotebookEnabled,
+          savedScriptureEnabled: false,
+        })
+        if (parsedRoute === 'notebook') {
+          const originView = isPrimaryView(window.history.state?.originView)
+            ? window.history.state.originView
+            : undefined
+          if (originView) setView(originView)
+          setDetail({ type: 'notebook' })
+          scrollTop()
+          return
+        }
+      }
+      if (savedScriptureEnabled) {
+        const parsedRoute = parseAppIntegrationRoute(currentHash, {
+          fieldNotebookEnabled: false,
+          savedScriptureEnabled,
+        })
+        if (parsedRoute === 'savedScripture') {
+          const originView = isPrimaryView(window.history.state?.originView)
+            ? window.history.state.originView
+            : undefined
+          if (originView) setView(originView)
+          setDetail({ type: 'savedScripture' })
+          scrollTop()
+          return
+        }
+      }
       const restored = parseInitialRoute()
       if (restored.detail) {
         setView(restored.view)
@@ -866,7 +1008,9 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
         previous?.type === 'challengePilot' ||
         previous?.type === 'participationPilot' ||
         previous?.type === 'releasedChallenge' ||
-        previous?.type === 'month'
+        previous?.type === 'month' ||
+        previous?.type === 'notebook' ||
+        previous?.type === 'savedScripture'
           ? null
           : previous,
       )
@@ -953,6 +1097,12 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
           origin: parsedChallenge.origin,
         })
       }
+    } else if (fieldNotebookEnabled && NOTEBOOK_ROUTE_ALIASES.some(alias => hash.startsWith(alias))) {
+      window.history.replaceState({ originView: destination }, '', NOTEBOOK_ROUTE_HASH)
+      setDetail({ type: 'notebook' })
+    } else if (savedScriptureEnabled && SAVED_SCRIPTURE_ROUTE_ALIASES.some(alias => hash.startsWith(alias))) {
+      window.history.replaceState({ originView: destination }, '', SAVED_SCRIPTURE_ROUTE_HASH)
+      setDetail({ type: 'savedScripture' })
     } else if (hash.startsWith('#/teaching/')) {
       const id = hash.replace('#/teaching/', '')
       const item = allEntries.find(entry => entry.id === id && entry.entryType === 'teaching')
@@ -1233,6 +1383,40 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
     scrollTop()
   }
 
+  const openFieldNotebook = () => {
+    if (!fieldNotebookEnabled) return
+    window.history.replaceState({ ...(window.history.state ?? {}), bibleberryView: view }, '', window.location.href)
+    window.history.pushState({ originView: view }, '', NOTEBOOK_ROUTE_HASH)
+    setDetail({ type: 'notebook' })
+    scrollTop()
+  }
+
+  const exitFieldNotebook = () => {
+    if (!fieldNotebookEnabled) return
+    setDetail(null)
+    if (NOTEBOOK_ROUTE_ALIASES.some(alias => window.location.hash.startsWith(alias))) {
+      window.history.pushState({ bibleberryView: view }, '', window.location.pathname)
+    }
+    scrollTop()
+  }
+
+  const openSavedScripture = () => {
+    if (!savedScriptureEnabled) return
+    window.history.replaceState({ ...(window.history.state ?? {}), bibleberryView: view }, '', window.location.href)
+    window.history.pushState({ originView: view }, '', SAVED_SCRIPTURE_ROUTE_HASH)
+    setDetail({ type: 'savedScripture' })
+    scrollTop()
+  }
+
+  const exitSavedScripture = () => {
+    if (!savedScriptureEnabled) return
+    setDetail(null)
+    if (SAVED_SCRIPTURE_ROUTE_ALIASES.some(alias => window.location.hash.startsWith(alias))) {
+      window.history.pushState({ bibleberryView: view }, '', window.location.pathname)
+    }
+    scrollTop()
+  }
+
   const todayKey = simulatedDate || localDateKey()
   const yesterday = simulatedDate ? new Date(`${simulatedDate}T12:00:00`) : new Date()
   yesterday.setDate(yesterday.getDate() - 1)
@@ -1327,6 +1511,25 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
         onReturn={exitReleasedChallenge}
       />
     </Suspense>
+  } else if (detail?.type === 'notebook' && fieldNotebookEnabled && FieldNotebookHost) {
+    content = (
+      <Suspense fallback={<div className="standard-page notebook-page"><p role="status" aria-live="polite">Loading Field Notebook…</p></div>}>
+        <FieldNotebookHost
+          onExit={exitFieldNotebook}
+          exitLabel={`Return to ${primaryViewLabel(view)}`}
+          onNotebookOpened={handleNotebookOpened}
+        />
+      </Suspense>
+    )
+  } else if (detail?.type === 'savedScripture' && savedScriptureEnabled && SavedScriptureHost) {
+    content = (
+      <Suspense fallback={<div className="standard-page"><p role="status" aria-live="polite">Loading Saved Scripture…</p></div>}>
+        <SavedScriptureHost
+          onExit={exitSavedScripture}
+          exitLabel={`Return to ${primaryViewLabel(view)}`}
+        />
+      </Suspense>
+    )
   } else if (detail?.type === 'challengeLab' && developerStudioEnabled && InteractiveChallengeLab) {
     content = <Suspense fallback={<div className="standard-page"><p>Opening Interactive Challenge Lab…</p></div>}>
       <InteractiveChallengeLab onReturnToStudio={openDeveloperStudio} />
@@ -1353,7 +1556,7 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
   } else if (detail?.type === 'more') {
     const section = detail.section
     if (section === 'journey') content = <JourneyView journey={state.journey} clearJourney={() => { update({ journey: [] }); notify('Journey history cleared from this browser.') }} onBack={() => navigate('more')} />
-    else if (section === 'appearance') content = <AppearanceView state={state} update={update} onBack={() => navigate('more')} />
+    else if (section === 'appearance') content = <AppearanceView state={state} update={update} onBack={() => navigate('more')} hubCardAnnouncementsEnabled={hubCardAnnouncementsEnabled} />
     else if (section === 'reminder') content = <ReminderView state={state} update={update} notify={notify} onBack={() => navigate('more')} />
     else if (section === 'podcast') content = <section className="standard-page detail-page"><DetailHeader title="REALIGNED PODCAST" onBack={() => navigate('more')} /><PageIntro eyebrow="LISTEN WHERE YOU ALREADY DO" title="Realigned, with Alexis Waid." body="Realigned is the podcast—not the app’s final name. Episodes open on their existing platforms; no separate podcast account or catalog is required here." /><PodcastFixture standalone onAction={addActivity} /></section>
     else content = <>
@@ -1399,8 +1602,28 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
             <MonthScreenEntryBar onOpenMonth={openMonthScreen} />
           </Suspense>
         )}
+        {(fieldNotebookEnabled || savedScriptureEnabled) && !detail && (view === 'today' || view === 'archive' || view === 'more') && ProvisionalCollectionsEntryBar && (
+          <Suspense fallback={null}>
+            <ProvisionalCollectionsEntryBar
+              fieldNotebookEnabled={fieldNotebookEnabled}
+              savedScriptureEnabled={savedScriptureEnabled}
+              hasNewDiscoveries={hasNewDiscoveries}
+              onOpenNotebook={openFieldNotebook}
+              onOpenSavedScripture={openSavedScripture}
+            />
+          </Suspense>
+        )}
         {content}
       </AppShell>
+      {hubCardAnnouncementsEnabled && HubCardAnnouncementBoundary && (
+        <Suspense fallback={null}>
+          <HubCardAnnouncementBoundary
+            isHubActive={view === 'today' && !detail}
+            onOpenFieldNotebook={fieldNotebookEnabled ? openFieldNotebook : undefined}
+            fieldNotebookLabel="Open in Field Notebook"
+          />
+        </Suspense>
+      )}
       {toastBanner}
     </div>
   )
