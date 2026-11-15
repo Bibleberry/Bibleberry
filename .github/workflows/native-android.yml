@@ -10,6 +10,11 @@ on:
       - capacitor.config.ts
       - package.json
       - package-lock.json
+      # Vite/Capacitor packages current web app assets into the native APK.
+      - src/**
+      - public/**
+      - index.html
+      - vite.config.*
       - src/participation/drivers/capacitorPreferencesDriver.ts
       - src/participation/defaultGuestStore.ts
       - .github/workflows/native-android.yml
@@ -20,6 +25,11 @@ on:
       - capacitor.config.ts
       - package.json
       - package-lock.json
+      # Vite/Capacitor packages current web app assets into the native APK.
+      - src/**
+      - public/**
+      - index.html
+      - vite.config.*
       - src/participation/drivers/capacitorPreferencesDriver.ts
       - src/participation/defaultGuestStore.ts
       - .github/workflows/native-android.yml
