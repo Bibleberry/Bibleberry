@@ -28,7 +28,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: npm
+          # Local npm caches are isolated per self-hosted runner; remote cache is for hosted jobs only.
+          cache: ${{ runner.environment == 'github-hosted' && 'npm' || '' }}
 
       - name: Evaluate change scope
         id: scope
@@ -90,7 +91,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-          cache: npm
+          # Local npm caches are isolated per self-hosted runner; remote cache is for hosted jobs only.
+          cache: ${{ runner.environment == 'github-hosted' && 'npm' || '' }}
 
       - name: Evaluate change scope
         id: scope
@@ -126,7 +128,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-          cache: npm
+          # Local npm caches are isolated per self-hosted runner; remote cache is for hosted jobs only.
+          cache: ${{ runner.environment == 'github-hosted' && 'npm' || '' }}
 
       - name: Evaluate change scope
         id: scope
@@ -162,7 +165,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: npm
+          # Local npm caches are isolated per self-hosted runner; remote cache is for hosted jobs only.
+          cache: ${{ runner.environment == 'github-hosted' && 'npm' || '' }}
           cache-dependency-path: studio/package-lock.json
 
       - name: Evaluate change scope
