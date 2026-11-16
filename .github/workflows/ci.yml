@@ -2,6 +2,8 @@ name: Bibleberry CI
 
 on:
   pull_request:
+    # Drafts are waiting-room PRs; Ready for review starts real verification.
+    types: [opened, reopened, synchronize, ready_for_review, converted_to_draft]
     branches: [main]
   push:
     branches: [main]
@@ -18,6 +20,7 @@ jobs:
     name: Build reader application
     # Owner-authored internal PRs and pushes to protected main use the BigMac VM.
     # Other PRs retain GitHub-hosted isolation (subject to the existing billing cap).
+    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
     runs-on: ${{ (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login == 'ContraPhilosophy')) && fromJSON('["self-hosted","Linux","X64","bibleberry-linux"]') || 'ubuntu-24.04' }}
 
     steps:
@@ -81,6 +84,7 @@ jobs:
     name: Verify CMS adapters and BerryMark preview
     # Owner-authored internal PRs and pushes to protected main use the BigMac VM.
     # Other PRs retain GitHub-hosted isolation (subject to the existing billing cap).
+    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
     runs-on: ${{ (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login == 'ContraPhilosophy')) && fromJSON('["self-hosted","Linux","X64","bibleberry-linux"]') || 'ubuntu-24.04' }}
 
     steps:
@@ -118,6 +122,7 @@ jobs:
     name: Verify Release Gateway core
     # Owner-authored internal PRs and pushes to protected main use the BigMac VM.
     # Other PRs retain GitHub-hosted isolation (subject to the existing billing cap).
+    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
     runs-on: ${{ (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login == 'ContraPhilosophy')) && fromJSON('["self-hosted","Linux","X64","bibleberry-linux"]') || 'ubuntu-24.04' }}
 
     steps:
@@ -151,6 +156,7 @@ jobs:
     name: Verify Sanity Studio
     # Owner-authored internal PRs and pushes to protected main use the BigMac VM.
     # Other PRs retain GitHub-hosted isolation (subject to the existing billing cap).
+    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
     runs-on: ${{ (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login == 'ContraPhilosophy')) && fromJSON('["self-hosted","Linux","X64","bibleberry-linux"]') || 'ubuntu-24.04' }}
 
     defaults:

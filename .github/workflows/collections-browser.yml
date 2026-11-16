@@ -2,6 +2,8 @@ name: Collections Browser Tests
 
 on:
   pull_request:
+    # Drafts are waiting-room PRs; Ready for review starts real verification.
+    types: [opened, reopened, synchronize, ready_for_review, converted_to_draft]
     branches: [main]
 
 concurrency:
@@ -15,6 +17,7 @@ jobs:
   browser-collections:
     name: Saved Scripture and Field Notebook (Chromium)
     # Owner-authored internal PRs run on the BigMac VM; other PRs use hosted Ubuntu.
+    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login == 'ContraPhilosophy' && fromJSON('["self-hosted","Linux","X64","bibleberry-linux"]') || 'ubuntu-24.04' }}
 
     steps:
