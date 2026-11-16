@@ -576,7 +576,7 @@ def capture_console_pty_launch(
     udid: str,
     bundle_id: str,
     out_file: Path,
-    duration_s: float = 10.0,
+    duration_s: float = 60.0,
     ready_patterns: tuple[str, ...] = (r"To Native ->\s+Preferences\s+get\b",),
     observed_patterns: dict[str, float] | None = None,
 ) -> str:
@@ -950,7 +950,7 @@ def _run_smoke_attempt(
         step_name="simctl_terminate_before_pty",
     )
     pty_log = capture_console_pty_launch(
-        udid, args.bundle_id, evidence_dir / "02b-simctl-console-pty.log", duration_s=10.0
+        udid, args.bundle_id, evidence_dir / "02b-simctl-console-pty.log"
     )
     if "Preferences.then" in pty_log:
         raise RuntimeError("Detected Capacitor Preferences.then() Proxy trap in simulator PTY log.")

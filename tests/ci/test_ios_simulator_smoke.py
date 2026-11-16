@@ -359,6 +359,32 @@ class TestIosSimulatorSmoke(unittest.TestCase):
             )
         self.assertTrue(timings[0]["timedOut"])
 
+    def test_console_pty_capture_waits_for_delayed_native_bridge_call(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_path = Path(tmp) / "console-pty.log"
+            current_time = 0.0
+
+            def advance_select(
+                read_fds: list[int], _write_fds: object, _error_fds: object, _timeout: float
+            ) -> tuple[list[int], list[int], list[int]]:
+                nonlocal current_time
+                current_time += 1.0
+                return (read_fds if current_time >= 12.0 else [], [], [])
+
+            process = mock.Mock()
+            process.poll.return_value = 0
+            with (
+                mock.patch.object(smoke.subprocess, "Popen", return_value=process),
+                mock.patch.object(smoke.select, "select", side_effect=advance_select),
+                mock.patch.object(smoke.os, "read", return_value=b"To Native -> Preferences get\n"),
+                mock.patch.object(smoke, "run_cmd_best_effort", return_value={}),
+                mock.patch.object(smoke.time, "monotonic", side_effect=lambda: current_time),
+            ):
+                output = smoke.capture_console_pty_launch("U1", "com.example.app", output_path)
+
+            self.assertIn("To Native -> Preferences get", output)
+            self.assertEqual(output_path.read_text(encoding="utf-8"), output)
+
     def test_non_transient_called_process_error_is_not_retried(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmpdir = Path(tmp)
