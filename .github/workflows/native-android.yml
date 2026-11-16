@@ -46,8 +46,8 @@ jobs:
   android-debug-apk:
     name: Native Android debug APK
     if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
-    # Only owner-authored internal PRs and pushes run code on persistent machines.
-    runs-on: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login == 'ContraPhilosophy')) && fromJSON('["self-hosted","Linux","X64","bibleberry-linux"]') || 'ubuntu-latest' }}
+    # GitHub-hosted Ubuntu isolates PR builds from local development computers.
+    runs-on: ubuntu-24.04
 
     steps:
       - uses: actions/checkout@v4
@@ -58,20 +58,15 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-          # Shared SDK/Gradle caches should stay local on persistent Linux runners.
-          cache: ${{ runner.environment == 'github-hosted' && 'gradle' || '' }}
+          cache: gradle
           cache-dependency-path: android/gradle/wrapper/gradle-wrapper.properties
 
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: ${{ runner.environment == 'github-hosted' && 'npm' || '' }}
+          cache: npm
 
-      - name: Use persistent runner-specific Android SDK
-        if: ${{ runner.environment == 'self-hosted' }}
-        run: echo "ANDROID_SDK_ROOT=$HOME/.android/sdk-$RUNNER_NAME" >> "$GITHUB_ENV"
-
-      # Hosted images already contain SDK tools; our Ubuntu VM does not.
+      # Prepare command-line tools consistently on hosted Ubuntu.
       - name: Set up Android SDK command-line tools
         uses: android-actions/setup-android@v4
 

@@ -28,6 +28,8 @@ import {
   NOTEBOOK_ROUTE_ALIASES,
   SAVED_SCRIPTURE_ROUTE_HASH,
   SAVED_SCRIPTURE_ROUTE_ALIASES,
+  LIBRARY_ROUTE_HASH,
+  LIBRARY_ROUTE_ALIASES,
   isFieldNotebookRouteEnabled,
   isSavedScriptureRouteEnabled,
   isHubCardAnnouncementsEnabled,
@@ -54,8 +56,9 @@ type Detail =
   | { type: 'challengeLab' }
   | { type: 'challengePilot' }
   | { type: 'participationPilot' }
-  | { type: 'releasedChallenge'; slug: string; origin: ChallengeOrigin }
-  | { type: 'month'; yearMonth: string }
+  | { type: 'releasedChallenge'; slug: string; origin: ChallengeOrigin; monthReturnTo?: 'library' }
+  | { type: 'month'; yearMonth: string; returnTo?: 'library' }
+  | { type: 'library' }
   | { type: 'notebook' }
   | { type: 'savedScripture' }
   | null
@@ -98,6 +101,7 @@ const releasedChallengeRouteEnabled = import.meta.env.VITE_ENABLE_RELEASED_CHALL
 const monthScreenEnabled = import.meta.env.VITE_ENABLE_MONTH_SCREEN === 'true'
 const fieldNotebookEnabled = isFieldNotebookRouteEnabled()
 const savedScriptureEnabled = isSavedScriptureRouteEnabled()
+const historicalLibraryEnabled = import.meta.env.VITE_ENABLE_HISTORICAL_LIBRARY === 'true'
 const hubCardAnnouncementsEnabled = isHubCardAnnouncementsEnabled(fieldNotebookEnabled)
 
 const ReleasedChallengeHost = releasedChallengeRouteEnabled || monthScreenEnabled
@@ -126,6 +130,12 @@ const CardAnnouncementPreferenceControl = hubCardAnnouncementsEnabled
   : null
 const ProvisionalCollectionsEntryBar = (fieldNotebookEnabled || savedScriptureEnabled)
   ? lazy(() => import('./appIntegration/ProvisionalCollectionsEntryBar').then(module => ({ default: module.ProvisionalCollectionsEntryBar })))
+  : null
+const HistoricalLibraryHost = historicalLibraryEnabled
+  ? lazy(() => import('./components/library').then(module => ({ default: module.HistoricalLibraryHost })))
+  : null
+const ProvisionalLibraryEntryBar = historicalLibraryEnabled
+  ? lazy(() => import('./appIntegration/ProvisionalLibraryEntryBar').then(module => ({ default: module.ProvisionalLibraryEntryBar })))
   : null
 const initialState: PrototypeState = {
   onboarded: false,
@@ -739,9 +749,13 @@ function parseInitialRoute(): {
       const originView = typeof window !== 'undefined' && isPrimaryView(window.history.state?.originView)
         ? window.history.state.originView
         : 'today'
+      const returnTo =
+        historicalLibraryEnabled && typeof window !== 'undefined' && window.history.state?.monthReturnTo === 'library'
+          ? 'library'
+          : undefined
       return {
         view: originView,
-        detail: { type: 'month', yearMonth: parsedMonth.yearMonth },
+        detail: { type: 'month', yearMonth: parsedMonth.yearMonth, ...(returnTo ? { returnTo } : {}) },
         developmentCollection: 'ordinary',
         previewDate: '',
       }
@@ -753,9 +767,36 @@ function parseInitialRoute(): {
       const originView = typeof window !== 'undefined' && isPrimaryView(window.history.state?.originView)
         ? window.history.state.originView
         : 'today'
+      const monthReturnTo =
+        historicalLibraryEnabled && typeof window !== 'undefined' && window.history.state?.monthReturnTo === 'library'
+          ? 'library'
+          : undefined
       return {
         view: originView,
-        detail: { type: 'releasedChallenge', slug: parsedChallenge.slug, origin: parsedChallenge.origin },
+        detail: {
+          type: 'releasedChallenge',
+          slug: parsedChallenge.slug,
+          origin: parsedChallenge.origin,
+          ...(monthReturnTo ? { monthReturnTo } : {}),
+        },
+        developmentCollection: 'ordinary',
+        previewDate: '',
+      }
+    }
+  }
+  if (historicalLibraryEnabled) {
+    const parsedAppRoute = parseAppIntegrationRoute(hash, {
+      fieldNotebookEnabled: false,
+      savedScriptureEnabled: false,
+      historicalLibraryEnabled,
+    })
+    if (parsedAppRoute === 'library') {
+      const originView = typeof window !== 'undefined' && isPrimaryView(window.history.state?.originView)
+        ? window.history.state.originView
+        : 'archive'
+      return {
+        view: originView,
+        detail: { type: 'library' },
         developmentCollection: 'ordinary',
         previewDate: '',
       }
@@ -894,6 +935,7 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
       || (monthScreenEnabled && (window.location.hash === '#/month' || window.location.hash.startsWith('#/month/')))
       || (fieldNotebookEnabled && NOTEBOOK_ROUTE_ALIASES.some(alias => window.location.hash.startsWith(alias)))
       || (savedScriptureEnabled && SAVED_SCRIPTURE_ROUTE_ALIASES.some(alias => window.location.hash.startsWith(alias)))
+      || (historicalLibraryEnabled && LIBRARY_ROUTE_ALIASES.some(alias => window.location.hash.startsWith(alias)))
     ) {
       window.history.pushState({ bibleberryView: destination }, '', window.location.pathname)
     } else {
@@ -909,7 +951,8 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
         !releasedChallengeRouteEnabled &&
         !monthScreenEnabled &&
         !fieldNotebookEnabled &&
-        !savedScriptureEnabled) ||
+        !savedScriptureEnabled &&
+        !historicalLibraryEnabled) ||
       !state.onboarded
     )
       return
@@ -939,8 +982,12 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
           const originView = isPrimaryView(window.history.state?.originView)
             ? window.history.state.originView
             : undefined
+          const returnTo =
+            historicalLibraryEnabled && window.history.state?.monthReturnTo === 'library'
+              ? 'library'
+              : undefined
           if (originView) setView(originView)
-          setDetail({ type: 'month', yearMonth: parsedMonth.yearMonth })
+          setDetail({ type: 'month', yearMonth: parsedMonth.yearMonth, ...(returnTo ? { returnTo } : {}) })
           scrollTop()
           return
         }
@@ -951,12 +998,33 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
           const originView = isPrimaryView(window.history.state?.originView)
             ? window.history.state.originView
             : undefined
+          const monthReturnTo =
+            historicalLibraryEnabled && window.history.state?.monthReturnTo === 'library'
+              ? 'library'
+              : undefined
           if (originView) setView(originView)
           setDetail({
             type: 'releasedChallenge',
             slug: parsedChallenge.slug,
             origin: parsedChallenge.origin,
+            ...(monthReturnTo ? { monthReturnTo } : {}),
           })
+          scrollTop()
+          return
+        }
+      }
+      if (historicalLibraryEnabled) {
+        const parsedRoute = parseAppIntegrationRoute(currentHash, {
+          fieldNotebookEnabled: false,
+          savedScriptureEnabled: false,
+          historicalLibraryEnabled,
+        })
+        if (parsedRoute === 'library') {
+          const originView = isPrimaryView(window.history.state?.originView)
+            ? window.history.state.originView
+            : undefined
+          if (originView) setView(originView)
+          setDetail({ type: 'library' })
           scrollTop()
           return
         }
@@ -1009,6 +1077,7 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
         previous?.type === 'participationPilot' ||
         previous?.type === 'releasedChallenge' ||
         previous?.type === 'month' ||
+        previous?.type === 'library' ||
         previous?.type === 'notebook' ||
         previous?.type === 'savedScripture'
           ? null
@@ -1103,6 +1172,9 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
     } else if (savedScriptureEnabled && SAVED_SCRIPTURE_ROUTE_ALIASES.some(alias => hash.startsWith(alias))) {
       window.history.replaceState({ originView: destination }, '', SAVED_SCRIPTURE_ROUTE_HASH)
       setDetail({ type: 'savedScripture' })
+    } else if (historicalLibraryEnabled && LIBRARY_ROUTE_ALIASES.some(alias => hash.startsWith(alias))) {
+      window.history.replaceState({ originView: destination }, '', LIBRARY_ROUTE_HASH)
+      setDetail({ type: 'library' })
     } else if (hash.startsWith('#/teaching/')) {
       const id = hash.replace('#/teaching/', '')
       const item = allEntries.find(entry => entry.id === id && entry.entryType === 'teaching')
@@ -1331,25 +1403,46 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
   }
   const openMonthScreen = (yearMonth: string) => {
     if (!monthScreenEnabled) return
-    window.history.replaceState({ ...(window.history.state ?? {}), bibleberryView: view }, '', window.location.href)
-    window.history.pushState({ originView: view }, '', `#/month/${yearMonth}`)
-    setDetail({ type: 'month', yearMonth })
+    const returnTo =
+      historicalLibraryEnabled &&
+      (detail?.type === 'library' || (detail?.type === 'month' && detail.returnTo === 'library'))
+        ? 'library'
+        : undefined
+    if (!returnTo) {
+      window.history.replaceState({ ...(window.history.state ?? {}), bibleberryView: view }, '', window.location.href)
+    }
+    window.history.pushState(
+      { originView: view, ...(returnTo ? { monthReturnTo: returnTo } : {}) },
+      '',
+      `#/month/${yearMonth}`,
+    )
+    setDetail({ type: 'month', yearMonth, ...(returnTo ? { returnTo } : {}) })
     scrollTop()
   }
   const openMonthChallenge = (slug: string, yearMonth: string) => {
     if (!monthScreenEnabled) return
     const origin: ChallengeOrigin = { kind: 'month', yearMonth }
+    const monthReturnTo =
+      historicalLibraryEnabled && detail?.type === 'month' && detail.returnTo === 'library'
+        ? 'library'
+        : undefined
     const targetHash = `#/challenge/${encodeURIComponent(slug)}?origin=month&yearMonth=${encodeURIComponent(yearMonth)}`
     window.history.pushState(
-      { originView: view, challengeOrigin: origin },
+      { originView: view, challengeOrigin: origin, ...(monthReturnTo ? { monthReturnTo } : {}) },
       '',
       targetHash,
     )
-    setDetail({ type: 'releasedChallenge', slug, origin })
+    setDetail({ type: 'releasedChallenge', slug, origin, ...(monthReturnTo ? { monthReturnTo } : {}) })
     scrollTop()
   }
   const exitMonthScreen = () => {
     if (!monthScreenEnabled) return
+    if (historicalLibraryEnabled && detail?.type === 'month' && detail.returnTo === 'library') {
+      setDetail({ type: 'library' })
+      window.history.pushState({ originView: view }, '', LIBRARY_ROUTE_HASH)
+      scrollTop()
+      return
+    }
     setDetail(null)
     if (window.location.hash === '#/month' || window.location.hash.startsWith('#/month/')) {
       window.history.pushState({ bibleberryView: view }, '', window.location.pathname)
@@ -1361,9 +1454,18 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
     const normalizedOrigin = parseChallengeOrigin(returnedOrigin)
     if (monthScreenEnabled && normalizedOrigin.kind === 'month') {
       const targetYearMonth = normalizedOrigin.yearMonth
-      setDetail({ type: 'month', yearMonth: targetYearMonth })
+      const returnTo =
+        historicalLibraryEnabled && detail?.type === 'releasedChallenge' && detail.monthReturnTo === 'library'
+          ? 'library'
+          : undefined
+      setDetail({ type: 'month', yearMonth: targetYearMonth, ...(returnTo ? { returnTo } : {}) })
       window.history.pushState(
-        { bibleberryView: view, originView: view, returnedChallengeOrigin: normalizedOrigin },
+        {
+          bibleberryView: view,
+          originView: view,
+          returnedChallengeOrigin: normalizedOrigin,
+          ...(returnTo ? { monthReturnTo: returnTo } : {}),
+        },
         '',
         `#/month/${targetYearMonth}`,
       )
@@ -1380,6 +1482,23 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
       )
     }
     onReleasedChallengeReturn?.(normalizedOrigin)
+    scrollTop()
+  }
+
+  const openHistoricalLibrary = () => {
+    if (!historicalLibraryEnabled) return
+    window.history.replaceState({ ...(window.history.state ?? {}), bibleberryView: view }, '', window.location.href)
+    window.history.pushState({ originView: view }, '', LIBRARY_ROUTE_HASH)
+    setDetail({ type: 'library' })
+    scrollTop()
+  }
+
+  const exitHistoricalLibrary = () => {
+    if (!historicalLibraryEnabled) return
+    setDetail(null)
+    if (LIBRARY_ROUTE_ALIASES.some(alias => window.location.hash.startsWith(alias))) {
+      window.history.pushState({ bibleberryView: view }, '', window.location.pathname)
+    }
     scrollTop()
   }
 
@@ -1496,9 +1615,23 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
         onOpenChallenge={openMonthChallenge}
         onSelectYearMonth={openMonthScreen}
         onExit={exitMonthScreen}
-        exitLabel={`Return to ${primaryViewLabel(view)}`}
+        exitLabel={
+          detail.returnTo === 'library' && historicalLibraryEnabled
+            ? formatChallengeOriginLabel({ kind: 'library' })
+            : `Return to ${primaryViewLabel(view)}`
+        }
       />
     </Suspense>
+  } else if (detail?.type === 'library' && historicalLibraryEnabled && HistoricalLibraryHost) {
+    content = (
+      <Suspense fallback={<div className="standard-page library-page"><p role="status" aria-live="polite">Loading Historical Library…</p></div>}>
+        <HistoricalLibraryHost
+          onOpenMonth={openMonthScreen}
+          onExit={exitHistoricalLibrary}
+          exitLabel={`Return to ${primaryViewLabel(view)}`}
+        />
+      </Suspense>
+    )
   } else if (detail?.type === 'releasedChallenge' && (releasedChallengeRouteEnabled || monthScreenEnabled) && ReleasedChallengeHost) {
     const returnLabel = detail.origin.kind === 'hub'
       ? `Return to ${primaryViewLabel(view)}`
@@ -1600,6 +1733,11 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
         {monthScreenEnabled && !detail && (view === 'today' || view === 'archive') && MonthScreenEntryBar && (
           <Suspense fallback={null}>
             <MonthScreenEntryBar onOpenMonth={openMonthScreen} />
+          </Suspense>
+        )}
+        {historicalLibraryEnabled && !detail && view === 'archive' && ProvisionalLibraryEntryBar && (
+          <Suspense fallback={null}>
+            <ProvisionalLibraryEntryBar onOpenLibrary={openHistoricalLibrary} />
           </Suspense>
         )}
         {(fieldNotebookEnabled || savedScriptureEnabled) && !detail && (view === 'today' || view === 'archive' || view === 'more') && ProvisionalCollectionsEntryBar && (
