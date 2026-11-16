@@ -5,10 +5,12 @@ import {
   MAX_LIBRARY_PAGE_SIZE,
   type LibraryMonthIndexProvider,
 } from '../../cms/reader/libraryMonthIndexProvider.ts'
+import type { ShelfEntry } from '../../shelf/types.ts'
 import {
   historicalLibraryReducer,
   initialHistoricalLibraryState,
   isValidYearMonth,
+  type HistoricalLibraryState,
 } from './historicalLibraryModel.ts'
 import { HistoricalLibraryView } from './HistoricalLibraryView.tsx'
 
@@ -45,6 +47,47 @@ export interface HistoricalLibraryHostProps {
    * Accessible label for exit action. Defaults to 'Return'.
    */
   readonly exitLabel?: string
+
+  /**
+   * Optional current Shelf entries for displaying Shelf membership and protection badges.
+   */
+  readonly shelfEntries?: readonly ShelfEntry[]
+
+  /**
+   * Optional highlighted month context when returning between Shelf and Library.
+   */
+  readonly selectedMonthYearMonth?: string | null
+
+  /**
+   * Optional callback invoked when the reader selects an approved historical month for Shelf.
+   */
+  readonly onSelectForShelf?: (yearMonth: string) => void
+
+  /**
+   * Optional callback to navigate directly to the Shelf view.
+   */
+  readonly onViewShelf?: () => void
+
+  /**
+   * Optional maximum Shelf capacity for display in navigation controls. Defaults to 3.
+   */
+  readonly shelfMaxCapacity?: number
+
+  /**
+   * Optional live-region announcement from Shelf selection/replacement actions.
+   */
+  readonly shelfAnnouncement?: string
+
+  /**
+   * Optional preserved Library state so returning between Shelf and Library
+   * does not discard loaded pages or server context.
+   */
+  readonly preservedState?: HistoricalLibraryState
+
+  /**
+   * Optional callback invoked whenever the Library state updates.
+   */
+  readonly onStateChange?: (state: HistoricalLibraryState) => void
 }
 
 /**
@@ -64,11 +107,25 @@ export function HistoricalLibraryHost({
   timeZone,
   onExit,
   exitLabel = 'Return',
+  shelfEntries,
+  selectedMonthYearMonth,
+  onSelectForShelf,
+  onViewShelf,
+  shelfMaxCapacity,
+  shelfAnnouncement,
+  preservedState,
+  onStateChange,
 }: HistoricalLibraryHostProps) {
-  const [state, dispatch] = useReducer(historicalLibraryReducer, initialHistoricalLibraryState)
+  const [state, dispatch] = useReducer(
+    historicalLibraryReducer,
+    preservedState ?? initialHistoricalLibraryState,
+  )
 
   const activeAbortControllerRef = useRef<AbortController | null>(null)
   const isMountedRef = useRef(true)
+  const hasHydratedInitialRef = useRef(
+    Boolean(preservedState && preservedState.status !== 'idle'),
+  )
 
   const resolvedPageSize = useMemo(() => {
     if (typeof pageSize !== 'number' || Number.isNaN(pageSize) || pageSize < 1) {
@@ -184,10 +241,19 @@ export function HistoricalLibraryHost({
     [provider, resolvedPageSize, timeZone],
   )
 
-  // Trigger initial fetch on mount or when provider/timeZone changes
+  // Notify parent when Library state changes so navigation can preserve loaded pages
+  useEffect(() => {
+    onStateChange?.(state)
+  }, [onStateChange, state])
+
+  // Trigger initial fetch on mount or when provider/timeZone changes (unless hydrated from preservedState)
   useEffect(() => {
     isMountedRef.current = true
-    void fetchMonths('initial')
+    if (hasHydratedInitialRef.current) {
+      hasHydratedInitialRef.current = false
+    } else {
+      void fetchMonths('initial')
+    }
 
     return () => {
       isMountedRef.current = false
@@ -232,6 +298,22 @@ export function HistoricalLibraryHost({
     [onOpenMonth, state.items],
   )
 
+  const handleSelectForShelf = useCallback(
+    (yearMonth: string) => {
+      if (!onSelectForShelf || !isValidYearMonth(yearMonth)) {
+        return
+      }
+
+      const isApprovedInCatalogue = state.items.some(item => item.yearMonth === yearMonth)
+      if (!isApprovedInCatalogue) {
+        return
+      }
+
+      onSelectForShelf(yearMonth)
+    },
+    [onSelectForShelf, state.items],
+  )
+
   return (
     <HistoricalLibraryView
       state={state}
@@ -240,6 +322,12 @@ export function HistoricalLibraryHost({
       onRetry={handleRetry}
       onExit={onExit}
       exitLabel={exitLabel}
+      shelfEntries={shelfEntries}
+      selectedMonthYearMonth={selectedMonthYearMonth}
+      onSelectForShelf={onSelectForShelf ? handleSelectForShelf : undefined}
+      onViewShelf={onViewShelf}
+      shelfMaxCapacity={shelfMaxCapacity}
+      shelfAnnouncement={shelfAnnouncement}
     />
   )
 }
