@@ -12,11 +12,15 @@ export const NOTEBOOK_ROUTE_ALIASES = Object.freeze(['#/notebook', '#/field-note
 export const SAVED_SCRIPTURE_ROUTE_HASH = '#/saved-scripture'
 export const SAVED_SCRIPTURE_ROUTE_ALIASES = Object.freeze(['#/saved-scripture', '#/savedScripture'] as const)
 
-export type AppIntegrationRoute = 'notebook' | 'savedScripture'
+export const LIBRARY_ROUTE_HASH = '#/library'
+export const LIBRARY_ROUTE_ALIASES = Object.freeze(['#/library'] as const)
+
+export type AppIntegrationRoute = 'notebook' | 'savedScripture' | 'library'
 
 export interface AppIntegrationRouteOptions {
   readonly fieldNotebookEnabled: boolean
   readonly savedScriptureEnabled: boolean
+  readonly historicalLibraryEnabled?: boolean
 }
 
 /**
@@ -31,6 +35,13 @@ export function isFieldNotebookRouteEnabled(): boolean {
  */
 export function isSavedScriptureRouteEnabled(): boolean {
   return typeof import.meta !== 'undefined' && import.meta.env?.VITE_ENABLE_SAVED_SCRIPTURE === 'true'
+}
+
+/**
+ * Returns whether the Historical Library route is enabled via environment feature gate.
+ */
+export function isHistoricalLibraryRouteEnabled(): boolean {
+  return typeof import.meta !== 'undefined' && import.meta.env?.VITE_ENABLE_HISTORICAL_LIBRARY === 'true'
 }
 
 /**
@@ -83,6 +94,12 @@ export function parseAppIntegrationRoute(
     }
   }
 
+  if (options.historicalLibraryEnabled) {
+    if (LIBRARY_ROUTE_ALIASES.includes(normalized as (typeof LIBRARY_ROUTE_ALIASES)[number])) {
+      return 'library'
+    }
+  }
+
   return null
 }
 
@@ -92,4 +109,8 @@ export function buildNotebookRoute(): string {
 
 export function buildSavedScriptureRoute(): string {
   return SAVED_SCRIPTURE_ROUTE_HASH
+}
+
+export function buildLibraryRoute(): string {
+  return LIBRARY_ROUTE_HASH
 }
