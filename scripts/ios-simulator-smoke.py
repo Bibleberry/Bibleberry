@@ -172,7 +172,10 @@ def run_simctl_with_retry(
 
 
 def get_simulator_state(udid: str) -> str | None:
-    proc = run_cmd(["xcrun", "simctl", "list", "devices", "-j"], timeout=20, check=False)
+    try:
+        proc = run_cmd(["xcrun", "simctl", "list", "devices", "-j"], timeout=30, check=False)
+    except subprocess.TimeoutExpired:
+        return None
     if proc.returncode != 0 or not proc.stdout.strip():
         return None
     try:
@@ -200,7 +203,7 @@ def is_springboard_ready(launchctl_output: str) -> bool:
 def wait_for_simulator_ready(
     udid: str,
     *,
-    timeout_s: float = 90.0,
+    timeout_s: float = 120.0,
     poll_interval_s: float = 2.0,
     settle_s: float = 2.0,
     step_timings: list[dict[str, Any]] | None = None,
@@ -215,14 +218,18 @@ def wait_for_simulator_ready(
         attempts += 1
         state = get_simulator_state(udid)
         if state != "Booted":
-            last_reason = f"device state is {state!r}, expected 'Booted'"
+            last_reason = (
+                "simctl list devices timed out or unavailable"
+                if state is None
+                else f"device state is {state!r}, expected 'Booted'"
+            )
             time.sleep(poll_interval_s)
             continue
 
         try:
             launchctl_proc = run_cmd(
                 ["xcrun", "simctl", "spawn", udid, "launchctl", "list"],
-                timeout=15,
+                timeout=30,
                 check=False,
             )
             if launchctl_proc.returncode != 0:
@@ -479,25 +486,28 @@ def capture_scoped_logs(udid: str, start_time: str, out_file: Path) -> str:
         'process == "App" OR subsystem CONTAINS "capacitor" '
         'OR eventMessage CONTAINS[c] "com.example.bibleberry.r20poc"'
     )
-    proc = run_cmd(
-        [
-            "xcrun",
-            "simctl",
-            "spawn",
-            udid,
-            "log",
-            "show",
-            "--start",
-            start_time,
-            "--style",
-            "compact",
-            "--predicate",
-            predicate,
-        ],
-        timeout=30,
-        check=False,
-    )
-    content = proc.stdout or proc.stderr or ""
+    try:
+        proc = run_cmd(
+            [
+                "xcrun",
+                "simctl",
+                "spawn",
+                udid,
+                "log",
+                "show",
+                "--start",
+                start_time,
+                "--style",
+                "compact",
+                "--predicate",
+                predicate,
+            ],
+            timeout=30,
+            check=False,
+        )
+        content = proc.stdout or proc.stderr or ""
+    except subprocess.TimeoutExpired as exc:
+        content = f"[capture_scoped_logs timed out: {exc}]\n"
     out_file.write_text(content, encoding="utf-8")
     return content
 
@@ -1014,7 +1024,7 @@ def main() -> int:
     parser.add_argument(
         "--ready-timeout",
         type=float,
-        default=90.0,
+        default=120.0,
         help="Seconds to poll for simulator service readiness after bootstatus",
     )
     args = parser.parse_args()

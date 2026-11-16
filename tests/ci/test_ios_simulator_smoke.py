@@ -304,6 +304,40 @@ class TestIosSimulatorSmoke(unittest.TestCase):
         self.assertEqual(timings[0]["step"], "wait_for_simulator_ready")
         self.assertFalse(timings[0]["timedOut"])
 
+    def test_wait_for_simulator_ready_tolerates_list_devices_timeout(self) -> None:
+        calls = 0
+
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            nonlocal calls
+            if args[:4] == ["xcrun", "simctl", "list", "devices"]:
+                calls += 1
+                if calls == 1:
+                    raise subprocess.TimeoutExpired(args, 30)
+                return _completed(
+                    args,
+                    stdout=json.dumps({"devices": {"iOS-26-4": [{"udid": "U1", "state": "Booted"}]}}),
+                )
+            if args[:3] == ["xcrun", "simctl", "spawn"]:
+                return _completed(args, stdout="888\t0\tcom.apple.SpringBoard\n")
+            raise AssertionError(f"Unexpected call: {args}")
+
+        timings: list[dict[str, object]] = []
+        with (
+            mock.patch.object(smoke.subprocess, "run", side_effect=fake_run),
+            mock.patch.object(smoke.time, "sleep"),
+        ):
+            info = smoke.wait_for_simulator_ready(
+                "U1",
+                timeout_s=30.0,
+                poll_interval_s=0.1,
+                settle_s=0.1,
+                step_timings=timings,
+            )
+
+        self.assertTrue(info["ready"])
+        self.assertEqual(info["attempts"], 2)
+        self.assertEqual(info["state"], "Booted")
+
 
 if __name__ == "__main__":
     unittest.main()
