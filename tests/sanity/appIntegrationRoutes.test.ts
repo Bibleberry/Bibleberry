@@ -7,36 +7,56 @@ import {
   SAVED_SCRIPTURE_ROUTE_ALIASES,
   LIBRARY_ROUTE_HASH,
   LIBRARY_ROUTE_ALIASES,
+  NEWS_ROUTE_HASH,
+  NEWS_ROUTE_ALIASES,
   parseAppIntegrationRoute,
+  parseNewsCategoryQuery,
   buildNotebookRoute,
   buildSavedScriptureRoute,
   buildLibraryRoute,
+  buildNewsRoute,
   isHubCardAnnouncementsEnabled,
 } from '../../src/appIntegration/appRoutes.ts'
 
 test('appIntegrationRoutes parses canonical and alias routes when feature flags are enabled', () => {
-  const options = { fieldNotebookEnabled: true, savedScriptureEnabled: true, historicalLibraryEnabled: true }
+  const options = {
+    fieldNotebookEnabled: true,
+    savedScriptureEnabled: true,
+    historicalLibraryEnabled: true,
+    newsReaderEnabled: true,
+  }
 
   assert.equal(parseAppIntegrationRoute('#/notebook', options), 'notebook')
   assert.equal(parseAppIntegrationRoute('#/field-notebook', options), 'notebook')
   assert.equal(parseAppIntegrationRoute('#/saved-scripture', options), 'savedScripture')
   assert.equal(parseAppIntegrationRoute('#/savedScripture', options), 'savedScripture')
   assert.equal(parseAppIntegrationRoute('#/library', options), 'library')
+  assert.equal(parseAppIntegrationRoute('#/news', options), 'news')
+  assert.equal(parseAppIntegrationRoute('#/ministry-news', options), 'news')
 
   // Supports trailing slash normalization and query param detachment
   assert.equal(parseAppIntegrationRoute('#/notebook/', options), 'notebook')
   assert.equal(parseAppIntegrationRoute('#/saved-scripture?origin=hub', options), 'savedScripture')
   assert.equal(parseAppIntegrationRoute('#/library/', options), 'library')
   assert.equal(parseAppIntegrationRoute('#/library?origin=archive', options), 'library')
+  assert.equal(parseAppIntegrationRoute('#/news/', options), 'news')
+  assert.equal(parseAppIntegrationRoute('#/news?category=monthlyPreview', options), 'news')
 })
 
 test('appIntegrationRoutes fails closed when feature flags are disabled', () => {
-  const allDisabled = { fieldNotebookEnabled: false, savedScriptureEnabled: false, historicalLibraryEnabled: false }
+  const allDisabled = {
+    fieldNotebookEnabled: false,
+    savedScriptureEnabled: false,
+    historicalLibraryEnabled: false,
+    newsReaderEnabled: false,
+  }
   assert.equal(parseAppIntegrationRoute('#/notebook', allDisabled), null)
   assert.equal(parseAppIntegrationRoute('#/field-notebook', allDisabled), null)
   assert.equal(parseAppIntegrationRoute('#/saved-scripture', allDisabled), null)
   assert.equal(parseAppIntegrationRoute('#/savedScripture', allDisabled), null)
   assert.equal(parseAppIntegrationRoute('#/library', allDisabled), null)
+  assert.equal(parseAppIntegrationRoute('#/news', allDisabled), null)
+  assert.equal(parseAppIntegrationRoute('#/ministry-news', allDisabled), null)
 
   const onlyNotebook = { fieldNotebookEnabled: true, savedScriptureEnabled: false }
   assert.equal(parseAppIntegrationRoute('#/notebook', onlyNotebook), 'notebook')
@@ -52,6 +72,18 @@ test('appIntegrationRoutes fails closed when feature flags are disabled', () => 
   assert.equal(parseAppIntegrationRoute('#/library', onlyLibrary), 'library')
   assert.equal(parseAppIntegrationRoute('#/notebook', onlyLibrary), null)
   assert.equal(parseAppIntegrationRoute('#/saved-scripture', onlyLibrary), null)
+  assert.equal(parseAppIntegrationRoute('#/news', onlyLibrary), null)
+
+  const onlyNews = {
+    fieldNotebookEnabled: false,
+    savedScriptureEnabled: false,
+    historicalLibraryEnabled: false,
+    newsReaderEnabled: true,
+  }
+  assert.equal(parseAppIntegrationRoute('#/news', onlyNews), 'news')
+  assert.equal(parseAppIntegrationRoute('#/notebook', onlyNews), null)
+  assert.equal(parseAppIntegrationRoute('#/saved-scripture', onlyNews), null)
+  assert.equal(parseAppIntegrationRoute('#/library', onlyNews), null)
 })
 
 test('appIntegrationRoutes rejects invalid hashes, malformed strings, control characters, and backslashes', () => {
@@ -75,9 +107,22 @@ test('appIntegrationRoutes builds canonical route hashes', () => {
   assert.equal(buildNotebookRoute(), NOTEBOOK_ROUTE_HASH)
   assert.equal(buildSavedScriptureRoute(), SAVED_SCRIPTURE_ROUTE_HASH)
   assert.equal(buildLibraryRoute(), LIBRARY_ROUTE_HASH)
+  assert.equal(buildNewsRoute(), NEWS_ROUTE_HASH)
+  assert.equal(buildNewsRoute('all'), NEWS_ROUTE_HASH)
+  assert.equal(buildNewsRoute('monthlyPreview'), '#/news?category=monthlyPreview')
   assert.ok(NOTEBOOK_ROUTE_ALIASES.includes('#/notebook'))
   assert.ok(SAVED_SCRIPTURE_ROUTE_ALIASES.includes('#/saved-scripture'))
   assert.ok(LIBRARY_ROUTE_ALIASES.includes('#/library'))
+  assert.ok(NEWS_ROUTE_ALIASES.includes('#/news'))
+})
+
+test('parseNewsCategoryQuery parses valid news categories and falls back to all', () => {
+  assert.equal(parseNewsCategoryQuery('#/news'), 'all')
+  assert.equal(parseNewsCategoryQuery('#/news?category=ministryUpdate'), 'ministryUpdate')
+  assert.equal(parseNewsCategoryQuery('#/news?category=announcement'), 'announcement')
+  assert.equal(parseNewsCategoryQuery('#/news?category=monthlyPreview'), 'monthlyPreview')
+  assert.equal(parseNewsCategoryQuery('#/news?category=unknown'), 'all')
+  assert.equal(parseNewsCategoryQuery(null), 'all')
 })
 
 test('isHubCardAnnouncementsEnabled honors explicit false override and links to field notebook flag', () => {
