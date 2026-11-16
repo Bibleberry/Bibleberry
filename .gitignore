@@ -18,10 +18,19 @@ coverage/
 # Environment variables and credentials
 .env
 .env.*
+.dev.vars
+.dev.vars.*
 !.env.example
 .npmrc
 *.pem
 *.key
+*.keystore
+*.jks
+*.p12
+*.p8
+*.mobileprovision
+google-services.json
+GoogleService-Info.plist
 
 # Logs
 *.log
