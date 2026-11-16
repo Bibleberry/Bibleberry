@@ -156,7 +156,7 @@ jobs:
 
       - name: Upload iOS Simulator runtime smoke evidence
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: bibleberry-r20-4-ios-simulator-evidence
           path: ${{ runner.temp }}/ios-simulator-evidence
@@ -165,7 +165,7 @@ jobs:
 
       - name: Upload development simulator app
         if: ${{ !cancelled() && steps.verify-app.outcome == 'success' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: bibleberry-r20-3-ios-simulator-app
           path: ${{ runner.temp }}/BibleberryDerivedData/Build/Products/Debug-iphonesimulator/App.app
@@ -197,7 +197,7 @@ jobs:
 
       - name: Upload iOS Simulator lifecycle probe evidence
         if: ${{ !cancelled() && (steps.lifecycle-probe.outcome == 'success' || steps.lifecycle-probe.outcome == 'failure') }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: bibleberry-r20-4-ios-lifecycle-probe-evidence
           path: ${{ runner.temp }}/ios-simulator-lifecycle-probe-evidence
