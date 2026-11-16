@@ -42,7 +42,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '24'
-          cache: npm
+          # Self-hosted runner uses its isolated persistent NPM_CONFIG_CACHE; no remote cache restore.
 
       - name: Install application dependencies
         run: npm ci
