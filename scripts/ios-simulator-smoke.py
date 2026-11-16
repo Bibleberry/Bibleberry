@@ -138,6 +138,27 @@ def run_cmd_best_effort(
         }
 
 
+TRANSIENT_SIMCTL_ERROR_MARKERS = (
+    "coresimulatorservice",
+    "connection invalidated",
+    "connection interrupted",
+    "xpc",
+    "unable to lookup",
+    "service exited",
+    "bootstrap failed",
+    "timed out",
+    "timeout",
+    "resource temporarily unavailable",
+    "simlaunchhost",
+)
+
+
+def is_transient_simctl_error(exc: subprocess.CalledProcessError) -> bool:
+    """Return True only for identifiable CoreSimulator transport/service errors."""
+    combined = f"{exc.stderr or ''}\n{exc.stdout or ''}".lower()
+    return any(marker in combined for marker in TRANSIENT_SIMCTL_ERROR_MARKERS)
+
+
 def run_simctl_with_retry(
     args: list[str],
     *,
@@ -147,7 +168,7 @@ def run_simctl_with_retry(
     step_timings: list[dict[str, Any]] | None = None,
     step_name: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    """Run a simctl command, retrying transient timeouts or transport failures."""
+    """Run a simctl command, retrying only timeouts or identifiable CoreSimulator transport failures."""
     last_exc: Exception | None = None
     for attempt in range(1 + retries):
         try:
@@ -158,11 +179,23 @@ def run_simctl_with_retry(
                 step_timings=step_timings,
                 step_name=step_name,
             )
-        except (subprocess.TimeoutExpired, subprocess.CalledProcessError) as exc:
+        except subprocess.TimeoutExpired as exc:
             last_exc = exc
             if attempt < retries:
                 print(
-                    f"Transient simctl failure on attempt {attempt + 1}/{1 + retries}: {exc}; "
+                    f"Transient simctl timeout on attempt {attempt + 1}/{1 + retries}: {exc}; "
+                    f"retrying in {retry_delay_s}s...",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                time.sleep(retry_delay_s)
+        except subprocess.CalledProcessError as exc:
+            if not is_transient_simctl_error(exc):
+                raise
+            last_exc = exc
+            if attempt < retries:
+                print(
+                    f"Transient CoreSimulator transport failure on attempt {attempt + 1}/{1 + retries}: {exc}; "
                     f"retrying in {retry_delay_s}s...",
                     file=sys.stderr,
                     flush=True,
@@ -451,16 +484,34 @@ def parse_simctl_launch_pid(output: str, bundle_id: str) -> int:
     raise RuntimeError(f"Could not parse launched PID for {bundle_id} from: {output!r}")
 
 
-def verify_pid_alive(udid: str, bundle_id: str, pid: int, evidence_file: Path) -> None:
+def verify_pid_alive(
+    udid: str,
+    bundle_id: str,
+    pid: int,
+    evidence_file: Path,
+    *,
+    step_timings: list[dict[str, Any]] | None = None,
+) -> None:
     ps_proc = run_cmd(
         ["ps", "-p", str(pid), "-o", "pid=,ppid=,stat=,etime=,comm="],
         timeout=15,
         check=False,
     )
-    launchctl_proc = run_cmd(
+    if ps_proc.returncode != 0 or not ps_proc.stdout.strip():
+        evidence_file.write_text(
+            f"ps_exit={ps_proc.returncode}\n"
+            f"ps_output={ps_proc.stdout.strip()}\n"
+            "launchctl_matches:\n(skipped because host ps reported process absent)\n",
+            encoding="utf-8",
+        )
+        raise RuntimeError(f"App process PID {pid} did not remain alive.")
+
+    launchctl_proc = run_simctl_with_retry(
         ["xcrun", "simctl", "spawn", udid, "launchctl", "list"],
-        timeout=20,
-        check=False,
+        timeout=30,
+        retries=1,
+        step_timings=step_timings,
+        step_name="simctl_verify_pid_launchctl",
     )
     matching_launchctl = [
         line
@@ -473,8 +524,6 @@ def verify_pid_alive(udid: str, bundle_id: str, pid: int, evidence_file: Path) -
         f"launchctl_matches:\n" + "\n".join(matching_launchctl) + "\n",
         encoding="utf-8",
     )
-    if ps_proc.returncode != 0 or not ps_proc.stdout.strip():
-        raise RuntimeError(f"App process PID {pid} did not remain alive.")
     if not any(bundle_id in line and line.strip().startswith(str(pid)) for line in matching_launchctl):
         raise RuntimeError(
             f"Simulator launchctl does not show PID {pid} active for {bundle_id}: {matching_launchctl}"
@@ -506,8 +555,8 @@ def capture_scoped_logs(udid: str, start_time: str, out_file: Path) -> str:
             check=False,
         )
         content = proc.stdout or proc.stderr or ""
-    except subprocess.TimeoutExpired as exc:
-        content = f"[capture_scoped_logs timed out: {exc}]\n"
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        content = f"[capture_scoped_logs failed: {exc}]\n"
     out_file.write_text(content, encoding="utf-8")
     return content
 
@@ -793,7 +842,13 @@ def _run_smoke_attempt(
     )
     pid1 = parse_simctl_launch_pid(launch1.stdout, args.bundle_id)
     time.sleep(8)
-    verify_pid_alive(udid, args.bundle_id, pid1, evidence_dir / "01-launch-process.txt")
+    verify_pid_alive(
+        udid,
+        args.bundle_id,
+        pid1,
+        evidence_dir / "01-launch-process.txt",
+        step_timings=step_timings,
+    )
     shot1 = evidence_dir / "01-simctl-launch.png"
     run_simctl_with_retry(
         ["xcrun", "simctl", "io", udid, "screenshot", str(shot1)],
@@ -854,7 +909,13 @@ def _run_smoke_attempt(
     if pid2 == pid1:
         raise RuntimeError(f"Relaunch returned identical PID {pid2}; expected fresh process.")
     time.sleep(5)
-    verify_pid_alive(udid, args.bundle_id, pid2, evidence_dir / "02-relaunch-process.txt")
+    verify_pid_alive(
+        udid,
+        args.bundle_id,
+        pid2,
+        evidence_dir / "02-relaunch-process.txt",
+        step_timings=step_timings,
+    )
     shot2 = evidence_dir / "02-simctl-relaunch.png"
     run_simctl_with_retry(
         ["xcrun", "simctl", "io", udid, "screenshot", str(shot2)],
@@ -1074,9 +1135,10 @@ def main() -> int:
         current_udid: str | None = None
         try:
             sim_name = f"Bibleberry-R20-4-Smoke-{int(time.time())}-{attempt + 1}"
-            create_proc = run_cmd(
+            create_proc = run_simctl_with_retry(
                 ["xcrun", "simctl", "create", sim_name, devicetype["identifier"], runtime["identifier"]],
-                timeout=30,
+                timeout=45,
+                retries=1,
                 step_timings=step_timings,
                 step_name="simctl_create",
             )

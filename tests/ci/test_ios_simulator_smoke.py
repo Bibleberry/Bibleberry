@@ -338,6 +338,124 @@ class TestIosSimulatorSmoke(unittest.TestCase):
         self.assertEqual(info["attempts"], 2)
         self.assertEqual(info["state"], "Booted")
 
+    def test_wait_for_simulator_ready_exhausted_raises_infrastructure_error(self) -> None:
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            if args[:4] == ["xcrun", "simctl", "list", "devices"]:
+                raise subprocess.TimeoutExpired(args, 30)
+            raise AssertionError(f"Unexpected call: {args}")
+
+        timings: list[dict[str, object]] = []
+        with (
+            mock.patch.object(smoke.subprocess, "run", side_effect=fake_run),
+            mock.patch.object(smoke.time, "sleep"),
+            self.assertRaises(smoke.SimulatorInfrastructureError),
+        ):
+            smoke.wait_for_simulator_ready(
+                "U1",
+                timeout_s=0.05,
+                poll_interval_s=0.01,
+                settle_s=0.0,
+                step_timings=timings,
+            )
+        self.assertTrue(timings[0]["timedOut"])
+
+    def test_non_transient_called_process_error_is_not_retried(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            app_path = self._make_fake_app(tmpdir)
+            evidence_dir = tmpdir / "evidence"
+            env = FakeSimulatorEnv()
+
+            err = subprocess.CalledProcessError(
+                returncode=1,
+                cmd=["xcrun", "simctl", "install"],
+                stderr="An error was encountered processing the command: Invalid bundle",
+            )
+            env.queue_outcome("install", err)
+
+            argv = [
+                "ios-simulator-smoke.py",
+                "--app-path",
+                str(app_path),
+                "--evidence-dir",
+                str(evidence_dir),
+                "--simctl-only",
+                "--max-device-resets",
+                "1",
+            ]
+            with (
+                mock.patch.object(sys, "argv", argv),
+                mock.patch.object(smoke.subprocess, "run", side_effect=env),
+                mock.patch.object(smoke.time, "sleep"),
+                mock.patch.object(smoke, "find_new_app_crashes", return_value=[]),
+            ):
+                rc = smoke.main()
+
+            self.assertEqual(rc, 1)
+            install_calls = [c for c in env.calls if c[:3] == ["xcrun", "simctl", "install"]]
+            self.assertEqual(len(install_calls), 1)
+            self.assertEqual(env.create_count, 1)
+            summary = json.loads((evidence_dir / "summary.json").read_text(encoding="utf-8"))
+            self.assertEqual(summary["status"], "failed")
+            self.assertEqual(summary["infrastructureRetries"], [])
+
+    def test_transient_called_process_error_recovers_on_retry(self) -> None:
+        err = subprocess.CalledProcessError(
+            returncode=1,
+            cmd=["xcrun", "simctl", "install"],
+            stderr="CoreSimulatorService connection interrupted",
+        )
+        calls = 0
+
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise err
+            return _completed(args, stdout="ok\n")
+
+        with (
+            mock.patch.object(smoke.subprocess, "run", side_effect=fake_run),
+            mock.patch.object(smoke.time, "sleep"),
+        ):
+            proc = smoke.run_simctl_with_retry(["xcrun", "simctl", "install", "U1", "/App.app"], timeout=60, retries=1)
+
+        self.assertEqual(calls, 2)
+        self.assertEqual(proc.returncode, 0)
+
+    def test_verify_pid_alive_checks_ps_first_and_routes_launchctl_timeout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence_file = Path(tmp) / "proc.txt"
+
+            # Case 1: dead process on host ps -> immediate RuntimeError without calling simctl spawn
+            calls: list[list[str]] = []
+
+            def dead_ps_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+                calls.append(args)
+                return _completed(args, stdout="", returncode=1)
+
+            with (
+                mock.patch.object(smoke.subprocess, "run", side_effect=dead_ps_run),
+                self.assertRaises(RuntimeError) as ctx,
+            ):
+                smoke.verify_pid_alive("U1", "com.example.app", 9999, evidence_file)
+            self.assertIn("did not remain alive", str(ctx.exception))
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(calls[0][0], "ps")
+
+            # Case 2: host ps alive, launchctl list times out twice -> SimulatorInfrastructureError
+            def launchctl_timeout_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+                if args[0] == "ps":
+                    return _completed(args, stdout="  9999     1 S    00:05 App\n", returncode=0)
+                raise subprocess.TimeoutExpired(args, 30)
+
+            with (
+                mock.patch.object(smoke.subprocess, "run", side_effect=launchctl_timeout_run),
+                mock.patch.object(smoke.time, "sleep"),
+                self.assertRaises(smoke.SimulatorInfrastructureError),
+            ):
+                smoke.verify_pid_alive("U1", "com.example.app", 9999, evidence_file)
+
 
 if __name__ == "__main__":
     unittest.main()

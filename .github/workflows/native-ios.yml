@@ -12,6 +12,7 @@ on:
       - src/participation/drivers/capacitorPreferencesDriver.ts
       - src/participation/defaultGuestStore.ts
       - scripts/ios-simulator-smoke.py
+      - tests/ci/test_ios_simulator_smoke.py
       - .github/workflows/native-ios.yml
   push:
     branches: [main]
@@ -24,6 +25,7 @@ on:
       - src/participation/drivers/capacitorPreferencesDriver.ts
       - src/participation/defaultGuestStore.ts
       - scripts/ios-simulator-smoke.py
+      - tests/ci/test_ios_simulator_smoke.py
       - .github/workflows/native-ios.yml
   workflow_dispatch:
     inputs:
@@ -149,6 +151,9 @@ jobs:
           echo "PR head SHA (or push SHA): ${{ github.event.pull_request.head.sha || github.sha }}"
           echo "Build SHA (GITHUB_SHA): $GITHUB_SHA"
           echo "App size: $(du -sh "$APP" | cut -f1)"
+
+      - name: Run iOS simulator smoke unit tests
+        run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v tests/ci/test_ios_simulator_smoke.py
 
       - name: Run iOS Simulator runtime smoke (install, launch, restart, UI lifecycle)
         run: |
