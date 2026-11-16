@@ -235,3 +235,22 @@ test('Workflow concurrency: sibling PRs are independent while pushes to same PR 
   assert.equal(shouldCancelInProgress('push'), false);
   assert.equal(shouldCancelInProgress('workflow_dispatch'), false);
 });
+
+
+test('Merge queue scope: always verify the complete integrated SHA, even for docs-only or empty diffs', () => {
+  const targets = ['reader', 'studio', 'cms-adapter', 'release-gateway', 'collections-browser'];
+  for (const target of targets) {
+    for (const changedFiles of [[], ['docs/readme.md'], null, undefined]) {
+      const result = evaluateScope(target, changedFiles, 'merge_group');
+      assert.equal(result.shouldRun, true, `${target} must always run for a merge_group event`);
+      assert.match(result.reason, /Merge queue integration commits/);
+    }
+  }
+});
+
+test('Merge queue runs are never canceled as if they were superseded PR builds', () => {
+  assert.equal(shouldCancelInProgress('merge_group'), false);
+  const queueA = getConcurrencyGroup('Bibleberry CI', undefined, 'refs/heads/gh-readonly-queue/main/pr-184');
+  const queueB = getConcurrencyGroup('Bibleberry CI', undefined, 'refs/heads/gh-readonly-queue/main/pr-180');
+  assert.notEqual(queueA, queueB);
+});
