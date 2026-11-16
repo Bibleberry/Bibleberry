@@ -330,8 +330,12 @@ def collect_simulator_diagnostics(
 ) -> dict[str, Any]:
     """Best-effort capture of CoreSimulator state and logs; never raises."""
     diag_dir = evidence_dir / "diagnostics"
-    diag_dir.mkdir(parents=True, exist_ok=True)
     captured: dict[str, Any] = {"label": label, "files": []}
+    try:
+        diag_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        captured["error"] = f"Could not create diagnostics directory {diag_dir}: {exc}"
+        return captured
 
     for name, cmd in (
         (f"{label}-simctl-devices.json", ["xcrun", "simctl", "list", "devices", "-j"]),
@@ -506,13 +510,46 @@ def verify_pid_alive(
         )
         raise RuntimeError(f"App process PID {pid} did not remain alive.")
 
-    launchctl_proc = run_simctl_with_retry(
-        ["xcrun", "simctl", "spawn", udid, "launchctl", "list"],
-        timeout=30,
-        retries=1,
-        step_timings=step_timings,
-        step_name="simctl_verify_pid_launchctl",
-    )
+    try:
+        launchctl_proc = run_simctl_with_retry(
+            ["xcrun", "simctl", "spawn", udid, "launchctl", "list"],
+            timeout=30,
+            retries=1,
+            step_timings=step_timings,
+            step_name="simctl_verify_pid_launchctl",
+        )
+    except SimulatorInfrastructureError as exc:
+        try:
+            ps_after = run_cmd(
+                ["ps", "-p", str(pid), "-o", "pid=,ppid=,stat=,etime=,comm="],
+                timeout=15,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as ps_exc:
+            evidence_file.write_text(
+                f"ps_exit={ps_proc.returncode}\n"
+                f"ps_output={ps_proc.stdout.strip()}\n"
+                "launchctl_matches:\n(unavailable: simulator query timed out)\n"
+                f"ps_recheck_error={ps_exc}\n",
+                encoding="utf-8",
+            )
+            raise RuntimeError(
+                f"Could not revalidate app process PID {pid} after simulator launchctl failure: {exc}"
+            ) from ps_exc
+
+        if ps_after.returncode != 0 or not ps_after.stdout.strip():
+            evidence_file.write_text(
+                f"ps_exit={ps_proc.returncode}\n"
+                f"ps_output={ps_proc.stdout.strip()}\n"
+                "launchctl_matches:\n(unavailable: simulator query timed out)\n"
+                f"ps_recheck_exit={ps_after.returncode}\n"
+                f"ps_recheck_output={ps_after.stdout.strip()}\n",
+                encoding="utf-8",
+            )
+            raise RuntimeError(
+                f"App process PID {pid} exited while simulator launchctl verification was unavailable."
+            ) from exc
+        raise
     matching_launchctl = [
         line
         for line in launchctl_proc.stdout.splitlines()
@@ -1133,6 +1170,8 @@ def main() -> int:
 
     for attempt in range(max_attempts):
         current_udid: str | None = None
+        attempt_evidence_dir = evidence_dir / f"attempt-{attempt + 1}"
+        attempt_evidence_dir.mkdir(parents=True, exist_ok=True)
         try:
             sim_name = f"Bibleberry-R20-4-Smoke-{int(time.time())}-{attempt + 1}"
             create_proc = run_simctl_with_retry(
@@ -1153,7 +1192,7 @@ def main() -> int:
             _run_smoke_attempt(
                 args=args,
                 app_path=app_path,
-                evidence_dir=evidence_dir,
+                evidence_dir=attempt_evidence_dir,
                 udid=current_udid,
                 summary=summary,
                 step_timings=step_timings,
@@ -1177,13 +1216,21 @@ def main() -> int:
                 summary["infrastructureRetries"].append(
                     {"attempt": attempt + 1, "udid": current_udid, "error": str(exc)}
                 )
-                collect_simulator_diagnostics(current_udid, evidence_dir, f"retry-attempt-{attempt + 1}")
+                summary.setdefault("diagnosticCaptures", []).append(
+                    collect_simulator_diagnostics(
+                        current_udid,
+                        attempt_evidence_dir,
+                        "retry",
+                    )
+                )
                 continue
 
             summary["status"] = "failed"
             summary["error"] = str(exc)
             summary["newAppCrashReports"] = crashes
-            collect_simulator_diagnostics(current_udid, evidence_dir, "failure")
+            summary.setdefault("diagnosticCaptures", []).append(
+                collect_simulator_diagnostics(current_udid, attempt_evidence_dir, "failure")
+            )
             write_summary_safe(evidence_dir, summary)
             print(f"::error::{exc}", file=sys.stderr, flush=True)
             return 1
@@ -1192,7 +1239,9 @@ def main() -> int:
             summary["status"] = "failed"
             summary["error"] = str(exc)
             summary["newAppCrashReports"] = find_new_app_crashes(run_start_epoch)
-            collect_simulator_diagnostics(current_udid, evidence_dir, "failure")
+            summary.setdefault("diagnosticCaptures", []).append(
+                collect_simulator_diagnostics(current_udid, attempt_evidence_dir, "failure")
+            )
             write_summary_safe(evidence_dir, summary)
             print(f"::error::{exc}", file=sys.stderr, flush=True)
             return 1

@@ -13,12 +13,21 @@ from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_PATH = REPO_ROOT / "scripts" / "ios-simulator-smoke.py"
+SNAPSHOT_SCRIPT_PATH = REPO_ROOT / "scripts" / "ios-simulator-snapshot.py"
 
 SPEC = importlib.util.spec_from_file_location("ios_simulator_smoke", SCRIPT_PATH)
 assert SPEC is not None and SPEC.loader is not None
 smoke = importlib.util.module_from_spec(SPEC)
 sys.modules["ios_simulator_smoke"] = smoke
 SPEC.loader.exec_module(smoke)
+
+SNAPSHOT_SPEC = importlib.util.spec_from_file_location(
+    "ios_simulator_snapshot", SNAPSHOT_SCRIPT_PATH
+)
+assert SNAPSHOT_SPEC is not None and SNAPSHOT_SPEC.loader is not None
+snapshot = importlib.util.module_from_spec(SNAPSHOT_SPEC)
+sys.modules["ios_simulator_snapshot"] = snapshot
+SNAPSHOT_SPEC.loader.exec_module(snapshot)
 
 
 def _completed(args: list[str], stdout: str = "", stderr: str = "", returncode: int = 0) -> subprocess.CompletedProcess[str]:
@@ -120,7 +129,14 @@ class FakeSimulatorEnv:
             if subcmd == "get_app_container":
                 return _completed(args, stdout="/tmp/App.app\n")
             if subcmd == "launch":
-                pid = 4321 if len([c for c in self.calls if c[:3] == ["xcrun", "simctl", "launch"]]) == 1 else 5432
+                launch_count = len([c for c in self.calls if c[:3] == ["xcrun", "simctl", "launch"]])
+                pid = 4321 + (launch_count - 1) * 1111
+                for arg in args:
+                    if arg.startswith("--stdout="):
+                        Path(arg.removeprefix("--stdout=")).write_text(
+                            f"launch output for PID {pid}\n",
+                            encoding="utf-8",
+                        )
                 return _completed(args, stdout=f"com.example.bibleberry.r20poc: {pid}\n")
             if subcmd == "spawn":
                 if args[4:6] == ["launchctl", "list"]:
@@ -130,6 +146,7 @@ class FakeSimulatorEnv:
                             "101\t0\tcom.apple.SpringBoard\n"
                             "4321\t0\tUIKitApplication:com.example.bibleberry.r20poc[1234]\n"
                             "5432\t0\tUIKitApplication:com.example.bibleberry.r20poc[5678]\n"
+                            "6543\t0\tUIKitApplication:com.example.bibleberry.r20poc[9012]\n"
                         ),
                     )
                 if args[4:6] == ["log", "show"]:
@@ -231,6 +248,41 @@ class TestIosSimulatorSmoke(unittest.TestCase):
             self.assertEqual(len(summary["infrastructureRetries"]), 1)
             self.assertEqual(summary["infrastructureRetries"][0]["udid"], "UDID-1")
             self.assertEqual(len(summary["cleanup"]), 2)
+
+    def test_device_reset_keeps_attempt_evidence_separate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            app_path = self._make_fake_app(tmpdir)
+            evidence_dir = tmpdir / "evidence"
+            env = FakeSimulatorEnv()
+            env.queue_outcome("io", subprocess.TimeoutExpired(["xcrun", "simctl", "io"], 30))
+            env.queue_outcome("io", subprocess.TimeoutExpired(["xcrun", "simctl", "io"], 30))
+
+            argv = [
+                "ios-simulator-smoke.py",
+                "--app-path",
+                str(app_path),
+                "--evidence-dir",
+                str(evidence_dir),
+                "--simctl-only",
+                "--max-device-resets",
+                "1",
+            ]
+            with (
+                mock.patch.object(sys, "argv", argv),
+                mock.patch.object(smoke.subprocess, "run", side_effect=env),
+                mock.patch.object(smoke.time, "sleep"),
+                mock.patch.object(smoke, "find_new_app_crashes", return_value=[]),
+            ):
+                rc = smoke.main()
+
+            self.assertEqual(rc, 0)
+            first_launch = evidence_dir / "attempt-1" / "01-simctl-launch-stdout.log"
+            second_launch = evidence_dir / "attempt-2" / "01-simctl-launch-stdout.log"
+            self.assertTrue(first_launch.is_file())
+            self.assertTrue(second_launch.is_file())
+            self.assertNotEqual(first_launch.read_text(encoding="utf-8"), second_launch.read_text(encoding="utf-8"))
+            self.assertTrue((evidence_dir / "summary.json").is_file())
 
     def test_app_crash_or_assertion_failure_is_not_retried(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -359,6 +411,42 @@ class TestIosSimulatorSmoke(unittest.TestCase):
             )
         self.assertTrue(timings[0]["timedOut"])
 
+    def test_simulator_diagnostics_directory_failure_is_recorded(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence_dir = Path(tmp) / "evidence"
+            original_mkdir = Path.mkdir
+
+            def failing_mkdir(path: Path, *args: object, **kwargs: object) -> None:
+                if path == evidence_dir / "diagnostics":
+                    raise OSError("permission denied")
+                original_mkdir(path, *args, **kwargs)
+
+            with mock.patch.object(Path, "mkdir", failing_mkdir):
+                result = smoke.collect_simulator_diagnostics("U1", evidence_dir, "failure")
+
+            self.assertEqual(result["label"], "failure")
+            self.assertEqual(result["files"], [])
+            self.assertIn("permission denied", result["error"])
+
+    def test_simulator_snapshot_timeout_is_recorded_without_raising(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            destination = Path(tmp) / "env" / "devices.json"
+            timeout = subprocess.TimeoutExpired(
+                ["xcrun", "simctl", "list", "devices", "-j"],
+                20,
+                output=b'{"partial":',
+                stderr=b"service stalled",
+            )
+            with mock.patch.object(snapshot.subprocess, "run", side_effect=timeout) as run:
+                record = snapshot.capture_simulator_snapshot(destination)
+
+            run.assert_called_once()
+            self.assertEqual(run.call_args.kwargs["timeout"], 20)
+            self.assertEqual(record["timedOut"], True)
+            self.assertEqual(record["stdout"], '{"partial":')
+            self.assertEqual(record["stderr"], "service stalled")
+            self.assertEqual(json.loads(destination.read_text(encoding="utf-8")), record)
+
     def test_console_pty_capture_waits_for_delayed_native_bridge_call(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             output_path = Path(tmp) / "console-pty.log"
@@ -469,7 +557,7 @@ class TestIosSimulatorSmoke(unittest.TestCase):
             self.assertEqual(len(calls), 1)
             self.assertEqual(calls[0][0], "ps")
 
-            # Case 2: host ps alive, launchctl list times out twice -> SimulatorInfrastructureError
+            # Case 2: host PID remains alive after the simulator query times out.
             def launchctl_timeout_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
                 if args[0] == "ps":
                     return _completed(args, stdout="  9999     1 S    00:05 App\n", returncode=0)
@@ -481,6 +569,28 @@ class TestIosSimulatorSmoke(unittest.TestCase):
                 self.assertRaises(smoke.SimulatorInfrastructureError),
             ):
                 smoke.verify_pid_alive("U1", "com.example.app", 9999, evidence_file)
+
+            # Case 3: PID exits during the simulator query retry; do not expose an infra error
+            # that would let the caller recreate the simulator and hide the app failure.
+            ps_calls = 0
+
+            def pid_exits_during_query(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+                nonlocal ps_calls
+                if args[0] == "ps":
+                    ps_calls += 1
+                    if ps_calls == 1:
+                        return _completed(args, stdout="  9999     1 S    00:05 App\n", returncode=0)
+                    return _completed(args, stdout="", returncode=1)
+                raise subprocess.TimeoutExpired(args, 30)
+
+            with (
+                mock.patch.object(smoke.subprocess, "run", side_effect=pid_exits_during_query),
+                mock.patch.object(smoke.time, "sleep"),
+                self.assertRaisesRegex(RuntimeError, "exited while simulator launchctl verification was unavailable"),
+            ):
+                smoke.verify_pid_alive("U1", "com.example.app", 9999, evidence_file)
+            self.assertEqual(ps_calls, 2)
+            self.assertIn("ps_recheck_exit=1", evidence_file.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
