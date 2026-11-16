@@ -36,13 +36,13 @@ jobs:
         id: scope
         run: node scripts/ci/check-scope.mjs --target reader
 
-      - name: Run CI workflow and scope tests
-        if: steps.scope.outputs.should_run == 'true'
-        run: node --experimental-strip-types --test tests/ci/*.test.ts
-
       - name: Install dependencies
         if: steps.scope.outputs.should_run == 'true'
         run: npm ci
+
+      - name: Run CI workflow and scope tests
+        if: steps.scope.outputs.should_run == 'true'
+        run: node --experimental-strip-types --test tests/ci/*.test.ts
 
       - name: Install Playwright Chromium
         # Runner image supplies OS libraries; avoid apt mirrors during browser provisioning.
