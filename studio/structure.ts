@@ -159,6 +159,43 @@ export const structure: StructureResolver = S => S.list()
           .title('Ministry news')
           .initialValueTemplates([S.initialValueTemplateItem(GENERAL_NEWS_TEMPLATE_ID)]),
       ),
+    S.listItem()
+      .id('ministry-resources-workspace')
+      .title('Resources')
+      .child(
+        S.list()
+          .id('ministry-resources-menu')
+          .title('Resources')
+          .items([
+            S.documentTypeListItem('resourceSection').title('Resource sections'),
+            S.documentTypeListItem('ministryResource').title('Ministry resources'),
+            S.divider(),
+            S.listItem()
+              .id('approved-resource-sections')
+              .title('Approved & active sections')
+              .child(
+                S.documentList()
+                  .id('approved-resource-sections-list')
+                  .title('Approved & active sections')
+                  .schemaType('resourceSection')
+                  .apiVersion('2026-11-01')
+                  .filter('_type == "resourceSection" && editorialStatus == "approved" && withdrawn != true')
+                  .defaultOrdering([{field: 'sortOrder', direction: 'asc'}]),
+              ),
+            S.listItem()
+              .id('approved-ministry-resources')
+              .title('Approved & active resources')
+              .child(
+                S.documentList()
+                  .id('approved-ministry-resources-list')
+                  .title('Approved & active resources')
+                  .schemaType('ministryResource')
+                  .apiVersion('2026-11-01')
+                  .filter('_type == "ministryResource" && editorialStatus == "approved" && withdrawn != true')
+                  .defaultOrdering([{field: 'title', direction: 'asc'}]),
+              ),
+          ]),
+      ),
     S.divider(),
     S.listItem()
       .id('november-2-pilot')

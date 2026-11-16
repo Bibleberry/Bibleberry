@@ -8,7 +8,7 @@
     "build": "sanity build",
     "start": "sanity start",
     "typecheck": "tsc --noEmit",
-    "test:schema": "sanity exec tests/importProvenance.test.ts && sanity exec tests/monthlyPublication.test.ts && sanity exec tests/r08aMonthlyFixtures.test.ts && sanity exec tests/scriptureCard.test.ts && sanity exec tests/monthlyReadiness.test.ts"
+    "test:schema": "sanity exec tests/importProvenance.test.ts && sanity exec tests/monthlyPublication.test.ts && sanity exec tests/r08aMonthlyFixtures.test.ts && sanity exec tests/scriptureCard.test.ts && sanity exec tests/monthlyReadiness.test.ts && sanity exec tests/resources.test.ts"
   },
   "engines": {
     "node": ">=22.12"
