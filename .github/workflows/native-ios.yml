@@ -42,7 +42,9 @@ permissions:
 jobs:
   ios-simulator:
     name: Signing-free iOS Simulator build
-    runs-on: macos-26
+    # Diagnostic: compare simulator responsiveness on the 4-core / 14 GB Intel runner
+    # against the 3-core / 7 GB ARM64 runner without weakening simulator tests.
+    runs-on: macos-26-intel
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
