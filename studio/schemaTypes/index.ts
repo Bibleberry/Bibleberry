@@ -1,7 +1,9 @@
 import {challenge} from './documents/challenge'
 import {challengeSeries} from './documents/challengeSeries'
+import {ministryResource} from './documents/ministryResource'
 import {monthlyPublication} from './documents/monthlyPublication'
 import {newsArticle} from './documents/newsArticle'
+import {resourceSection} from './documents/resourceSection'
 import {scriptureCard} from './documents/scriptureCard'
 import {challengeScreen} from './objects/challengeScreen'
 import {companionLink} from './objects/companionLink'
@@ -36,6 +38,8 @@ export const schemaTypes = [
   monthlyPublication,
   scriptureCard,
   newsArticle,
+  resourceSection,
+  ministryResource,
   challengeScreen,
   introductionScreen,
   monthlyIntroduction,
