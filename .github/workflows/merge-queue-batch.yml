@@ -1,0 +1,263 @@
+name: Merge Queue Batch Coordinator
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Coordinator action to perform
+        type: choice
+        required: true
+        default: dry-run
+        options:
+          - dry-run
+          - start
+          - status
+          - reconcile
+          - abort
+      entries:
+        description: Ordered PR_NUMBER@REVIEWED_HEAD_SHA list (comma or newline separated)
+        type: string
+        required: false
+      reason:
+        description: Optional reason (used for abort)
+        type: string
+        required: false
+  pull_request:
+    types: [closed]
+    branches: [main]
+  merge_group:
+    types: [destroyed]
+    branches: [main]
+  schedule:
+    # Watchdog reconciliation in case a webhook is missed or an enqueue outcome was indeterminate.
+    - cron: '*/15 * * * *'
+
+permissions: {}
+
+jobs:
+  preflight:
+    name: Preflight batch entries (read-only)
+    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.action == 'dry-run' || inputs.action == 'start') }}
+    concurrency:
+      group: merge-queue-readonly-${{ github.run_id }}
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+      checks: read
+      statuses: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - name: Validate batch entries
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BATCH_ENTRIES: ${{ inputs.entries }}
+        run: node --experimental-strip-types scripts/ci/merge-queue-batch.ts preflight --entries "$BATCH_ENTRIES"
+
+  authorize-and-start:
+    name: Authorize and enqueue first batch PR
+    needs: [preflight]
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'start' && github.ref == 'refs/heads/main' && github.actor == 'ContraPhilosophy' }}
+    concurrency:
+      group: merge-queue-batch-writer
+      cancel-in-progress: false
+      queue: max
+    runs-on: ubuntu-24.04
+    environment: merge-queue-approval
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - name: Verify MERGE_QUEUE_TOKEN is configured
+        env:
+          HAS_TOKEN: ${{ secrets.MERGE_QUEUE_TOKEN != '' }}
+        run: |
+          if [ "$HAS_TOKEN" != "true" ]; then
+            echo "::error::Secret MERGE_QUEUE_TOKEN is not configured. See docs/testing/merge-queue-integration.md for owner setup instructions."
+            exit 1
+          fi
+      - name: Start approved batch and enqueue first PR
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MERGE_QUEUE_TOKEN: ${{ secrets.MERGE_QUEUE_TOKEN }}
+          BATCH_ENTRIES: ${{ inputs.entries }}
+        run: node --experimental-strip-types scripts/ci/merge-queue-batch.ts start --entries "$BATCH_ENTRIES" --actor "${{ github.actor }}"
+
+  advance-or-stop:
+    name: Advance or stop active merge-queue batch
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
+    concurrency:
+      # Single-writer FIFO serialization across all state-mutating jobs (queue: max, up to 100 pending); 15m watchdog recovers lost webhooks or other failures.
+      group: merge-queue-batch-writer
+      cancel-in-progress: false
+      queue: max
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Check if coordinator token is configured
+        id: token_check
+        env:
+          HAS_TOKEN: ${{ secrets.MERGE_QUEUE_TOKEN != '' }}
+        run: echo "configured=$HAS_TOKEN" >> "$GITHUB_OUTPUT"
+      - name: Skip when MERGE_QUEUE_TOKEN is not configured
+        if: ${{ steps.token_check.outputs.configured != 'true' }}
+        run: echo "MERGE_QUEUE_TOKEN is not configured; skipping batch coordinator advancement."
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ steps.token_check.outputs.configured == 'true' }}
+        with:
+          # Always run the trusted coordinator script from the default branch (main).
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: ${{ steps.token_check.outputs.configured == 'true' }}
+        with:
+          node-version: '24'
+      - name: Advance batch on PR close
+        if: ${{ steps.token_check.outputs.configured == 'true' && github.event_name == 'pull_request' }}
+        env:
+          MERGE_QUEUE_TOKEN: ${{ secrets.MERGE_QUEUE_TOKEN }}
+        run: |
+          node --experimental-strip-types scripts/ci/merge-queue-batch.ts advance \
+            --pr "${{ github.event.pull_request.number }}" \
+            --merged "${{ github.event.pull_request.merged }}"
+      - name: Stop batch on merge_group destruction
+        if: ${{ steps.token_check.outputs.configured == 'true' && github.event_name == 'merge_group' }}
+        env:
+          MERGE_QUEUE_TOKEN: ${{ secrets.MERGE_QUEUE_TOKEN }}
+        run: |
+          node --experimental-strip-types scripts/ci/merge-queue-batch.ts destroyed \
+            --reason "${{ github.event.reason }}" \
+            --head-sha "${{ github.event.merge_group.head_sha }}"
+
+  reconcile-watchdog:
+    name: Watchdog reconciliation for active batch
+    if: ${{ github.event_name == 'schedule' }}
+    concurrency:
+      group: merge-queue-batch-writer
+      cancel-in-progress: false
+      queue: max
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Check if coordinator token is configured
+        id: token_check
+        env:
+          HAS_TOKEN: ${{ secrets.MERGE_QUEUE_TOKEN != '' }}
+        run: echo "configured=$HAS_TOKEN" >> "$GITHUB_OUTPUT"
+      - name: Skip when MERGE_QUEUE_TOKEN is not configured
+        if: ${{ steps.token_check.outputs.configured != 'true' }}
+        run: echo "MERGE_QUEUE_TOKEN is not configured; skipping watchdog reconciliation."
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ steps.token_check.outputs.configured == 'true' }}
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: ${{ steps.token_check.outputs.configured == 'true' }}
+        with:
+          node-version: '24'
+      - name: Reconcile active batch state
+        if: ${{ steps.token_check.outputs.configured == 'true' }}
+        env:
+          MERGE_QUEUE_TOKEN: ${{ secrets.MERGE_QUEUE_TOKEN }}
+        run: node --experimental-strip-types scripts/ci/merge-queue-batch.ts reconcile
+
+  status:
+    name: Report active batch status
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'status' }}
+    concurrency:
+      group: merge-queue-readonly-${{ github.run_id }}
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - name: Read batch status
+        env:
+          MERGE_QUEUE_TOKEN: ${{ secrets.MERGE_QUEUE_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node --experimental-strip-types scripts/ci/merge-queue-batch.ts status
+
+  reconcile:
+    name: Reconcile interrupted batch state
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'reconcile' && github.ref == 'refs/heads/main' && github.actor == 'ContraPhilosophy' }}
+    concurrency:
+      group: merge-queue-batch-writer
+      cancel-in-progress: false
+      queue: max
+    runs-on: ubuntu-24.04
+    environment: merge-queue-approval
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - name: Reconcile batch state with live GitHub PRs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MERGE_QUEUE_TOKEN: ${{ secrets.MERGE_QUEUE_TOKEN }}
+        run: node --experimental-strip-types scripts/ci/merge-queue-batch.ts reconcile
+
+  abort:
+    name: Abort active merge-queue batch and dequeue active PR
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'abort' && github.ref == 'refs/heads/main' && github.actor == 'ContraPhilosophy' }}
+    concurrency:
+      group: merge-queue-batch-writer
+      cancel-in-progress: false
+      queue: max
+    runs-on: ubuntu-24.04
+    environment: merge-queue-approval
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - name: Abort active batch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MERGE_QUEUE_TOKEN: ${{ secrets.MERGE_QUEUE_TOKEN }}
+          ABORT_REASON: ${{ inputs.reason }}
+        run: |
+          node --experimental-strip-types scripts/ci/merge-queue-batch.ts abort \
+            --actor "${{ github.actor }}" \
+            --reason "${ABORT_REASON:-Aborted by operator}"
