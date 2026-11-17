@@ -68,6 +68,7 @@ jobs:
     concurrency:
       group: merge-queue-batch-writer
       cancel-in-progress: false
+      queue: max
     runs-on: ubuntu-24.04
     environment: merge-queue-approval
     permissions:
@@ -101,9 +102,10 @@ jobs:
     name: Advance or stop active merge-queue batch
     if: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
     concurrency:
-      # Single-writer serialization across all state-mutating jobs; ignored events and the 15m watchdog reconcile any replaced pending event.
+      # Single-writer FIFO serialization across all state-mutating jobs (queue: max, up to 100 pending); 15m watchdog recovers lost webhooks or other failures.
       group: merge-queue-batch-writer
       cancel-in-progress: false
+      queue: max
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -150,6 +152,7 @@ jobs:
     concurrency:
       group: merge-queue-batch-writer
       cancel-in-progress: false
+      queue: max
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -207,6 +210,7 @@ jobs:
     concurrency:
       group: merge-queue-batch-writer
       cancel-in-progress: false
+      queue: max
     runs-on: ubuntu-24.04
     environment: merge-queue-approval
     permissions:
@@ -233,6 +237,7 @@ jobs:
     concurrency:
       group: merge-queue-batch-writer
       cancel-in-progress: false
+      queue: max
     runs-on: ubuntu-24.04
     environment: merge-queue-approval
     permissions:

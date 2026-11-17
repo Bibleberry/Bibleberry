@@ -767,9 +767,13 @@ test('merge-queue-batch workflow enforces main-only trusted checkout, single-wri
   assert.match(workflow, /persist-credentials: false/);
   assert.match(workflow, /schedule:\s*\n(?:\s*#.*\n)*\s*-\s*cron:\s*['"]\*\/15 \* \* \* \*['"]/);
 
-  // All 5 state-mutating jobs must share the single-writer concurrency group (no concurrent variable writers).
+  // All 5 state-mutating jobs must share the single-writer concurrency group with FIFO queuing (queue: max) and cancel-in-progress: false.
   assert.doesNotMatch(workflow, /^concurrency:\s*$/m);
-  const writerMatches = workflow.match(/group: merge-queue-batch-writer/g) ?? [];
+  assert.doesNotMatch(workflow, /cancel-in-progress:\s*true/);
+  const writerMatches =
+    workflow.match(
+      /concurrency:\s*\n(?:\s*#.*\n)*\s*group: merge-queue-batch-writer\s*\n\s*cancel-in-progress: false\s*\n\s*queue: max/g,
+    ) ?? [];
   assert.equal(writerMatches.length, 5);
 
   // Every privileged workflow_dispatch job must restrict to refs/heads/main and owner ContraPhilosophy.
