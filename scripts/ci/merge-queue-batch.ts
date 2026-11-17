@@ -5,8 +5,10 @@ import {
   formatSummaryMarkdown,
   handleMergeGroupDestroyed,
   parseBatchEntries,
+  reconcileBatch,
   runPreflight,
   startBatch,
+  type ApprovalVerificationResult,
   type BatchState,
   type GitHubBatchClient,
   type PullRequestSnapshot,
@@ -77,14 +79,32 @@ mutation EnqueueApprovedPullRequest($pullRequestId: ID!, $expectedHeadOid: GitOb
 }
 `;
 
-export function createGitHubClient(token: string): GitHubBatchClient {
-  const headers = {
-    Authorization: `Bearer ${token}`,
+const DEQUEUE_PR_MUTATION = `
+mutation DequeuePullRequest($pullRequestId: ID!) {
+  dequeuePullRequest(input: { id: $pullRequestId }) {
+    mergeQueueEntry {
+      id
+    }
+  }
+}
+`;
+
+interface WorkflowRunApproval {
+  environments?: Array<{ name?: string }>;
+  state?: string;
+  user?: { login?: string };
+}
+
+export function createGitHubClient(token: string, readToken?: string): GitHubBatchClient {
+  const makeHeaders = (authToken: string) => ({
+    Authorization: `Bearer ${authToken}`,
     Accept: 'application/vnd.github+json',
     'Content-Type': 'application/json',
     'User-Agent': 'bibleberry-merge-queue-batch',
     'X-GitHub-Api-Version': '2022-11-28',
-  };
+  });
+  const headers = makeHeaders(token);
+  const approvalHeaders = makeHeaders(readToken || token);
 
   async function graphql<T>(query: string, variables: Record<string, unknown>): Promise<T> {
     const response = await fetch(`${GITHUB_API_BASE}/graphql`, {
@@ -132,6 +152,10 @@ export function createGitHubClient(token: string): GitHubBatchClient {
       return { queueEntryId: data.enqueuePullRequest.mergeQueueEntry?.id };
     },
 
+    async dequeuePullRequest(pullRequestId) {
+      await graphql(DEQUEUE_PR_MUTATION, { pullRequestId });
+    },
+
     async getBatchState(owner, repo): Promise<BatchState | null> {
       const url = `${GITHUB_API_BASE}/repos/${owner}/${repo}/actions/variables/${STATE_VARIABLE_NAME}`;
       const response = await fetch(url, { method: 'GET', headers });
@@ -177,6 +201,48 @@ export function createGitHubClient(token: string): GitHubBatchClient {
 
       const patchBody = await patchResponse.text();
       throw new Error(`Failed to update ${STATE_VARIABLE_NAME} (HTTP ${patchResponse.status}): ${patchBody}`);
+    },
+
+    async verifyWorkflowApproval(
+      owner,
+      repo,
+      runId,
+      environmentName,
+      authorizedOwners,
+    ): Promise<ApprovalVerificationResult> {
+      const url = `${GITHUB_API_BASE}/repos/${owner}/${repo}/actions/runs/${runId}/approvals`;
+      const response = await fetch(url, { method: 'GET', headers: approvalHeaders });
+      if (!response.ok) {
+        const body = await response.text();
+        return {
+          ok: false,
+          reason: `Unable to verify ${environmentName} approval for run ${runId} (HTTP ${response.status}): ${body}`,
+        };
+      }
+
+      const approvals = (await response.json()) as WorkflowRunApproval[];
+      const allowedLogins = new Set(authorizedOwners.map((u) => u.toLowerCase()));
+
+      const match = approvals.find((entry) => {
+        const isApproved = entry.state === 'approved';
+        const hasEnv = Boolean(
+          entry.environments?.some((env) => env.name === environmentName),
+        );
+        const login = entry.user?.login?.toLowerCase() ?? '';
+        return isApproved && hasEnv && allowedLogins.has(login);
+      });
+
+      if (!match) {
+        return {
+          ok: false,
+          reason: `Run ${runId} has no recorded "${environmentName}" approval from authorized owner(s) [${authorizedOwners.join(', ')}]. Ensure environment "${environmentName}" exists with Required Reviewers configured.`,
+        };
+      }
+
+      return {
+        ok: true,
+        approvedBy: match.user?.login,
+      };
     },
   };
 }
@@ -239,12 +305,12 @@ async function main(): Promise<void> {
 
   if (!command || flags.help) {
     console.log(
-      'Usage: node --experimental-strip-types scripts/ci/merge-queue-batch.ts <preflight|start|advance|destroyed|status|abort> [options]',
+      'Usage: node --experimental-strip-types scripts/ci/merge-queue-batch.ts <preflight|start|advance|destroyed|reconcile|status|abort> [options]',
     );
     return;
   }
 
-  const client = createGitHubClient(getToken());
+  const client = createGitHubClient(getToken(), process.env.GITHUB_TOKEN);
 
   if (command === 'preflight') {
     const rawEntries = typeof flags.entries === 'string' ? flags.entries : '';
@@ -356,6 +422,22 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (command === 'reconcile') {
+    const outcome = await reconcileBatch(client, { owner, repo });
+    writeStepSummary(
+      formatSummaryMarkdown({
+        title: `Merge Queue Batch Reconcile (${outcome.action})`,
+        preflightResults: outcome.preflightResult ? [outcome.preflightResult] : undefined,
+        state: outcome.state,
+        message: outcome.message,
+      }),
+    );
+    if (outcome.action === 'stopped') {
+      process.exitCode = 1;
+    }
+    return;
+  }
+
   if (command === 'status') {
     const state = await client.getBatchState(owner, repo);
     writeStepSummary(
@@ -374,7 +456,13 @@ async function main(): Promise<void> {
       process.env.GITHUB_ACTOR ||
       'unknown';
     const reason = typeof flags.reason === 'string' ? flags.reason : 'Aborted by operator';
-    const outcome = await abortBatch(client, { owner, repo, actor, reason });
+    const outcome = await abortBatch(client, {
+      owner,
+      repo,
+      actor,
+      reason,
+      workflowRunId: process.env.GITHUB_RUN_ID,
+    });
     writeStepSummary(
       formatSummaryMarkdown({
         title: 'Merge Queue Batch Abort',
@@ -382,6 +470,9 @@ async function main(): Promise<void> {
         message: outcome.message,
       }),
     );
+    if (!outcome.aborted) {
+      process.exitCode = 1;
+    }
     return;
   }
 

@@ -12,6 +12,7 @@ on:
           - dry-run
           - start
           - status
+          - reconcile
           - abort
       entries:
         description: Ordered PR_NUMBER@REVIEWED_HEAD_SHA list (comma or newline separated)
@@ -47,6 +48,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -60,15 +62,17 @@ jobs:
   authorize-and-start:
     name: Authorize and enqueue first batch PR
     needs: [preflight]
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'start' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'start' && github.ref == 'refs/heads/main' && github.actor == 'ContraPhilosophy' }}
     runs-on: ubuntu-24.04
     environment: merge-queue-approval
     permissions:
+      actions: read
       contents: read
       pull-requests: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -83,6 +87,7 @@ jobs:
           fi
       - name: Start approved batch and enqueue first PR
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MERGE_QUEUE_TOKEN: ${{ secrets.MERGE_QUEUE_TOKEN }}
           BATCH_ENTRIES: ${{ inputs.entries }}
         run: node --experimental-strip-types scripts/ci/merge-queue-batch.ts start --entries "$BATCH_ENTRIES" --actor "${{ github.actor }}"
@@ -139,6 +144,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -149,22 +155,49 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node --experimental-strip-types scripts/ci/merge-queue-batch.ts status
 
-  abort:
-    name: Abort active merge-queue batch
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'abort' }}
+  reconcile:
+    name: Reconcile interrupted batch state
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'reconcile' && github.ref == 'refs/heads/main' && github.actor == 'ContraPhilosophy' }}
     runs-on: ubuntu-24.04
     environment: merge-queue-approval
     permissions:
+      actions: read
       contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - name: Reconcile batch state with live GitHub PRs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MERGE_QUEUE_TOKEN: ${{ secrets.MERGE_QUEUE_TOKEN }}
+        run: node --experimental-strip-types scripts/ci/merge-queue-batch.ts reconcile
+
+  abort:
+    name: Abort active merge-queue batch and dequeue active PR
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'abort' && github.ref == 'refs/heads/main' && github.actor == 'ContraPhilosophy' }}
+    runs-on: ubuntu-24.04
+    environment: merge-queue-approval
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
       - name: Abort active batch
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MERGE_QUEUE_TOKEN: ${{ secrets.MERGE_QUEUE_TOKEN }}
           ABORT_REASON: ${{ inputs.reason }}
         run: |

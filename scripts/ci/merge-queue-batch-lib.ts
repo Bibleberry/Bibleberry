@@ -3,6 +3,8 @@ export const DEFAULT_REQUIRED_CHECKS = [
   'Build reader application',
   'Verify Sanity Studio',
 ];
+export const DEFAULT_AUTHORIZED_OWNERS = ['ContraPhilosophy'];
+export const APPROVAL_ENVIRONMENT_NAME = 'merge-queue-approval';
 
 export interface BatchEntry {
   prNumber: number;
@@ -64,7 +66,7 @@ export interface PreflightResult {
 export interface BatchState {
   version: 1;
   batchId: string;
-  status: 'running' | 'completed' | 'stopped' | 'aborted';
+  status: 'enqueuing' | 'running' | 'completed' | 'stopped' | 'aborted';
   createdAt: string;
   updatedAt: string;
   authorizedBy: string;
@@ -78,11 +80,25 @@ export interface BatchState {
   stopReason?: string;
 }
 
+export interface ApprovalVerificationResult {
+  ok: boolean;
+  reason?: string;
+  approvedBy?: string;
+}
+
 export interface GitHubBatchClient {
   getPullRequest(owner: string, repo: string, prNumber: number): Promise<PullRequestSnapshot | null>;
   enqueuePullRequest(pullRequestId: string, expectedHeadOid: string): Promise<{ queueEntryId?: string }>;
+  dequeuePullRequest(pullRequestId: string): Promise<void>;
   getBatchState(owner: string, repo: string): Promise<BatchState | null>;
   saveBatchState(owner: string, repo: string, state: BatchState): Promise<void>;
+  verifyWorkflowApproval?(
+    owner: string,
+    repo: string,
+    runId: string,
+    environmentName: string,
+    authorizedOwners: string[],
+  ): Promise<ApprovalVerificationResult>;
 }
 
 /**
@@ -134,12 +150,14 @@ export function parseBatchEntries(raw: string): BatchEntry[] {
   return entries;
 }
 
-const PASSING_CHECK_CONCLUSIONS = new Set(['SUCCESS', 'NEUTRAL', 'SKIPPED']);
+// SKIPPED alone must never satisfy a required check; an earlier SKIPPED Draft run is only
+// acceptable when accompanied by an actual passing execution (SUCCESS or NEUTRAL).
+const PASSING_CHECK_CONCLUSIONS = new Set(['SUCCESS', 'NEUTRAL']);
 
 function hasPassingRequiredCheck(
   contexts: StatusContextNode[],
   checkName: string,
-): { present: boolean; passing: boolean } {
+): { present: boolean; passing: boolean; skippedOnly: boolean } {
   const matchingChecks = contexts.filter((ctx) => {
     if (ctx.__typename === 'StatusContext' || (!ctx.name && ctx.context)) {
       return ctx.context === checkName;
@@ -148,10 +166,9 @@ function hasPassingRequiredCheck(
   });
 
   if (matchingChecks.length === 0) {
-    return { present: false, passing: false };
+    return { present: false, passing: false, skippedOnly: false };
   }
 
-  // GitHub can retain earlier SKIPPED runs (e.g. from when the PR was Draft) alongside newer SUCCESS runs.
   const anyPassing = matchingChecks.some((ctx) => {
     if (ctx.__typename === 'StatusContext' || (!ctx.name && ctx.context)) {
       return ctx.state === 'SUCCESS';
@@ -159,7 +176,13 @@ function hasPassingRequiredCheck(
     return ctx.status === 'COMPLETED' && PASSING_CHECK_CONCLUSIONS.has(ctx.conclusion ?? '');
   });
 
-  return { present: true, passing: anyPassing };
+  const skippedOnly =
+    !anyPassing &&
+    matchingChecks.every(
+      (ctx) => ctx.status === 'COMPLETED' && ctx.conclusion === 'SKIPPED',
+    );
+
+  return { present: true, passing: anyPassing, skippedOnly };
 }
 
 /**
@@ -245,7 +268,11 @@ export function evaluatePullRequestPreflight(
       if (!check.present) {
         reasons.push(`PR #${entry.prNumber} is missing required check "${checkName}".`);
       } else if (!check.passing) {
-        reasons.push(`PR #${entry.prNumber} required check "${checkName}" did not pass.`);
+        reasons.push(
+          check.skippedOnly
+            ? `PR #${entry.prNumber} required check "${checkName}" only has SKIPPED runs and no passing execution.`
+            : `PR #${entry.prNumber} required check "${checkName}" did not pass.`,
+        );
       }
     }
   }
@@ -279,6 +306,51 @@ export async function runPreflight(
   };
 }
 
+async function verifyOwnerAuthorization(
+  client: GitHubBatchClient,
+  options: {
+    owner: string;
+    repo: string;
+    actor: string;
+    workflowRunId?: string;
+    authorizedOwners?: string[];
+  },
+): Promise<{ ok: boolean; reason?: string }> {
+  const authorizedOwners = options.authorizedOwners ?? DEFAULT_AUTHORIZED_OWNERS;
+  const normalizedAllowed = new Set(authorizedOwners.map((u) => u.toLowerCase()));
+
+  if (!normalizedAllowed.has(options.actor.toLowerCase())) {
+    return {
+      ok: false,
+      reason: `Actor "${options.actor}" is not in authorized owners [${authorizedOwners.join(', ')}].`,
+    };
+  }
+
+  if (options.workflowRunId) {
+    if (!client.verifyWorkflowApproval) {
+      return {
+        ok: false,
+        reason: 'Fail-closed approval check is unavailable for workflow run verification.',
+      };
+    }
+    const approval = await client.verifyWorkflowApproval(
+      options.owner,
+      options.repo,
+      options.workflowRunId,
+      APPROVAL_ENVIRONMENT_NAME,
+      authorizedOwners,
+    );
+    if (!approval.ok) {
+      return {
+        ok: false,
+        reason: approval.reason ?? `Missing verified ${APPROVAL_ENVIRONMENT_NAME} owner approval.`,
+      };
+    }
+  }
+
+  return { ok: true };
+}
+
 export interface StartBatchOptions {
   owner: string;
   repo: string;
@@ -288,6 +360,7 @@ export interface StartBatchOptions {
   workflowRunId?: string;
   workflowRunUrl?: string;
   requiredChecks?: string[];
+  authorizedOwners?: string[];
   now?: () => string;
 }
 
@@ -312,17 +385,36 @@ export async function startBatch(
     workflowRunId,
     workflowRunUrl,
     requiredChecks = DEFAULT_REQUIRED_CHECKS,
+    authorizedOwners = DEFAULT_AUTHORIZED_OWNERS,
     now = () => new Date().toISOString(),
   } = options;
 
+  if (!dryRun) {
+    const auth = await verifyOwnerAuthorization(client, {
+      owner,
+      repo,
+      actor: authorizedBy,
+      workflowRunId,
+      authorizedOwners,
+    });
+    if (!auth.ok) {
+      return {
+        ok: false,
+        dryRun: false,
+        preflightResults: [],
+        error: `Authorization failed (fail-closed): ${auth.reason}`,
+      };
+    }
+  }
+
   const existingState = await client.getBatchState(owner, repo);
-  if (existingState?.status === 'running') {
+  if (existingState?.status === 'running' || existingState?.status === 'enqueuing') {
     return {
       ok: false,
       dryRun,
       preflightResults: [],
       state: existingState,
-      error: `Another batch (${existingState.batchId}) is already running (active PR #${existingState.activePrNumber}). Abort or wait for it to finish before starting a new batch.`,
+      error: `Another batch (${existingState.batchId}) is already ${existingState.status} (active PR #${existingState.activePrNumber}). Run reconcile, abort, or wait for it to finish before starting a new batch.`,
     };
   }
 
@@ -362,15 +454,13 @@ export async function startBatch(
     };
   }
 
-  await client.enqueuePullRequest(freshPr.id, firstEntry.expectedHeadSha);
-
-  const timestamp = now();
-  const state: BatchState = {
+  const createdAt = now();
+  const pendingState: BatchState = {
     version: 1,
-    batchId: `batch-${timestamp.replace(/[:.]/g, '-')}`,
-    status: 'running',
-    createdAt: timestamp,
-    updatedAt: timestamp,
+    batchId: `batch-${createdAt.replace(/[:.]/g, '-')}`,
+    status: 'enqueuing',
+    createdAt,
+    updatedAt: createdAt,
     authorizedBy,
     workflowRunId,
     workflowRunUrl,
@@ -381,18 +471,64 @@ export async function startBatch(
     completedPrNumbers: [],
   };
 
-  await client.saveBatchState(owner, repo, state);
+  // Write-ahead state before enqueueing so a post-enqueue save failure never loses track of an enqueued PR.
+  await client.saveBatchState(owner, repo, pendingState);
+
+  try {
+    await client.enqueuePullRequest(freshPr.id, firstEntry.expectedHeadSha);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    const stoppedState: BatchState = {
+      ...pendingState,
+      status: 'stopped',
+      updatedAt: now(),
+      activePrNumber: null,
+      activeHeadSha: null,
+      stopReason: `Failed to enqueue PR #${firstEntry.prNumber}: ${reason}`,
+    };
+    try {
+      await client.saveBatchState(owner, repo, stoppedState);
+    } catch {
+      // Preserve failure reporting even if rollback save fails.
+    }
+    return {
+      ok: false,
+      dryRun: false,
+      preflightResults: preflight.results,
+      state: stoppedState,
+      error: stoppedState.stopReason,
+    };
+  }
+
+  const runningState: BatchState = {
+    ...pendingState,
+    status: 'running',
+    updatedAt: now(),
+  };
+
+  try {
+    await client.saveBatchState(owner, repo, runningState);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    return {
+      ok: false,
+      dryRun: false,
+      preflightResults: preflight.results,
+      state: pendingState,
+      error: `PR #${firstEntry.prNumber} was enqueued with write-ahead state saved (status=enqueuing), but confirming status=running failed: ${reason}. Run reconcile to recover.`,
+    };
+  }
 
   return {
     ok: true,
     dryRun: false,
     preflightResults: preflight.results,
-    state,
+    state: runningState,
   };
 }
 
 export interface AdvanceOutcome {
-  action: 'ignored' | 'enqueued' | 'completed' | 'stopped';
+  action: 'ignored' | 'enqueued' | 'completed' | 'stopped' | 'reconciled';
   state: BatchState | null;
   message: string;
   preflightResult?: PreflightResult;
@@ -419,7 +555,7 @@ export async function advanceBatchOnPullRequestClosed(
   } = options;
 
   const state = await client.getBatchState(owner, repo);
-  if (!state || state.status !== 'running') {
+  if (!state || (state.status !== 'running' && state.status !== 'enqueuing')) {
     return {
       action: 'ignored',
       state,
@@ -435,13 +571,11 @@ export async function advanceBatchOnPullRequestClosed(
     };
   }
 
-  const timestamp = now();
-
   if (!merged) {
     const stoppedState: BatchState = {
       ...state,
       status: 'stopped',
-      updatedAt: timestamp,
+      updatedAt: now(),
       activePrNumber: null,
       activeHeadSha: null,
       stopReason: `PR #${prNumber} was closed without merging. Remaining entries were not enqueued.`,
@@ -454,14 +588,16 @@ export async function advanceBatchOnPullRequestClosed(
     };
   }
 
-  const completedPrNumbers = [...state.completedPrNumbers, prNumber];
+  const completedPrNumbers = state.completedPrNumbers.includes(prNumber)
+    ? [...state.completedPrNumbers]
+    : [...state.completedPrNumbers, prNumber];
   const nextIndex = state.nextIndex + 1;
 
   if (nextIndex >= state.entries.length) {
     const completedState: BatchState = {
       ...state,
       status: 'completed',
-      updatedAt: timestamp,
+      updatedAt: now(),
       nextIndex,
       activePrNumber: null,
       activeHeadSha: null,
@@ -488,7 +624,7 @@ export async function advanceBatchOnPullRequestClosed(
     const stoppedState: BatchState = {
       ...state,
       status: 'stopped',
-      updatedAt: timestamp,
+      updatedAt: now(),
       nextIndex,
       activePrNumber: null,
       activeHeadSha: null,
@@ -504,21 +640,36 @@ export async function advanceBatchOnPullRequestClosed(
     };
   }
 
+  const pendingNextState: BatchState = {
+    ...state,
+    status: 'enqueuing',
+    updatedAt: now(),
+    nextIndex,
+    activePrNumber: nextEntry.prNumber,
+    activeHeadSha: nextEntry.expectedHeadSha,
+    completedPrNumbers,
+  };
+
+  // Write-ahead before enqueueing so interrupted confirmation can be reconciled cleanly.
+  await client.saveBatchState(owner, repo, pendingNextState);
+
   try {
     await client.enqueuePullRequest(freshPr.id, nextEntry.expectedHeadSha);
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     const stoppedState: BatchState = {
-      ...state,
+      ...pendingNextState,
       status: 'stopped',
-      updatedAt: timestamp,
-      nextIndex,
+      updatedAt: now(),
       activePrNumber: null,
       activeHeadSha: null,
-      completedPrNumbers,
       stopReason: `Failed to enqueue PR #${nextEntry.prNumber}: ${reason}`,
     };
-    await client.saveBatchState(owner, repo, stoppedState);
+    try {
+      await client.saveBatchState(owner, repo, stoppedState);
+    } catch {
+      // Preserve stopped outcome even if rollback save fails.
+    }
     return {
       action: 'stopped',
       state: stoppedState,
@@ -527,22 +678,141 @@ export async function advanceBatchOnPullRequestClosed(
     };
   }
 
-  const updatedState: BatchState = {
-    ...state,
+  const runningNextState: BatchState = {
+    ...pendingNextState,
     status: 'running',
-    updatedAt: timestamp,
-    nextIndex,
-    activePrNumber: nextEntry.prNumber,
-    activeHeadSha: nextEntry.expectedHeadSha,
-    completedPrNumbers,
+    updatedAt: now(),
   };
-  await client.saveBatchState(owner, repo, updatedState);
+
+  try {
+    await client.saveBatchState(owner, repo, runningNextState);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    return {
+      action: 'enqueued',
+      state: pendingNextState,
+      message: `PR #${prNumber} merged and PR #${nextEntry.prNumber}@${nextEntry.expectedHeadSha} was enqueued with write-ahead state saved (status=enqueuing), but confirming status=running failed: ${reason}.`,
+      preflightResult,
+    };
+  }
 
   return {
     action: 'enqueued',
-    state: updatedState,
+    state: runningNextState,
     message: `PR #${prNumber} merged; enqueued next authorized PR #${nextEntry.prNumber}@${nextEntry.expectedHeadSha}.`,
     preflightResult,
+  };
+}
+
+export async function reconcileBatch(
+  client: GitHubBatchClient,
+  options: {
+    owner: string;
+    repo: string;
+    requiredChecks?: string[];
+    now?: () => string;
+  },
+): Promise<AdvanceOutcome> {
+  const { owner, repo, requiredChecks = DEFAULT_REQUIRED_CHECKS, now = () => new Date().toISOString() } = options;
+  const state = await client.getBatchState(owner, repo);
+
+  if (!state || (state.status !== 'running' && state.status !== 'enqueuing')) {
+    return {
+      action: 'ignored',
+      state,
+      message: `No active or interrupted batch to reconcile (status=${state?.status ?? 'none'}).`,
+    };
+  }
+
+  if (state.activePrNumber === null) {
+    const stoppedState: BatchState = {
+      ...state,
+      status: 'stopped',
+      updatedAt: now(),
+      stopReason: 'Interrupted batch had no active PR number; stopped safely.',
+    };
+    await client.saveBatchState(owner, repo, stoppedState);
+    return {
+      action: 'stopped',
+      state: stoppedState,
+      message: stoppedState.stopReason!,
+    };
+  }
+
+  const activePr = await client.getPullRequest(owner, repo, state.activePrNumber);
+  if (!activePr) {
+    const stoppedState: BatchState = {
+      ...state,
+      status: 'stopped',
+      updatedAt: now(),
+      activePrNumber: null,
+      activeHeadSha: null,
+      stopReason: `Active PR #${state.activePrNumber} could not be fetched during reconciliation.`,
+    };
+    await client.saveBatchState(owner, repo, stoppedState);
+    return {
+      action: 'stopped',
+      state: stoppedState,
+      message: stoppedState.stopReason!,
+    };
+  }
+
+  if (activePr.state === 'MERGED') {
+    return advanceBatchOnPullRequestClosed(client, {
+      owner,
+      repo,
+      prNumber: state.activePrNumber,
+      merged: true,
+      requiredChecks,
+      now,
+    });
+  }
+
+  if (activePr.state === 'CLOSED') {
+    return advanceBatchOnPullRequestClosed(client, {
+      owner,
+      repo,
+      prNumber: state.activePrNumber,
+      merged: false,
+      requiredChecks,
+      now,
+    });
+  }
+
+  if (activePr.isInMergeQueue) {
+    if (state.status === 'enqueuing') {
+      const recoveredState: BatchState = {
+        ...state,
+        status: 'running',
+        updatedAt: now(),
+      };
+      await client.saveBatchState(owner, repo, recoveredState);
+      return {
+        action: 'reconciled',
+        state: recoveredState,
+        message: `Recovered interrupted state: PR #${state.activePrNumber} is in the merge queue; status restored to running.`,
+      };
+    }
+    return {
+      action: 'ignored',
+      state,
+      message: `PR #${state.activePrNumber} is actively in the merge queue; no recovery needed.`,
+    };
+  }
+
+  const stoppedState: BatchState = {
+    ...state,
+    status: 'stopped',
+    updatedAt: now(),
+    activePrNumber: null,
+    activeHeadSha: null,
+    stopReason: `Reconciliation found PR #${state.activePrNumber} is OPEN but not in the merge queue (status was ${state.status}). Stopped without double-enqueueing.`,
+  };
+  await client.saveBatchState(owner, repo, stoppedState);
+  return {
+    action: 'stopped',
+    state: stoppedState,
+    message: stoppedState.stopReason!,
   };
 }
 
@@ -567,7 +837,7 @@ export async function handleMergeGroupDestroyed(
   }
 
   const state = await client.getBatchState(owner, repo);
-  if (!state || state.status !== 'running' || state.activePrNumber === null) {
+  if (!state || (state.status !== 'running' && state.status !== 'enqueuing') || state.activePrNumber === null) {
     return {
       action: 'ignored',
       state,
@@ -610,17 +880,61 @@ export async function abortBatch(
     repo: string;
     actor: string;
     reason?: string;
+    workflowRunId?: string;
+    authorizedOwners?: string[];
     now?: () => string;
   },
-): Promise<{ aborted: boolean; state: BatchState | null; message: string }> {
-  const { owner, repo, actor, reason = 'Aborted by operator', now = () => new Date().toISOString() } = options;
+): Promise<{ aborted: boolean; dequeuedPrNumber?: number; state: BatchState | null; message: string }> {
+  const {
+    owner,
+    repo,
+    actor,
+    reason = 'Aborted by operator',
+    workflowRunId,
+    authorizedOwners = DEFAULT_AUTHORIZED_OWNERS,
+    now = () => new Date().toISOString(),
+  } = options;
+
+  const auth = await verifyOwnerAuthorization(client, {
+    owner,
+    repo,
+    actor,
+    workflowRunId,
+    authorizedOwners,
+  });
+  if (!auth.ok) {
+    return {
+      aborted: false,
+      state: await client.getBatchState(owner, repo),
+      message: `Abort authorization failed (fail-closed): ${auth.reason}`,
+    };
+  }
+
   const state = await client.getBatchState(owner, repo);
-  if (!state || state.status !== 'running') {
+  if (!state || (state.status !== 'running' && state.status !== 'enqueuing')) {
     return {
       aborted: false,
       state,
       message: 'No running merge-queue batch to abort.',
     };
+  }
+
+  let dequeuedPrNumber: number | undefined;
+  if (state.activePrNumber !== null) {
+    const activePr = await client.getPullRequest(owner, repo, state.activePrNumber);
+    if (activePr?.isInMergeQueue) {
+      try {
+        await client.dequeuePullRequest(activePr.id);
+        dequeuedPrNumber = state.activePrNumber;
+      } catch (err) {
+        const errMessage = err instanceof Error ? err.message : String(err);
+        return {
+          aborted: false,
+          state,
+          message: `Failed to dequeue active PR #${state.activePrNumber} during abort: ${errMessage}. Batch remains ${state.status}; inspect queue state before retrying.`,
+        };
+      }
+    }
   }
 
   const abortedState: BatchState = {
@@ -629,12 +943,13 @@ export async function abortBatch(
     updatedAt: now(),
     activePrNumber: null,
     activeHeadSha: null,
-    stopReason: `Aborted by ${actor}: ${reason}`,
+    stopReason: `Aborted by ${actor}: ${reason}${dequeuedPrNumber ? ` (dequeued PR #${dequeuedPrNumber})` : ''}`,
   };
   await client.saveBatchState(owner, repo, abortedState);
 
   return {
     aborted: true,
+    dequeuedPrNumber,
     state: abortedState,
     message: abortedState.stopReason!,
   };
