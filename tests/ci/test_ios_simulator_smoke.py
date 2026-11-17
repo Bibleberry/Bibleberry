@@ -1,0 +1,597 @@
+"""Unit tests for scripts/ios-simulator-smoke.py cleanup safety, readiness, and retries."""
+
+from __future__ import annotations
+
+import importlib.util
+import json
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import unittest
+from unittest import mock
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+SCRIPT_PATH = REPO_ROOT / "scripts" / "ios-simulator-smoke.py"
+SNAPSHOT_SCRIPT_PATH = REPO_ROOT / "scripts" / "ios-simulator-snapshot.py"
+
+SPEC = importlib.util.spec_from_file_location("ios_simulator_smoke", SCRIPT_PATH)
+assert SPEC is not None and SPEC.loader is not None
+smoke = importlib.util.module_from_spec(SPEC)
+sys.modules["ios_simulator_smoke"] = smoke
+SPEC.loader.exec_module(smoke)
+
+SNAPSHOT_SPEC = importlib.util.spec_from_file_location(
+    "ios_simulator_snapshot", SNAPSHOT_SCRIPT_PATH
+)
+assert SNAPSHOT_SPEC is not None and SNAPSHOT_SPEC.loader is not None
+snapshot = importlib.util.module_from_spec(SNAPSHOT_SPEC)
+sys.modules["ios_simulator_snapshot"] = snapshot
+SNAPSHOT_SPEC.loader.exec_module(snapshot)
+
+
+def _completed(args: list[str], stdout: str = "", stderr: str = "", returncode: int = 0) -> subprocess.CompletedProcess[str]:
+    return subprocess.CompletedProcess(args=args, returncode=returncode, stdout=stdout, stderr=stderr)
+
+
+class FakeSimulatorEnv:
+    """Configurable mock for subprocess.run in ios-simulator-smoke.py tests."""
+
+    def __init__(self, *, simctl_only: bool = True) -> None:
+        self.simctl_only = simctl_only
+        self.create_count = 0
+        self.calls: list[list[str]] = []
+        self.fail_on_subcmd: dict[str, list[Exception | subprocess.CompletedProcess[str]]] = {}
+
+    def queue_outcome(self, subcmd: str, outcome: Exception | subprocess.CompletedProcess[str]) -> None:
+        self.fail_on_subcmd.setdefault(subcmd, []).append(outcome)
+
+    def __call__(self, args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        self.calls.append(list(args))
+        check = bool(kwargs.get("check", True))
+
+        if args[0] == "uname":
+            return _completed(args, stdout="arm64\n")
+        if args[0] == "sw_vers":
+            return _completed(args, stdout="26.4\n")
+        if args[0] == "xcodebuild" and "-version" in args:
+            return _completed(args, stdout="Xcode 26.4.1\nBuild version 17E202\n")
+        if args[0] == "lipo":
+            return _completed(args, stdout="Non-fat file: App is architecture: arm64\n")
+        if args[0] == "ps":
+            if "-o" in args:
+                return _completed(args, stdout="  4321     1 S    00:05 App\n")
+            return _completed(args, returncode=1)
+
+        if args[:2] == ["xcrun", "simctl"]:
+            subcmd = args[2]
+            if subcmd in self.fail_on_subcmd and self.fail_on_subcmd[subcmd]:
+                outcome = self.fail_on_subcmd[subcmd].pop(0)
+                if isinstance(outcome, Exception):
+                    raise outcome
+                if check and outcome.returncode != 0:
+                    raise subprocess.CalledProcessError(
+                        outcome.returncode, args, output=outcome.stdout, stderr=outcome.stderr
+                    )
+                return outcome
+
+            if subcmd == "list" and len(args) > 3 and args[3] == "runtimes":
+                return _completed(
+                    args,
+                    stdout=json.dumps(
+                        {
+                            "runtimes": [
+                                {
+                                    "identifier": "com.apple.CoreSimulator.SimRuntime.iOS-26-4",
+                                    "name": "iOS 26.4",
+                                    "version": "26.4.1",
+                                    "buildversion": "23E254a",
+                                    "isAvailable": True,
+                                }
+                            ]
+                        }
+                    ),
+                )
+            if subcmd == "list" and len(args) > 3 and args[3] == "devicetypes":
+                return _completed(
+                    args,
+                    stdout=json.dumps(
+                        {
+                            "devicetypes": [
+                                {
+                                    "identifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-17",
+                                    "name": "iPhone 17",
+                                    "productFamily": "iPhone",
+                                }
+                            ]
+                        }
+                    ),
+                )
+            if subcmd == "list" and len(args) > 3 and args[3] == "devices":
+                udid = f"UDID-{max(1, self.create_count)}"
+                return _completed(
+                    args,
+                    stdout=json.dumps(
+                        {
+                            "devices": {
+                                "com.apple.CoreSimulator.SimRuntime.iOS-26-4": [
+                                    {"udid": udid, "state": "Booted", "name": "iPhone 17"}
+                                ]
+                            }
+                        }
+                    ),
+                )
+            if subcmd == "create":
+                self.create_count += 1
+                return _completed(args, stdout=f"UDID-{self.create_count}\n")
+            if subcmd in {"boot", "bootstatus", "install", "terminate", "shutdown", "delete", "uninstall"}:
+                return _completed(args)
+            if subcmd == "get_app_container":
+                return _completed(args, stdout="/tmp/App.app\n")
+            if subcmd == "launch":
+                launch_count = len([c for c in self.calls if c[:3] == ["xcrun", "simctl", "launch"]])
+                pid = 4321 + (launch_count - 1) * 1111
+                for arg in args:
+                    if arg.startswith("--stdout="):
+                        Path(arg.removeprefix("--stdout=")).write_text(
+                            f"launch output for PID {pid}\n",
+                            encoding="utf-8",
+                        )
+                return _completed(args, stdout=f"com.example.bibleberry.r20poc: {pid}\n")
+            if subcmd == "spawn":
+                if args[4:6] == ["launchctl", "list"]:
+                    return _completed(
+                        args,
+                        stdout=(
+                            "101\t0\tcom.apple.SpringBoard\n"
+                            "4321\t0\tUIKitApplication:com.example.bibleberry.r20poc[1234]\n"
+                            "5432\t0\tUIKitApplication:com.example.bibleberry.r20poc[5678]\n"
+                            "6543\t0\tUIKitApplication:com.example.bibleberry.r20poc[9012]\n"
+                        ),
+                    )
+                if args[4:6] == ["log", "show"]:
+                    return _completed(args, stdout="sample log\n")
+            if subcmd == "io" and len(args) > 4 and args[4] == "screenshot":
+                shot_path = Path(args[5])
+                shot_path.write_bytes(b"PNG" + b"\x00" * 2048)
+                return _completed(args)
+
+        return _completed(args)
+
+
+class TestIosSimulatorSmoke(unittest.TestCase):
+    def _make_fake_app(self, tmpdir: Path) -> Path:
+        app_path = tmpdir / "App.app"
+        app_path.mkdir(parents=True)
+        (app_path / "App").write_bytes(b"\x00")
+        return app_path
+
+    def test_cleanup_timeouts_do_not_mask_original_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            app_path = self._make_fake_app(tmpdir)
+            evidence_dir = tmpdir / "evidence"
+            env = FakeSimulatorEnv()
+
+            # Exhaust both launch attempts (1 initial + 1 retry) with TimeoutExpired
+            env.queue_outcome("launch", subprocess.TimeoutExpired(["xcrun", "simctl", "launch"], 60))
+            env.queue_outcome("launch", subprocess.TimeoutExpired(["xcrun", "simctl", "launch"], 60))
+            # Make all 3 cleanup commands time out in finally!
+            env.queue_outcome("terminate", subprocess.TimeoutExpired(["xcrun", "simctl", "terminate"], 30))
+            env.queue_outcome("shutdown", subprocess.TimeoutExpired(["xcrun", "simctl", "shutdown"], 30))
+            env.queue_outcome("delete", subprocess.TimeoutExpired(["xcrun", "simctl", "delete"], 30))
+
+            argv = [
+                "ios-simulator-smoke.py",
+                "--app-path",
+                str(app_path),
+                "--evidence-dir",
+                str(evidence_dir),
+                "--simctl-only",
+                "--max-device-resets",
+                "0",
+            ]
+            with (
+                mock.patch.object(sys, "argv", argv),
+                mock.patch.object(smoke.subprocess, "run", side_effect=env),
+                mock.patch.object(smoke.time, "sleep"),
+                mock.patch.object(smoke, "find_new_app_crashes", return_value=[]),
+            ):
+                rc = smoke.main()
+
+            self.assertEqual(rc, 1)
+            summary = json.loads((evidence_dir / "summary.json").read_text(encoding="utf-8"))
+            self.assertEqual(summary["status"], "failed")
+            self.assertIn("launch", summary["error"])
+            self.assertIn("timed out", summary["error"])
+            self.assertEqual(len(summary["cleanup"]), 1)
+            cleanup = summary["cleanup"][0]
+            self.assertTrue(cleanup["terminate"]["timedOut"])
+            self.assertTrue(cleanup["shutdown"]["timedOut"])
+            self.assertTrue(cleanup["delete"]["timedOut"])
+            self.assertGreater(len(summary["stepTimings"]), 0)
+
+    def test_device_reset_recovers_from_transient_install_timeout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            app_path = self._make_fake_app(tmpdir)
+            evidence_dir = tmpdir / "evidence"
+            env = FakeSimulatorEnv()
+
+            # Attempt 1: install fails twice (initial + retry) -> triggers 1 controlled device reset
+            env.queue_outcome("install", subprocess.TimeoutExpired(["xcrun", "simctl", "install"], 120))
+            env.queue_outcome("install", subprocess.TimeoutExpired(["xcrun", "simctl", "install"], 120))
+            # Attempt 2: install succeeds on fresh UDID-2
+
+            argv = [
+                "ios-simulator-smoke.py",
+                "--app-path",
+                str(app_path),
+                "--evidence-dir",
+                str(evidence_dir),
+                "--simctl-only",
+                "--max-device-resets",
+                "1",
+            ]
+            with (
+                mock.patch.object(sys, "argv", argv),
+                mock.patch.object(smoke.subprocess, "run", side_effect=env),
+                mock.patch.object(smoke.time, "sleep"),
+                mock.patch.object(smoke, "find_new_app_crashes", return_value=[]),
+            ):
+                rc = smoke.main()
+
+            self.assertEqual(rc, 0)
+            summary = json.loads((evidence_dir / "summary.json").read_text(encoding="utf-8"))
+            self.assertEqual(summary["status"], "passed")
+            self.assertEqual(summary["udid"], "UDID-2")
+            self.assertEqual(len(summary["infrastructureRetries"]), 1)
+            self.assertEqual(summary["infrastructureRetries"][0]["udid"], "UDID-1")
+            self.assertEqual(len(summary["cleanup"]), 2)
+
+    def test_device_reset_keeps_attempt_evidence_separate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            app_path = self._make_fake_app(tmpdir)
+            evidence_dir = tmpdir / "evidence"
+            env = FakeSimulatorEnv()
+            env.queue_outcome("io", subprocess.TimeoutExpired(["xcrun", "simctl", "io"], 30))
+            env.queue_outcome("io", subprocess.TimeoutExpired(["xcrun", "simctl", "io"], 30))
+
+            argv = [
+                "ios-simulator-smoke.py",
+                "--app-path",
+                str(app_path),
+                "--evidence-dir",
+                str(evidence_dir),
+                "--simctl-only",
+                "--max-device-resets",
+                "1",
+            ]
+            with (
+                mock.patch.object(sys, "argv", argv),
+                mock.patch.object(smoke.subprocess, "run", side_effect=env),
+                mock.patch.object(smoke.time, "sleep"),
+                mock.patch.object(smoke, "find_new_app_crashes", return_value=[]),
+            ):
+                rc = smoke.main()
+
+            self.assertEqual(rc, 0)
+            first_launch = evidence_dir / "attempt-1" / "01-simctl-launch-stdout.log"
+            second_launch = evidence_dir / "attempt-2" / "01-simctl-launch-stdout.log"
+            self.assertTrue(first_launch.is_file())
+            self.assertTrue(second_launch.is_file())
+            self.assertNotEqual(first_launch.read_text(encoding="utf-8"), second_launch.read_text(encoding="utf-8"))
+            self.assertTrue((evidence_dir / "summary.json").is_file())
+
+    def test_app_crash_or_assertion_failure_is_not_retried(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            app_path = self._make_fake_app(tmpdir)
+            evidence_dir = tmpdir / "evidence"
+            env = FakeSimulatorEnv()
+
+            argv = [
+                "ios-simulator-smoke.py",
+                "--app-path",
+                str(app_path),
+                "--evidence-dir",
+                str(evidence_dir),
+                "--simctl-only",
+                "--max-device-resets",
+                "1",
+            ]
+            with (
+                mock.patch.object(sys, "argv", argv),
+                mock.patch.object(smoke.subprocess, "run", side_effect=env),
+                mock.patch.object(smoke.time, "sleep"),
+                mock.patch.object(smoke, "verify_pid_alive", side_effect=RuntimeError("App process PID 4321 died")),
+                mock.patch.object(smoke, "find_new_app_crashes", return_value=[]),
+            ):
+                rc = smoke.main()
+
+            self.assertEqual(rc, 1)
+            summary = json.loads((evidence_dir / "summary.json").read_text(encoding="utf-8"))
+            self.assertEqual(summary["status"], "failed")
+            self.assertEqual(summary["error"], "App process PID 4321 died")
+            self.assertEqual(summary["infrastructureRetries"], [])
+            self.assertEqual(env.create_count, 1)
+
+    def test_wait_for_simulator_ready_polls_until_springboard_active(self) -> None:
+        states = iter(["Booting", "Booted", "Booted"])
+        launchctl_outputs = iter(
+            [
+                _completed(["xcrun", "simctl", "spawn"], stdout="-\t0\tcom.apple.SpringBoard\n"),
+                _completed(["xcrun", "simctl", "spawn"], stdout="777\t0\tcom.apple.SpringBoard\n"),
+            ]
+        )
+
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            if args[:4] == ["xcrun", "simctl", "list", "devices"]:
+                state = next(states)
+                return _completed(
+                    args,
+                    stdout=json.dumps({"devices": {"iOS-26-4": [{"udid": "U1", "state": state}]}}),
+                )
+            if args[:3] == ["xcrun", "simctl", "spawn"]:
+                return next(launchctl_outputs)
+            raise AssertionError(f"Unexpected call: {args}")
+
+        timings: list[dict[str, object]] = []
+        with (
+            mock.patch.object(smoke.subprocess, "run", side_effect=fake_run),
+            mock.patch.object(smoke.time, "sleep"),
+        ):
+            info = smoke.wait_for_simulator_ready(
+                "U1",
+                timeout_s=30.0,
+                poll_interval_s=0.1,
+                settle_s=0.1,
+                step_timings=timings,
+            )
+
+        self.assertTrue(info["ready"])
+        self.assertEqual(info["attempts"], 3)
+        self.assertEqual(info["state"], "Booted")
+        self.assertEqual(timings[0]["step"], "wait_for_simulator_ready")
+        self.assertFalse(timings[0]["timedOut"])
+
+    def test_wait_for_simulator_ready_tolerates_list_devices_timeout(self) -> None:
+        calls = 0
+
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            nonlocal calls
+            if args[:4] == ["xcrun", "simctl", "list", "devices"]:
+                calls += 1
+                if calls == 1:
+                    raise subprocess.TimeoutExpired(args, 30)
+                return _completed(
+                    args,
+                    stdout=json.dumps({"devices": {"iOS-26-4": [{"udid": "U1", "state": "Booted"}]}}),
+                )
+            if args[:3] == ["xcrun", "simctl", "spawn"]:
+                return _completed(args, stdout="888\t0\tcom.apple.SpringBoard\n")
+            raise AssertionError(f"Unexpected call: {args}")
+
+        timings: list[dict[str, object]] = []
+        with (
+            mock.patch.object(smoke.subprocess, "run", side_effect=fake_run),
+            mock.patch.object(smoke.time, "sleep"),
+        ):
+            info = smoke.wait_for_simulator_ready(
+                "U1",
+                timeout_s=30.0,
+                poll_interval_s=0.1,
+                settle_s=0.1,
+                step_timings=timings,
+            )
+
+        self.assertTrue(info["ready"])
+        self.assertEqual(info["attempts"], 2)
+        self.assertEqual(info["state"], "Booted")
+
+    def test_wait_for_simulator_ready_exhausted_raises_infrastructure_error(self) -> None:
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            if args[:4] == ["xcrun", "simctl", "list", "devices"]:
+                raise subprocess.TimeoutExpired(args, 30)
+            raise AssertionError(f"Unexpected call: {args}")
+
+        timings: list[dict[str, object]] = []
+        with (
+            mock.patch.object(smoke.subprocess, "run", side_effect=fake_run),
+            mock.patch.object(smoke.time, "sleep"),
+            self.assertRaises(smoke.SimulatorInfrastructureError),
+        ):
+            smoke.wait_for_simulator_ready(
+                "U1",
+                timeout_s=0.05,
+                poll_interval_s=0.01,
+                settle_s=0.0,
+                step_timings=timings,
+            )
+        self.assertTrue(timings[0]["timedOut"])
+
+    def test_simulator_diagnostics_directory_failure_is_recorded(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence_dir = Path(tmp) / "evidence"
+            original_mkdir = Path.mkdir
+
+            def failing_mkdir(path: Path, *args: object, **kwargs: object) -> None:
+                if path == evidence_dir / "diagnostics":
+                    raise OSError("permission denied")
+                original_mkdir(path, *args, **kwargs)
+
+            with mock.patch.object(Path, "mkdir", failing_mkdir):
+                result = smoke.collect_simulator_diagnostics("U1", evidence_dir, "failure")
+
+            self.assertEqual(result["label"], "failure")
+            self.assertEqual(result["files"], [])
+            self.assertIn("permission denied", result["error"])
+
+    def test_simulator_snapshot_timeout_is_recorded_without_raising(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            destination = Path(tmp) / "env" / "devices.json"
+            timeout = subprocess.TimeoutExpired(
+                ["xcrun", "simctl", "list", "devices", "-j"],
+                20,
+                output=b'{"partial":',
+                stderr=b"service stalled",
+            )
+            with mock.patch.object(snapshot.subprocess, "run", side_effect=timeout) as run:
+                record = snapshot.capture_simulator_snapshot(destination)
+
+            run.assert_called_once()
+            self.assertEqual(run.call_args.kwargs["timeout"], 20)
+            self.assertEqual(record["timedOut"], True)
+            self.assertEqual(record["stdout"], '{"partial":')
+            self.assertEqual(record["stderr"], "service stalled")
+            self.assertEqual(json.loads(destination.read_text(encoding="utf-8")), record)
+
+    def test_console_pty_capture_waits_for_delayed_native_bridge_call(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_path = Path(tmp) / "console-pty.log"
+            current_time = 0.0
+
+            def advance_select(
+                read_fds: list[int], _write_fds: object, _error_fds: object, _timeout: float
+            ) -> tuple[list[int], list[int], list[int]]:
+                nonlocal current_time
+                current_time += 1.0
+                return (read_fds if current_time >= 12.0 else [], [], [])
+
+            process = mock.Mock()
+            process.poll.return_value = 0
+            with (
+                mock.patch.object(smoke.subprocess, "Popen", return_value=process),
+                mock.patch.object(smoke.select, "select", side_effect=advance_select),
+                mock.patch.object(smoke.os, "read", return_value=b"To Native -> Preferences get\n"),
+                mock.patch.object(smoke, "run_cmd_best_effort", return_value={}),
+                mock.patch.object(smoke.time, "monotonic", side_effect=lambda: current_time),
+            ):
+                output = smoke.capture_console_pty_launch("U1", "com.example.app", output_path)
+
+            self.assertIn("To Native -> Preferences get", output)
+            self.assertEqual(output_path.read_text(encoding="utf-8"), output)
+
+    def test_non_transient_called_process_error_is_not_retried(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            app_path = self._make_fake_app(tmpdir)
+            evidence_dir = tmpdir / "evidence"
+            env = FakeSimulatorEnv()
+
+            err = subprocess.CalledProcessError(
+                returncode=1,
+                cmd=["xcrun", "simctl", "install"],
+                stderr="An error was encountered processing the command: Invalid bundle",
+            )
+            env.queue_outcome("install", err)
+
+            argv = [
+                "ios-simulator-smoke.py",
+                "--app-path",
+                str(app_path),
+                "--evidence-dir",
+                str(evidence_dir),
+                "--simctl-only",
+                "--max-device-resets",
+                "1",
+            ]
+            with (
+                mock.patch.object(sys, "argv", argv),
+                mock.patch.object(smoke.subprocess, "run", side_effect=env),
+                mock.patch.object(smoke.time, "sleep"),
+                mock.patch.object(smoke, "find_new_app_crashes", return_value=[]),
+            ):
+                rc = smoke.main()
+
+            self.assertEqual(rc, 1)
+            install_calls = [c for c in env.calls if c[:3] == ["xcrun", "simctl", "install"]]
+            self.assertEqual(len(install_calls), 1)
+            self.assertEqual(env.create_count, 1)
+            summary = json.loads((evidence_dir / "summary.json").read_text(encoding="utf-8"))
+            self.assertEqual(summary["status"], "failed")
+            self.assertEqual(summary["infrastructureRetries"], [])
+
+    def test_transient_called_process_error_recovers_on_retry(self) -> None:
+        err = subprocess.CalledProcessError(
+            returncode=1,
+            cmd=["xcrun", "simctl", "install"],
+            stderr="CoreSimulatorService connection interrupted",
+        )
+        calls = 0
+
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise err
+            return _completed(args, stdout="ok\n")
+
+        with (
+            mock.patch.object(smoke.subprocess, "run", side_effect=fake_run),
+            mock.patch.object(smoke.time, "sleep"),
+        ):
+            proc = smoke.run_simctl_with_retry(["xcrun", "simctl", "install", "U1", "/App.app"], timeout=60, retries=1)
+
+        self.assertEqual(calls, 2)
+        self.assertEqual(proc.returncode, 0)
+
+    def test_verify_pid_alive_checks_ps_first_and_routes_launchctl_timeout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence_file = Path(tmp) / "proc.txt"
+
+            # Case 1: dead process on host ps -> immediate RuntimeError without calling simctl spawn
+            calls: list[list[str]] = []
+
+            def dead_ps_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+                calls.append(args)
+                return _completed(args, stdout="", returncode=1)
+
+            with (
+                mock.patch.object(smoke.subprocess, "run", side_effect=dead_ps_run),
+                self.assertRaises(RuntimeError) as ctx,
+            ):
+                smoke.verify_pid_alive("U1", "com.example.app", 9999, evidence_file)
+            self.assertIn("did not remain alive", str(ctx.exception))
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(calls[0][0], "ps")
+
+            # Case 2: host PID remains alive after the simulator query times out.
+            def launchctl_timeout_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+                if args[0] == "ps":
+                    return _completed(args, stdout="  9999     1 S    00:05 App\n", returncode=0)
+                raise subprocess.TimeoutExpired(args, 30)
+
+            with (
+                mock.patch.object(smoke.subprocess, "run", side_effect=launchctl_timeout_run),
+                mock.patch.object(smoke.time, "sleep"),
+                self.assertRaises(smoke.SimulatorInfrastructureError),
+            ):
+                smoke.verify_pid_alive("U1", "com.example.app", 9999, evidence_file)
+
+            # Case 3: PID exits during the simulator query retry; do not expose an infra error
+            # that would let the caller recreate the simulator and hide the app failure.
+            ps_calls = 0
+
+            def pid_exits_during_query(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+                nonlocal ps_calls
+                if args[0] == "ps":
+                    ps_calls += 1
+                    if ps_calls == 1:
+                        return _completed(args, stdout="  9999     1 S    00:05 App\n", returncode=0)
+                    return _completed(args, stdout="", returncode=1)
+                raise subprocess.TimeoutExpired(args, 30)
+
+            with (
+                mock.patch.object(smoke.subprocess, "run", side_effect=pid_exits_during_query),
+                mock.patch.object(smoke.time, "sleep"),
+                self.assertRaisesRegex(RuntimeError, "exited while simulator launchctl verification was unavailable"),
+            ):
+                smoke.verify_pid_alive("U1", "com.example.app", 9999, evidence_file)
+            self.assertEqual(ps_calls, 2)
+            self.assertIn("ps_recheck_exit=1", evidence_file.read_text(encoding="utf-8"))
+
+
+if __name__ == "__main__":
+    unittest.main()
