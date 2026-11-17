@@ -33,6 +33,10 @@ on:
       - src/participation/drivers/capacitorPreferencesDriver.ts
       - src/participation/defaultGuestStore.ts
       - .github/workflows/native-android.yml
+  # No path filter here: queue builds must validate the integrated Android app.
+  merge_group:
+    types: [checks_requested]
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -46,34 +50,29 @@ jobs:
   android-debug-apk:
     name: Native Android debug APK
     if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
-    # Only owner-authored internal PRs and pushes run code on persistent machines.
-    runs-on: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login == 'ContraPhilosophy')) && fromJSON('["self-hosted","Linux","X64","bibleberry-linux"]') || 'ubuntu-latest' }}
+    # GitHub-hosted Ubuntu isolates PR builds from local development computers.
+    runs-on: ubuntu-24.04
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
         with:
           distribution: temurin
           java-version: '21'
-          # Shared SDK/Gradle caches should stay local on persistent Linux runners.
-          cache: ${{ runner.environment == 'github-hosted' && 'gradle' || '' }}
+          cache: gradle
           cache-dependency-path: android/gradle/wrapper/gradle-wrapper.properties
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
-          cache: ${{ runner.environment == 'github-hosted' && 'npm' || '' }}
+          cache: npm
 
-      - name: Use persistent runner-specific Android SDK
-        if: ${{ runner.environment == 'self-hosted' }}
-        run: echo "ANDROID_SDK_ROOT=$HOME/.android/sdk-$RUNNER_NAME" >> "$GITHUB_ENV"
-
-      # Hosted images already contain SDK tools; our Ubuntu VM does not.
+      # Prepare command-line tools consistently on hosted Ubuntu.
       - name: Set up Android SDK command-line tools
-        uses: android-actions/setup-android@v4
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
 
       - name: Install Android SDK Platform 36 and Build Tools
         run: |
@@ -109,7 +108,7 @@ jobs:
           sha256sum "$APK"
 
       - name: Upload debug APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: bibleberry-r20-2a-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk

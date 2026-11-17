@@ -5,6 +5,10 @@ on:
     # Drafts are waiting-room PRs; Ready for review starts real verification.
     types: [opened, reopened, synchronize, ready_for_review, converted_to_draft]
     branches: [main]
+  # Run Chromium regressions on the exact merge-queue integration commit.
+  merge_group:
+    types: [checks_requested]
+    branches: [main]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -16,20 +20,19 @@ permissions:
 jobs:
   browser-collections:
     name: Saved Scripture and Field Notebook (Chromium)
-    # Owner-authored internal PRs run on the BigMac VM; other PRs use hosted Ubuntu.
+    # Hosted runner is isolated from persistent development machines.
     if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login == 'ContraPhilosophy' && fromJSON('["self-hosted","Linux","X64","bibleberry-linux"]') || 'ubuntu-24.04' }}
+    runs-on: ubuntu-24.04
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
-          # Local npm caches are isolated per self-hosted runner; remote cache is for hosted jobs only.
-          cache: ${{ runner.environment == 'github-hosted' && 'npm' || '' }}
+          cache: npm
 
       - name: Evaluate change scope
         id: scope
@@ -49,7 +52,7 @@ jobs:
 
       - name: Upload browser failure artifacts
         if: failure() && steps.scope.outputs.should_run == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: collections-browser-failure-artifacts
           path: test-results/

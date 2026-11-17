@@ -124,6 +124,9 @@ export function shouldCancelInProgress(eventName) {
  * @returns {{ shouldRun: boolean, reason: string }}
  */
 export function evaluateScope(target, changedFiles, eventName = 'pull_request') {
+  if (eventName === 'merge_group') {
+    return { shouldRun: true, reason: 'Merge queue integration commits require full verification.' };
+  }
   if (eventName === 'push') {
     return { shouldRun: true, reason: 'Pushes to main branch require full verification.' };
   }
@@ -251,9 +254,13 @@ export function runCli(argv = process.argv) {
     process.exit(1);
   }
 
-  const changedFiles = args.files !== null
-    ? args.files
-    : getChangedFilesFromGit(args.baseRef);
+  // A merge_group checkout represents the integrated queue candidate. Never gate
+  // verification on a PR-specific or merge-base diff that may omit queued changes.
+  const changedFiles = args.eventName === 'merge_group'
+    ? null
+    : args.files !== null
+      ? args.files
+      : getChangedFilesFromGit(args.baseRef);
 
   const { shouldRun, reason } = evaluateScope(args.target, changedFiles, args.eventName);
 

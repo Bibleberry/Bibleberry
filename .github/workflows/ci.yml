@@ -5,6 +5,10 @@ on:
     # Drafts are waiting-room PRs; Ready for review starts real verification.
     types: [opened, reopened, synchronize, ready_for_review, converted_to_draft]
     branches: [main]
+  # GitHub tests the proposed queue integration SHA, not just the standalone PR.
+  merge_group:
+    types: [checks_requested]
+    branches: [main]
   push:
     branches: [main]
 
@@ -18,33 +22,31 @@ permissions:
 jobs:
   reader-app:
     name: Build reader application
-    # Owner-authored internal PRs and pushes to protected main use the BigMac VM.
-    # Other PRs retain GitHub-hosted isolation (subject to the existing billing cap).
+    # Standard ephemeral GitHub-hosted Ubuntu runner; no dependency on home machines.
     if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
-    runs-on: ${{ (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login == 'ContraPhilosophy')) && fromJSON('["self-hosted","Linux","X64","bibleberry-linux"]') || 'ubuntu-24.04' }}
+    runs-on: ubuntu-24.04
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
-          # Local npm caches are isolated per self-hosted runner; remote cache is for hosted jobs only.
-          cache: ${{ runner.environment == 'github-hosted' && 'npm' || '' }}
+          cache: npm
 
       - name: Evaluate change scope
         id: scope
         run: node scripts/ci/check-scope.mjs --target reader
 
-      - name: Run CI workflow and scope tests
-        if: steps.scope.outputs.should_run == 'true'
-        run: node --experimental-strip-types --test tests/ci/*.test.ts
-
       - name: Install dependencies
         if: steps.scope.outputs.should_run == 'true'
         run: npm ci
+
+      - name: Run CI workflow and scope tests
+        if: steps.scope.outputs.should_run == 'true'
+        run: node --experimental-strip-types --test tests/ci/*.test.ts
 
       - name: Install Playwright Chromium
         # Runner image supplies OS libraries; avoid apt mirrors during browser provisioning.
@@ -70,7 +72,7 @@ jobs:
 
       - name: Upload smoke test failure artifacts
         if: failure() && steps.scope.outputs.should_run == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: playwright-smoke-results
           path: test-results/
@@ -82,21 +84,19 @@ jobs:
 
   cms-adapter-tests:
     name: Verify CMS adapters and BerryMark preview
-    # Owner-authored internal PRs and pushes to protected main use the BigMac VM.
-    # Other PRs retain GitHub-hosted isolation (subject to the existing billing cap).
+    # Standard ephemeral GitHub-hosted Ubuntu runner; no dependency on home machines.
     if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
-    runs-on: ${{ (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login == 'ContraPhilosophy')) && fromJSON('["self-hosted","Linux","X64","bibleberry-linux"]') || 'ubuntu-24.04' }}
+    runs-on: ubuntu-24.04
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
-          # Local npm caches are isolated per self-hosted runner; remote cache is for hosted jobs only.
-          cache: ${{ runner.environment == 'github-hosted' && 'npm' || '' }}
+          cache: npm
 
       - name: Evaluate change scope
         id: scope
@@ -120,21 +120,19 @@ jobs:
 
   release-gateway-tests:
     name: Verify Release Gateway core
-    # Owner-authored internal PRs and pushes to protected main use the BigMac VM.
-    # Other PRs retain GitHub-hosted isolation (subject to the existing billing cap).
+    # Standard ephemeral GitHub-hosted Ubuntu runner; no dependency on home machines.
     if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
-    runs-on: ${{ (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login == 'ContraPhilosophy')) && fromJSON('["self-hosted","Linux","X64","bibleberry-linux"]') || 'ubuntu-24.04' }}
+    runs-on: ubuntu-24.04
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
-          # Local npm caches are isolated per self-hosted runner; remote cache is for hosted jobs only.
-          cache: ${{ runner.environment == 'github-hosted' && 'npm' || '' }}
+          cache: npm
 
       - name: Evaluate change scope
         id: scope
@@ -154,25 +152,23 @@ jobs:
 
   sanity-studio:
     name: Verify Sanity Studio
-    # Owner-authored internal PRs and pushes to protected main use the BigMac VM.
-    # Other PRs retain GitHub-hosted isolation (subject to the existing billing cap).
+    # Standard ephemeral GitHub-hosted Ubuntu runner; no dependency on home machines.
     if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
-    runs-on: ${{ (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login == 'ContraPhilosophy')) && fromJSON('["self-hosted","Linux","X64","bibleberry-linux"]') || 'ubuntu-24.04' }}
+    runs-on: ubuntu-24.04
 
     defaults:
       run:
         working-directory: studio
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
-          # Local npm caches are isolated per self-hosted runner; remote cache is for hosted jobs only.
-          cache: ${{ runner.environment == 'github-hosted' && 'npm' || '' }}
+          cache: npm
           cache-dependency-path: studio/package-lock.json
 
       - name: Evaluate change scope

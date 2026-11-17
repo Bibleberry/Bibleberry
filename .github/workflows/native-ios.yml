@@ -11,7 +11,9 @@ on:
       - src/native/**
       - src/participation/drivers/capacitorPreferencesDriver.ts
       - src/participation/defaultGuestStore.ts
+      - scripts/ios-simulator-snapshot.py
       - scripts/ios-simulator-smoke.py
+      - tests/ci/test_ios_simulator_smoke.py
       - .github/workflows/native-ios.yml
   push:
     branches: [main]
@@ -23,7 +25,9 @@ on:
       - src/native/**
       - src/participation/drivers/capacitorPreferencesDriver.ts
       - src/participation/defaultGuestStore.ts
+      - scripts/ios-simulator-snapshot.py
       - scripts/ios-simulator-smoke.py
+      - tests/ci/test_ios_simulator_smoke.py
       - .github/workflows/native-ios.yml
   workflow_dispatch:
     inputs:
@@ -45,9 +49,11 @@ jobs:
     runs-on: macos-26
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
           cache: npm
@@ -70,6 +76,7 @@ jobs:
           }
 
           if ! has_ios_26_4_runtime; then
+            echo "IOS_RUNTIME_PROVISIONED=true" >> "$GITHUB_ENV"
             echo "iOS Simulator SDK 26.4 is present, but its runtime is missing; downloading the Xcode 26.4 runtime."
             RUNTIME_DIR="$RUNNER_TEMP/ios-simulator-runtime"
             mkdir -p "$RUNTIME_DIR"
@@ -83,6 +90,8 @@ jobs:
               exit 1
             fi
             xcodebuild -importPlatform "$RUNTIME_DMG"
+          else
+            echo "IOS_RUNTIME_PROVISIONED=false" >> "$GITHUB_ENV"
           fi
 
           xcrun simctl list runtimes | tee "$RUNNER_TEMP/simulator-runtimes.txt"
@@ -145,25 +154,42 @@ jobs:
           echo "Build SHA (GITHUB_SHA): $GITHUB_SHA"
           echo "App size: $(du -sh "$APP" | cut -f1)"
 
+      - name: Run iOS simulator smoke unit tests
+        run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v tests/ci/test_ios_simulator_smoke.py
+
       - name: Run iOS Simulator runtime smoke (install, launch, restart, UI lifecycle)
         run: |
+          mkdir -p "$RUNNER_TEMP/ios-simulator-evidence/env"
+          uname -m > "$RUNNER_TEMP/ios-simulator-evidence/env/uname-m.txt"
+          sw_vers > "$RUNNER_TEMP/ios-simulator-evidence/env/sw-vers.txt" || true
+          cp -f "$RUNNER_TEMP"/xcode-*.txt "$RUNNER_TEMP"/simulator-runtimes*.txt "$RUNNER_TEMP"/ios-destinations-before-build.txt "$RUNNER_TEMP/ios-simulator-evidence/env/" 2>/dev/null || true
+          python3 scripts/ios-simulator-snapshot.py "$RUNNER_TEMP/ios-simulator-evidence/env/simctl-devices-before.json"
           python3 scripts/ios-simulator-smoke.py \
             --app-path "$RUNNER_TEMP/BibleberryDerivedData/Build/Products/Debug-iphonesimulator/App.app" \
             --derived-data "$RUNNER_TEMP/BibleberryDerivedData" \
             --evidence-dir "$RUNNER_TEMP/ios-simulator-evidence"
 
+      - name: Collect fallback CI diagnostics on failure
+        if: failure()
+        run: |
+          mkdir -p "$RUNNER_TEMP/ios-simulator-evidence/env"
+          uname -m > "$RUNNER_TEMP/ios-simulator-evidence/env/uname-m.txt" || true
+          sw_vers > "$RUNNER_TEMP/ios-simulator-evidence/env/sw-vers.txt" || true
+          cp -f "$RUNNER_TEMP"/xcode-*.txt "$RUNNER_TEMP"/simulator-runtimes*.txt "$RUNNER_TEMP"/ios-destinations-before-build.txt "$RUNNER_TEMP/ios-simulator-evidence/env/" 2>/dev/null || true
+          python3 scripts/ios-simulator-snapshot.py "$RUNNER_TEMP/ios-simulator-evidence/env/simctl-devices-after-failure.json"
+
       - name: Upload iOS Simulator runtime smoke evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: bibleberry-r20-4-ios-simulator-evidence
           path: ${{ runner.temp }}/ios-simulator-evidence
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 7
 
       - name: Upload development simulator app
         if: ${{ !cancelled() && steps.verify-app.outcome == 'success' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: bibleberry-r20-3-ios-simulator-app
           path: ${{ runner.temp }}/BibleberryDerivedData/Build/Products/Debug-iphonesimulator/App.app
@@ -195,7 +221,7 @@ jobs:
 
       - name: Upload iOS Simulator lifecycle probe evidence
         if: ${{ !cancelled() && (steps.lifecycle-probe.outcome == 'success' || steps.lifecycle-probe.outcome == 'failure') }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: bibleberry-r20-4-ios-lifecycle-probe-evidence
           path: ${{ runner.temp }}/ios-simulator-lifecycle-probe-evidence
