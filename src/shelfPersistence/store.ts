@@ -1,0 +1,742 @@
+import {
+  isPromiseLike,
+  type MaybePromise,
+  type PersistenceHealth,
+} from '../participation/persistence.ts'
+import type {
+  LocalCalendarDate,
+  PublicationYearMonth,
+} from '../participation/types.ts'
+import {
+  createEmptyShelfState,
+  createFirstPostRolloverResumeSeam,
+} from '../shelf/policy.ts'
+import type {
+  MonthlyRolloverParams,
+  PutAwayShelfMonthParams,
+  RolloverResult,
+  SelectShelfMonthParams,
+  SetActiveFocusMonthParams,
+  SetShelfMonthProtectionParams,
+  ShelfActionResult,
+  ShelfEntry,
+  ShelfState,
+} from '../shelf/types.ts'
+import {
+  emptyPersistedShelfPayload,
+  reduceShelfCommand,
+  replayShelfCommands,
+} from './persistence.ts'
+import type {
+  GuestShelfPersistedPayload,
+  ShelfAdapterClearResult,
+  ShelfAdapterFlushResult,
+  ShelfAdapterLoadResult,
+  ShelfCommand,
+  ShelfPersistenceAdapter,
+  ShelfRolloverWatermark,
+} from './types.ts'
+
+/**
+ * Platform-neutral reactive store for durable guest Shelf state (Phase 05 / R08-5 / Issue #162).
+ *
+ * Architectural guarantees:
+ * - Zero direct browser (`window`, `localStorage`) or React dependencies.
+ * - Supports both synchronous drivers (web `localStorage`) and asynchronous drivers
+ *   (iOS/Android Capacitor Preferences).
+ * - `getSnapshot()` returns an `Object.is`-cached immutable reference compatible with React 19
+ *   `useSyncExternalStore`.
+ * - Commands dispatched before async hydration finishes or during transient write failures remain
+ *   in `pendingCommands`, rebasing cleanly onto committed storage without losing reader choices.
+ * - All adapter I/O is serialized on a strict FIFO queue combined with a monotonic reset epoch and
+ *   `AbortSignal`, guaranteeing that a user-initiated `clearLocalData()` can NEVER be undone in
+ *   memory or in storage by an earlier delayed read or write completing afterward.
+ */
+
+export type GuestShelfStoreStatus = 'hydrating' | 'ready'
+
+export interface GuestShelfSnapshot {
+  readonly status: GuestShelfStoreStatus
+  readonly state: ShelfState
+  readonly rolloverWatermark: ShelfRolloverWatermark | null
+  readonly hasPendingWrites: boolean
+  readonly health: PersistenceHealth
+}
+
+export interface GuestShelfStore {
+  getSnapshot(): GuestShelfSnapshot
+  subscribe(listener: () => void): () => void
+  whenReady(): Promise<void>
+  select(
+    params: SelectShelfMonthParams,
+  ): Promise<ShelfActionResult<'added' | 'replaced' | 'promotedToProtected'>>
+  protect(params: {
+    readonly yearMonth: PublicationYearMonth | string
+    readonly updatedOn?: LocalCalendarDate | string
+  }): Promise<ShelfActionResult<'protectionUpdated'>>
+  unprotect(params: {
+    readonly yearMonth: PublicationYearMonth | string
+    readonly updatedOn?: LocalCalendarDate | string
+  }): Promise<ShelfActionResult<'protectionUpdated'>>
+  setProtection(
+    params: SetShelfMonthProtectionParams,
+  ): Promise<ShelfActionResult<'protectionUpdated'>>
+  putAway(
+    params: PutAwayShelfMonthParams | PublicationYearMonth | string,
+  ): Promise<ShelfActionResult<'removed' | 'noop'>>
+  setFocus(
+    params: SetActiveFocusMonthParams | PublicationYearMonth | string | null,
+  ): Promise<ShelfActionResult<'focusUpdated'>>
+  clearFocus(
+    updatedOn?: LocalCalendarDate,
+  ): Promise<ShelfActionResult<'focusUpdated'>>
+  evaluateMonthlyRollover(params: MonthlyRolloverParams): Promise<RolloverResult>
+  applyState(
+    state: ShelfState,
+    referenceCurrentMonth?: PublicationYearMonth | string,
+  ): Promise<ShelfActionResult<'stateApplied'>>
+  flushPending(): Promise<void>
+  clearLocalData(): Promise<void>
+  dispose(): void
+}
+
+interface TaggedShelfCommand {
+  readonly id: number
+  readonly epoch: number
+  readonly command: ShelfCommand
+}
+
+function areShelfEntriesEqual(
+  left: readonly ShelfEntry[],
+  right: readonly ShelfEntry[],
+): boolean {
+  if (left === right) return true
+  if (left.length !== right.length) return false
+  for (let i = 0; i < left.length; i += 1) {
+    const a = left[i]!
+    const b = right[i]!
+    if (
+      a.yearMonth !== b.yearMonth
+      || a.admissionKind !== b.admissionKind
+      || a.isProtected !== b.isProtected
+      || a.admittedOn !== b.admittedOn
+    ) {
+      return false
+    }
+  }
+  return true
+}
+
+function stabilizeShelfState(prev: ShelfState, next: ShelfState): ShelfState {
+  if (prev === next) return prev
+
+  const months = areShelfEntriesEqual(prev.months, next.months) ? prev.months : next.months
+  const activeFocusMonth = (prev.activeFocusMonth ?? null) === (next.activeFocusMonth ?? null)
+    ? prev.activeFocusMonth
+    : next.activeFocusMonth
+  const updatedOn = prev.updatedOn === next.updatedOn ? prev.updatedOn : next.updatedOn
+
+  if (
+    months === prev.months
+    && activeFocusMonth === prev.activeFocusMonth
+    && updatedOn === prev.updatedOn
+  ) {
+    return prev
+  }
+
+  return Object.freeze({
+    months,
+    activeFocusMonth: activeFocusMonth ?? null,
+    ...(updatedOn ? { updatedOn } : {}),
+  })
+}
+
+function areWatermarksEqual(
+  left: ShelfRolloverWatermark | null,
+  right: ShelfRolloverWatermark | null,
+): boolean {
+  if (left === right) return true
+  if (!left || !right) return false
+  return (
+    left.lastNewCurrentYearMonth === right.lastNewCurrentYearMonth
+    && left.lastEndingYearMonth === right.lastEndingYearMonth
+    && left.lastDisposition === right.lastDisposition
+  )
+}
+
+export function createGuestShelfStore(
+  adapter: ShelfPersistenceAdapter,
+): GuestShelfStore {
+  let status: GuestShelfStoreStatus = 'hydrating'
+  let committedPayload: GuestShelfPersistedPayload = emptyPersistedShelfPayload()
+  let pendingCommands: TaggedShelfCommand[] = []
+  let health: PersistenceHealth = 'ok'
+  let pendingClear = false
+  let epoch = 0
+  let nextCommandId = 1
+  let activeAbortController = new AbortController()
+  let disposed = false
+
+  const listeners = new Set<() => void>()
+
+  let inFlightCount = 0
+  let ioTail: Promise<void> = Promise.resolve()
+
+  function enqueueIo(task: () => MaybePromise<void>): Promise<void> {
+    if (inFlightCount === 0) {
+      inFlightCount = 1
+      let result: MaybePromise<void>
+      try {
+        result = task()
+      } catch {
+        inFlightCount -= 1
+        return Promise.resolve()
+      }
+      if (!isPromiseLike(result)) {
+        inFlightCount -= 1
+        return Promise.resolve()
+      }
+      const tracked = result
+        .then(
+          () => undefined,
+          () => undefined,
+        )
+        .finally(() => {
+          inFlightCount -= 1
+        })
+      ioTail = tracked
+      return tracked
+    }
+
+    inFlightCount += 1
+    const next = ioTail
+      .then(() => task())
+      .then(
+        () => undefined,
+        () => undefined,
+      )
+      .finally(() => {
+        inFlightCount -= 1
+      })
+    ioTail = next
+    return next
+  }
+
+  function computeEffectivePayload(): GuestShelfPersistedPayload {
+    if (pendingCommands.length === 0) {
+      return committedPayload
+    }
+    return replayShelfCommands(
+      committedPayload,
+      pendingCommands.map(entry => entry.command),
+    )
+  }
+
+  let cachedSnapshot: GuestShelfSnapshot = Object.freeze({
+    status,
+    state: committedPayload.state,
+    rolloverWatermark: committedPayload.rolloverWatermark,
+    hasPendingWrites: false,
+    health,
+  })
+
+  function updateSnapshot(notify: boolean): void {
+    const candidate = computeEffectivePayload()
+    const stableState = stabilizeShelfState(cachedSnapshot.state, candidate.state)
+    const stableWatermark = areWatermarksEqual(
+      cachedSnapshot.rolloverWatermark,
+      candidate.rolloverWatermark,
+    )
+      ? cachedSnapshot.rolloverWatermark
+      : candidate.rolloverWatermark
+    const nextHasPending = pendingCommands.length > 0
+
+    if (
+      cachedSnapshot.status === status
+      && cachedSnapshot.state === stableState
+      && cachedSnapshot.rolloverWatermark === stableWatermark
+      && cachedSnapshot.hasPendingWrites === nextHasPending
+      && cachedSnapshot.health === health
+    ) {
+      return
+    }
+
+    cachedSnapshot = Object.freeze({
+      status,
+      state: stableState,
+      rolloverWatermark: stableWatermark,
+      hasPendingWrites: nextHasPending,
+      health,
+    })
+
+    if (notify && !disposed && listeners.size > 0) {
+      for (const listener of [...listeners]) {
+        listener()
+      }
+    }
+  }
+
+  const initialEpoch = epoch
+  const readyPromise = enqueueIo(() => {
+    let loadOrPromise: MaybePromise<ShelfAdapterLoadResult>
+    try {
+      loadOrPromise = adapter.load()
+    } catch {
+      loadOrPromise = {
+        payload: emptyPersistedShelfPayload(),
+        health: 'storageUnavailable',
+      }
+    }
+
+    const applyInitialLoad = (result: ShelfAdapterLoadResult, notify: boolean) => {
+      if (disposed || initialEpoch !== epoch) {
+        return
+      }
+      committedPayload = result.payload
+      health = result.health
+      status = 'ready'
+      updateSnapshot(notify)
+    }
+
+    if (isPromiseLike(loadOrPromise)) {
+      return loadOrPromise.then(
+        result => applyInitialLoad(result, true),
+        () =>
+          applyInitialLoad(
+            {
+              payload: emptyPersistedShelfPayload(),
+              health: 'storageUnavailable',
+            },
+            true,
+          ),
+      )
+    }
+
+    applyInitialLoad(loadOrPromise, false)
+  })
+
+  function scheduleFlush(targetEpoch: number): Promise<void> {
+    const signal = activeAbortController.signal
+    return enqueueIo(() => {
+      if (disposed || targetEpoch !== epoch) {
+        return
+      }
+
+      if (pendingClear) {
+        let clearOrPromise: MaybePromise<ShelfAdapterClearResult>
+        try {
+          clearOrPromise = adapter.clear()
+        } catch {
+          clearOrPromise = {
+            ok: false,
+            health: 'storageUnavailable',
+          }
+        }
+
+        const proceedAfterPendingClear = (clearResult: ShelfAdapterClearResult) => {
+          if (disposed || targetEpoch !== epoch) return
+          if (!clearResult.ok) {
+            health = clearResult.health
+            updateSnapshot(true)
+            return
+          }
+          pendingClear = false
+          health = 'ok'
+          return performFlush()
+        }
+
+        if (isPromiseLike(clearOrPromise)) {
+          return clearOrPromise.then(proceedAfterPendingClear, () => {
+            if (disposed || targetEpoch !== epoch) return
+            health = 'storageUnavailable'
+            updateSnapshot(true)
+          })
+        }
+
+        return proceedAfterPendingClear(clearOrPromise)
+      }
+
+      return performFlush()
+
+      function performFlush(): MaybePromise<void> {
+        if (disposed || targetEpoch !== epoch) {
+          return
+        }
+        const batch = pendingCommands.filter(entry => entry.epoch === targetEpoch)
+        if (batch.length === 0) {
+          return
+        }
+
+        const commandsToFlush = batch.map(entry => entry.command)
+        const flushedIds = new Set(batch.map(entry => entry.id))
+
+        let flushOrPromise: MaybePromise<ShelfAdapterFlushResult>
+        try {
+          flushOrPromise = adapter.flushCommands(commandsToFlush, committedPayload, signal)
+        } catch {
+          flushOrPromise = {
+            ok: false,
+            committedPayload: null,
+            health: 'writeFailed',
+          }
+        }
+
+        const applyFlushResult = (result: ShelfAdapterFlushResult) => {
+          if (disposed || targetEpoch !== epoch) {
+            return
+          }
+          if (result.ok) {
+            committedPayload = result.committedPayload
+            pendingCommands = pendingCommands.filter(entry => !flushedIds.has(entry.id))
+            health = 'ok'
+          } else {
+            if (result.committedPayload !== null) {
+              committedPayload = result.committedPayload
+            }
+            health = result.health
+          }
+          updateSnapshot(true)
+        }
+
+        if (isPromiseLike(flushOrPromise)) {
+          return flushOrPromise.then(applyFlushResult, () =>
+            applyFlushResult({
+              ok: false,
+              committedPayload: null,
+              health: 'writeFailed',
+            }),
+          )
+        }
+
+        applyFlushResult(flushOrPromise)
+      }
+    })
+  }
+
+  const unsubscribeExternal = adapter.subscribeExternalChanges
+    ? adapter.subscribeExternalChanges(() => {
+        if (disposed) return
+        const refreshEpoch = epoch
+        void enqueueIo(() => {
+          if (disposed || refreshEpoch !== epoch) return
+
+          if (pendingClear) {
+            let clearOrPromise: MaybePromise<ShelfAdapterClearResult>
+            try {
+              clearOrPromise = adapter.clear()
+            } catch {
+              clearOrPromise = {
+                ok: false,
+                health: 'storageUnavailable',
+              }
+            }
+
+            const applyExternalClear = (result: ShelfAdapterClearResult) => {
+              if (disposed || refreshEpoch !== epoch) return
+              if (result.ok) {
+                pendingClear = false
+                health = 'ok'
+              } else {
+                health = result.health
+              }
+              status = 'ready'
+              updateSnapshot(true)
+            }
+
+            if (isPromiseLike(clearOrPromise)) {
+              return clearOrPromise.then(applyExternalClear, () => {
+                if (disposed || refreshEpoch !== epoch) return
+                health = 'storageUnavailable'
+                status = 'ready'
+                updateSnapshot(true)
+              })
+            }
+
+            applyExternalClear(clearOrPromise)
+            return
+          }
+
+          let loadOrPromise: MaybePromise<ShelfAdapterLoadResult>
+          try {
+            loadOrPromise = adapter.load()
+          } catch {
+            loadOrPromise = {
+              payload: emptyPersistedShelfPayload(),
+              health: 'storageUnavailable',
+            }
+          }
+
+          const applyExternalLoad = (result: ShelfAdapterLoadResult) => {
+            if (disposed || refreshEpoch !== epoch) return
+            if (result.health === 'ok') {
+              committedPayload = result.payload
+              if (pendingCommands.length === 0) {
+                health = 'ok'
+              }
+            } else {
+              health = result.health
+            }
+            status = 'ready'
+            updateSnapshot(true)
+          }
+
+          if (isPromiseLike(loadOrPromise)) {
+            return loadOrPromise.then(applyExternalLoad, () =>
+              applyExternalLoad({
+                payload: emptyPersistedShelfPayload(),
+                health: 'storageUnavailable',
+              }),
+            )
+          }
+
+          applyExternalLoad(loadOrPromise)
+        })
+      })
+    : undefined
+
+  function dispatchCommand<TResult>(
+    command: ShelfCommand,
+    extractResult: (outcome: ReturnType<typeof reduceShelfCommand>) => TResult,
+    disposedResult: () => TResult,
+  ): Promise<TResult> {
+    if (disposed) {
+      return Promise.resolve(disposedResult())
+    }
+
+    const previewOutcome = reduceShelfCommand(computeEffectivePayload(), command)
+    if (status === 'ready' && pendingCommands.length === 0 && health === 'ok' && !previewOutcome.changed) {
+      return Promise.resolve(extractResult(previewOutcome))
+    }
+
+    const commandEpoch = epoch
+    const tagged: TaggedShelfCommand = {
+      id: nextCommandId,
+      epoch: commandEpoch,
+      command,
+    }
+    nextCommandId += 1
+    pendingCommands = [...pendingCommands, tagged]
+    updateSnapshot(true)
+
+    return scheduleFlush(commandEpoch).then(() => extractResult(previewOutcome))
+  }
+
+  return {
+    getSnapshot() {
+      return cachedSnapshot
+    },
+
+    subscribe(listener: () => void) {
+      if (disposed) {
+        return () => {}
+      }
+      listeners.add(listener)
+      return () => {
+        listeners.delete(listener)
+      }
+    },
+
+    whenReady() {
+      return readyPromise
+    },
+
+    select(params: SelectShelfMonthParams) {
+      return dispatchCommand(
+        { type: 'select', params },
+        outcome => outcome.actionResult as ShelfActionResult<'added' | 'replaced' | 'promotedToProtected'>,
+        () => ({
+          ok: false,
+          state: createEmptyShelfState(),
+          error: 'invalidStateShape',
+          message: 'Store has been disposed.',
+        }),
+      )
+    },
+
+    protect(params) {
+      return dispatchCommand(
+        {
+          type: 'setProtection',
+          params: { yearMonth: params.yearMonth, isProtected: true, updatedOn: params.updatedOn },
+        },
+        outcome => outcome.actionResult as ShelfActionResult<'protectionUpdated'>,
+        () => ({
+          ok: false,
+          state: createEmptyShelfState(),
+          error: 'invalidStateShape',
+          message: 'Store has been disposed.',
+        }),
+      )
+    },
+
+    unprotect(params) {
+      return dispatchCommand(
+        {
+          type: 'setProtection',
+          params: { yearMonth: params.yearMonth, isProtected: false, updatedOn: params.updatedOn },
+        },
+        outcome => outcome.actionResult as ShelfActionResult<'protectionUpdated'>,
+        () => ({
+          ok: false,
+          state: createEmptyShelfState(),
+          error: 'invalidStateShape',
+          message: 'Store has been disposed.',
+        }),
+      )
+    },
+
+    setProtection(params: SetShelfMonthProtectionParams) {
+      return dispatchCommand(
+        { type: 'setProtection', params },
+        outcome => outcome.actionResult as ShelfActionResult<'protectionUpdated'>,
+        () => ({
+          ok: false,
+          state: createEmptyShelfState(),
+          error: 'invalidStateShape',
+          message: 'Store has been disposed.',
+        }),
+      )
+    },
+
+    putAway(params) {
+      return dispatchCommand(
+        { type: 'putAway', params },
+        outcome => outcome.actionResult as ShelfActionResult<'removed' | 'noop'>,
+        () => ({
+          ok: false,
+          state: createEmptyShelfState(),
+          error: 'invalidStateShape',
+          message: 'Store has been disposed.',
+        }),
+      )
+    },
+
+    setFocus(params) {
+      return dispatchCommand(
+        { type: 'setFocus', params },
+        outcome => outcome.actionResult as ShelfActionResult<'focusUpdated'>,
+        () => ({
+          ok: false,
+          state: createEmptyShelfState(),
+          error: 'invalidStateShape',
+          message: 'Store has been disposed.',
+        }),
+      )
+    },
+
+    clearFocus(updatedOn?: LocalCalendarDate) {
+      return dispatchCommand(
+        { type: 'clearFocus', updatedOn },
+        outcome => outcome.actionResult as ShelfActionResult<'focusUpdated'>,
+        () => ({
+          ok: false,
+          state: createEmptyShelfState(),
+          error: 'invalidStateShape',
+          message: 'Store has been disposed.',
+        }),
+      )
+    },
+
+    evaluateMonthlyRollover(params: MonthlyRolloverParams) {
+      return dispatchCommand(
+        { type: 'monthlyRollover', params },
+        outcome => outcome.rolloverResult!,
+        () => ({
+          ok: false,
+          state: createEmptyShelfState(),
+          disposition: 'rejectedInvalidMonth',
+          endingYearMonth: null,
+          admittedEntry: null,
+          evictedEntry: null,
+          resumeSuggestionSeam: createFirstPostRolloverResumeSeam({
+            endingYearMonth: null,
+            extension: params.resumeExtension,
+          }),
+          message: 'Store has been disposed.',
+        }),
+      )
+    },
+
+    applyState(state: ShelfState, referenceCurrentMonth?: PublicationYearMonth | string) {
+      return dispatchCommand(
+        { type: 'applyValidatedState', state, referenceCurrentMonth },
+        outcome => outcome.actionResult as ShelfActionResult<'stateApplied'>,
+        () => ({
+          ok: false,
+          state: createEmptyShelfState(),
+          error: 'invalidStateShape',
+          message: 'Store has been disposed.',
+        }),
+      )
+    },
+
+    flushPending(): Promise<void> {
+      if (disposed) return Promise.resolve()
+      if (pendingCommands.length === 0) {
+        return inFlightCount > 0 ? ioTail : Promise.resolve()
+      }
+      return scheduleFlush(epoch)
+    },
+
+    clearLocalData(): Promise<void> {
+      if (disposed) return Promise.resolve()
+
+      epoch += 1
+      const clearEpoch = epoch
+      activeAbortController.abort()
+      activeAbortController = new AbortController()
+
+      pendingClear = true
+      status = 'ready'
+      committedPayload = emptyPersistedShelfPayload()
+      pendingCommands = []
+      health = 'ok'
+      updateSnapshot(true)
+
+      return enqueueIo(() => {
+        if (disposed) return
+        let clearOrPromise: MaybePromise<ShelfAdapterClearResult>
+        try {
+          clearOrPromise = adapter.clear()
+        } catch {
+          clearOrPromise = {
+            ok: false,
+            health: 'storageUnavailable',
+          }
+        }
+
+        const applyClearResult = (result: ShelfAdapterClearResult) => {
+          if (disposed || clearEpoch !== epoch) return
+          committedPayload = emptyPersistedShelfPayload()
+          if (result.ok) {
+            pendingClear = false
+            health = 'ok'
+          } else {
+            pendingClear = true
+            health = result.health
+          }
+          updateSnapshot(true)
+        }
+
+        if (isPromiseLike(clearOrPromise)) {
+          return clearOrPromise.then(applyClearResult, () =>
+            applyClearResult({
+              ok: false,
+              health: 'storageUnavailable',
+            }),
+          )
+        }
+
+        applyClearResult(clearOrPromise)
+      })
+    },
+
+    dispose() {
+      if (disposed) return
+      disposed = true
+      activeAbortController.abort()
+      listeners.clear()
+      unsubscribeExternal?.()
+    },
+  }
+}
