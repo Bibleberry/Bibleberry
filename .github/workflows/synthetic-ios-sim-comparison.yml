@@ -1,0 +1,122 @@
+name: Synthetic iOS Simulator Comparison (Issue #198)
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/synthetic-ios-sim-comparison.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-ios-simulator:
+    name: Synthetic iOS 26.4 Simulator Smoke
+    runs-on: macos-26
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Select documented Xcode 26.4.1
+        run: |
+          sudo xcode-select --switch /Applications/Xcode_26.4.1.app/Contents/Developer
+          xcodebuild -version | tee "$RUNNER_TEMP/xcode-version.txt"
+          grep -Fxq 'Xcode 26.4.1' "$RUNNER_TEMP/xcode-version.txt"
+          grep -Fxq 'Build version 17E202' "$RUNNER_TEMP/xcode-version.txt"
+          xcrun simctl list runtimes | tee "$RUNNER_TEMP/simulator-runtimes.txt"
+
+      - name: Build minimal synthetic UIKit iOS Simulator app
+        run: |
+          APP_DIR="$RUNNER_TEMP/SyntheticApp.app"
+          SRC_DIR="$RUNNER_TEMP/synthetic-src"
+          mkdir -p "$APP_DIR" "$SRC_DIR"
+
+          cat > "$SRC_DIR/main.swift" <<'EOF'
+          import UIKit
+
+          final class AppDelegate: UIResponder, UIApplicationDelegate {
+              var window: UIWindow?
+
+              func application(
+                  _ application: UIApplication,
+                  didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
+              ) -> Bool {
+                  let window = UIWindow(frame: UIScreen.main.bounds)
+                  let vc = UIViewController()
+                  vc.view.backgroundColor = .systemBackground
+                  let label = UILabel(frame: CGRect(x: 24, y: 120, width: 320, height: 48))
+                  label.text = "Synthetic iOS Smoke"
+                  label.textColor = .label
+                  vc.view.addSubview(label)
+                  window.rootViewController = vc
+                  window.makeKeyAndVisible()
+                  self.window = window
+                  return true
+              }
+          }
+
+          UIApplicationMain(
+              CommandLine.argc,
+              CommandLine.unsafeArgv,
+              nil,
+              NSStringFromClass(AppDelegate.self)
+          )
+          EOF
+
+          SDK_PATH="$(xcrun --sdk iphonesimulator --show-sdk-path)"
+          xcrun --sdk iphonesimulator swiftc \
+            -target arm64-apple-ios18.0-simulator \
+            -sdk "$SDK_PATH" \
+            -framework UIKit \
+            "$SRC_DIR/main.swift" \
+            -o "$APP_DIR/App"
+
+          cat > "$APP_DIR/Info.plist" <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleExecutable</key>
+            <string>App</string>
+            <key>CFBundleIdentifier</key>
+            <string>com.example.synthetic.ios264smoke</string>
+            <key>CFBundleName</key>
+            <string>SyntheticApp</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>CFBundleShortVersionString</key>
+            <string>1.0</string>
+            <key>CFBundleVersion</key>
+            <string>1</string>
+            <key>LSRequiresIPhoneOS</key>
+            <true/>
+            <key>UILaunchScreen</key>
+            <dict/>
+          </dict>
+          </plist>
+          EOF
+
+          codesign --force --sign - "$APP_DIR" || true
+
+      - name: Run simctl-only smoke against synthetic iOS app
+        run: |
+          mkdir -p "$RUNNER_TEMP/synthetic-ios-evidence/env"
+          uname -m > "$RUNNER_TEMP/synthetic-ios-evidence/env/uname-m.txt"
+          sw_vers > "$RUNNER_TEMP/synthetic-ios-evidence/env/sw-vers.txt" || true
+          cp -f "$RUNNER_TEMP"/xcode-version.txt "$RUNNER_TEMP"/simulator-runtimes.txt "$RUNNER_TEMP/synthetic-ios-evidence/env/" 2>/dev/null || true
+          python3 scripts/ios-simulator-smoke.py \
+            --simctl-only \
+            --app-path "$RUNNER_TEMP/SyntheticApp.app" \
+            --bundle-id com.example.synthetic.ios264smoke \
+            --evidence-dir "$RUNNER_TEMP/synthetic-ios-evidence"
+
+      - name: Upload synthetic iOS simulator smoke evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: synthetic-ios-simulator-evidence
+          path: ${{ runner.temp }}/synthetic-ios-evidence
+          if-no-files-found: warn
+          retention-days: 7
