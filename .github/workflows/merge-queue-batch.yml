@@ -66,7 +66,7 @@ jobs:
     needs: [preflight]
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'start' && github.ref == 'refs/heads/main' && github.actor == 'ContraPhilosophy' }}
     concurrency:
-      group: merge-queue-control
+      group: merge-queue-batch-writer
       cancel-in-progress: false
     runs-on: ubuntu-24.04
     environment: merge-queue-approval
@@ -101,8 +101,8 @@ jobs:
     name: Advance or stop active merge-queue batch
     if: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
     concurrency:
-      # Isolate per-PR and per-merge_group events so unrelated PR closures or merge_group destruction never replace an active PR's advancement event.
-      group: ${{ github.event_name == 'pull_request' && format('merge-queue-pr-{0}', github.event.pull_request.number) || format('merge-queue-mg-{0}', github.event.merge_group.head_sha || github.run_id) }}
+      # Single-writer serialization across all state-mutating jobs; ignored events and the 15m watchdog reconcile any replaced pending event.
+      group: merge-queue-batch-writer
       cancel-in-progress: false
     runs-on: ubuntu-24.04
     permissions:
@@ -148,7 +148,7 @@ jobs:
     name: Watchdog reconciliation for active batch
     if: ${{ github.event_name == 'schedule' }}
     concurrency:
-      group: merge-queue-watchdog
+      group: merge-queue-batch-writer
       cancel-in-progress: false
     runs-on: ubuntu-24.04
     permissions:
@@ -205,7 +205,7 @@ jobs:
     name: Reconcile interrupted batch state
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'reconcile' && github.ref == 'refs/heads/main' && github.actor == 'ContraPhilosophy' }}
     concurrency:
-      group: merge-queue-control
+      group: merge-queue-batch-writer
       cancel-in-progress: false
     runs-on: ubuntu-24.04
     environment: merge-queue-approval
@@ -231,7 +231,7 @@ jobs:
     name: Abort active merge-queue batch and dequeue active PR
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'abort' && github.ref == 'refs/heads/main' && github.actor == 'ContraPhilosophy' }}
     concurrency:
-      group: merge-queue-control
+      group: merge-queue-batch-writer
       cancel-in-progress: false
     runs-on: ubuntu-24.04
     environment: merge-queue-approval

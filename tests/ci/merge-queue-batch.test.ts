@@ -655,7 +655,108 @@ test('back-to-back unrelated events and missed webhook recover unattended via re
   assert.deepEqual(client.state?.completedPrNumbers, [180]);
 });
 
-test('merge-queue-batch workflow enforces main-only trusted checkout, per-event concurrency, watchdog schedule, and least privilege', () => {
+test('abort racing with advance prevents post-abort enqueue and preserves aborted state', async () => {
+  const client = new MockGitHubClient();
+  client.prs.set(180, makePr({ id: 'PR_180', number: 180, headRefOid: SHA_1 }));
+  client.prs.set(181, makePr({ id: 'PR_181', number: 181, headRefOid: SHA_2 }));
+
+  const started = await startBatch(client, {
+    owner: 'Bibleberry',
+    repo: 'Bibleberry',
+    entries: [
+      { prNumber: 180, expectedHeadSha: SHA_1 },
+      { prNumber: 181, expectedHeadSha: SHA_2 },
+    ],
+    authorizedBy: 'ContraPhilosophy',
+  });
+  assert.equal(started.ok, true);
+  client.prs.set(180, makePr({ id: 'PR_180', number: 180, headRefOid: SHA_1, state: 'MERGED' }));
+
+  // Simulate abort arriving right as advanceBatchOnPullRequestClosed saves its write-ahead state
+  // (before advance calls enqueuePullRequest for PR 181).
+  let abortRanDuringAdvance = false;
+  const originalSave = client.saveBatchState.bind(client);
+  client.saveBatchState = async (owner, repo, state) => {
+    await originalSave(owner, repo, state);
+    if (!abortRanDuringAdvance && state.status === 'enqueuing' && state.activePrNumber === 181) {
+      abortRanDuringAdvance = true;
+      await abortBatch(client, {
+        owner,
+        repo,
+        actor: 'ContraPhilosophy',
+        reason: 'Emergency owner abort',
+      });
+    }
+  };
+
+  const adv = await advanceBatchOnPullRequestClosed(client, {
+    owner: 'Bibleberry',
+    repo: 'Bibleberry',
+    prNumber: 180,
+    merged: true,
+  });
+
+  assert.equal(abortRanDuringAdvance, true);
+  assert.equal(adv.action, 'ignored');
+  // PR 181 MUST NOT be enqueued after abort, and final state MUST remain 'aborted'.
+  assert.deepEqual(client.enqueued, [{ pullRequestId: 'PR_180', expectedHeadOid: SHA_1 }]);
+  assert.equal(client.state?.status, 'aborted');
+  assert.equal(client.state?.activePrNumber, null);
+});
+
+test('watchdog reconcile racing with advance does not regress state or double-enqueue', async () => {
+  const client = new MockGitHubClient();
+  client.prs.set(180, makePr({ id: 'PR_180', number: 180, headRefOid: SHA_1 }));
+  client.prs.set(181, makePr({ id: 'PR_181', number: 181, headRefOid: SHA_2 }));
+
+  await startBatch(client, {
+    owner: 'Bibleberry',
+    repo: 'Bibleberry',
+    entries: [
+      { prNumber: 180, expectedHeadSha: SHA_1 },
+      { prNumber: 181, expectedHeadSha: SHA_2 },
+    ],
+    authorizedBy: 'ContraPhilosophy',
+  });
+
+  // Simulate a stale reconcileBatch that read status='enqueuing' for PR 180, while a concurrent
+  // advance already moved the batch to PR 181 (higher revision).
+  client.state = {
+    ...client.state!,
+    status: 'enqueuing',
+    revision: 1,
+  };
+  client.prs.set(180, makePr({ id: 'PR_180', number: 180, headRefOid: SHA_1, isInMergeQueue: true }));
+
+  const originalGetPr = client.getPullRequest.bind(client);
+  let advancedConcurrently = false;
+  client.getPullRequest = async (owner, repo, prNumber) => {
+    const pr = await originalGetPr(owner, repo, prNumber);
+    if (!advancedConcurrently && prNumber === 180) {
+      advancedConcurrently = true;
+      // Concurrent advance moves state to PR 181 (revision 3).
+      client.state = {
+        ...client.state!,
+        revision: 3,
+        status: 'running',
+        nextIndex: 1,
+        activePrNumber: 181,
+        activeHeadSha: SHA_2,
+        completedPrNumbers: [180],
+      };
+    }
+    return pr;
+  };
+
+  const rec = await reconcileBatch(client, { owner: 'Bibleberry', repo: 'Bibleberry' });
+  assert.equal(rec.action, 'ignored');
+  // State must not regress back to PR 180 or overwrite revision 3.
+  assert.equal(client.state?.revision, 3);
+  assert.equal(client.state?.activePrNumber, 181);
+  assert.equal(client.enqueued.length, 1);
+});
+
+test('merge-queue-batch workflow enforces main-only trusted checkout, single-writer concurrency, watchdog schedule, and least privilege', () => {
   const workflow = readFileSync(
     new URL('../../.github/workflows/merge-queue-batch.yml', import.meta.url),
     'utf8',
@@ -666,10 +767,10 @@ test('merge-queue-batch workflow enforces main-only trusted checkout, per-event 
   assert.match(workflow, /persist-credentials: false/);
   assert.match(workflow, /schedule:\s*\n(?:\s*#.*\n)*\s*-\s*cron:\s*['"]\*\/15 \* \* \* \*['"]/);
 
-  // Must NOT use a single workflow-wide concurrency group that discards pending PR events.
+  // All 5 state-mutating jobs must share the single-writer concurrency group (no concurrent variable writers).
   assert.doesNotMatch(workflow, /^concurrency:\s*$/m);
-  assert.match(workflow, /format\('merge-queue-pr-\{0\}', github\.event\.pull_request\.number\)/);
-  assert.match(workflow, /format\('merge-queue-mg-\{0\}', github\.event\.merge_group\.head_sha \|\| github\.run_id\)/);
+  const writerMatches = workflow.match(/group: merge-queue-batch-writer/g) ?? [];
+  assert.equal(writerMatches.length, 5);
 
   // Every privileged workflow_dispatch job must restrict to refs/heads/main and owner ContraPhilosophy.
   assert.match(

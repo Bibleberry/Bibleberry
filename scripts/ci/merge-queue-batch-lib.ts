@@ -65,11 +65,13 @@ export interface PreflightResult {
 
 export interface BatchState {
   version: 1;
+  revision?: number;
   batchId: string;
   status: 'enqueuing' | 'running' | 'completed' | 'stopped' | 'aborted';
   createdAt: string;
   updatedAt: string;
   authorizedBy: string;
+  abortRequestedBy?: string;
   workflowRunId?: string;
   workflowRunUrl?: string;
   entries: BatchEntry[];
@@ -569,6 +571,7 @@ export async function startBatch(
   const createdAt = now();
   const pendingState: BatchState = {
     version: 1,
+    revision: (existingState?.revision ?? 0) + 1,
     batchId: `batch-${createdAt.replace(/[:.]/g, '-')}`,
     status: 'enqueuing',
     createdAt,
@@ -694,6 +697,14 @@ export async function advanceBatchOnPullRequestClosed(
     };
   }
 
+  if (state.abortRequestedBy) {
+    return {
+      action: 'stopped',
+      state,
+      message: `Batch ${state.batchId} has a pending abort from ${state.abortRequestedBy}; refusing to advance.`,
+    };
+  }
+
   if (state.activePrNumber !== prNumber) {
     return {
       action: 'ignored',
@@ -771,8 +782,10 @@ export async function advanceBatchOnPullRequestClosed(
     };
   }
 
+  const pendingRevision = (state.revision ?? 0) + 1;
   const pendingNextState: BatchState = {
     ...state,
+    revision: pendingRevision,
     status: 'enqueuing',
     updatedAt: now(),
     nextIndex,
@@ -783,6 +796,23 @@ export async function advanceBatchOnPullRequestClosed(
 
   // Write-ahead before enqueueing so interrupted confirmation can be reconciled cleanly.
   await client.saveBatchState(owner, repo, pendingNextState);
+
+  // Re-read state immediately before calling enqueuePullRequest to block post-abort or stale-revision races.
+  const latestBeforeEnqueue = await client.getBatchState(owner, repo);
+  if (
+    !latestBeforeEnqueue ||
+    latestBeforeEnqueue.batchId !== state.batchId ||
+    latestBeforeEnqueue.status === 'aborted' ||
+    latestBeforeEnqueue.status === 'stopped' ||
+    Boolean(latestBeforeEnqueue.abortRequestedBy) ||
+    (latestBeforeEnqueue.revision ?? 0) !== pendingRevision
+  ) {
+    return {
+      action: 'ignored',
+      state: latestBeforeEnqueue,
+      message: `Aborted enqueue of PR #${nextEntry.prNumber}: batch state changed concurrently (status=${latestBeforeEnqueue?.status ?? 'none'}, abortRequestedBy=${latestBeforeEnqueue?.abortRequestedBy ?? 'none'}).`,
+    };
+  }
 
   try {
     await client.enqueuePullRequest(freshPr.id, nextEntry.expectedHeadSha);
@@ -823,6 +853,7 @@ export async function advanceBatchOnPullRequestClosed(
 
   const runningNextState: BatchState = {
     ...pendingNextState,
+    revision: pendingRevision + 1,
     status: 'running',
     updatedAt: now(),
   };
@@ -864,6 +895,14 @@ export async function reconcileBatch(
       action: 'ignored',
       state,
       message: `No active or interrupted batch to reconcile (status=${state?.status ?? 'none'}).`,
+    };
+  }
+
+  if (state.abortRequestedBy) {
+    return {
+      action: 'ignored',
+      state,
+      message: `Batch ${state.batchId} has a pending abort from ${state.abortRequestedBy}; skipping reconciliation.`,
     };
   }
 
@@ -924,8 +963,24 @@ export async function reconcileBatch(
 
   if (activePr.isInMergeQueue) {
     if (state.status === 'enqueuing') {
+      const latest = await client.getBatchState(owner, repo);
+      if (
+        !latest ||
+        latest.batchId !== state.batchId ||
+        latest.status === 'aborted' ||
+        latest.status === 'stopped' ||
+        Boolean(latest.abortRequestedBy) ||
+        (latest.revision ?? 0) !== (state.revision ?? 0)
+      ) {
+        return {
+          action: 'ignored',
+          state: latest,
+          message: `Skipped enqueuing->running recovery for PR #${state.activePrNumber}: state changed concurrently.`,
+        };
+      }
       const recoveredState: BatchState = {
         ...state,
+        revision: (state.revision ?? 0) + 1,
         status: 'running',
         updatedAt: now(),
       };
@@ -1062,26 +1117,36 @@ export async function abortBatch(
     };
   }
 
+  // Persist abort intent immediately so any concurrent advance/reconcile refuses to enqueue further PRs.
+  const abortIntentState: BatchState = {
+    ...state,
+    revision: (state.revision ?? 0) + 1,
+    abortRequestedBy: actor,
+    updatedAt: now(),
+  };
+  await client.saveBatchState(owner, repo, abortIntentState);
+
   let dequeuedPrNumber: number | undefined;
-  if (state.activePrNumber !== null) {
-    const activePr = await client.getPullRequest(owner, repo, state.activePrNumber);
+  if (abortIntentState.activePrNumber !== null) {
+    const activePr = await client.getPullRequest(owner, repo, abortIntentState.activePrNumber);
     if (activePr?.isInMergeQueue) {
       try {
         await client.dequeuePullRequest(activePr.id);
-        dequeuedPrNumber = state.activePrNumber;
+        dequeuedPrNumber = abortIntentState.activePrNumber;
       } catch (err) {
         const errMessage = err instanceof Error ? err.message : String(err);
         return {
           aborted: false,
-          state,
-          message: `Failed to dequeue active PR #${state.activePrNumber} during abort: ${errMessage}. Batch remains ${state.status}; inspect queue state before retrying.`,
+          state: abortIntentState,
+          message: `Failed to dequeue active PR #${abortIntentState.activePrNumber} during abort: ${errMessage}. Abort intent recorded to block further enqueues; inspect queue state before retrying.`,
         };
       }
     }
   }
 
   const abortedState: BatchState = {
-    ...state,
+    ...abortIntentState,
+    revision: (abortIntentState.revision ?? 0) + 1,
     status: 'aborted',
     updatedAt: now(),
     activePrNumber: null,

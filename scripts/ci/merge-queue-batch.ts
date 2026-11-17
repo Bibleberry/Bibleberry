@@ -380,12 +380,19 @@ async function main(): Promise<void> {
     if (!Number.isInteger(prNumber) || prNumber <= 0) {
       throw new Error('advance requires --pr <positive-integer>');
     }
-    const outcome = await advanceBatchOnPullRequestClosed(client, {
+    let outcome = await advanceBatchOnPullRequestClosed(client, {
       owner,
       repo,
       prNumber,
       merged,
     });
+    if (outcome.action === 'ignored') {
+      // If an earlier active PR's close event was replaced in the writer concurrency group, reconcile now.
+      const reconciled = await reconcileBatch(client, { owner, repo });
+      if (reconciled.action !== 'ignored') {
+        outcome = reconciled;
+      }
+    }
     writeStepSummary(
       formatSummaryMarkdown({
         title: `Merge Queue Batch Advance (${outcome.action})`,
@@ -403,12 +410,18 @@ async function main(): Promise<void> {
   if (command === 'destroyed') {
     const reason = typeof flags.reason === 'string' ? flags.reason : 'unknown';
     const headSha = typeof flags['head-sha'] === 'string' ? flags['head-sha'] : undefined;
-    const outcome = await handleMergeGroupDestroyed(client, {
+    let outcome = await handleMergeGroupDestroyed(client, {
       owner,
       repo,
       reason,
       headSha,
     });
+    if (outcome.action === 'ignored') {
+      const reconciled = await reconcileBatch(client, { owner, repo });
+      if (reconciled.action !== 'ignored') {
+        outcome = reconciled;
+      }
+    }
     writeStepSummary(
       formatSummaryMarkdown({
         title: `Merge Queue Group Destroyed (${outcome.action})`,
