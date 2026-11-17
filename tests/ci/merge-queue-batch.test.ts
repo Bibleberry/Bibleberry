@@ -529,7 +529,133 @@ test('abortBatch dequeues active queued PR and handles dequeue failures cleanly'
   assert.match(client.state?.stopReason ?? '', /Hold for hotfix.*dequeued PR #180/);
 });
 
-test('merge-queue-batch workflow enforces main-only trusted checkout, owner/environment gates, and least privilege', () => {
+test('enqueue succeeds remotely but client throws on initial start and next-PR advancement', async () => {
+  // Case 1: Initial startBatch where enqueue succeeds at GitHub (isInMergeQueue becomes true) but client throws timeout.
+  const startClient = new MockGitHubClient();
+  let startEnqueueCalls = 0;
+  startClient.prs.set(180, makePr({ id: 'PR_180', number: 180, headRefOid: SHA_1, isInMergeQueue: false }));
+  startClient.prs.set(181, makePr({ id: 'PR_181', number: 181, headRefOid: SHA_2 }));
+  startClient.enqueuePullRequest = async () => {
+    startEnqueueCalls += 1;
+    // Simulate remote success followed by dropped response / timeout.
+    startClient.prs.set(180, makePr({ id: 'PR_180', number: 180, headRefOid: SHA_1, isInMergeQueue: true }));
+    throw new Error('Request timeout (ETIMEDOUT)');
+  };
+
+  const started = await startBatch(startClient, {
+    owner: 'Bibleberry',
+    repo: 'Bibleberry',
+    entries: [
+      { prNumber: 180, expectedHeadSha: SHA_1 },
+      { prNumber: 181, expectedHeadSha: SHA_2 },
+    ],
+    authorizedBy: 'ContraPhilosophy',
+  });
+  assert.equal(started.ok, true);
+  assert.equal(startEnqueueCalls, 1);
+  assert.equal(started.state?.status, 'running');
+  assert.equal(started.state?.activePrNumber, 180);
+
+  // Case 2: Next-PR advancement where enqueue succeeds at GitHub (isInMergeQueue becomes true) but client throws.
+  const advClient = new MockGitHubClient();
+  let advEnqueueCalls = 0;
+  advClient.prs.set(180, makePr({ id: 'PR_180', number: 180, headRefOid: SHA_1 }));
+  advClient.prs.set(181, makePr({ id: 'PR_181', number: 181, headRefOid: SHA_2 }));
+  await startBatch(advClient, {
+    owner: 'Bibleberry',
+    repo: 'Bibleberry',
+    entries: [
+      { prNumber: 180, expectedHeadSha: SHA_1 },
+      { prNumber: 181, expectedHeadSha: SHA_2 },
+    ],
+    authorizedBy: 'ContraPhilosophy',
+  });
+
+  advClient.enqueuePullRequest = async () => {
+    advEnqueueCalls += 1;
+    advClient.prs.set(181, makePr({ id: 'PR_181', number: 181, headRefOid: SHA_2, isInMergeQueue: true }));
+    throw new Error('fetch failed: socket hang up');
+  };
+
+  const advanced = await advanceBatchOnPullRequestClosed(advClient, {
+    owner: 'Bibleberry',
+    repo: 'Bibleberry',
+    prNumber: 180,
+    merged: true,
+  });
+  assert.equal(advanced.action, 'enqueued');
+  assert.equal(advEnqueueCalls, 1);
+  assert.equal(advClient.state?.status, 'running');
+  assert.equal(advClient.state?.activePrNumber, 181);
+});
+
+test('indeterminate enqueue failure preserves enqueuing state for watchdog reconciliation', async () => {
+  const client = new MockGitHubClient();
+  client.prs.set(180, makePr({ id: 'PR_180', number: 180, headRefOid: SHA_1 }));
+  client.prs.set(181, makePr({ id: 'PR_181', number: 181, headRefOid: SHA_2 }));
+  client.enqueueError = new Error('HTTP 502 Bad Gateway');
+
+  const started = await startBatch(client, {
+    owner: 'Bibleberry',
+    repo: 'Bibleberry',
+    entries: [
+      { prNumber: 180, expectedHeadSha: SHA_1 },
+      { prNumber: 181, expectedHeadSha: SHA_2 },
+    ],
+    authorizedBy: 'ContraPhilosophy',
+  });
+  assert.equal(started.ok, false);
+  // Must preserve status='enqueuing' and activePrNumber=180 (not cleared to stopped).
+  assert.equal(client.state?.status, 'enqueuing');
+  assert.equal(client.state?.activePrNumber, 180);
+
+  // Watchdog reconcile sees PR 180 actually entered the queue and recovers to running.
+  client.prs.set(180, makePr({ id: 'PR_180', number: 180, headRefOid: SHA_1, isInMergeQueue: true }));
+  const rec = await reconcileBatch(client, { owner: 'Bibleberry', repo: 'Bibleberry' });
+  assert.equal(rec.action, 'reconciled');
+  assert.equal(client.state?.status, 'running');
+});
+
+test('back-to-back unrelated events and missed webhook recover unattended via reconcileBatch', async () => {
+  const client = new MockGitHubClient();
+  client.prs.set(180, makePr({ id: 'PR_180', number: 180, headRefOid: SHA_1 }));
+  client.prs.set(181, makePr({ id: 'PR_181', number: 181, headRefOid: SHA_2 }));
+
+  await startBatch(client, {
+    owner: 'Bibleberry',
+    repo: 'Bibleberry',
+    entries: [
+      { prNumber: 180, expectedHeadSha: SHA_1 },
+      { prNumber: 181, expectedHeadSha: SHA_2 },
+    ],
+    authorizedBy: 'ContraPhilosophy',
+  });
+
+  // Back-to-back unrelated PR close + merge_group destroyed (reason=merged) must not disturb PR 180.
+  const unrelatedClose = await advanceBatchOnPullRequestClosed(client, {
+    owner: 'Bibleberry',
+    repo: 'Bibleberry',
+    prNumber: 999,
+    merged: true,
+  });
+  assert.equal(unrelatedClose.action, 'ignored');
+  const mgMerged = await handleMergeGroupDestroyed(client, {
+    owner: 'Bibleberry',
+    repo: 'Bibleberry',
+    reason: 'merged',
+    headSha: SHA_3,
+  });
+  assert.equal(mgMerged.action, 'ignored');
+
+  // Even if pull_request: closed for PR 180 was missed, scheduled reconcileBatch advances to PR 181.
+  client.prs.set(180, makePr({ id: 'PR_180', number: 180, headRefOid: SHA_1, state: 'MERGED' }));
+  const watchdog = await reconcileBatch(client, { owner: 'Bibleberry', repo: 'Bibleberry' });
+  assert.equal(watchdog.action, 'enqueued');
+  assert.equal(client.state?.activePrNumber, 181);
+  assert.deepEqual(client.state?.completedPrNumbers, [180]);
+});
+
+test('merge-queue-batch workflow enforces main-only trusted checkout, per-event concurrency, watchdog schedule, and least privilege', () => {
   const workflow = readFileSync(
     new URL('../../.github/workflows/merge-queue-batch.yml', import.meta.url),
     'utf8',
@@ -538,6 +664,12 @@ test('merge-queue-batch workflow enforces main-only trusted checkout, owner/envi
   assert.match(workflow, /environment: merge-queue-approval/);
   assert.match(workflow, /cancel-in-progress: false/);
   assert.match(workflow, /persist-credentials: false/);
+  assert.match(workflow, /schedule:\s*\n(?:\s*#.*\n)*\s*-\s*cron:\s*['"]\*\/15 \* \* \* \*['"]/);
+
+  // Must NOT use a single workflow-wide concurrency group that discards pending PR events.
+  assert.doesNotMatch(workflow, /^concurrency:\s*$/m);
+  assert.match(workflow, /format\('merge-queue-pr-\{0\}', github\.event\.pull_request\.number\)/);
+  assert.match(workflow, /format\('merge-queue-mg-\{0\}', github\.event\.merge_group\.head_sha \|\| github\.run_id\)/);
 
   // Every privileged workflow_dispatch job must restrict to refs/heads/main and owner ContraPhilosophy.
   assert.match(
@@ -556,6 +688,6 @@ test('merge-queue-batch workflow enforces main-only trusted checkout, owner/envi
   // Every actions/checkout step in the workflow must explicitly check out default_branch (main).
   const checkoutMatches = workflow.match(/uses: actions\/checkout@/g) ?? [];
   const defaultBranchRefMatches = workflow.match(/ref: \$\{\{ github\.event\.repository\.default_branch \}\}/g) ?? [];
-  assert.equal(checkoutMatches.length, 6);
-  assert.equal(defaultBranchRefMatches.length, 6);
+  assert.equal(checkoutMatches.length, 7);
+  assert.equal(defaultBranchRefMatches.length, 7);
 });

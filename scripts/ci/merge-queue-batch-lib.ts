@@ -372,6 +372,118 @@ export interface StartBatchOutcome {
   error?: string;
 }
 
+function isDefinitiveEnqueueRejection(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return (
+    /GitHub GraphQL error:/i.test(msg) ||
+    /GitHub GraphQL HTTP 4(?:00|01|03|04|22)\b/i.test(msg)
+  );
+}
+
+interface EnqueueErrorResolution {
+  outcome: 'enqueued_remotely' | 'merged_remotely' | 'stopped' | 'indeterminate';
+  state: BatchState;
+  message: string;
+}
+
+/**
+ * Reconciles an enqueuePullRequest exception against live GitHub PR state.
+ * Never discards `enqueuing` state on timeouts/network errors or when the PR actually entered the queue.
+ */
+async function resolveEnqueueError(
+  client: GitHubBatchClient,
+  options: {
+    owner: string;
+    repo: string;
+    pendingState: BatchState;
+    entry: BatchEntry;
+    error: unknown;
+    now: () => string;
+  },
+): Promise<EnqueueErrorResolution> {
+  const { owner, repo, pendingState, entry, error, now } = options;
+  const reason = error instanceof Error ? error.message : String(error);
+
+  let recheckPr: PullRequestSnapshot | null = null;
+  let recheckError: string | null = null;
+  try {
+    recheckPr = await client.getPullRequest(owner, repo, entry.prNumber);
+  } catch (err) {
+    recheckError = err instanceof Error ? err.message : String(err);
+  }
+
+  if (recheckPr?.isInMergeQueue) {
+    const runningState: BatchState = {
+      ...pendingState,
+      status: 'running',
+      updatedAt: now(),
+    };
+    try {
+      await client.saveBatchState(owner, repo, runningState);
+      return {
+        outcome: 'enqueued_remotely',
+        state: runningState,
+        message: `PR #${entry.prNumber}@${entry.expectedHeadSha} is in the merge queue despite client error (${reason}); confirmed status=running.`,
+      };
+    } catch (saveErr) {
+      const saveReason = saveErr instanceof Error ? saveErr.message : String(saveErr);
+      return {
+        outcome: 'enqueued_remotely',
+        state: pendingState,
+        message: `PR #${entry.prNumber}@${entry.expectedHeadSha} is in the merge queue despite client error (${reason}); write-ahead state preserved (status=enqueuing, confirm save error: ${saveReason}).`,
+      };
+    }
+  }
+
+  if (recheckPr?.state === 'MERGED') {
+    const runningState: BatchState = {
+      ...pendingState,
+      status: 'running',
+      updatedAt: now(),
+    };
+    try {
+      await client.saveBatchState(owner, repo, runningState);
+    } catch {
+      // Write-ahead state remains in storage with activePrNumber = entry.prNumber.
+    }
+    return {
+      outcome: 'merged_remotely',
+      state: runningState,
+      message: `PR #${entry.prNumber} already merged after client error (${reason}).`,
+    };
+  }
+
+  if (recheckPr && recheckPr.state === 'OPEN' && !recheckPr.isInMergeQueue && isDefinitiveEnqueueRejection(error)) {
+    const stoppedState: BatchState = {
+      ...pendingState,
+      status: 'stopped',
+      updatedAt: now(),
+      activePrNumber: null,
+      activeHeadSha: null,
+      stopReason: `Failed to enqueue PR #${entry.prNumber}: ${reason}`,
+    };
+    try {
+      await client.saveBatchState(owner, repo, stoppedState);
+    } catch {
+      // Preserve failure reporting even if rollback save fails.
+    }
+    return {
+      outcome: 'stopped',
+      state: stoppedState,
+      message: stoppedState.stopReason!,
+    };
+  }
+
+  const detail = recheckError
+    ? `live PR verification failed (${recheckError})`
+    : `error was indeterminate (${reason}) and PR state is ${recheckPr?.state ?? 'unknown'}`;
+  return {
+    outcome: 'indeterminate',
+    state: pendingState,
+    message: `Enqueue outcome for PR #${entry.prNumber} is indeterminate (${detail}). Preserved status=enqueuing with activePrNumber=#${entry.prNumber}; reconcile will verify without duplicate enqueueing.`,
+  };
+}
+
 export async function startBatch(
   client: GitHubBatchClient,
   options: StartBatchOptions,
@@ -477,26 +589,45 @@ export async function startBatch(
   try {
     await client.enqueuePullRequest(freshPr.id, firstEntry.expectedHeadSha);
   } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err);
-    const stoppedState: BatchState = {
-      ...pendingState,
-      status: 'stopped',
-      updatedAt: now(),
-      activePrNumber: null,
-      activeHeadSha: null,
-      stopReason: `Failed to enqueue PR #${firstEntry.prNumber}: ${reason}`,
-    };
-    try {
-      await client.saveBatchState(owner, repo, stoppedState);
-    } catch {
-      // Preserve failure reporting even if rollback save fails.
+    const resolved = await resolveEnqueueError(client, {
+      owner,
+      repo,
+      pendingState,
+      entry: firstEntry,
+      error: err,
+      now,
+    });
+    if (resolved.outcome === 'enqueued_remotely') {
+      return {
+        ok: true,
+        dryRun: false,
+        preflightResults: preflight.results,
+        state: resolved.state,
+      };
+    }
+    if (resolved.outcome === 'merged_remotely') {
+      const advanced = await advanceBatchOnPullRequestClosed(client, {
+        owner,
+        repo,
+        prNumber: firstEntry.prNumber,
+        merged: true,
+        requiredChecks,
+        now,
+      });
+      return {
+        ok: advanced.action !== 'stopped',
+        dryRun: false,
+        preflightResults: preflight.results,
+        state: advanced.state ?? resolved.state,
+        error: advanced.action === 'stopped' ? advanced.message : undefined,
+      };
     }
     return {
       ok: false,
       dryRun: false,
       preflightResults: preflight.results,
-      state: stoppedState,
-      error: stoppedState.stopReason,
+      state: resolved.state,
+      error: resolved.message,
     };
   }
 
@@ -656,24 +787,36 @@ export async function advanceBatchOnPullRequestClosed(
   try {
     await client.enqueuePullRequest(freshPr.id, nextEntry.expectedHeadSha);
   } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err);
-    const stoppedState: BatchState = {
-      ...pendingNextState,
-      status: 'stopped',
-      updatedAt: now(),
-      activePrNumber: null,
-      activeHeadSha: null,
-      stopReason: `Failed to enqueue PR #${nextEntry.prNumber}: ${reason}`,
-    };
-    try {
-      await client.saveBatchState(owner, repo, stoppedState);
-    } catch {
-      // Preserve stopped outcome even if rollback save fails.
+    const resolved = await resolveEnqueueError(client, {
+      owner,
+      repo,
+      pendingState: pendingNextState,
+      entry: nextEntry,
+      error: err,
+      now,
+    });
+    if (resolved.outcome === 'enqueued_remotely') {
+      return {
+        action: 'enqueued',
+        state: resolved.state,
+        message: resolved.message,
+        preflightResult,
+      };
+    }
+    if (resolved.outcome === 'merged_remotely') {
+      return advanceBatchOnPullRequestClosed(client, {
+        owner,
+        repo,
+        prNumber: nextEntry.prNumber,
+        merged: true,
+        requiredChecks,
+        now,
+      });
     }
     return {
       action: 'stopped',
-      state: stoppedState,
-      message: stoppedState.stopReason!,
+      state: resolved.state,
+      message: resolved.message,
       preflightResult,
     };
   }

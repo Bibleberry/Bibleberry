@@ -125,7 +125,8 @@ Before running `action: start` in GitHub Actions:
    - Approve the `merge-queue-approval` deployment in the workflow run UI.
    - The coordinator re-verifies PR #1's exact head SHA immediately before calling GraphQL `enqueuePullRequest(pullRequestId, expectedHeadOid)` and records `MERGE_QUEUE_BATCH_STATE`.
 3. **Unattended advancement and failure recovery:**
-   - When the active PR merges, `pull_request` (`closed`, `merged: true`) triggers `advance-or-stop`, which re-validates the next approved PR's exact SHA and enqueues it.
+   - When the active PR merges, `pull_request` (`closed`, `merged: true`) triggers `advance-or-stop` (isolated per-PR concurrency group so unrelated PR closures or `merge_group: destroyed` events cannot replace it), which re-validates the next approved PR's exact SHA and enqueues it.
+   - A 15-minute `schedule` watchdog (`reconcile-watchdog`) also runs `reconcile` unattended in case a webhook is missed or an enqueue call had an indeterminate network outcome.
    - On head-SHA drift, failed check, conflict, `merge_group` destruction (`reason != merged`), or closed-without-merge, the coordinator marks `MERGE_QUEUE_BATCH_STATE` as `stopped`, leaves remaining PRs unenqueued, and reports the exact reason in the workflow summary.
    - Use `action: status` to inspect `MERGE_QUEUE_BATCH_STATE`, `action: reconcile` (owner-gated) to recover an interrupted `enqueuing`/`running` state against live GitHub PRs without double-enqueueing, or `action: abort` (approval-gated) to dequeue the active queued PR via `dequeuePullRequest` and mark the batch `aborted`.
 

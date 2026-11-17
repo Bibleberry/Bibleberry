@@ -28,10 +28,9 @@ on:
   merge_group:
     types: [destroyed]
     branches: [main]
-
-concurrency:
-  group: merge-queue-batch-coordinator
-  cancel-in-progress: false
+  schedule:
+    # Watchdog reconciliation in case a webhook is missed or an enqueue outcome was indeterminate.
+    - cron: '*/15 * * * *'
 
 permissions: {}
 
@@ -39,6 +38,9 @@ jobs:
   preflight:
     name: Preflight batch entries (read-only)
     if: ${{ github.event_name == 'workflow_dispatch' && (inputs.action == 'dry-run' || inputs.action == 'start') }}
+    concurrency:
+      group: merge-queue-readonly-${{ github.run_id }}
+      cancel-in-progress: false
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -63,6 +65,9 @@ jobs:
     name: Authorize and enqueue first batch PR
     needs: [preflight]
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'start' && github.ref == 'refs/heads/main' && github.actor == 'ContraPhilosophy' }}
+    concurrency:
+      group: merge-queue-control
+      cancel-in-progress: false
     runs-on: ubuntu-24.04
     environment: merge-queue-approval
     permissions:
@@ -95,6 +100,10 @@ jobs:
   advance-or-stop:
     name: Advance or stop active merge-queue batch
     if: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
+    concurrency:
+      # Isolate per-PR and per-merge_group events so unrelated PR closures or merge_group destruction never replace an active PR's advancement event.
+      group: ${{ github.event_name == 'pull_request' && format('merge-queue-pr-{0}', github.event.pull_request.number) || format('merge-queue-mg-{0}', github.event.merge_group.head_sha || github.run_id) }}
+      cancel-in-progress: false
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -135,9 +144,46 @@ jobs:
             --reason "${{ github.event.reason }}" \
             --head-sha "${{ github.event.merge_group.head_sha }}"
 
+  reconcile-watchdog:
+    name: Watchdog reconciliation for active batch
+    if: ${{ github.event_name == 'schedule' }}
+    concurrency:
+      group: merge-queue-watchdog
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Check if coordinator token is configured
+        id: token_check
+        env:
+          HAS_TOKEN: ${{ secrets.MERGE_QUEUE_TOKEN != '' }}
+        run: echo "configured=$HAS_TOKEN" >> "$GITHUB_OUTPUT"
+      - name: Skip when MERGE_QUEUE_TOKEN is not configured
+        if: ${{ steps.token_check.outputs.configured != 'true' }}
+        run: echo "MERGE_QUEUE_TOKEN is not configured; skipping watchdog reconciliation."
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ steps.token_check.outputs.configured == 'true' }}
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: ${{ steps.token_check.outputs.configured == 'true' }}
+        with:
+          node-version: '24'
+      - name: Reconcile active batch state
+        if: ${{ steps.token_check.outputs.configured == 'true' }}
+        env:
+          MERGE_QUEUE_TOKEN: ${{ secrets.MERGE_QUEUE_TOKEN }}
+        run: node --experimental-strip-types scripts/ci/merge-queue-batch.ts reconcile
+
   status:
     name: Report active batch status
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'status' }}
+    concurrency:
+      group: merge-queue-readonly-${{ github.run_id }}
+      cancel-in-progress: false
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -158,6 +204,9 @@ jobs:
   reconcile:
     name: Reconcile interrupted batch state
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'reconcile' && github.ref == 'refs/heads/main' && github.actor == 'ContraPhilosophy' }}
+    concurrency:
+      group: merge-queue-control
+      cancel-in-progress: false
     runs-on: ubuntu-24.04
     environment: merge-queue-approval
     permissions:
@@ -181,6 +230,9 @@ jobs:
   abort:
     name: Abort active merge-queue batch and dequeue active PR
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'abort' && github.ref == 'refs/heads/main' && github.actor == 'ContraPhilosophy' }}
+    concurrency:
+      group: merge-queue-control
+      cancel-in-progress: false
     runs-on: ubuntu-24.04
     environment: merge-queue-approval
     permissions:
