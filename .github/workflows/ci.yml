@@ -5,6 +5,10 @@ on:
     # Drafts are waiting-room PRs; Ready for review starts real verification.
     types: [opened, reopened, synchronize, ready_for_review, converted_to_draft]
     branches: [main]
+  # GitHub tests the proposed queue integration SHA, not just the standalone PR.
+  merge_group:
+    types: [checks_requested]
+    branches: [main]
   push:
     branches: [main]
 

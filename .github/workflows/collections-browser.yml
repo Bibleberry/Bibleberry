@@ -5,6 +5,10 @@ on:
     # Drafts are waiting-room PRs; Ready for review starts real verification.
     types: [opened, reopened, synchronize, ready_for_review, converted_to_draft]
     branches: [main]
+  # Run Chromium regressions on the exact merge-queue integration commit.
+  merge_group:
+    types: [checks_requested]
+    branches: [main]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
