@@ -33,6 +33,10 @@ on:
       - src/participation/drivers/capacitorPreferencesDriver.ts
       - src/participation/defaultGuestStore.ts
       - .github/workflows/native-android.yml
+  # No path filter here: queue builds must validate the integrated Android app.
+  merge_group:
+    types: [checks_requested]
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
