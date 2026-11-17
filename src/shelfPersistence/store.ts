@@ -26,9 +26,11 @@ import {
   emptyPersistedShelfPayload,
   reduceShelfCommand,
   replayShelfCommands,
+  replayShelfCommandsWithOutcomes,
 } from './persistence.ts'
 import type {
   GuestShelfPersistedPayload,
+  ReduceShelfCommandOutcome,
   ShelfAdapterClearResult,
   ShelfAdapterFlushResult,
   ShelfAdapterLoadResult,
@@ -48,6 +50,13 @@ import type {
  *   `useSyncExternalStore`.
  * - Commands dispatched before async hydration finishes or during transient write failures remain
  *   in `pendingCommands`, rebasing cleanly onto committed storage without losing reader choices.
+ * - Action result contract: `ok: true` means the command was accepted by Shelf policy against the
+ *   hydrated/rebased state (and is reflected in `getSnapshot()`). On healthy storage, durability
+ *   is committed before the Promise resolves. On transient write failure (`health: 'writeFailed'`
+ *   or `'storageUnavailable'`), the command remains queued in `pendingCommands` (`hasPendingWrites: true`)
+ *   for retry via `flushPending()` while the Promise resolves with the policy-replay outcome; callers
+ *   should inspect `getSnapshot().health` / `hasPendingWrites` to distinguish durable commits from
+ *   pending-retry writes. Commands canceled by `clearLocalData()` or `dispose()` resolve `ok: false`.
  * - All adapter I/O is serialized on a strict FIFO queue combined with a monotonic reset epoch and
  *   `AbortSignal`, guaranteeing that a user-initiated `clearLocalData()` can NEVER be undone in
  *   memory or in storage by an earlier delayed read or write completing afterward.
@@ -176,6 +185,7 @@ export function createGuestShelfStore(
   let nextCommandId = 1
   let activeAbortController = new AbortController()
   let disposed = false
+  const commandOutcomesById = new Map<number, ReduceShelfCommandOutcome>()
 
   const listeners = new Set<() => void>()
 
@@ -369,10 +379,11 @@ export function createGuestShelfStore(
 
         const commandsToFlush = batch.map(entry => entry.command)
         const flushedIds = new Set(batch.map(entry => entry.id))
+        const committedBeforeFlush = committedPayload
 
         let flushOrPromise: MaybePromise<ShelfAdapterFlushResult>
         try {
-          flushOrPromise = adapter.flushCommands(commandsToFlush, committedPayload, signal)
+          flushOrPromise = adapter.flushCommands(commandsToFlush, committedBeforeFlush, signal)
         } catch {
           flushOrPromise = {
             ok: false,
@@ -385,6 +396,20 @@ export function createGuestShelfStore(
           if (disposed || targetEpoch !== epoch) {
             return
           }
+          const outcomeBase = result.ok
+            ? committedBeforeFlush
+            : (result.committedPayload ?? committedBeforeFlush)
+          const outcomes =
+            result.commandOutcomes && result.commandOutcomes.length === batch.length
+              ? result.commandOutcomes
+              : replayShelfCommandsWithOutcomes(outcomeBase, commandsToFlush).outcomes
+
+          for (let i = 0; i < batch.length; i += 1) {
+            const entry = batch[i]!
+            const outcome = outcomes[i]!
+            commandOutcomesById.set(entry.id, outcome)
+          }
+
           if (result.ok) {
             committedPayload = result.committedPayload
             pendingCommands = pendingCommands.filter(entry => !flushedIds.has(entry.id))
@@ -497,14 +522,20 @@ export function createGuestShelfStore(
   function dispatchCommand<TResult>(
     command: ShelfCommand,
     extractResult: (outcome: ReturnType<typeof reduceShelfCommand>) => TResult,
-    disposedResult: () => TResult,
+    canceledResult: (reason: 'disposed' | 'cleared') => TResult,
   ): Promise<TResult> {
     if (disposed) {
-      return Promise.resolve(disposedResult())
+      return Promise.resolve(canceledResult('disposed'))
     }
 
     const previewOutcome = reduceShelfCommand(computeEffectivePayload(), command)
-    if (status === 'ready' && pendingCommands.length === 0 && health === 'ok' && !previewOutcome.changed) {
+    if (
+      status === 'ready'
+      && pendingCommands.length === 0
+      && health === 'ok'
+      && inFlightCount === 0
+      && !previewOutcome.changed
+    ) {
       return Promise.resolve(extractResult(previewOutcome))
     }
 
@@ -518,7 +549,34 @@ export function createGuestShelfStore(
     pendingCommands = [...pendingCommands, tagged]
     updateSnapshot(true)
 
-    return scheduleFlush(commandEpoch).then(() => extractResult(previewOutcome))
+    return scheduleFlush(commandEpoch).then(() => {
+      const committedOutcome = commandOutcomesById.get(tagged.id)
+      commandOutcomesById.delete(tagged.id)
+      if (disposed) {
+        return canceledResult('disposed')
+      }
+      if (commandEpoch !== epoch) {
+        return canceledResult('cleared')
+      }
+      if (committedOutcome) {
+        return extractResult(committedOutcome)
+      }
+      return extractResult(reduceShelfCommand(committedPayload, command))
+    })
+  }
+
+  function createCanceledActionResult<TAction extends string>(
+    reason: 'disposed' | 'cleared',
+  ): ShelfActionResult<TAction> {
+    return {
+      ok: false,
+      state: reason === 'cleared' ? committedPayload.state : createEmptyShelfState(),
+      error: 'invalidStateShape',
+      message:
+        reason === 'disposed'
+          ? 'Store has been disposed.'
+          : 'Shelf command was canceled because local data was cleared.',
+    }
   }
 
   return {
@@ -544,12 +602,7 @@ export function createGuestShelfStore(
       return dispatchCommand(
         { type: 'select', params },
         outcome => outcome.actionResult as ShelfActionResult<'added' | 'replaced' | 'promotedToProtected'>,
-        () => ({
-          ok: false,
-          state: createEmptyShelfState(),
-          error: 'invalidStateShape',
-          message: 'Store has been disposed.',
-        }),
+        reason => createCanceledActionResult(reason),
       )
     },
 
@@ -560,12 +613,7 @@ export function createGuestShelfStore(
           params: { yearMonth: params.yearMonth, isProtected: true, updatedOn: params.updatedOn },
         },
         outcome => outcome.actionResult as ShelfActionResult<'protectionUpdated'>,
-        () => ({
-          ok: false,
-          state: createEmptyShelfState(),
-          error: 'invalidStateShape',
-          message: 'Store has been disposed.',
-        }),
+        reason => createCanceledActionResult(reason),
       )
     },
 
@@ -576,12 +624,7 @@ export function createGuestShelfStore(
           params: { yearMonth: params.yearMonth, isProtected: false, updatedOn: params.updatedOn },
         },
         outcome => outcome.actionResult as ShelfActionResult<'protectionUpdated'>,
-        () => ({
-          ok: false,
-          state: createEmptyShelfState(),
-          error: 'invalidStateShape',
-          message: 'Store has been disposed.',
-        }),
+        reason => createCanceledActionResult(reason),
       )
     },
 
@@ -589,12 +632,7 @@ export function createGuestShelfStore(
       return dispatchCommand(
         { type: 'setProtection', params },
         outcome => outcome.actionResult as ShelfActionResult<'protectionUpdated'>,
-        () => ({
-          ok: false,
-          state: createEmptyShelfState(),
-          error: 'invalidStateShape',
-          message: 'Store has been disposed.',
-        }),
+        reason => createCanceledActionResult(reason),
       )
     },
 
@@ -602,12 +640,7 @@ export function createGuestShelfStore(
       return dispatchCommand(
         { type: 'putAway', params },
         outcome => outcome.actionResult as ShelfActionResult<'removed' | 'noop'>,
-        () => ({
-          ok: false,
-          state: createEmptyShelfState(),
-          error: 'invalidStateShape',
-          message: 'Store has been disposed.',
-        }),
+        reason => createCanceledActionResult(reason),
       )
     },
 
@@ -615,12 +648,7 @@ export function createGuestShelfStore(
       return dispatchCommand(
         { type: 'setFocus', params },
         outcome => outcome.actionResult as ShelfActionResult<'focusUpdated'>,
-        () => ({
-          ok: false,
-          state: createEmptyShelfState(),
-          error: 'invalidStateShape',
-          message: 'Store has been disposed.',
-        }),
+        reason => createCanceledActionResult(reason),
       )
     },
 
@@ -628,12 +656,7 @@ export function createGuestShelfStore(
       return dispatchCommand(
         { type: 'clearFocus', updatedOn },
         outcome => outcome.actionResult as ShelfActionResult<'focusUpdated'>,
-        () => ({
-          ok: false,
-          state: createEmptyShelfState(),
-          error: 'invalidStateShape',
-          message: 'Store has been disposed.',
-        }),
+        reason => createCanceledActionResult(reason),
       )
     },
 
@@ -641,9 +664,9 @@ export function createGuestShelfStore(
       return dispatchCommand(
         { type: 'monthlyRollover', params },
         outcome => outcome.rolloverResult!,
-        () => ({
+        reason => ({
           ok: false,
-          state: createEmptyShelfState(),
+          state: reason === 'cleared' ? committedPayload.state : createEmptyShelfState(),
           disposition: 'rejectedInvalidMonth',
           endingYearMonth: null,
           admittedEntry: null,
@@ -652,7 +675,10 @@ export function createGuestShelfStore(
             endingYearMonth: null,
             extension: params.resumeExtension,
           }),
-          message: 'Store has been disposed.',
+          message:
+            reason === 'disposed'
+              ? 'Store has been disposed.'
+              : 'Shelf command was canceled because local data was cleared.',
         }),
       )
     },
@@ -661,12 +687,7 @@ export function createGuestShelfStore(
       return dispatchCommand(
         { type: 'applyValidatedState', state, referenceCurrentMonth },
         outcome => outcome.actionResult as ShelfActionResult<'stateApplied'>,
-        () => ({
-          ok: false,
-          state: createEmptyShelfState(),
-          error: 'invalidStateShape',
-          message: 'Store has been disposed.',
-        }),
+        reason => createCanceledActionResult(reason),
       )
     },
 
@@ -690,6 +711,7 @@ export function createGuestShelfStore(
       status = 'ready'
       committedPayload = emptyPersistedShelfPayload()
       pendingCommands = []
+      commandOutcomesById.clear()
       health = 'ok'
       updateSnapshot(true)
 
@@ -735,6 +757,7 @@ export function createGuestShelfStore(
       if (disposed) return
       disposed = true
       activeAbortController.abort()
+      commandOutcomesById.clear()
       listeners.clear()
       unsubscribeExternal?.()
     },
