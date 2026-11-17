@@ -233,7 +233,7 @@ test('early user actions during async hydration queue behind load and replay cle
 })
 
 test('transient write failure retains pending commands and persists on retry', async () => {
-  const { proxy, setFailNextSet } = createCapacitorPreferencesProxyDouble(new Map(), {
+  const { proxy, backing, setFailNextSet } = createCapacitorPreferencesProxyDouble(new Map(), {
     delayMs: 5,
   })
   const store = createPlatformGuestShelfStore({
@@ -244,14 +244,17 @@ test('transient write failure retains pending commands and persists on retry', a
   await store.whenReady()
 
   setFailNextSet(true)
-  await store.select({
+  const pendingResult = await store.select({
     yearMonth: '2026-09',
     referenceCurrentYearMonth: '2026-11',
   })
+  // `ok: true` reflects policy acceptance against the Shelf state; durability is pending retry.
+  assert.equal(pendingResult.ok, true)
 
   const failedSnap = store.getSnapshot()
   assert.equal(failedSnap.health, 'writeFailed')
   assert.equal(failedSnap.hasPendingWrites, true)
+  assert.equal(backing.has(GUEST_SHELF_STORAGE_KEY), false)
   assert.deepEqual(
     failedSnap.state.months.map(m => m.yearMonth),
     ['2026-09'],
@@ -261,6 +264,7 @@ test('transient write failure retains pending commands and persists on retry', a
   const recoveredSnap = store.getSnapshot()
   assert.equal(recoveredSnap.health, 'ok')
   assert.equal(recoveredSnap.hasPendingWrites, false)
+  assert.equal(backing.has(GUEST_SHELF_STORAGE_KEY), true)
   assert.deepEqual(
     recoveredSnap.state.months.map(m => m.yearMonth),
     ['2026-09'],
@@ -309,8 +313,13 @@ test('clearLocalData during pending async write prevents resurrection in memory 
 
   // Now let the stale write promise resolve
   resolveWrite()
-  await Promise.all([writePromise, clearPromise])
+  const [canceledResult] = await Promise.all([writePromise, clearPromise])
 
+  assert.equal(canceledResult.ok, false)
+  if (!canceledResult.ok) {
+    assert.match(canceledResult.message, /canceled/i)
+  }
+  assert.deepEqual(canceledResult.state.months, [])
   assert.deepEqual(store.getSnapshot().state.months, [])
   assert.equal(backing.has(GUEST_SHELF_STORAGE_KEY), false)
   store.dispose()
