@@ -31,6 +31,7 @@ import {
   type CreateShelfPersistenceAdapterOptions,
   type GuestShelfEnvelopeV1,
   type GuestShelfPersistedPayload,
+  type ReduceShelfCommandOutcome,
   type ShelfAdapterClearResult,
   type ShelfAdapterFlushResult,
   type ShelfAdapterLoadResult,
@@ -177,12 +178,7 @@ export function parseShelfEnvelope(
   }
 }
 
-export interface ReduceShelfCommandOutcome {
-  readonly payload: GuestShelfPersistedPayload
-  readonly changed: boolean
-  readonly actionResult?: ShelfActionResult
-  readonly rolloverResult?: RolloverResult
-}
+export type { ReduceShelfCommandOutcome }
 
 export function reduceShelfCommand(
   payload: GuestShelfPersistedPayload,
@@ -373,16 +369,30 @@ export function reduceShelfCommand(
   }
 }
 
+export interface ReplayShelfCommandsResult {
+  readonly payload: GuestShelfPersistedPayload
+  readonly outcomes: readonly ReduceShelfCommandOutcome[]
+}
+
+export function replayShelfCommandsWithOutcomes(
+  base: GuestShelfPersistedPayload,
+  commands: readonly ShelfCommand[],
+): ReplayShelfCommandsResult {
+  let current = base
+  const outcomes: ReduceShelfCommandOutcome[] = []
+  for (const command of commands) {
+    const outcome = reduceShelfCommand(current, command)
+    outcomes.push(outcome)
+    current = outcome.payload
+  }
+  return { payload: current, outcomes }
+}
+
 export function replayShelfCommands(
   base: GuestShelfPersistedPayload,
   commands: readonly ShelfCommand[],
 ): GuestShelfPersistedPayload {
-  let current = base
-  for (const command of commands) {
-    const outcome = reduceShelfCommand(current, command)
-    current = outcome.payload
-  }
-  return current
+  return replayShelfCommandsWithOutcomes(base, commands).payload
 }
 
 export function createShelfEnvelopePersistenceAdapter(
@@ -486,7 +496,7 @@ export function createShelfEnvelopePersistenceAdapter(
     }
 
     const diskBase = currentParsed.payload
-    const nextPayload = replayShelfCommands(diskBase, commands)
+    const { payload: nextPayload, outcomes } = replayShelfCommandsWithOutcomes(diskBase, commands)
     const serialized = serializeShelfEnvelope(nextPayload)
 
     if (rawCurrent === serialized) {
@@ -494,6 +504,7 @@ export function createShelfEnvelopePersistenceAdapter(
         ok: true,
         committedPayload: nextPayload,
         health: 'ok',
+        commandOutcomes: outcomes,
       }
     }
 
@@ -505,6 +516,7 @@ export function createShelfEnvelopePersistenceAdapter(
         ok: false,
         committedPayload: diskBase,
         health: 'writeFailed',
+        commandOutcomes: outcomes,
       }
     }
 
@@ -517,12 +529,14 @@ export function createShelfEnvelopePersistenceAdapter(
             ok: true as const,
             committedPayload: nextPayload,
             health: 'ok' as const,
+            commandOutcomes: outcomes,
           }
         },
         () => ({
           ok: false as const,
           committedPayload: diskBase,
           health: 'writeFailed' as const,
+          commandOutcomes: outcomes,
         }),
       )
     }
@@ -533,6 +547,7 @@ export function createShelfEnvelopePersistenceAdapter(
       ok: true,
       committedPayload: nextPayload,
       health: 'ok',
+      commandOutcomes: outcomes,
     }
   }
 

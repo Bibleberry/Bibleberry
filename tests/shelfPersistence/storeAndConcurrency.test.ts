@@ -416,3 +416,194 @@ test('external change listener refreshes committed state when storage updates ex
   )
   store.dispose()
 })
+
+test('delayed native hydration with full Shelf rejects early select without replaceMonth and returns shelfCapacityExceeded', async () => {
+  const backing = new Map<string, string>()
+  const seedStore = createPlatformGuestShelfStore({
+    isNativePlatform: () => true,
+    nativePreferences: createCapacitorPreferencesProxyDouble(backing).proxy,
+    referenceCurrentMonth: '2026-11',
+  })
+  await seedStore.whenReady()
+  await seedStore.select({ yearMonth: '2026-07', referenceCurrentYearMonth: '2026-11' })
+  await seedStore.select({ yearMonth: '2026-08', referenceCurrentYearMonth: '2026-11' })
+  await seedStore.select({ yearMonth: '2026-09', referenceCurrentYearMonth: '2026-11' })
+  seedStore.dispose()
+
+  const { proxy } = createCapacitorPreferencesProxyDouble(backing, { delayMs: 15 })
+  const store = createPlatformGuestShelfStore({
+    isNativePlatform: () => true,
+    nativePreferences: proxy,
+    referenceCurrentMonth: '2026-11',
+  })
+  assert.equal(store.getSnapshot().status, 'hydrating')
+
+  const selectPromise = store.select({
+    yearMonth: '2026-10',
+    referenceCurrentYearMonth: '2026-11',
+  })
+
+  // Optimistic snapshot still reflects the pending choice while hydrating.
+  assert.deepEqual(
+    store.getSnapshot().state.months.map(m => m.yearMonth),
+    ['2026-10'],
+  )
+  assert.equal(store.getSnapshot().hasPendingWrites, true)
+
+  const result = await selectPromise
+  assert.equal(result.ok, false)
+  if (!result.ok) {
+    assert.equal(result.error, 'shelfCapacityExceeded')
+  }
+  assert.deepEqual(
+    result.state.months.map(m => m.yearMonth),
+    ['2026-07', '2026-08', '2026-09'],
+  )
+
+  const snap = store.getSnapshot()
+  assert.equal(snap.status, 'ready')
+  assert.equal(snap.health, 'ok')
+  assert.equal(snap.hasPendingWrites, false)
+  assert.deepEqual(
+    snap.state.months.map(m => m.yearMonth),
+    ['2026-07', '2026-08', '2026-09'],
+  )
+  store.dispose()
+})
+
+test('delayed native hydration resolves reverse discrepancies (preview rejection or noop becomes committed success)', async () => {
+  const backing = new Map<string, string>()
+  const seedStore = createPlatformGuestShelfStore({
+    isNativePlatform: () => true,
+    nativePreferences: createCapacitorPreferencesProxyDouble(backing).proxy,
+    referenceCurrentMonth: '2026-11',
+  })
+  await seedStore.whenReady()
+  await seedStore.select({ yearMonth: '2026-07', referenceCurrentYearMonth: '2026-11' })
+  await seedStore.select({ yearMonth: '2026-08', referenceCurrentYearMonth: '2026-11' })
+  seedStore.dispose()
+
+  const { proxy } = createCapacitorPreferencesProxyDouble(backing, { delayMs: 15 })
+  const store = createPlatformGuestShelfStore({
+    isNativePlatform: () => true,
+    nativePreferences: proxy,
+    referenceCurrentMonth: '2026-11',
+  })
+  assert.equal(store.getSnapshot().status, 'hydrating')
+
+  // Preview against initial empty Shelf rejects unprotect as monthNotOnShelf and treats putAway as noop.
+  const unprotectPromise = store.unprotect({ yearMonth: '2026-07' })
+  const putAwayPromise = store.putAway('2026-08')
+
+  const [unprotectResult, putAwayResult] = await Promise.all([unprotectPromise, putAwayPromise])
+
+  assert.equal(unprotectResult.ok, true)
+  if (unprotectResult.ok) {
+    assert.equal(unprotectResult.action, 'protectionUpdated')
+  }
+
+  assert.equal(putAwayResult.ok, true)
+  if (putAwayResult.ok) {
+    assert.equal(putAwayResult.action, 'removed')
+  }
+
+  const snap = store.getSnapshot()
+  assert.equal(snap.status, 'ready')
+  assert.equal(snap.health, 'ok')
+  assert.deepEqual(
+    snap.state.months.map(m => ({ yearMonth: m.yearMonth, isProtected: m.isProtected })),
+    [{ yearMonth: '2026-07', isProtected: false }],
+  )
+  store.dispose()
+})
+
+test('commands rebased onto external storage changes return the committed policy outcome', async () => {
+  const backing = new Map<string, string>()
+  let externalListener: (() => void) | undefined
+
+  const driver: KeyValueStorageDriver = {
+    async getItem(key) {
+      await new Promise(resolve => setTimeout(resolve, 10))
+      return backing.get(key) ?? null
+    },
+    async setItem(key, value) {
+      await new Promise(resolve => setTimeout(resolve, 10))
+      backing.set(key, value)
+    },
+    async removeItem(key) {
+      await new Promise(resolve => setTimeout(resolve, 10))
+      backing.delete(key)
+    },
+    onExternalChange: (_key, listener) => {
+      externalListener = listener
+      return () => {
+        externalListener = undefined
+      }
+    },
+  }
+
+  const store = createGuestShelfStore(
+    createShelfEnvelopePersistenceAdapter({ driver, referenceCurrentMonth: '2026-11' }),
+  )
+  await store.whenReady()
+  await store.select({ yearMonth: '2026-07', referenceCurrentYearMonth: '2026-11' })
+  await store.select({ yearMonth: '2026-08', referenceCurrentYearMonth: '2026-11' })
+
+  // External writer adds a third month directly in storage without notifying yet.
+  backing.set(
+    GUEST_SHELF_STORAGE_KEY,
+    JSON.stringify({
+      schemaVersion: 1,
+      state: {
+        months: [
+          { yearMonth: '2026-07', admissionKind: 'readerSelected', isProtected: true },
+          { yearMonth: '2026-08', admissionKind: 'readerSelected', isProtected: true },
+          { yearMonth: '2026-09', admissionKind: 'readerSelected', isProtected: true },
+        ],
+        activeFocusMonth: null,
+      },
+    }),
+  )
+
+  // Preview against 2-month in-memory state would succeed, but flush rebases onto 3-month storage and rejects.
+  const rejectedSelect = await store.select({
+    yearMonth: '2026-10',
+    referenceCurrentYearMonth: '2026-11',
+  })
+  assert.equal(rejectedSelect.ok, false)
+  if (!rejectedSelect.ok) {
+    assert.equal(rejectedSelect.error, 'shelfCapacityExceeded')
+  }
+  assert.deepEqual(
+    store.getSnapshot().state.months.map(m => m.yearMonth),
+    ['2026-07', '2026-08', '2026-09'],
+  )
+
+  // Now simulate external change removing 2026-09 and adding 2026-06, with listener firing before async load completes.
+  backing.set(
+    GUEST_SHELF_STORAGE_KEY,
+    JSON.stringify({
+      schemaVersion: 1,
+      state: {
+        months: [
+          { yearMonth: '2026-07', admissionKind: 'readerSelected', isProtected: true },
+          { yearMonth: '2026-08', admissionKind: 'readerSelected', isProtected: true },
+          { yearMonth: '2026-06', admissionKind: 'readerSelected', isProtected: true },
+        ],
+        activeFocusMonth: null,
+      },
+    }),
+  )
+  externalListener?.()
+
+  // Preview against stale in-memory state would reject 2026-06 as monthNotOnShelf, but queues behind async refresh.
+  const unprotectResult = await store.unprotect({ yearMonth: '2026-06' })
+  assert.equal(unprotectResult.ok, true)
+  if (unprotectResult.ok) {
+    assert.equal(unprotectResult.action, 'protectionUpdated')
+  }
+  const month06 = store.getSnapshot().state.months.find(m => m.yearMonth === '2026-06')
+  assert.equal(month06?.isProtected, false)
+
+  store.dispose()
+})

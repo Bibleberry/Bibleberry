@@ -11,9 +11,11 @@ import type {
   MonthlyRolloverParams,
   PutAwayShelfMonthParams,
   RolloverDisposition,
+  RolloverResult,
   SelectShelfMonthParams,
   SetActiveFocusMonthParams,
   SetShelfMonthProtectionParams,
+  ShelfActionResult,
   ShelfState,
 } from '../shelf/types.ts'
 import type { ShelfValidationDiagnostic } from '../shelf/validation.ts'
@@ -86,6 +88,13 @@ export type ShelfCommand =
       readonly referenceCurrentMonth?: PublicationYearMonth | string
     }
 
+export interface ReduceShelfCommandOutcome {
+  readonly payload: GuestShelfPersistedPayload
+  readonly changed: boolean
+  readonly actionResult?: ShelfActionResult
+  readonly rolloverResult?: RolloverResult
+}
+
 export interface ShelfAdapterLoadResult {
   readonly payload: GuestShelfPersistedPayload
   readonly health: PersistenceHealth
@@ -97,11 +106,13 @@ export type ShelfAdapterFlushResult =
       readonly ok: true
       readonly committedPayload: GuestShelfPersistedPayload
       readonly health: 'ok'
+      readonly commandOutcomes?: readonly ReduceShelfCommandOutcome[]
     }
   | {
       readonly ok: false
       readonly committedPayload: GuestShelfPersistedPayload | null
       readonly health: Exclude<PersistenceHealth, 'ok'>
+      readonly commandOutcomes?: readonly ReduceShelfCommandOutcome[]
     }
 
 export interface ShelfAdapterClearResult {

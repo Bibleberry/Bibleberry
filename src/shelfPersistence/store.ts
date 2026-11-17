@@ -26,9 +26,11 @@ import {
   emptyPersistedShelfPayload,
   reduceShelfCommand,
   replayShelfCommands,
+  replayShelfCommandsWithOutcomes,
 } from './persistence.ts'
 import type {
   GuestShelfPersistedPayload,
+  ReduceShelfCommandOutcome,
   ShelfAdapterClearResult,
   ShelfAdapterFlushResult,
   ShelfAdapterLoadResult,
@@ -176,6 +178,7 @@ export function createGuestShelfStore(
   let nextCommandId = 1
   let activeAbortController = new AbortController()
   let disposed = false
+  const commandOutcomesById = new Map<number, ReduceShelfCommandOutcome>()
 
   const listeners = new Set<() => void>()
 
@@ -369,10 +372,11 @@ export function createGuestShelfStore(
 
         const commandsToFlush = batch.map(entry => entry.command)
         const flushedIds = new Set(batch.map(entry => entry.id))
+        const committedBeforeFlush = committedPayload
 
         let flushOrPromise: MaybePromise<ShelfAdapterFlushResult>
         try {
-          flushOrPromise = adapter.flushCommands(commandsToFlush, committedPayload, signal)
+          flushOrPromise = adapter.flushCommands(commandsToFlush, committedBeforeFlush, signal)
         } catch {
           flushOrPromise = {
             ok: false,
@@ -385,6 +389,20 @@ export function createGuestShelfStore(
           if (disposed || targetEpoch !== epoch) {
             return
           }
+          const outcomeBase = result.ok
+            ? committedBeforeFlush
+            : (result.committedPayload ?? committedBeforeFlush)
+          const outcomes =
+            result.commandOutcomes && result.commandOutcomes.length === batch.length
+              ? result.commandOutcomes
+              : replayShelfCommandsWithOutcomes(outcomeBase, commandsToFlush).outcomes
+
+          for (let i = 0; i < batch.length; i += 1) {
+            const entry = batch[i]!
+            const outcome = outcomes[i]!
+            commandOutcomesById.set(entry.id, outcome)
+          }
+
           if (result.ok) {
             committedPayload = result.committedPayload
             pendingCommands = pendingCommands.filter(entry => !flushedIds.has(entry.id))
@@ -504,7 +522,13 @@ export function createGuestShelfStore(
     }
 
     const previewOutcome = reduceShelfCommand(computeEffectivePayload(), command)
-    if (status === 'ready' && pendingCommands.length === 0 && health === 'ok' && !previewOutcome.changed) {
+    if (
+      status === 'ready'
+      && pendingCommands.length === 0
+      && health === 'ok'
+      && inFlightCount === 0
+      && !previewOutcome.changed
+    ) {
       return Promise.resolve(extractResult(previewOutcome))
     }
 
@@ -518,7 +542,17 @@ export function createGuestShelfStore(
     pendingCommands = [...pendingCommands, tagged]
     updateSnapshot(true)
 
-    return scheduleFlush(commandEpoch).then(() => extractResult(previewOutcome))
+    return scheduleFlush(commandEpoch).then(() => {
+      const committedOutcome = commandOutcomesById.get(tagged.id)
+      commandOutcomesById.delete(tagged.id)
+      if (disposed) {
+        return disposedResult()
+      }
+      if (committedOutcome) {
+        return extractResult(committedOutcome)
+      }
+      return extractResult(reduceShelfCommand(committedPayload, command))
+    })
   }
 
   return {
@@ -690,6 +724,7 @@ export function createGuestShelfStore(
       status = 'ready'
       committedPayload = emptyPersistedShelfPayload()
       pendingCommands = []
+      commandOutcomesById.clear()
       health = 'ok'
       updateSnapshot(true)
 
@@ -735,6 +770,7 @@ export function createGuestShelfStore(
       if (disposed) return
       disposed = true
       activeAbortController.abort()
+      commandOutcomesById.clear()
       listeners.clear()
       unsubscribeExternal?.()
     },
