@@ -22,6 +22,8 @@ export {
   isValidYearMonth,
   formatPublicationMonthHeading,
   deduplicateAndSortMonths,
+  getLibraryMonthShelfStatus,
+  type LibraryMonthShelfStatus,
   type HistoricalLibraryStatus,
   type HistoricalLibraryState,
   type HistoricalLibraryAction,

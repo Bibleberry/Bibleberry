@@ -3,6 +3,7 @@ import type {
   LibraryMonthIndexPage,
   LibraryMonthSummary,
 } from '../../cms/reader/libraryMonthIndexProvider.ts'
+import type { ShelfAdmissionKind, ShelfEntry } from '../../shelf/types.ts'
 
 /**
  * Pure domain and presentation model for the Historical Library Catalogue (R08-2 / Issue #128).
@@ -285,4 +286,39 @@ export function historicalLibraryReducer(
     default:
       return state
   }
+}
+
+export interface LibraryMonthShelfStatus {
+  readonly isOnShelf: boolean
+  readonly admissionKind: ShelfAdmissionKind | null
+  readonly isProtected: boolean
+}
+
+const NOT_ON_SHELF_STATUS: LibraryMonthShelfStatus = Object.freeze({
+  isOnShelf: false,
+  admissionKind: null,
+  isProtected: false,
+})
+
+/**
+ * Resolves the Shelf membership and protection status for a historical Library month.
+ */
+export function getLibraryMonthShelfStatus(
+  yearMonth: string,
+  shelfEntries?: readonly ShelfEntry[],
+): LibraryMonthShelfStatus {
+  if (!shelfEntries || shelfEntries.length === 0 || !isValidYearMonth(yearMonth)) {
+    return NOT_ON_SHELF_STATUS
+  }
+
+  const entry = shelfEntries.find(item => item.yearMonth === yearMonth)
+  if (!entry) {
+    return NOT_ON_SHELF_STATUS
+  }
+
+  return Object.freeze({
+    isOnShelf: true,
+    admissionKind: entry.admissionKind,
+    isProtected: entry.isProtected,
+  })
 }

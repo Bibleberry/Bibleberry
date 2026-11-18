@@ -1,6 +1,10 @@
-import { ArrowLeft, BookOpen, AlertCircle, RefreshCw } from 'lucide-react'
+import { ArrowLeft, BookOpen, AlertCircle, Bookmark, RefreshCw } from 'lucide-react'
+import type { ShelfEntry } from '../../shelf/types.ts'
 import { HistoricalLibraryCard } from './HistoricalLibraryCard.tsx'
-import type { HistoricalLibraryState } from './historicalLibraryModel.ts'
+import {
+  getLibraryMonthShelfStatus,
+  type HistoricalLibraryState,
+} from './historicalLibraryModel.ts'
 
 export interface HistoricalLibraryViewProps {
   readonly state: HistoricalLibraryState
@@ -9,6 +13,12 @@ export interface HistoricalLibraryViewProps {
   readonly onRetry: () => void
   readonly onExit?: () => void
   readonly exitLabel?: string
+  readonly shelfEntries?: readonly ShelfEntry[]
+  readonly selectedMonthYearMonth?: string | null
+  readonly onSelectForShelf?: (yearMonth: string) => void
+  readonly onViewShelf?: () => void
+  readonly shelfMaxCapacity?: number
+  readonly shelfAnnouncement?: string
 }
 
 /**
@@ -28,6 +38,12 @@ export function HistoricalLibraryView({
   onRetry,
   onExit,
   exitLabel = 'Return',
+  shelfEntries,
+  selectedMonthYearMonth = null,
+  onSelectForShelf,
+  onViewShelf,
+  shelfMaxCapacity = 3,
+  shelfAnnouncement = '',
 }: HistoricalLibraryViewProps) {
   const {
     status,
@@ -46,7 +62,9 @@ export function HistoricalLibraryView({
 
   // Screen reader announcement message
   let liveAnnouncement = ''
-  if (isLoadingInitial) {
+  if (shelfAnnouncement) {
+    liveAnnouncement = shelfAnnouncement
+  } else if (isLoadingInitial) {
     liveAnnouncement = 'Loading historical Library catalogue…'
   } else if (isLoadingMore) {
     liveAnnouncement = 'Loading more historical months…'
@@ -58,6 +76,8 @@ export function HistoricalLibraryView({
     liveAnnouncement = `${items.length} historical ${items.length === 1 ? 'month' : 'months'} available.`
   }
 
+  const shelfCount = shelfEntries?.length ?? 0
+
   return (
     <main className="standard-page library-page" role="main" aria-label="Historical Library">
       {/* Hidden live region for screen reader notifications */}
@@ -65,12 +85,30 @@ export function HistoricalLibraryView({
         {liveAnnouncement}
       </div>
 
-      {onExit && (
+      {(onExit || onViewShelf) && (
         <div className="library-topbar">
-          <button type="button" className="back-link library-back-btn" onClick={onExit}>
-            <ArrowLeft size={17} aria-hidden="true" />
-            <span>{exitLabel}</span>
-          </button>
+          {onExit ? (
+            <button type="button" className="back-link library-back-btn" onClick={onExit}>
+              <ArrowLeft size={17} aria-hidden="true" />
+              <span>{exitLabel}</span>
+            </button>
+          ) : (
+            <span />
+          )}
+
+          {onViewShelf && (
+            <button
+              type="button"
+              className="library-shelf-nav-btn"
+              onClick={onViewShelf}
+              aria-label={`View Shelf (${shelfCount} of ${shelfMaxCapacity} months)`}
+            >
+              <Bookmark size={16} aria-hidden="true" />
+              <span>
+                View Shelf ({shelfCount}/{shelfMaxCapacity})
+              </span>
+            </button>
+          )}
         </div>
       )}
 
@@ -201,7 +239,17 @@ export function HistoricalLibraryView({
           <ul className="library-list" aria-label="Historical Months">
             {items.map(item => (
               <li key={item.yearMonth} className="library-list__item">
-                <HistoricalLibraryCard item={item} onOpenMonth={onOpenMonth} />
+                <HistoricalLibraryCard
+                  item={item}
+                  onOpenMonth={onOpenMonth}
+                  shelfStatus={
+                    shelfEntries
+                      ? getLibraryMonthShelfStatus(item.yearMonth, shelfEntries)
+                      : undefined
+                  }
+                  isSelectedContext={selectedMonthYearMonth === item.yearMonth}
+                  onSelectForShelf={onSelectForShelf}
+                />
               </li>
             ))}
           </ul>

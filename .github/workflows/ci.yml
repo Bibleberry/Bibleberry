@@ -58,6 +58,10 @@ jobs:
         if: steps.scope.outputs.should_run == 'true'
         run: npx playwright install chromium
 
+      - name: Run Library-to-Shelf unit and browser coverage
+        if: steps.scope.outputs.should_run == 'true'
+        run: npm run test:library-shelf
+
       - name: Lint application
         if: steps.scope.outputs.should_run == 'true'
         run: npm run lint
