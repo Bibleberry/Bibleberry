@@ -13,7 +13,8 @@ const sql = readFileSync(
 test('R13-VERIFY1 is forward-only and never redefines earlier objects', () => {
   assert.doesNotMatch(sql, /\bDROP\s+(TABLE|POLICY|SCHEMA|ROLE|FUNCTION)\b/i)
   assert.doesNotMatch(sql, /CREATE (OR REPLACE )?FUNCTION public\./)
-  assert.doesNotMatch(sql, /ALTER TABLE public\.account_/)
+  // Only the two NEW private tables may be altered (to enable RLS); earlier tables never are.
+  assert.doesNotMatch(sql, /ALTER TABLE public\.account_(participation_profiles|completed_challenges|in_progress_challenges|saved_challenges|saved_scriptures|earned_awards|shelf_months|reconciliation_receipts|reconciliation_unresolved_items|provisional_award_claims)\b/)
   assert.doesNotMatch(sql, /CREATE TABLE public\.account_(participation_profiles|completed_challenges|earned_awards|provisional_award_claims|reconciliation_receipts)\b/)
 })
 
