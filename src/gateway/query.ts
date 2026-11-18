@@ -403,6 +403,39 @@ export const MONTHLY_DETAIL_BY_ID_GROQ_QUERY = `
 `
 
 /**
+ * INTERNAL, SERVER-ONLY (R13-VERIFY1). Same validated detail projection as
+ * `MONTHLY_DETAIL_BY_ID_GROQ_QUERY` plus `_rev` (bounded version stamp for the admission
+ * attestation) and `rosterFinalization.priorRosters` (historical evidence only). Used solely by
+ * the trusted award verifier with `perspective=published`; never by a public Gateway route.
+ */
+export const TRUSTED_AWARD_VERIFICATION_MONTH_GROQ_QUERY = `
+  *[_type == "monthlyPublication"
+    && !(_id in path("drafts.**"))
+    && !(_id in path("versions.**"))
+    && _id == $monthDocId
+    && yearMonth == $yearMonth
+  ][0] {
+    _rev,${MONTHLY_DETAIL_FIELDS_GROQ.replace(
+      `"rosterFinalization": rosterFinalization{
+      isFinalized,
+      rosterVersion,
+      finalizedAt,
+      finalizedBy,
+      finalizedChallengeIds
+    }`,
+      `"rosterFinalization": rosterFinalization{
+      isFinalized,
+      rosterVersion,
+      finalizedAt,
+      finalizedBy,
+      finalizedChallengeIds,
+      "priorRosters": priorRosters[]{ rosterVersion, finalizedChallengeIds, supersededAt }
+    }`,
+    )}
+  }
+`
+
+/**
  * Parameterized GROQ query for bounded, newest-first historical Library month index candidates.
  * Projects the full validation fields so the gateway can re-verify publication, review, slot,
  * and roster invariants fail-closed before projecting minimal reader-safe Library summaries.
