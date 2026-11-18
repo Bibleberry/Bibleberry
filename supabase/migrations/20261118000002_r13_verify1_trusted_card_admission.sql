@@ -264,6 +264,9 @@ END
 $$;
 
 -- 3c. Record why a still-pending claim was deferred. Never touches the claim or any award.
+--     Serialized with admission (and TX1 reconciliation) on the SAME per-account advisory lock
+--     BEFORE the claim-existence check, so a deferral can never race an admission that deletes
+--     the claim (review of PR #209). A claim resolved meanwhile yields `noPendingClaim`.
 CREATE FUNCTION account_issuance.record_verification_deferral(
   p_account_id uuid, p_award_id text, p_reason text, p_roster_version integer DEFAULT NULL
 )
@@ -272,9 +275,14 @@ LANGUAGE plpgsql
 VOLATILE
 SECURITY DEFINER
 SET search_path = ''
+SET lock_timeout = '5s'
 SET bibleberry.award_issuance_account TO ''
 AS $$
 BEGIN
+  IF p_account_id IS NULL OR p_award_id IS NULL THEN
+    RETURN jsonb_build_object('status', 'noPendingClaim');
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtextextended('bibleberry:account_reconcile:' || p_account_id::text, 0));
   IF NOT EXISTS (SELECT 1 FROM public.account_provisional_award_claims
                   WHERE account_id = p_account_id AND award_id = p_award_id) THEN
     RETURN jsonb_build_object('status', 'noPendingClaim');
@@ -289,8 +297,12 @@ BEGIN
           roster_version = EXCLUDED.roster_version,
           attempt_count = a.attempt_count + 1,
           last_attempt_at = EXCLUDED.last_attempt_at;
-  EXCEPTION WHEN check_violation THEN
-    RETURN jsonb_build_object('status', 'rejected', 'detail', 'invalidDeferralReason');
+  EXCEPTION
+    WHEN check_violation THEN
+      RETURN jsonb_build_object('status', 'rejected', 'detail', 'invalidDeferralReason');
+    -- Backstop (e.g. a caller outside READ COMMITTED): the claim vanished under us.
+    WHEN foreign_key_violation THEN
+      RETURN jsonb_build_object('status', 'noPendingClaim');
   END;
   RETURN jsonb_build_object('status', 'deferred', 'reason', p_reason);
 END

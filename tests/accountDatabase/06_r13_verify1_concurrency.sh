@@ -14,6 +14,8 @@ K3='f3000000-0000-4000-8000-0000000000f3'
 K4A='f4a00000-0000-4000-8000-000000000f4a'
 K4B='f4b00000-0000-4000-8000-000000000f4b'
 K4C='f4c00000-0000-4000-8000-000000000f4c'
+K5='f5000000-0000-4000-8000-0000000000f5'
+K6='f6000000-0000-4000-8000-0000000000f6'
 
 admin() { psql "$URL" -XAtq -v ON_ERROR_STOP=1 -c "$1"; }
 fail() { echo "ASSERTION FAILED: $1" >&2; exit 1; }
@@ -59,7 +61,7 @@ gated_admit() {
 
 rev() { admin "SELECT revision FROM public.account_participation_profiles WHERE account_id = '$1'"; }
 
-admin "INSERT INTO auth.users (id) VALUES ('$K1'), ('$K2'), ('$K3'), ('$K4A'), ('$K4B'), ('$K4C') ON CONFLICT DO NOTHING"
+admin "INSERT INTO auth.users (id) VALUES ('$K1'), ('$K2'), ('$K3'), ('$K4A'), ('$K4B'), ('$K4C'), ('$K5'), ('$K6') ON CONFLICT DO NOTHING"
 
 # K1. Six verifier workers admit the same claim at once: exactly one admission.
 [[ "$(claim "$K1" k1-claim 0 hope)" == committed ]] || fail "K1 claim"
@@ -137,5 +139,59 @@ wait
 [[ "$(admin "SELECT count(DISTINCT account_id) FROM public.account_earned_awards WHERE account_id IN ('$K4A','$K4B','$K4C')")" -eq 3 ]] || fail "K4 isolation"
 ok "K4 parallel admissions for three accounts are isolated and all succeed"
 
-admin "DELETE FROM auth.users WHERE id IN ('$K1','$K2','$K3','$K4A','$K4B','$K4C')"
+# K5. Review of PR #209: admission commits while a deferral for the SAME claim is in flight.
+#     Session 1 admits and holds its transaction open; the deferral must wait for the per-account
+#     lock, then see the claim already resolved (noPendingClaim) -- never an uncaught FK error that
+#     would abort a verification pass, and never an orphan attempt row.
+[[ "$(claim "$K5" k5-claim 0 hope)" == committed ]] || fail "K5 claim"
+(
+  psql "$URL" -XAtq -v ON_ERROR_STOP=1 <<SQL > "$WORK_DIR/k5-s1"
+BEGIN;
+SET LOCAL ROLE account_award_verifier;
+SELECT account_issuance.admit_verified_award('$(attestation "$K5" hope)'::jsonb)->>'status';
+SELECT pg_sleep(2);
+COMMIT;
+SQL
+) &
+S1=$!
+sleep 0.5
+START=$(date +%s%N)
+K5_DEFER="$(psql "$URL" -XAtq -v ON_ERROR_STOP=1 \
+  -c "SET ROLE account_award_verifier" \
+  -c "SELECT account_issuance.record_verification_deferral('$K5'::uuid, 'card:monthly:2026-10:hope', 'cardNotApproved', 1)->>'status'" 2>&1 | tail -n 1 || true)"
+ELAPSED=$(( ($(date +%s%N) - START) / 1000000 ))
+wait "$S1"
+grep -qx admitted "$WORK_DIR/k5-s1" || fail "K5 admission should commit: $(cat "$WORK_DIR/k5-s1")"
+[[ "$K5_DEFER" == noPendingClaim ]] || fail "K5 deferral racing admission must return noPendingClaim, got: $K5_DEFER"
+(( ELAPSED >= 1200 )) || fail "K5 deferral returned after ${ELAPSED}ms; it must serialize on the per-account lock"
+[[ "$(admin "SELECT count(*) FROM public.account_award_verification_attempts WHERE account_id = '$K5'")" -eq 0 ]] || fail "K5 orphan attempt row"
+[[ "$(admin "SELECT count(*) FROM public.account_earned_awards WHERE account_id = '$K5'")" -eq 1 ]] || fail "K5 award lost"
+ok "K5 deferral racing a committing admission waited ${ELAPSED}ms, returned noPendingClaim, no orphan attempt"
+
+# K6. Reverse order: the deferral holds its transaction open; the admission must wait, then admit,
+#     and the attempt row is resolved with the claim (no stale deferral left behind).
+[[ "$(claim "$K6" k6-claim 0 hope)" == committed ]] || fail "K6 claim"
+(
+  psql "$URL" -XAtq -v ON_ERROR_STOP=1 <<SQL > "$WORK_DIR/k6-s1"
+BEGIN;
+SET LOCAL ROLE account_award_verifier;
+SELECT account_issuance.record_verification_deferral('$K6'::uuid, 'card:monthly:2026-10:hope', 'cardNotApproved', 1)->>'status';
+SELECT pg_sleep(2);
+COMMIT;
+SQL
+) &
+S1=$!
+sleep 0.5
+START=$(date +%s%N)
+K6_ADMIT="$(admit "$K6" hope)"
+ELAPSED=$(( ($(date +%s%N) - START) / 1000000 ))
+wait "$S1"
+grep -qx deferred "$WORK_DIR/k6-s1" || fail "K6 deferral should commit: $(cat "$WORK_DIR/k6-s1")"
+[[ "$K6_ADMIT" == admitted ]] || fail "K6 admission after deferral should admit, got: $K6_ADMIT"
+(( ELAPSED >= 1200 )) || fail "K6 admission returned after ${ELAPSED}ms; it must serialize on the per-account lock"
+[[ "$(admin "SELECT count(*) FROM public.account_award_verification_attempts WHERE account_id = '$K6'")" -eq 0 ]] || fail "K6 stale attempt row"
+[[ "$(admin "SELECT count(*) FROM public.account_provisional_award_claims WHERE account_id = '$K6'")" -eq 0 ]] || fail "K6 stale claim"
+ok "K6 admission waited ${ELAPSED}ms behind an in-flight deferral, then admitted and cleared the attempt row"
+
+admin "DELETE FROM auth.users WHERE id IN ('$K1','$K2','$K3','$K4A','$K4B','$K4C','$K5','$K6')"
 echo "R13-VERIFY1 concurrency suite: all assertions passed."
