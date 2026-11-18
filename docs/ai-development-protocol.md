@@ -65,6 +65,19 @@ AI engineering assignments must be designed for reliable delivery as well as cor
 
 A code milestone is not considered delivered solely because local implementation and tests succeeded. **Recoverability and verifiable delivery are engineering acceptance criteria.**
 
+## 2B. Issue Identity, Agent Assignment & Handoff
+
+These rules are mandatory for every model, coding agent, reviewer and Checks/Merge handoff. The GitHub Issue is the durable identity and ownership record; chat titles, PRs and this register are indexes, not alternate task authorities.
+
+- **Name the Issue first.** Use `I-<GitHub issue number>` (for example, `I-214`) as the human-facing task designator and link the originating Issue directly in every PR/Issue assignment or handoff. New single-Issue chat/session titles and PR titles use `I-214 | Save Scripture Integration | Copilot` and `I-214 | Save Scripture Integration`. Multi-Issue coordinating sessions such as Review or Checks and Merge need not claim one Issue; identify each Issue in its individual records.
+- **Use one Issue-bearing branch for new work.** For example, `feat/issue-214-save-scripture` or `docs/issue-222-agent-identity`. This is a forward-looking convention: do not rename active branches or rewrite history just to conform.
+- **Identify the PR relationship accurately.** The PR title and body include the originating Issue ID and task name, with a direct Issue link. Use `Refs #N` for partial work; use `Fixes #N` only when all acceptance criteria are met and the PR is intended to close the Issue. A Draft or placeholder PR must not claim completion.
+- **Keep the assignment record on its Issue.** Store or update a concise structured block in the originating Issue (or one pinned-style handoff comment when editing the body is inappropriate): `Issue ID | task name | assigned agent | agent chat/session link or not available | PR # | branch | pushed HEAD SHA | status | next responsible party/action | last verified date`. Mark unknown information as unknown; never invent links or evidence. There is one active implementing owner per Issue; other agents may review independently.
+- **Perform preflight before changing branches or files.** Verify the Issue number/title, assignee and ownership, current branch, PR head/base and pushed SHA, approved scope, and conflicting active assignments. If any identity or scope conflicts, stop and report the exact mismatch to Aaron; do not guess, switch Issues silently, or make changes. An instruction for another Issue requires explicit reassignment and verification of its correct branch before work resumes.
+- **Use explicit handoffs.** Start every agent review, fix, or status summary with `I-N | Task | PR #N | SHA <pushed SHA> | Agent <name> | Verdict/next action: <action>`. Link the Issue and PR, identify the next responsible person, and list commands actually run and their results; label missing checks or unverified claims as not run/unverified. Implementation, independent review, CI/Checks, and Aaron's merge decision are separate: review is not a CI pass, CI is not approval, and no agent merges without Aaron's authorization.
+- **Record ownership transfers before resuming.** The Issue must state who hands off to whom, the next action, and retained prior agent/session links when available. The incoming agent repeats preflight; a chat handoff alone does not transfer ownership.
+- **Coordinate shared files.** Parallel work on separate Issues is allowed only when files/worktrees do not conflict. Sequence integrations that touch `src/App.tsx` as their Issues require; do not make competing edits concurrently.
+
 ## 3. Scope Control
 
 - Implement only the approved requirements.
