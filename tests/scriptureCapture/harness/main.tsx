@@ -92,7 +92,7 @@ function createCorruptHarnessStore() {
   )
 }
 
-function HarnessApp() {
+export function HarnessApp() {
   const mode = new URLSearchParams(window.location.search).get('mode') ?? 'default'
 
   const setup = useMemo(() => {
