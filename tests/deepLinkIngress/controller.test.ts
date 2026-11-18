@@ -260,3 +260,85 @@ test('cancels superseded in-flight authorization (latest-wins) and handles unava
   assert.equal(controller.getState().phase, 'unavailable')
   assert.equal(controller.getState().activeDestination, null)
 })
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>(done => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
+
+function makeControllerOptions(source: ExternalDeepLinkSourceAdapter, onNavigate: (outcome: DeepLinkNavigatedOutcome) => void) {
+  const { challengeProvider, monthProvider } = makeFakeProviders()
+  return {
+    policy: { allowedHttpsHosts: ['reader.example.test'] },
+    destinationOptions: {
+      monthScreenEnabled: true,
+      releasedChallengeRouteEnabled: true,
+      currentYearMonth: '2026-11',
+    },
+    source,
+    monthProvider,
+    challengeProvider,
+    onNavigate,
+  }
+}
+
+test('a delayed cold-start URL cannot replace a newer resumed-session URL', async () => {
+  const initial = deferred<string | null>()
+  let listener: ((url: string) => void) | null = null
+  const source: ExternalDeepLinkSourceAdapter = {
+    getInitialUrl: () => initial.promise,
+    subscribeUrlOpen(callback) {
+      listener = callback
+      return () => { listener = null }
+    },
+  }
+  const navigated: DeepLinkNavigatedOutcome[] = []
+  const controller = createDeepLinkIngressController(makeControllerOptions(source, result => navigated.push(result)))
+
+  const startup = controller.start()
+  assert.ok(listener)
+  listener('https://reader.example.test/challenge/rejoice-always?origin=hub')
+  await new Promise(resolve => setTimeout(resolve, 10))
+  assert.equal(navigated.length, 1)
+
+  initial.resolve('https://reader.example.test/challenge/future-challenge?origin=hub')
+  assert.equal(await startup, null)
+  assert.equal(navigated.length, 1)
+  assert.deepEqual(controller.getState().activeDestination, {
+    type: 'releasedChallenge',
+    slug: 'rejoice-always',
+    origin: { kind: 'hub' },
+  })
+})
+
+test('a pending cold start from before stop/restart cannot enter the new lifecycle', async () => {
+  const oldInitial = deferred<string | null>()
+  const newInitial = deferred<string | null>()
+  let calls = 0
+  const source: ExternalDeepLinkSourceAdapter = {
+    getInitialUrl() {
+      calls += 1
+      return calls === 1 ? oldInitial.promise : newInitial.promise
+    },
+  }
+  const navigated: DeepLinkNavigatedOutcome[] = []
+  const controller = createDeepLinkIngressController(makeControllerOptions(source, result => navigated.push(result)))
+
+  const oldStartup = controller.start()
+  controller.stop()
+  const newStartup = controller.start()
+  oldInitial.resolve('https://reader.example.test/challenge/future-challenge?origin=hub')
+  assert.equal(await oldStartup, null)
+
+  newInitial.resolve('https://reader.example.test/challenge/rejoice-always?origin=hub')
+  const newResult = await newStartup
+  assert.equal(newResult?.status, 'navigated')
+  assert.equal(navigated.length, 1)
+  assert.equal(navigated[0]?.destination.type, 'releasedChallenge')
+  if (navigated[0]?.destination.type === 'releasedChallenge') {
+    assert.equal(navigated[0].destination.slug, 'rejoice-always')
+  }
+})

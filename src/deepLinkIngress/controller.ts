@@ -27,6 +27,7 @@ export function createDeepLinkIngressController(
   const now = options.now ?? (() => Date.now())
 
   let started = false
+  let lifecycleGeneration = 0
   let unsubscribeUrlOpen: (() => void) | null = null
   let inFlightAbortController: AbortController | null = null
   let inFlightKey: string | null = null
@@ -189,6 +190,8 @@ export function createDeepLinkIngressController(
       return null
     }
     started = true
+    const startGeneration = ++lifecycleGeneration
+    const startRequestSequence = requestSequence
     state = {
       ...state,
       started: true,
@@ -211,7 +214,13 @@ export function createDeepLinkIngressController(
       return null
     }
 
-    if (!started || typeof initialUrl !== 'string' || initialUrl.length === 0) {
+    if (
+      !started ||
+      lifecycleGeneration !== startGeneration ||
+      requestSequence !== startRequestSequence ||
+      typeof initialUrl !== 'string' ||
+      initialUrl.length === 0
+    ) {
       return null
     }
 
@@ -221,6 +230,7 @@ export function createDeepLinkIngressController(
   function stop(): void {
     if (!started) return
     started = false
+    lifecycleGeneration += 1
     requestSequence += 1
 
     if (unsubscribeUrlOpen) {

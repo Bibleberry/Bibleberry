@@ -30,6 +30,14 @@ const ALLOWED_CHALLENGE_QUERY_KEYS = new Set(['origin', 'yearMonth'])
 const ALLOWED_ORIGINS = new Set(['hub', 'month', 'shelf', 'library'])
 const ENCODED_TRICK_PATTERN = /%(?:2e|2f|5c|00|25)/i
 
+function getDestinationOptions(options: ExternalDeepLinkParseOptions) {
+  return {
+    monthScreenEnabled: options.monthScreenEnabled,
+    releasedChallengeRouteEnabled: options.releasedChallengeRouteEnabled,
+    currentYearMonth: options.currentYearMonth,
+  }
+}
+
 interface NormalizedPolicy {
   readonly allowedHttpsHosts: ReadonlySet<string>
   readonly allowedCustomSchemes: ReadonlySet<string>
@@ -258,7 +266,7 @@ export function parseExternalDeepLink(
     if (!options.monthScreenEnabled) {
       return reject(rawUrl, 'featureDisabled')
     }
-    const destination = parseInternalDestination('#/month', options)
+    const destination = parseInternalDestination('#/month', getDestinationOptions(options))
     if (!destination) {
       return reject(rawUrl, 'invalidMonth')
     }
@@ -291,7 +299,10 @@ export function parseExternalDeepLink(
     if (!options.monthScreenEnabled) {
       return reject(rawUrl, 'featureDisabled')
     }
-    const destination = parseInternalDestination(`#/month/${yearMonth}`, options)
+    const destination = parseInternalDestination(
+      `#/month/${yearMonth}`,
+      getDestinationOptions(options),
+    )
     if (!destination) {
       return reject(rawUrl, 'invalidMonth')
     }
@@ -337,7 +348,7 @@ export function parseExternalDeepLink(
       return reject(rawUrl, 'invalidChallengeSlug')
     }
 
-    const destination = parseInternalDestination(candidateHash, options)
+    const destination = parseInternalDestination(candidateHash, getDestinationOptions(options))
     if (!destination || destination.type !== 'releasedChallenge') {
       return reject(rawUrl, 'featureDisabled')
     }

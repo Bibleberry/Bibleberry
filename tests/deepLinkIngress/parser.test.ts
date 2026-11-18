@@ -90,6 +90,26 @@ test('parses authorized Challenge links and preserves valid ChallengeOrigin cont
   })
 })
 
+test('external URL origin takes precedence over conflicting ambient destination options', () => {
+  const result = parseExternalDeepLink(
+    'https://reader.example.test/challenge/rejoice-always?origin=month&yearMonth=2026-11',
+    {
+      ...baseOptions,
+      challengeOrigin: { kind: 'shelf' },
+      search: '?origin=library&yearMonth=2026-10',
+    },
+  )
+
+  assert.equal(result.status, 'parsed')
+  if (result.status !== 'parsed') return
+  assert.deepEqual(result.destination.origin, { kind: 'month', yearMonth: '2026-11' })
+  assert.equal(
+    result.internalHash,
+    '#/challenge/rejoice-always?origin=month&yearMonth=2026-11',
+  )
+  assert.deepEqual(result.origin, result.destination.origin)
+})
+
 test('supports explicit custom-scheme host allowlist when configured', () => {
   const scopedOptions: ExternalDeepLinkParseOptions = {
     ...baseOptions,
