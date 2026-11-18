@@ -191,7 +191,9 @@ function LibraryShelfHarnessApp() {
     () => ({
       async loadHistoricalMonths(options = {}) {
         setFetchCount(c => c + 1)
-        if (scenario === 'delayed-library' || scenario === 'delayed-more') {
+        if (scenario === 'implicit-calendar') {
+          await new Promise(resolve => window.setTimeout(resolve, 500))
+        } else if (scenario === 'delayed-library' || scenario === 'delayed-more') {
           await new Promise(resolve => window.setTimeout(resolve, 1000))
         }
         const serverContext = {

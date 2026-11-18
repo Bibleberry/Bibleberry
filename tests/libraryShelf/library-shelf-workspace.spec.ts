@@ -290,6 +290,9 @@ test.describe('Phase 05 / R08: Standalone Library-to-Shelf Workspace', () => {
     await expect(page.locator('.shelf-card[data-year-month="2026-10"]')).toBeVisible()
     await page.getByRole('button', { name: /Open October 2026/ }).click()
     await expect(page.getByTestId('opened-months')).toHaveText('[]')
+    await expect(page.getByRole('alert')).toContainText(
+      'Month 2026-10 is no longer available in the authorized historical Library catalogue.',
+    )
   })
 
   test('keyboard navigation and Escape dismissal in replacement dialog', async ({ page }) => {
