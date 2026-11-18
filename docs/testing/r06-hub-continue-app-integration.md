@@ -2,7 +2,7 @@
 
 ## Result and current gate
 
-`src/appIntegration/hubContinueInput.ts` adapts already validated app-store/provider results into the existing Hub Continue input. It returns `null` unless participation and Shelf stores are hydrated and healthy, the released catalog is a successful gateway result, and every active-focus/Shelf month has a matching successful gateway detail response with consistent authoritative local date and timezone. Catalog failures, missing month details, inconsistent server context, and stale catalog identities therefore cannot enable a recommendation through this seam.
+`src/appIntegration/hubContinueInput.ts` adapts already validated app-store/provider results into the existing Hub Continue input. It returns `null` unless participation and Shelf stores are hydrated and healthy, the released catalog is a successful gateway result, and every active-focus/Shelf month has a matching successful gateway detail response with the exact same authoritative local date and timezone. Catalog failures, missing month details, inconsistent server context, and stale catalog identities therefore cannot enable a recommendation through this seam.
 
 The ordinary `src/App.tsx` shell is intentionally **not wired** to `HubContinueBoundary` in this change. Its current Today view does not yet subscribe to the Shelf store or load authorized historical month details and the released catalog together. The related App-touching assignments in PRs #218 and #219 are open; this smaller adapter avoids overlapping their `App.tsx` work, as required by the assignment sequence. No live Continue suggestion is claimed.
 
@@ -18,6 +18,6 @@ After the preceding `App.tsx` slices have been completed and integrated sequenti
 
 ## Verification coverage
 
-- `tests/hubContinue/hubContinueAppInput.test.ts` exercises a permitted suggestion, loading/unavailable stores and providers, mismatched/stale data, and separation of deliberate Shelf focus from incidental Library activity.
+- `tests/hubContinue/hubContinueAppInput.test.ts` exercises a permitted suggestion, loading/unavailable stores and providers, mismatched/stale data (including different gateway dates within the same month), and separation of deliberate Shelf focus from incidental Library activity.
 - `tests/hubContinue/hubContinueEngine.test.ts` remains the engine-level priority, availability, and authorization regression suite.
 - `tests/hubContinue/hub-continue.spec.ts` remains the standalone presentation test for keyboard activation and narrow mobile layout. It does not claim ordinary `App.tsx` navigation coverage.

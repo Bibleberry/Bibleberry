@@ -15,26 +15,31 @@ const yearMonth = (value: string) => value as PublicationYearMonth
 const localDate = (value: string) => value as LocalCalendarDate
 const cmsId = (baseId: string) => `cms:${baseId}` as CanonicalChallengeId
 
-function makeSlot(day: number, baseId: string): MonthSlot {
-  const date = `2026-10-${String(day).padStart(2, '0')}`
+function makeSlot(day: number, baseId: string, month = '10'): MonthSlot {
+  const date = `2026-${month}-${String(day).padStart(2, '0')}`
+  const monthSlug = month === '10' ? 'october' : month
   return {
     dayOfMonth: day,
     date,
     availability: 'available',
     title: `Day ${day} Teaching`,
-    slug: `october-${day}`,
+    slug: `${monthSlug}-${day}`,
     challengeId: baseId,
     challengeType: 'teaching',
   }
 }
 
-function makeMonthDetail(slots: readonly MonthSlot[]): MonthDetailData {
+function makeMonthDetail(
+  slots: readonly MonthSlot[],
+  yearMonth = '2026-10',
+): MonthDetailData {
+  const [year, month] = yearMonth.split('-').map(Number)
   return {
-    monthId: '2026-10',
-    documentId: 'month-2026-10',
-    year: 2026,
-    month: 10,
-    daysInMonth: 31,
+    monthId: yearMonth,
+    documentId: `month-${yearMonth}`,
+    year,
+    month,
+    daysInMonth: 30,
     phase: 'historical',
     rosterVersion: 1,
     totalChallenges: slots.length,
@@ -166,6 +171,57 @@ describe('createHubContinueAppInput', () => {
       }),
       null,
     )
+  })
+
+  it('requires exact authorized local date and timezone across all focused and Shelf month details', () => {
+    const sources = makeSources()
+    const shelfState: ShelfState = {
+      ...sources.shelf!.state,
+      months: [
+        ...sources.shelf!.state.months,
+        { yearMonth: yearMonth('2026-09'), admissionKind: 'readerSelected', isProtected: true },
+      ],
+    }
+    const octoberResult = sources.monthDetailsByYearMonth!.get('2026-10')!
+    const septemberResult: MonthDetailResult = {
+      status: 'ready',
+      month: makeMonthDetail([makeSlot(1, 'sep-1', '09')], '2026-09'),
+      serverContext: {
+        authorizedLocalDate: '2026-11-18',
+        effectiveTimeZone: 'America/New_York',
+      },
+      source: 'gateway',
+    }
+
+    const matchingContext = createHubContinueAppInput({
+      ...sources,
+      shelf: { ...sources.shelf!, state: shelfState },
+      monthDetailsByYearMonth: new Map([
+        ['2026-10', octoberResult],
+        ['2026-09', septemberResult],
+      ]),
+    })
+    assert.ok(matchingContext)
+    assert.equal(matchingContext.referenceCurrentYearMonth, '2026-11')
+
+    const staleSameMonthContext = createHubContinueAppInput({
+      ...sources,
+      shelf: { ...sources.shelf!, state: shelfState },
+      monthDetailsByYearMonth: new Map([
+        ['2026-10', octoberResult],
+        [
+          '2026-09',
+          {
+            ...septemberResult,
+            serverContext: {
+              authorizedLocalDate: '2026-11-01',
+              effectiveTimeZone: 'America/New_York',
+            },
+          },
+        ],
+      ]),
+    })
+    assert.equal(staleSameMonthContext, null)
   })
 
   it('does not turn a stale or unauthorized catalog slot into a suggestion', () => {

@@ -52,6 +52,7 @@ export function createHubContinueAppInput(
 
   const authorizedMonthDetails = new Map<string, MonthDetailData>()
   let referenceCurrentYearMonth: string | null = null
+  let referenceAuthorizedLocalDate: string | null = null
   let referenceTimeZone: string | null = null
 
   for (const yearMonth of requiredMonths) {
@@ -71,12 +72,14 @@ export function createHubContinueAppInput(
     const resultReferenceMonth = authorizedDate.slice(0, 7)
     if (
       (referenceCurrentYearMonth !== null && referenceCurrentYearMonth !== resultReferenceMonth) ||
+      (referenceAuthorizedLocalDate !== null && referenceAuthorizedLocalDate !== authorizedDate) ||
       (referenceTimeZone !== null && referenceTimeZone !== effectiveTimeZone)
     ) {
       return null
     }
 
     referenceCurrentYearMonth = resultReferenceMonth
+    referenceAuthorizedLocalDate = authorizedDate
     referenceTimeZone = effectiveTimeZone
     authorizedMonthDetails.set(yearMonth, result.month)
   }
