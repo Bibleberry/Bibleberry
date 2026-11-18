@@ -10,24 +10,33 @@ import type {
 } from '../participation/types.ts'
 import type { CardShareEligibilityResult, CardShareInput } from './types.ts'
 
-const RESTRICTED_RIGHTS_PATTERNS: readonly RegExp[] = [
-  /\bunverified\b/i,
-  /\brestricted\b/i,
-  /\bnot[- ]approved\b/i,
-  /\bdo[- ]not[- ]share\b/i,
-  /\bno[- ]share\b/i,
-  /\bprohibited\b/i,
-  /\brevoked\b/i,
-  /\bexpired\b/i,
-  /\bsynthetic\b/i,
-  /\btest[- ]only\b/i,
-  /\btest placeholder\b/i,
-]
+/**
+ * Explicit allowlist of normalized `rightsStatus` values that prove export/share rights
+ * clearance for earned Scripture Cards (R14-9). Any unknown, pending, unverified,
+ * restricted, synthetic, or ambiguous status fails closed.
+ */
+const APPROVED_RIGHTS_STATUSES = new Set<string>([
+  'approved-ministry-use',
+  'ministry-owned-original-illustration',
+  'ministry-owned',
+  'cleared-for-export',
+  'approved-for-export',
+  'rights-cleared',
+  'public-domain',
+])
+
+function normalizeRightsStatus(rightsStatus: string): string {
+  return rightsStatus
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, '-')
+    .replace(/-+/g, '-')
+}
 
 export function isRightsStatusShareable(rightsStatus: string): boolean {
-  const normalized = rightsStatus.trim()
+  const normalized = normalizeRightsStatus(rightsStatus)
   if (!normalized) return false
-  return !RESTRICTED_RIGHTS_PATTERNS.some(pattern => pattern.test(normalized))
+  return APPROVED_RIGHTS_STATUSES.has(normalized)
 }
 
 function hasCompleteCardContent(card: EarnedScriptureCardSnapshot): boolean {
@@ -47,11 +56,26 @@ function isMatchingStoredAward(
   stored: EarnedAwardRecord | undefined,
 ): boolean {
   if (!stored) return false
+  if (
+    stored.awardId !== award.awardId
+    || stored.kind !== award.kind
+    || stored.publicationYearMonth !== award.publicationYearMonth
+    || stored.discoveryId !== award.discoveryId
+    || stored.earnedOn !== award.earnedOn
+    || stored.cardDocumentId !== award.cardDocumentId
+  ) {
+    return false
+  }
+  if (!stored.earnedCard || !award.earnedCard) {
+    return false
+  }
   return (
-    stored.awardId === award.awardId
-    && stored.publicationYearMonth === award.publicationYearMonth
-    && stored.discoveryId === award.discoveryId
-    && stored.earnedOn === award.earnedOn
+    stored.earnedCard.cardDocumentId === award.earnedCard.cardDocumentId
+    && stored.earnedCard.imageUrl === award.earnedCard.imageUrl
+    && stored.earnedCard.accessibleTranscription === award.earnedCard.accessibleTranscription
+    && stored.earnedCard.attribution === award.earnedCard.attribution
+    && stored.earnedCard.rightsStatus === award.earnedCard.rightsStatus
+    && stored.earnedCard.shareEligible === award.earnedCard.shareEligible
   )
 }
 
@@ -86,14 +110,25 @@ export function evaluateCardShareEligibility(
     }
   }
 
-  if (participationData !== undefined) {
-    const storedAward = participationData.earnedAwards[canonicalAwardId]
-    if (!isMatchingStoredAward(award, storedAward)) {
-      return {
-        eligible: false,
-        code: 'not-earned',
-        message: 'Only Scripture Cards recorded in your earned collection can be shared.',
-      }
+  if (
+    !participationData
+    || typeof participationData !== 'object'
+    || !participationData.earnedAwards
+    || typeof participationData.earnedAwards !== 'object'
+  ) {
+    return {
+      eligible: false,
+      code: 'not-earned',
+      message: 'Only Scripture Cards recorded in your earned collection can be shared.',
+    }
+  }
+
+  const storedAward = participationData.earnedAwards[canonicalAwardId]
+  if (!isMatchingStoredAward(award, storedAward)) {
+    return {
+      eligible: false,
+      code: 'not-earned',
+      message: 'Only Scripture Cards recorded in your earned collection can be shared.',
     }
   }
 

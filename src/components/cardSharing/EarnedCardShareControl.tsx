@@ -11,7 +11,7 @@ import './earnedCardShareControl.css'
 
 export interface EarnedCardShareControlProps {
   readonly award: EarnedAwardRecord
-  readonly participationData?: ReaderParticipationData
+  readonly participationData: ReaderParticipationData
   readonly shareService?: CardSharingService
   readonly onShareComplete?: (outcome: CardShareOutcome) => void
   readonly className?: string

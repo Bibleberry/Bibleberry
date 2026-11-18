@@ -80,6 +80,9 @@ export function CardSharingTestHarness() {
         <button type="button" onClick={() => void seedCard({ rightsStatus: 'Unverified' })}>
           Seed unverified-rights card
         </button>
+        <button type="button" onClick={() => void seedCard({ rightsStatus: 'pending editorial clearance' })}>
+          Seed pending-rights card
+        </button>
       </div>
 
       {award && (

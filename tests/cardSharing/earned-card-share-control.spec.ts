@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createServer, type ViteDevServer } from 'vite'
@@ -171,8 +172,22 @@ test.describe('Earned Scripture Card sharing control and canvas export', () => {
 
     expect(download.suggestedFilename()).toBe('card-2026-11-light-path-bibleberry.png')
     await expect(page.getByRole('status')).toContainText(
-      'Downloaded card-2026-11-light-path-bibleberry.png',
+      'Downloaded card-2026-11-light-path-bibleberry.png with the original illustration, complete Scripture reference, explanation, and attribution.',
     )
+
+    // Verify the actual delivered PNG file on disk is a valid composed PNG containing
+    // the artwork plus the explanation/reference/attribution footer (not just a 1x1 stub).
+    const downloadedPath = await download.path()
+    expect(downloadedPath).toBeTruthy()
+    const downloadedBytes = await readFile(downloadedPath!)
+    expect(downloadedBytes.subarray(0, 8)).toEqual(
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    )
+    // PNG IHDR chunk stores width (bytes 16..19) and height (bytes 20..23) big-endian.
+    const pngWidth = downloadedBytes.readUInt32BE(16)
+    const pngHeight = downloadedBytes.readUInt32BE(20)
+    expect(pngWidth).toBeGreaterThanOrEqual(640)
+    expect(pngHeight).toBeGreaterThan(150)
   })
 
   test('handles user cancellation, unavailable image asset, and rights-rejected cards cleanly', async ({
@@ -219,6 +234,10 @@ test.describe('Earned Scripture Card sharing control and canvas export', () => {
     await expect(page.getByText('marked as not eligible for sharing')).toBeVisible()
 
     await page.getByRole('button', { name: 'Seed unverified-rights card' }).click()
+    await expect(page.getByRole('button', { name: 'Share Lamp to My Feet' })).toBeDisabled()
+    await expect(page.getByText('artwork rights are not cleared for export')).toBeVisible()
+
+    await page.getByRole('button', { name: 'Seed pending-rights card' }).click()
     await expect(page.getByRole('button', { name: 'Share Lamp to My Feet' })).toBeDisabled()
     await expect(page.getByText('artwork rights are not cleared for export')).toBeVisible()
   })

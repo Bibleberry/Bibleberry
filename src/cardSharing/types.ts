@@ -32,7 +32,7 @@ export type CardShareEligibilityResult =
 
 export interface CardShareInput {
   readonly award: EarnedAwardRecord
-  readonly participationData?: ReaderParticipationData
+  readonly participationData: ReaderParticipationData
 }
 
 export interface ExportedCardImage {

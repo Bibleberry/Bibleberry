@@ -10,11 +10,11 @@
 ## Verified behavior
 
 1. **Earned & rights validation (`evaluateCardShareEligibility`)**:
-   - Verifies canonical monthly award IDs, valid `earnedOn` local calendar dates, matching `participationData.earnedAwards` membership (when supplied), and matching `cardDocumentId`.
+   - Requires `participationData` and verifies canonical monthly award IDs, valid `earnedOn` local calendar dates, matching `participationData.earnedAwards` membership (including `cardDocumentId` and `earnedCard` metadata), failing closed with `not-earned` when absent or mismatched.
    - Enforces `validateEarnedCardSnapshot` allowlist (`https://cdn.sanity.io/images/...` without query/hash/credentials).
-   - Rejects `shareEligible: false` (`not-share-eligible`) and unverified, restricted, synthetic, or test-only `rightsStatus` values (`rights-restricted`).
-2. **Export-only Bibleberry attribution (`createCanvasCardImageExporter`)**:
-   - Fetches the original approved Scripture Card image URL and draws the artwork intact onto an offscreen canvas with a subtle neutral `"Bibleberry"` attribution strip appended only to the exported PNG.
+   - Rejects `shareEligible: false` (`not-share-eligible`) and fails closed on `rightsStatus` using an explicit allowlist of approved rights-clearance values (`approved-ministry-use`, `ministry-owned-original-illustration`, `ministry-owned`, `cleared-for-export`, `approved-for-export`, `rights-cleared`, `public-domain`), rejecting `pending`, `pending editorial clearance`, `unknown`, `not cleared`, unverified, restricted, synthetic, or arbitrary statuses (`rights-restricted`).
+2. **Export-only composition & Bibleberry attribution (`createCanvasCardImageExporter`)**:
+   - Fetches the original approved Scripture Card image URL and draws the artwork intact onto an offscreen canvas with an export-only footer containing the card title, Scripture reference, complete untruncated `accessibleTranscription` explanation, attribution, and subtle `"Bibleberry"` identifier.
    - Leaves the original `imageUrl`, artwork pixels, and stored award record untouched and revokes temporary object URLs immediately.
 3. **Content integrity (`buildCardSharePayload`)**:
    - Preserves the complete, untruncated `accessibleTranscription` theological explanation, `scripture` reference/translation/book, and `attribution`.
@@ -30,8 +30,8 @@
 
 | Check | Result |
 | --- | --- |
-| `node --experimental-strip-types --test tests/cardSharing/cardSharingService.test.ts` | Passed: 7 tests covering earned validation, rights/`shareEligible` rejection, unauthorized asset rejection, export integrity, download fallback, native share hook, cancellation, permission denial, unavailable assets, and repeated sharing without award/progress mutation |
-| `npx playwright test -c tests/cardSharing/playwright.config.ts` | Passed: 3 Chromium tests covering real `<canvas>` export with export-only Bibleberry attribution strip, Web Share, download fallback, cancellation, 404 unavailable asset, rights-rejected disabled state, keyboard activation, and unchanged award flags |
+| `node --experimental-strip-types --test tests/cardSharing/cardSharingService.test.ts` | Passed: 8 tests covering required earned-membership validation, fail-closed `rightsStatus` allowlist & `shareEligible` rejection, unauthorized asset rejection, composed canvas export with untruncated explanation/reference/attribution, download fallback, native share hook, cancellation, permission denial, unavailable assets, and repeated sharing without award/progress mutation |
+| `npx playwright test -c tests/cardSharing/playwright.config.ts` | Passed: 3 Chromium tests covering real `<canvas>` export composition with export-only Bibleberry attribution, Web Share, download fallback (including verifying the delivered PNG file on disk), cancellation, 404 unavailable asset, rights-rejected (`Unverified` and `pending editorial clearance`) disabled states, keyboard activation, and unchanged award flags |
 | `npm run lint` | Passed |
 | `npm run build` | Passed (`tsc -b && vite build`) |
 

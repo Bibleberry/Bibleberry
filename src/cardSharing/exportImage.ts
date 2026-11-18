@@ -97,13 +97,193 @@ function defaultCreateCanvas(width: number, height: number): HTMLCanvasElement {
   return canvas
 }
 
-function computeAttributionStripHeight(imageHeight: number): number {
-  return Math.max(40, Math.min(72, Math.round(imageHeight * 0.06)))
+const MIN_EXPORT_WIDTH = 640
+const FOOTER_BACKGROUND = '#f6f3ec'
+const FOOTER_BORDER = '#d7d0c4'
+const TEXT_PRIMARY = '#1f1d1a'
+const TEXT_SECONDARY = '#4a4740'
+const TEXT_MUTED = '#5c5850'
+
+type TextWidthMeasurer = (text: string, font: string, fontSize: number) => number
+
+function createTextWidthMeasurer(): TextWidthMeasurer {
+  const measureContext =
+    typeof document !== 'undefined' ? document.createElement('canvas').getContext('2d') : null
+
+  return (text: string, font: string, fontSize: number): number => {
+    if (measureContext) {
+      measureContext.font = font
+      const measured = measureContext.measureText(text).width
+      if (Number.isFinite(measured) && measured > 0) {
+        return measured
+      }
+    }
+    return text.length * fontSize * 0.55
+  }
+}
+
+export function wrapTextForWidth(
+  text: string,
+  maxWidth: number,
+  measureWidth: (candidate: string) => number,
+): string[] {
+  const paragraphs = text.replace(/\r\n/g, '\n').split('\n')
+  const lines: string[] = []
+
+  for (const rawParagraph of paragraphs) {
+    const paragraph = rawParagraph.trim()
+    if (!paragraph) {
+      lines.push('')
+      continue
+    }
+
+    const words = paragraph.split(/\s+/)
+    let currentLine = ''
+
+    for (const word of words) {
+      const candidate = currentLine ? `${currentLine} ${word}` : word
+      if (measureWidth(candidate) <= maxWidth) {
+        currentLine = candidate
+        continue
+      }
+
+      if (currentLine) {
+        lines.push(currentLine)
+        currentLine = ''
+      }
+
+      if (measureWidth(word) <= maxWidth) {
+        currentLine = word
+        continue
+      }
+
+      // Break an extra-long token by character so no text is ever clipped.
+      let chunk = ''
+      for (const char of word) {
+        const nextChunk = chunk + char
+        if (chunk && measureWidth(nextChunk) > maxWidth) {
+          lines.push(chunk)
+          chunk = char
+        } else {
+          chunk = nextChunk
+        }
+      }
+      currentLine = chunk
+    }
+
+    if (currentLine) {
+      lines.push(currentLine)
+    }
+  }
+
+  return lines
+}
+
+interface ExportFooterLayout {
+  readonly exportWidth: number
+  readonly artworkX: number
+  readonly footerHeight: number
+  readonly paddingX: number
+  readonly paddingY: number
+  readonly titleFont: string
+  readonly titleLineHeight: number
+  readonly titleLines: readonly string[]
+  readonly referenceFont: string
+  readonly referenceLineHeight: number
+  readonly referenceLines: readonly string[]
+  readonly bodyFont: string
+  readonly bodyLineHeight: number
+  readonly bodyLines: readonly string[]
+  readonly metaFont: string
+  readonly metaLineHeight: number
+  readonly attributionText: string
+  readonly brandText: string
+}
+
+function computeExportFooterLayout(
+  card: EarnedScriptureCardSnapshot,
+  sourceWidth: number,
+  measureText: TextWidthMeasurer,
+): ExportFooterLayout {
+  const exportWidth = Math.max(sourceWidth, MIN_EXPORT_WIDTH)
+  const artworkX = Math.floor((exportWidth - sourceWidth) / 2)
+  const paddingX = Math.max(24, Math.round(exportWidth * 0.04))
+  const paddingY = Math.max(20, Math.round(exportWidth * 0.03))
+  const maxTextWidth = Math.max(120, exportWidth - paddingX * 2)
+
+  const titleFontSize = Math.max(18, Math.min(26, Math.round(exportWidth * 0.028)))
+  const titleLineHeight = Math.round(titleFontSize * 1.3)
+  const titleFont = `600 ${titleFontSize}px system-ui, -apple-system, sans-serif`
+  const titleLines = wrapTextForWidth(card.title.trim(), maxTextWidth, text =>
+    measureText(text, titleFont, titleFontSize),
+  )
+
+  const refFontSize = Math.max(14, Math.min(20, Math.round(exportWidth * 0.021)))
+  const referenceLineHeight = Math.round(refFontSize * 1.35)
+  const referenceFont = `600 ${refFontSize}px system-ui, -apple-system, sans-serif`
+  const referenceText = `${card.scripture.reference.trim()} (${card.scripture.translation.trim()} · ${card.scripture.book.trim()})`
+  const referenceLines = wrapTextForWidth(referenceText, maxTextWidth, text =>
+    measureText(text, referenceFont, refFontSize),
+  )
+
+  const bodyFontSize = Math.max(14, Math.min(18, Math.round(exportWidth * 0.02)))
+  const bodyLineHeight = Math.round(bodyFontSize * 1.45)
+  const bodyFont = `400 ${bodyFontSize}px system-ui, -apple-system, sans-serif`
+  const bodyLines = wrapTextForWidth(card.accessibleTranscription.trim(), maxTextWidth, text =>
+    measureText(text, bodyFont, bodyFontSize),
+  )
+
+  const metaFontSize = Math.max(12, Math.min(16, Math.round(exportWidth * 0.017)))
+  const metaLineHeight = Math.round(metaFontSize * 1.4)
+  const metaFont = `500 ${metaFontSize}px system-ui, -apple-system, sans-serif`
+
+  const sectionGap = Math.round(bodyLineHeight * 0.5)
+  const blankLineHeight = Math.round(bodyLineHeight * 0.6)
+  const bodyHeight = bodyLines.reduce(
+    (total, line) => total + (line === '' ? blankLineHeight : bodyLineHeight),
+    0,
+  )
+
+  const footerHeight =
+    paddingY
+    + titleLines.length * titleLineHeight
+    + Math.round(sectionGap * 0.5)
+    + referenceLines.length * referenceLineHeight
+    + sectionGap
+    + bodyHeight
+    + sectionGap
+    + 1 // subtle divider above attribution row
+    + Math.round(sectionGap * 0.75)
+    + metaLineHeight
+    + paddingY
+
+  return {
+    exportWidth,
+    artworkX,
+    footerHeight,
+    paddingX,
+    paddingY,
+    titleFont,
+    titleLineHeight,
+    titleLines,
+    referenceFont,
+    referenceLineHeight,
+    referenceLines,
+    bodyFont,
+    bodyLineHeight,
+    bodyLines,
+    metaFont,
+    metaLineHeight,
+    attributionText: `Attribution: ${card.attribution.trim()}`,
+    brandText: 'Bibleberry',
+  }
 }
 
 /**
  * Creates a browser/WebView image exporter that fetches the original approved Scripture Card
- * illustration and appends a subtle Bibleberry attribution strip only to the exported image.
+ * illustration and composes an export-only card image containing the intact artwork,
+ * complete untruncated theological explanation, Scripture reference, attribution, and
+ * subtle Bibleberry identifier.
  *
  * Never mutates the original asset URL, artwork pixels, or stored award record.
  */
@@ -113,6 +293,7 @@ export function createCanvasCardImageExporter(
   const fetchImageBlob = deps.fetchImageBlob ?? defaultFetchImageBlob
   const decodeImage = deps.decodeImage ?? defaultDecodeImage
   const createCanvas = deps.createCanvas ?? defaultCreateCanvas
+  const measureText = createTextWidthMeasurer()
 
   return {
     async exportCardImage(card: EarnedScriptureCardSnapshot): Promise<ExportedCardImage> {
@@ -121,9 +302,9 @@ export function createCanvasCardImageExporter(
 
       const sourceWidth = Math.max(1, image.width)
       const sourceHeight = Math.max(1, image.height)
-      const stripHeight = computeAttributionStripHeight(sourceHeight)
-      const exportWidth = sourceWidth
-      const exportHeight = sourceHeight + stripHeight
+      const layout = computeExportFooterLayout(card, sourceWidth, measureText)
+      const exportWidth = layout.exportWidth
+      const exportHeight = sourceHeight + layout.footerHeight
 
       const canvas = createCanvas(exportWidth, exportHeight)
       const context = canvas.getContext('2d')
@@ -134,38 +315,77 @@ export function createCanvasCardImageExporter(
         )
       }
 
-      // Draw original approved artwork intact without cropping or altering its pixels.
-      context.drawImage(image, 0, 0, sourceWidth, sourceHeight)
+      if (exportWidth > sourceWidth) {
+        context.fillStyle = FOOTER_BACKGROUND
+        context.fillRect(0, 0, exportWidth, sourceHeight)
+      }
 
-      // Subtle neutral attribution strip added only to the exported image.
-      context.fillStyle = '#f6f3ec'
-      context.fillRect(0, sourceHeight, exportWidth, stripHeight)
+      // Draw original approved artwork intact without cropping, scaling, or altering its pixels.
+      context.drawImage(image, layout.artworkX, 0, sourceWidth, sourceHeight)
 
-      context.strokeStyle = '#d7d0c4'
+      // Export-only footer panel containing complete explanation, reference, and attribution.
+      context.fillStyle = FOOTER_BACKGROUND
+      context.fillRect(0, sourceHeight, exportWidth, layout.footerHeight)
+
+      context.strokeStyle = FOOTER_BORDER
       context.lineWidth = 1
       context.beginPath()
       context.moveTo(0, sourceHeight + 0.5)
       context.lineTo(exportWidth, sourceHeight + 0.5)
       context.stroke()
 
-      const fontSize = Math.max(11, Math.min(18, Math.round(stripHeight * 0.34)))
-      const paddingX = Math.max(12, Math.round(exportWidth * 0.025))
-      const textY = sourceHeight + Math.round(stripHeight / 2)
+      let cursorY = sourceHeight + layout.paddingY
+      context.textBaseline = 'top'
+      context.textAlign = 'left'
 
-      context.fillStyle = '#4a4740'
-      context.font = `500 ${fontSize}px system-ui, -apple-system, sans-serif`
-      context.textBaseline = 'middle'
+      context.fillStyle = TEXT_PRIMARY
+      context.font = layout.titleFont
+      for (const line of layout.titleLines) {
+        context.fillText(line, layout.paddingX, cursorY)
+        cursorY += layout.titleLineHeight
+      }
 
+      cursorY += Math.round(layout.bodyLineHeight * 0.25)
+      context.fillStyle = TEXT_SECONDARY
+      context.font = layout.referenceFont
+      for (const line of layout.referenceLines) {
+        context.fillText(line, layout.paddingX, cursorY)
+        cursorY += layout.referenceLineHeight
+      }
+
+      cursorY += Math.round(layout.bodyLineHeight * 0.5)
+      context.fillStyle = TEXT_PRIMARY
+      context.font = layout.bodyFont
+      const blankLineHeight = Math.round(layout.bodyLineHeight * 0.6)
+      for (const line of layout.bodyLines) {
+        if (line === '') {
+          cursorY += blankLineHeight
+          continue
+        }
+        context.fillText(line, layout.paddingX, cursorY)
+        cursorY += layout.bodyLineHeight
+      }
+
+      cursorY += Math.round(layout.bodyLineHeight * 0.5)
+      context.strokeStyle = FOOTER_BORDER
+      context.beginPath()
+      context.moveTo(layout.paddingX, cursorY + 0.5)
+      context.lineTo(exportWidth - layout.paddingX, cursorY + 0.5)
+      context.stroke()
+
+      cursorY += Math.round(layout.bodyLineHeight * 0.375)
+      context.fillStyle = TEXT_MUTED
+      context.font = layout.metaFont
       context.textAlign = 'left'
       context.fillText(
-        `${card.scripture.reference} · ${card.attribution}`,
-        paddingX,
-        textY,
-        Math.max(40, exportWidth - paddingX * 2 - 110),
+        layout.attributionText,
+        layout.paddingX,
+        cursorY,
+        Math.max(80, exportWidth - layout.paddingX * 2 - 100),
       )
 
       context.textAlign = 'right'
-      context.fillText('Bibleberry', exportWidth - paddingX, textY)
+      context.fillText(layout.brandText, exportWidth - layout.paddingX, cursorY)
 
       const exportedBlob = await new Promise<Blob | null>(resolve => {
         canvas.toBlob(blob => resolve(blob), 'image/png')

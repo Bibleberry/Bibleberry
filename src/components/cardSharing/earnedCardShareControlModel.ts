@@ -11,13 +11,13 @@ export function formatShareOutcomeMessage(outcome: CardShareOutcome): ShareOutco
     case 'shared':
       return {
         role: 'status',
-        message: `Shared "${outcome.payload.title}" with complete Scripture reference, explanation, and attribution.`,
+        message: `Shared "${outcome.payload.title}" (${outcome.payload.fileName}) with the original illustration, complete Scripture reference, explanation, and attribution.`,
         shareText: outcome.payload.shareText,
       }
     case 'downloaded':
       return {
         role: 'status',
-        message: `Downloaded ${outcome.payload.fileName}. Complete Scripture reference, explanation, and attribution are preserved.`,
+        message: `Downloaded ${outcome.payload.fileName} with the original illustration, complete Scripture reference, explanation, and attribution.`,
         shareText: outcome.payload.shareText,
       }
     case 'cancelled':
