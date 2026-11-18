@@ -154,7 +154,43 @@ test('rejects unearned awards, missing participationData, and spoofed award snap
   })
   assert.equal(spoofedResult.status, 'failed')
   if (spoofedResult.status === 'failed') {
-    assert.equal(spoofedResult.code, 'not-earned')
+    // The stored record is authoritative: its non-shareable flag still blocks export.
+    assert.equal(spoofedResult.code, 'not-share-eligible')
+  }
+})
+
+test('uses the stored earned card when caller-supplied title or Scripture metadata is altered', () => {
+  const storedAward = makeAwardRecord()
+  const participationData = makeParticipationWithAward(storedAward)
+  const alteredTitle = makeAwardRecord({
+    earnedCard: makeCardSnapshot({ title: 'A fabricated title' }),
+  })
+  const alteredScripture = makeAwardRecord({
+    earnedCard: makeCardSnapshot({
+      scripture: {
+        book: 'John',
+        reference: 'John 3:16',
+        translation: 'NIV',
+      },
+    }),
+  })
+
+  for (const suppliedAward of [alteredTitle, alteredScripture]) {
+    const eligibility = evaluateCardShareEligibility({
+      award: suppliedAward,
+      participationData,
+    })
+
+    assert.equal(eligibility.eligible, true)
+    if (eligibility.eligible) {
+      assert.equal(eligibility.award, storedAward)
+      assert.equal(eligibility.card.title, 'Lamp to My Feet')
+      assert.deepEqual(eligibility.card.scripture, {
+        book: 'Psalms',
+        reference: 'Psalm 119:105',
+        translation: 'WEBP',
+      })
+    }
   }
 })
 

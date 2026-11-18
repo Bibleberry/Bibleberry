@@ -102,6 +102,16 @@ test.describe('Earned Scripture Card sharing control and canvas export', () => {
     // Repeat share to verify idempotency and unchanged award flags
     await shareButton.click()
     await expect(page.getByRole('status')).toContainText('Shared "Lamp to My Feet"')
+    await expect.poll(() =>
+      page.evaluate(
+        () =>
+          (
+            window as unknown as {
+              __capturedShares: readonly unknown[]
+            }
+          ).__capturedShares.length,
+      ),
+    ).toBe(2)
 
     const capturedShares = await page.evaluate(
       () =>

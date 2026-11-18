@@ -66,17 +66,9 @@ function isMatchingStoredAward(
   ) {
     return false
   }
-  if (!stored.earnedCard || !award.earnedCard) {
-    return false
-  }
-  return (
-    stored.earnedCard.cardDocumentId === award.earnedCard.cardDocumentId
-    && stored.earnedCard.imageUrl === award.earnedCard.imageUrl
-    && stored.earnedCard.accessibleTranscription === award.earnedCard.accessibleTranscription
-    && stored.earnedCard.attribution === award.earnedCard.attribution
-    && stored.earnedCard.rightsStatus === award.earnedCard.rightsStatus
-    && stored.earnedCard.shareEligible === award.earnedCard.shareEligible
-  )
+  // The caller's award is only an identity claim. Its card snapshot is never trusted:
+  // share/export content must come from the authoritative earned record below.
+  return Boolean(stored.earnedCard)
 }
 
 /**
@@ -132,7 +124,7 @@ export function evaluateCardShareEligibility(
     }
   }
 
-  if (!award.earnedCard) {
+  if (!storedAward?.earnedCard) {
     return {
       eligible: false,
       code: 'incomplete-content',
@@ -140,7 +132,7 @@ export function evaluateCardShareEligibility(
     }
   }
 
-  const validatedCard = validateEarnedCardSnapshot(award.earnedCard, validYearMonth)
+  const validatedCard = validateEarnedCardSnapshot(storedAward.earnedCard, validYearMonth)
   if (!validatedCard) {
     return {
       eligible: false,
@@ -184,7 +176,7 @@ export function evaluateCardShareEligibility(
 
   return {
     eligible: true,
-    award,
+    award: storedAward,
     card: validatedCard,
   }
 }
