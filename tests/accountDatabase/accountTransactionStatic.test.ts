@@ -57,3 +57,10 @@ test('R13-TX1 contains no credentials, service keys or remote endpoints', () => 
   assert.doesNotMatch(sql, /service_role_key|SUPABASE_SERVICE|eyJ[A-Za-z0-9_-]{10,}|https?:\/\/[a-z0-9.-]*supabase\.co/i)
   assert.doesNotMatch(sql, /\b(passage_text|manuscript_text|streak_count|journal_entry|email)\b/i)
 })
+
+test('R13-TX1 transaction never creates earned awards without trusted verification (R08A-0 §6.2)', () => {
+  const block = functionBlock('reconcile_guest_participation')
+  assert.doesNotMatch(block, /INSERT INTO public\.account_earned_awards/)
+  assert.match(block, /INSERT INTO public\.account_provisional_award_claims/)
+  assert.doesNotMatch(sql, /GRANT[^;]*\bINSERT\b[^;]*ON TABLE public\.account_earned_awards TO account_reconciler/)
+})

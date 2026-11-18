@@ -52,7 +52,8 @@ CREATE FUNCTION pg_temp.row_total(p_uid uuid) RETURNS bigint LANGUAGE sql AS $$
        + (SELECT count(*) FROM public.account_earned_awards WHERE account_id = p_uid)
        + (SELECT count(*) FROM public.account_shelf_months WHERE account_id = p_uid)
        + (SELECT count(*) FROM public.account_reconciliation_receipts WHERE account_id = p_uid)
-       + (SELECT count(*) FROM public.account_reconciliation_unresolved_items WHERE account_id = p_uid);
+       + (SELECT count(*) FROM public.account_reconciliation_unresolved_items WHERE account_id = p_uid)
+       + (SELECT count(*) FROM public.account_provisional_award_claims WHERE account_id = p_uid);
 $$;
 
 -- Server UTC+14 ceiling as the transaction computes it.
@@ -95,4 +96,20 @@ CREATE FUNCTION pg_temp.card(p_ym text, p_slug text) RETURNS jsonb LANGUAGE sql 
     'rightsStatus', 'licensed',
     'shareEligible', true
   );
+$$;
+
+-- Simulates a FUTURE trusted admission of an earned award (the transaction itself cannot
+-- create earned awards). Superuser-only test seeding; never part of the migration.
+CREATE FUNCTION pg_temp.seed_verified_award(
+  p_uid text, p_award_id text, p_earned_on date, p_hub boolean, p_viewed boolean,
+  p_provenance text DEFAULT 'clientReported'
+) RETURNS void LANGUAGE sql AS $$
+  INSERT INTO public.account_earned_awards (
+    account_id, award_id, kind, publication_year_month, discovery_id, earned_on,
+    date_provenance, hub_announcement_acked, card_viewed
+  )
+  SELECT p_uid::uuid, p_award_id,
+         CASE WHEN p_award_id LIKE '%:full-month' THEN 'fullMonth' ELSE 'thematic' END,
+         substring(p_award_id FROM 14 FOR 7), 'discovery:' || substring(p_award_id FROM 14),
+         p_earned_on, p_provenance, p_hub, p_viewed;
 $$;

@@ -19,6 +19,12 @@
 --        field `CommitAckReceipt.unresolvedPersistedOnServer` must be replayed exactly.
 --      - `account_reconciliation_unresolved_items`: durable, owner-scoped evidence for
 --        every unresolved item so `unresolvedPersistedOnServer: true` is truthful.
+--      - `account_provisional_award_claims`: quarantine for client-claimed earned awards.
+--        No trusted CMS discovery/roster projection exists server-side (R08A-0 §6.2 requires
+--        awards to be derived/verified against it), so a new award claim is NEVER written to
+--        `account_earned_awards` and never read back as earned. Any commit holding such a
+--        claim returns `unresolvedPersistedOnServer: false`, so the R13-1 clearance guard
+--        retains the guest's local cards until a trusted verification path exists.
 --   3. `account_private` schema of pure validation helpers (not exposed to clients).
 --   4. `public.get_account_participation()` (SECURITY INVOKER, RLS-scoped read).
 --   5. `public.reconcile_guest_participation(jsonb)` (SECURITY DEFINER compare-and-commit).
@@ -94,6 +100,71 @@ CREATE TABLE public.account_reconciliation_unresolved_items (
 CREATE INDEX idx_account_unresolved_items_subject
   ON public.account_reconciliation_unresolved_items (account_id, kind, subject_id);
 
+-- Quarantined, UNVERIFIED award claims. Not an earned award; never returned in `earnedAwards`.
+CREATE TABLE public.account_provisional_award_claims (
+  account_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  award_id text NOT NULL
+    CONSTRAINT chk_provisional_awards_id_format CHECK (
+      char_length(award_id) BETWEEN 18 AND 160
+      AND award_id ~ '^card:monthly:[0-9]{4}-(0[1-9]|1[0-2]):[a-z0-9]+(?:-[a-z0-9]+)*$'
+    ),
+  kind text NOT NULL
+    CONSTRAINT chk_provisional_awards_kind CHECK (kind IN ('thematic', 'fullMonth')),
+  publication_year_month text NOT NULL
+    CONSTRAINT chk_provisional_awards_year_month CHECK (
+      publication_year_month ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'
+    ),
+  discovery_id text NOT NULL,
+  verification_status text NOT NULL DEFAULT 'pendingTrustedVerification'
+    CONSTRAINT chk_provisional_awards_status CHECK (verification_status = 'pendingTrustedVerification'),
+  claimed_earned_on date NOT NULL,
+  hub_announcement_acked boolean NOT NULL DEFAULT false,
+  card_viewed boolean NOT NULL DEFAULT false,
+  card_document_id text,
+  earned_card_snapshot jsonb
+    CONSTRAINT chk_provisional_awards_snapshot_object CHECK (
+      earned_card_snapshot IS NULL
+      OR (
+        jsonb_typeof(earned_card_snapshot) = 'object'
+        AND NOT (earned_card_snapshot ? 'passageText')
+        AND NOT (earned_card_snapshot ? 'manuscriptText')
+      )
+    ),
+  first_claimed_at timestamptz NOT NULL DEFAULT now(),
+  last_claimed_at timestamptz NOT NULL DEFAULT now(),
+  last_idempotency_key text NOT NULL,
+  PRIMARY KEY (account_id, award_id),
+  CONSTRAINT chk_provisional_awards_kind_matches_id CHECK (
+    (kind = 'fullMonth' AND award_id = ('card:monthly:' || publication_year_month || ':full-month'))
+    OR (
+      kind = 'thematic'
+      AND award_id LIKE ('card:monthly:' || publication_year_month || ':%')
+      AND award_id <> ('card:monthly:' || publication_year_month || ':full-month')
+    )
+  ),
+  CONSTRAINT chk_provisional_awards_discovery_matches_id CHECK (
+    discovery_id = ('discovery:' || substring(award_id FROM 14))
+  )
+);
+
+ALTER TABLE public.account_provisional_award_claims ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.account_provisional_award_claims FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON TABLE public.account_provisional_award_claims TO authenticated;
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+    GRANT ALL ON TABLE public.account_provisional_award_claims TO service_role;
+  END IF;
+END
+$$;
+
+CREATE POLICY "account_provisional_award_claims_select_own"
+  ON public.account_provisional_award_claims
+  FOR SELECT
+  TO authenticated
+  USING (account_id = auth.uid());
+
 ALTER TABLE public.account_reconciliation_unresolved_items ENABLE ROW LEVEL SECURITY;
 
 REVOKE ALL ON TABLE public.account_reconciliation_unresolved_items
@@ -128,7 +199,8 @@ REVOKE ALL ON TABLE
   public.account_earned_awards,
   public.account_shelf_months,
   public.account_reconciliation_receipts,
-  public.account_reconciliation_unresolved_items
+  public.account_reconciliation_unresolved_items,
+  public.account_provisional_award_claims
 FROM account_reconciler;
 
 GRANT SELECT, INSERT ON TABLE public.account_participation_profiles TO account_reconciler;
@@ -151,8 +223,10 @@ GRANT SELECT, INSERT ON TABLE public.account_saved_scriptures TO account_reconci
 GRANT UPDATE (reference, translation, saved_on, source_challenge_id)
   ON TABLE public.account_saved_scriptures TO account_reconciler;
 
--- Awards are permanent; earned_on / provenance / identity are immutable.
-GRANT SELECT, INSERT ON TABLE public.account_earned_awards TO account_reconciler;
+-- Awards are permanent; earned_on / provenance / identity are immutable. The transaction can
+-- NEVER create an earned award (no INSERT): earning requires a trusted verification path that
+-- does not exist yet. It may only OR presentation flags / backfill a snapshot on existing rows.
+GRANT SELECT ON TABLE public.account_earned_awards TO account_reconciler;
 GRANT UPDATE (hub_announcement_acked, card_viewed, card_document_id, earned_card_snapshot, updated_at)
   ON TABLE public.account_earned_awards TO account_reconciler;
 
@@ -162,6 +236,12 @@ GRANT SELECT, INSERT ON TABLE public.account_shelf_months TO account_reconciler;
 -- Receipts and unresolved evidence are immutable once written.
 GRANT SELECT, INSERT ON TABLE public.account_reconciliation_receipts TO account_reconciler;
 GRANT SELECT, INSERT ON TABLE public.account_reconciliation_unresolved_items TO account_reconciler;
+
+-- Unverified award claims: quarantine only; never deleted by the transaction.
+GRANT SELECT, INSERT ON TABLE public.account_provisional_award_claims TO account_reconciler;
+GRANT UPDATE (hub_announcement_acked, card_viewed, card_document_id, earned_card_snapshot,
+              last_claimed_at, last_idempotency_key)
+  ON TABLE public.account_provisional_award_claims TO account_reconciler;
 
 -- RLS confinement of the elevated role itself: every row it touches must belong to auth.uid().
 CREATE POLICY "account_participation_profiles_reconciler_own"
@@ -190,6 +270,9 @@ CREATE POLICY "account_reconciliation_receipts_reconciler_own"
   USING (account_id = auth.uid()) WITH CHECK (account_id = auth.uid());
 CREATE POLICY "account_reconciliation_unresolved_items_reconciler_own"
   ON public.account_reconciliation_unresolved_items FOR ALL TO account_reconciler
+  USING (account_id = auth.uid()) WITH CHECK (account_id = auth.uid());
+CREATE POLICY "account_provisional_award_claims_reconciler_own"
+  ON public.account_provisional_award_claims FOR ALL TO account_reconciler
   USING (account_id = auth.uid()) WITH CHECK (account_id = auth.uid());
 
 -- ---------------------------------------------------------------------------
@@ -888,6 +971,11 @@ BEGIN
   RETURN jsonb_build_object(
     'status', 'found',
     'revision', v_profile.revision,
+    -- Unverified claims are listed OUTSIDE the envelope by ID only: never as earned awards.
+    'pendingAwardVerification', coalesce((
+      SELECT jsonb_agg(pc.award_id ORDER BY pc.award_id)
+        FROM public.account_provisional_award_claims pc
+       WHERE pc.account_id = v_uid), '[]'::jsonb),
     'envelope', jsonb_build_object(
       'schemaVersion', v_profile.schema_version,
       'accountId', v_uid::text,
@@ -949,6 +1037,7 @@ DECLARE
 
   v_unresolved jsonb := '[]'::jsonb;
   v_server_unresolved integer := 0;
+  v_provisional jsonb := '[]'::jsonb;
   v_shelf_conflicts jsonb := '[]'::jsonb;
   v_outcome text;
 
@@ -1069,6 +1158,7 @@ BEGIN
         'status', 'alreadyCommittedDuplicate',
         'receipt', account_private.receipt_json(v_receipt, 'alreadyCommittedDuplicate'),
         'outcomeStatus', v_receipt.outcome_status,
+        'guestRetentionRequired', NOT v_receipt.unresolved_persisted_on_server AND v_receipt.unresolved_count > 0,
         'committedEnvelope', v_snapshot -> 'envelope',
         'committedEnvelopeRevision', v_snapshot -> 'revision'
       );
@@ -1354,7 +1444,10 @@ BEGIN
       END LOOP;
     END IF;
 
-    -- 7e. Earned awards: permanent union; monotonic independent flags; immutable earned_on.
+    -- 7e. Earned awards. Existing (verified) awards: monotonic independent flags, immutable
+    --     earned_on. A NEW award claim cannot be verified (no trusted CMS discovery/roster
+    --     projection; R08A-0 §6.2), so it is quarantined in account_provisional_award_claims,
+    --     never written to account_earned_awards, and forces guest retention (see 7i).
     IF v_data ? 'earnedAwards' THEN
       IF jsonb_typeof(v_data -> 'earnedAwards') <> 'object' THEN
         PERFORM account_private.reject('invalidRecordShape');
@@ -1454,15 +1547,29 @@ BEGIN
              WHERE account_id = v_uid AND award_id = v_k;
           END IF;
         ELSE
-          INSERT INTO public.account_earned_awards (
-            account_id, award_id, kind, publication_year_month, discovery_id, earned_on,
-            date_provenance, client_claimed_on, hub_announcement_acked, card_viewed,
-            card_document_id, earned_card_snapshot, first_recorded_at, updated_at
+          -- Quarantine: first claimed date is kept; flags OR; snapshot only backfilled.
+          INSERT INTO public.account_provisional_award_claims AS pc (
+            account_id, award_id, kind, publication_year_month, discovery_id, claimed_earned_on,
+            hub_announcement_acked, card_viewed, card_document_id, earned_card_snapshot,
+            first_claimed_at, last_claimed_at, last_idempotency_key
           ) VALUES (
             v_uid, v_k, v_kind, v_ym, v_disc, v_date,
-            'clientReported', v_date, v_bool, v_bool2,
-            v_text, v_snap, v_now, v_now
-          );
+            v_bool, v_bool2, v_text, v_snap,
+            v_now, v_now, v_key
+          )
+          ON CONFLICT (account_id, award_id) DO UPDATE
+            SET hub_announcement_acked = pc.hub_announcement_acked OR EXCLUDED.hub_announcement_acked,
+                card_viewed = pc.card_viewed OR EXCLUDED.card_viewed,
+                card_document_id = coalesce(pc.card_document_id, EXCLUDED.card_document_id),
+                earned_card_snapshot = CASE
+                  WHEN pc.earned_card_snapshot IS NULL
+                   AND (pc.card_document_id IS NULL
+                        OR EXCLUDED.earned_card_snapshot ->> 'cardDocumentId' = pc.card_document_id)
+                  THEN EXCLUDED.earned_card_snapshot
+                  ELSE pc.earned_card_snapshot END,
+                last_claimed_at = EXCLUDED.last_claimed_at,
+                last_idempotency_key = EXCLUDED.last_idempotency_key;
+          v_provisional := v_provisional || to_jsonb(v_k);
         END IF;
       END LOOP;
     END IF;
@@ -1586,7 +1693,11 @@ BEGIN
 
     -- 7i. Revision, receipt and unresolved evidence in the same transaction.
     v_new_rev := v_current_rev + 1;
-    v_outcome := CASE WHEN jsonb_array_length(v_unresolved) > 0 THEN 'reconciledWithUnresolved' ELSE 'committed' END;
+    -- unresolved_count = persisted evidence rows + quarantined (unverified) award claims.
+    -- unresolvedPersistedOnServer is true ONLY when nothing is quarantined: an unverified
+    -- claim is not account state the reader can see, so guest storage must not be cleared.
+    v_outcome := CASE WHEN jsonb_array_length(v_unresolved) + jsonb_array_length(v_provisional) > 0
+                      THEN 'reconciledWithUnresolved' ELSE 'committed' END;
 
     UPDATE public.account_participation_profiles
        SET revision = v_new_rev,
@@ -1607,7 +1718,8 @@ BEGIN
       outcome_status, unresolved_count, unresolved_persisted_on_server, created_at
     ) VALUES (
       v_uid, v_key, v_mode, v_fp, v_new_rev,
-      v_outcome, jsonb_array_length(v_unresolved), true, v_now
+      v_outcome, jsonb_array_length(v_unresolved) + jsonb_array_length(v_provisional),
+      jsonb_array_length(v_provisional) = 0, v_now
     )
     RETURNING * INTO v_receipt;
 
@@ -1639,6 +1751,8 @@ BEGIN
     'outcomeStatus', v_outcome,
     'serverDetectedUnresolvedCount', v_server_unresolved,
     'shelfConflicts', v_shelf_conflicts,
+    'provisionalAwardClaims', v_provisional,
+    'guestRetentionRequired', jsonb_array_length(v_provisional) > 0,
     'committedEnvelope', v_snapshot -> 'envelope',
     'committedEnvelopeRevision', v_snapshot -> 'revision'
   );

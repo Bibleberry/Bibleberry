@@ -19,7 +19,8 @@ INSERT INTO auth.users (id) VALUES
   ('4b000000-0000-4000-8000-00000000004b'),  -- u4b explicit empty Shelf
   ('4c000000-0000-4000-8000-00000000004c'),  -- u4c account without Shelf state
   ('50000000-0000-4000-8000-000000000005'),  -- u5 validation
-  ('60000000-0000-4000-8000-000000000006');  -- u6 date bounds
+  ('60000000-0000-4000-8000-000000000006'),  -- u6 date bounds
+  ('90000000-0000-4000-8000-000000000009');  -- u9 award verification quarantine
 
 -- ===========================================================================
 -- T1. First-time transfer (newAccountTransfer) — atomic, exact receipt
@@ -55,7 +56,8 @@ BEGIN
   ), v_fp));
 
   PERFORM pg_temp.check(r ->> 'status' = 'committed', 'T1a first transfer commits');
-  PERFORM pg_temp.check(r ->> 'outcomeStatus' = 'committed', 'T1b clean outcome');
+  PERFORM pg_temp.check(r ->> 'outcomeStatus' = 'reconciledWithUnresolved',
+    'T1b outcome is reconciledWithUnresolved because award claims cannot be verified');
   PERFORM pg_temp.check(
     (SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(r -> 'receipt') k)
       = ARRAY['accountId', 'committedGuestFingerprint', 'durableRevision', 'idempotencyKey', 'ok',
@@ -64,8 +66,15 @@ BEGIN
   PERFORM pg_temp.check(
     r -> 'receipt' = jsonb_build_object('ok', true, 'status', 'committed', 'accountId', u,
       'idempotencyKey', 't1-first', 'committedGuestFingerprint', v_fp, 'durableRevision', 1,
-      'unresolvedCount', 0, 'unresolvedPersistedOnServer', true),
-    'T1d receipt values are exact (guest clearance inputs)');
+      'unresolvedCount', 2, 'unresolvedPersistedOnServer', false),
+    'T1d receipt values are exact: 2 quarantined award claims, unresolvedPersistedOnServer=false');
+  PERFORM pg_temp.check((r -> 'guestRetentionRequired') = 'true'::jsonb
+                    AND r -> 'provisionalAwardClaims' = '["card:monthly:2026-10:hope", "card:monthly:2026-10:full-month"]'::jsonb,
+    'T1d2 result names the quarantined claims and requires guest retention');
+  -- Same predicate canSafelyClearGuestStorage applies: unresolvedCount > 0 && !persisted => retain.
+  PERFORM pg_temp.check((r -> 'receipt' ->> 'unresolvedCount')::int > 0
+                    AND (r -> 'receipt' -> 'unresolvedPersistedOnServer') = 'false'::jsonb,
+    'T1d3 receipt blocks guest clearance (unresolvedNotPersistedOnServer) so local cards are kept');
   PERFORM pg_temp.check((r -> 'committedEnvelope' ->> 'revision')::int = 1, 'T1e committed envelope at revision 1');
 
   PERFORM pg_temp.check((SELECT revision FROM public.account_participation_profiles WHERE account_id = u::uuid) = 1,
@@ -86,15 +95,26 @@ BEGIN
   PERFORM pg_temp.check(EXISTS (SELECT 1 FROM public.account_in_progress_challenges
                                  WHERE account_id = u::uuid AND challenge_id = 'cms:p1' AND screen_id = 's-3'),
     'T1k uncompleted in-progress position transferred');
+  -- Reviewer case (PR #207): an October full-month Card claimed with ZERO October completions
+  -- must not become an earned award without trusted CMS verification (R08A-0 §6.2).
+  PERFORM pg_temp.check(NOT EXISTS (SELECT 1 FROM public.account_earned_awards WHERE account_id = u::uuid),
+    'T1l unverifiable award claims are NOT inserted as earned awards');
+  PERFORM pg_temp.check(r -> 'committedEnvelope' -> 'data' -> 'earnedAwards' = '{}'::jsonb
+                    AND pg_temp.get_as(u) -> 'envelope' -> 'data' -> 'earnedAwards' = '{}'::jsonb,
+    'T1l2 quarantined claims never appear in earnedAwards on commit or readback');
+  PERFORM pg_temp.check(pg_temp.get_as(u) -> 'pendingAwardVerification'
+                          = '["card:monthly:2026-10:full-month", "card:monthly:2026-10:hope"]'::jsonb,
+    'T1l3 readback lists pending claims by ID only, outside the envelope');
   PERFORM pg_temp.check(
     (SELECT hub_announcement_acked = false AND card_viewed = true AND earned_card_snapshot IS NOT NULL
-            AND card_document_id = 'card-hope'
-       FROM public.account_earned_awards WHERE account_id = u::uuid AND award_id = 'card:monthly:2026-10:hope'),
-    'T1l award flags/snapshot/document identity transferred independently');
+            AND card_document_id = 'card-hope' AND claimed_earned_on = DATE '2026-10-05'
+            AND verification_status = 'pendingTrustedVerification'
+       FROM public.account_provisional_award_claims WHERE account_id = u::uuid AND award_id = 'card:monthly:2026-10:hope'),
+    'T1m claim evidence (flags, snapshot, document, claimed date) quarantined independently');
   PERFORM pg_temp.check(
     (SELECT hub_announcement_acked = true AND card_viewed = false AND kind = 'fullMonth'
-       FROM public.account_earned_awards WHERE account_id = u::uuid AND award_id = 'card:monthly:2026-10:full-month'),
-    'T1m server derives kind/discovery from canonical award ID');
+       FROM public.account_provisional_award_claims WHERE account_id = u::uuid AND award_id = 'card:monthly:2026-10:full-month'),
+    'T1m2 server derives kind/discovery from canonical award ID');
   PERFORM pg_temp.check(
     (SELECT reference = 'Psalm 23:1–3' AND translation IS NULL
        FROM public.account_saved_scriptures WHERE account_id = u::uuid AND scripture_key = 'psalm 23:1-3|'),
@@ -103,8 +123,8 @@ BEGIN
   SELECT * INTO v_rcpt FROM public.account_reconciliation_receipts
    WHERE account_id = u::uuid AND idempotency_key = 't1-first';
   PERFORM pg_temp.check(v_rcpt.committed_revision = 1 AND v_rcpt.guest_payload_digest = v_fp
-                    AND v_rcpt.mode = 'newAccountTransfer' AND v_rcpt.outcome_status = 'committed'
-                    AND v_rcpt.unresolved_persisted_on_server,
+                    AND v_rcpt.mode = 'newAccountTransfer' AND v_rcpt.outcome_status = 'reconciledWithUnresolved'
+                    AND v_rcpt.unresolved_count = 2 AND NOT v_rcpt.unresolved_persisted_on_server,
     'T1o durable receipt row matches the acknowledgement');
 END $$;
 
@@ -127,6 +147,9 @@ BEGIN
                     AND r -> 'receipt' ->> 'status' = 'alreadyCommittedDuplicate'
                     AND r -> 'receipt' ->> 'committedGuestFingerprint' = repeat('1', 64),
     'T2b replay returns the ORIGINAL durable revision and fingerprint');
+  PERFORM pg_temp.check((r -> 'receipt' -> 'unresolvedPersistedOnServer') = 'false'::jsonb
+                    AND (r -> 'guestRetentionRequired') = 'true'::jsonb,
+    'T2b2 replay still blocks guest clearance for the quarantined claims');
   PERFORM pg_temp.check(pg_temp.row_total(u::uuid) = v_rows
                     AND (SELECT revision FROM public.account_participation_profiles WHERE account_id = u::uuid) = 1,
     'T2c replay performs no write and no revision bump (replayed payload content ignored)');
@@ -198,12 +221,13 @@ BEGIN
       'cms:r2', jsonb_build_object('screenId', 'x', 'updatedOn', '2026-11-01'),
       'cms:r4', jsonb_build_object('screenId', 'q', 'updatedOn', '2026-11-01')),
     'savedScriptures', jsonb_build_array(
-      jsonb_build_object('key', 'john 3:16|kjv', 'reference', 'John 3:16', 'translation', 'KJV', 'savedOn', '2026-11-08')),
-    'earnedAwards', jsonb_build_object(
-      'card:monthly:2026-11:grace', jsonb_build_object('earnedOn', '2026-11-06', 'hubAnnouncementAcked', false, 'cardViewed', true),
-      'card:monthly:2026-11:peace', jsonb_build_object('earnedOn', '2026-11-07', 'hubAnnouncementAcked', false, 'cardViewed', false),
-      'card:monthly:2026-11:joy', jsonb_build_object('earnedOn', '2026-11-07', 'hubAnnouncementAcked', true, 'cardViewed', false)))));
+      jsonb_build_object('key', 'john 3:16|kjv', 'reference', 'John 3:16', 'translation', 'KJV', 'savedOn', '2026-11-08')))));
   PERFORM pg_temp.check(r ->> 'status' = 'committed', 'T3a seed account');
+
+  -- Already-verified earned awards (simulating a future trusted admission path).
+  PERFORM pg_temp.seed_verified_award(u, 'card:monthly:2026-11:grace', DATE '2026-11-06', false, true);
+  PERFORM pg_temp.seed_verified_award(u, 'card:monthly:2026-11:peace', DATE '2026-11-07', false, false);
+  PERFORM pg_temp.seed_verified_award(u, 'card:monthly:2026-11:joy', DATE '2026-11-07', true, false);
 
   -- Simulate a FUTURE trusted attestation (not something this transaction can do).
   UPDATE public.account_completed_challenges SET date_provenance = 'serverVerified'
@@ -389,8 +413,9 @@ BEGIN
     'T4h account active focus wins');
   PERFORM pg_temp.check(
     EXISTS (SELECT 1 FROM public.account_completed_challenges WHERE account_id = u::uuid AND challenge_id = 'cms:jun-1')
-    AND EXISTS (SELECT 1 FROM public.account_earned_awards WHERE account_id = u::uuid AND award_id = 'card:monthly:2026-06:faith'),
-    'T4i R13-0 timeline 9: displaced month''s completion and earned Card preserved');
+    AND EXISTS (SELECT 1 FROM public.account_provisional_award_claims WHERE account_id = u::uuid AND award_id = 'card:monthly:2026-06:faith')
+    AND (r -> 'guestRetentionRequired') = 'true'::jsonb,
+    'T4i R13-0 timeline 9: displaced month''s completion kept; its unverified Card quarantined and guest copy retained');
 
   -- Capacity / historical / shape rules (fail closed, nothing written).
   PERFORM pg_temp.expect_rejected(uc, pg_temp.payload('t4-four', 0, 'newAccountTransfer', jsonb_build_object(
@@ -574,7 +599,7 @@ BEGIN
   PERFORM pg_temp.check(
     (SELECT NOT (earned_card_snapshot ?| ARRAY['passageText', 'manuscriptText', 'passage', '_rev', 'eligibilityRule'])
             AND earned_card_snapshot -> 'keywords' = '["Hope", "grace"]'::jsonb
-       FROM public.account_earned_awards WHERE account_id = u::uuid),
+       FROM public.account_provisional_award_claims WHERE account_id = u::uuid),
     'T6f card snapshot rebuilt from allowlist: manuscript / Sanity-internal / eligibility fields stripped');
 END $$;
 
@@ -593,7 +618,7 @@ BEGIN
   RETURN NEW;
 END $$;
 CREATE TRIGGER tx1_test_inject_award_failure
-  BEFORE INSERT ON public.account_earned_awards
+  BEFORE INSERT ON public.account_provisional_award_claims
   FOR EACH ROW EXECUTE FUNCTION pg_temp.inject_award_failure();
 
 DO $$
@@ -651,7 +676,7 @@ BEGIN
   ), 'T7h no receipt anywhere claims unresolvedPersistedOnServer without matching evidence rows');
 END $$;
 
-DROP TRIGGER tx1_test_inject_award_failure ON public.account_earned_awards;
+DROP TRIGGER tx1_test_inject_award_failure ON public.account_provisional_award_claims;
 
 -- ===========================================================================
 -- T8. Last-opened pointer and saved-Challenge merge rules (R13-0 §§4.3, 4.6)
@@ -684,6 +709,69 @@ BEGIN
     AND (SELECT last_opened_challenge_id = 'cms:c2' AND last_opened_on = DATE '2026-11-10' AND resume_dismissed_on IS NULL
            FROM public.account_participation_profiles WHERE account_id = u::uuid),
     'T8c newer pointer replaces pointer and clears stale dismissal');
+END $$;
+
+-- ===========================================================================
+-- T9. Award eligibility is never established by a client claim (R08A-0 §6.2, review of
+--     PR #207). Claims are quarantined, merged monotonically, never read as earned, and
+--     keep guest retention required; only an already-verified award accepts client flags.
+-- ===========================================================================
+DO $$
+DECLARE
+  u constant text := '90000000-0000-4000-8000-000000000009';
+  r jsonb;
+BEGIN
+  r := pg_temp.call_as(u, pg_temp.payload('t9-claim-1', 0, 'newAccountTransfer', jsonb_build_object(
+    'completedChallenges', jsonb_build_object('cms:t9-c1', jsonb_build_object('completedOn', '2026-11-01')),
+    'earnedAwards', jsonb_build_object('card:monthly:2026-10:hope',
+      jsonb_build_object('earnedOn', '2026-10-05', 'hubAnnouncementAcked', false, 'cardViewed', false)))));
+  PERFORM pg_temp.check(r ->> 'status' = 'committed'
+                    AND EXISTS (SELECT 1 FROM public.account_completed_challenges WHERE account_id = u::uuid),
+    'T9a decidable records commit even while an award claim is unverifiable');
+  PERFORM pg_temp.check((r -> 'receipt' -> 'unresolvedPersistedOnServer') = 'false'::jsonb,
+    'T9b receipt requires guest retention');
+
+  -- Re-sync of the same claim (as the coordinator would on every later sync).
+  r := pg_temp.call_as(u, pg_temp.payload('t9-claim-2', 1, 'existingAccountMerge', jsonb_build_object(
+    'earnedAwards', jsonb_build_object('card:monthly:2026-10:hope',
+      jsonb_build_object('earnedOn', '2026-10-02', 'hubAnnouncementAcked', false, 'cardViewed', true,
+                         'earnedCard', pg_temp.card('2026-10', 'hope'))))));
+  PERFORM pg_temp.check(r ->> 'status' = 'committed', 'T9c repeated claim commits');
+  PERFORM pg_temp.check(
+    (SELECT count(*) FROM public.account_provisional_award_claims WHERE account_id = u::uuid) = 1
+    AND (SELECT claimed_earned_on = DATE '2026-10-05' AND card_viewed AND NOT hub_announcement_acked
+                AND earned_card_snapshot IS NOT NULL AND last_idempotency_key = 't9-claim-2'
+           FROM public.account_provisional_award_claims WHERE account_id = u::uuid),
+    'T9d quarantined claim: one row, first claimed date kept (no earlier client clock), flags OR, snapshot backfilled');
+  PERFORM pg_temp.check(NOT EXISTS (SELECT 1 FROM public.account_earned_awards WHERE account_id = u::uuid)
+                    AND (r -> 'receipt' -> 'unresolvedPersistedOnServer') = 'false'::jsonb,
+    'T9e still not earned and still guest-retention-required after re-sync');
+
+  -- A later stale device re-sends the claim with false flags: quarantined flags never regress.
+  r := pg_temp.call_as(u, pg_temp.payload('t9-claim-3', 2, 'existingAccountMerge', jsonb_build_object(
+    'earnedAwards', jsonb_build_object('card:monthly:2026-10:hope',
+      jsonb_build_object('earnedOn', '2026-10-05', 'hubAnnouncementAcked', true, 'cardViewed', false)))));
+  PERFORM pg_temp.check(r ->> 'status' = 'committed'
+    AND (SELECT card_viewed AND hub_announcement_acked FROM public.account_provisional_award_claims WHERE account_id = u::uuid),
+    'T9e2 quarantined flags OR monotonically (false never regresses true)');
+
+  -- Simulated future trusted admission of the award: client flags may now merge into it.
+  PERFORM pg_temp.seed_verified_award(u, 'card:monthly:2026-10:faith', DATE '2026-10-07', false, false);
+  r := pg_temp.call_as(u, pg_temp.payload('t9-verified', 3, 'existingAccountMerge', jsonb_build_object(
+    'earnedAwards', jsonb_build_object('card:monthly:2026-10:faith',
+      jsonb_build_object('earnedOn', '2026-10-07', 'hubAnnouncementAcked', true, 'cardViewed', false)))));
+  PERFORM pg_temp.check(r ->> 'status' = 'committed' AND r ->> 'outcomeStatus' = 'committed'
+                    AND (r -> 'receipt' -> 'unresolvedPersistedOnServer') = 'true'::jsonb
+                    AND (r -> 'guestRetentionRequired') = 'false'::jsonb,
+    'T9f commit touching only an already-verified award does not require retention');
+  PERFORM pg_temp.check(
+    (SELECT hub_announcement_acked AND NOT card_viewed FROM public.account_earned_awards
+      WHERE account_id = u::uuid AND award_id = 'card:monthly:2026-10:faith')
+    AND NOT EXISTS (SELECT 1 FROM public.account_provisional_award_claims
+                     WHERE account_id = u::uuid AND award_id = 'card:monthly:2026-10:faith')
+    AND r -> 'committedEnvelope' -> 'data' -> 'earnedAwards' ? 'card:monthly:2026-10:faith'
+    AND NOT (r -> 'committedEnvelope' -> 'data' -> 'earnedAwards' ? 'card:monthly:2026-10:hope'),
+    'T9g verified award gets the reader''s flag; only verified awards appear in earnedAwards');
 END $$;
 
 ROLLBACK;

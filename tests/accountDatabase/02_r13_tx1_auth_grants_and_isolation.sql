@@ -64,8 +64,12 @@ BEGIN
   -- Permanence enforced at the privilege layer, not just in function logic.
   PERFORM pg_temp.check(NOT has_table_privilege('account_reconciler', 'public.account_completed_challenges', 'UPDATE,DELETE,TRUNCATE'),
     'S2e completions are insert-only for the transaction');
-  PERFORM pg_temp.check(NOT has_table_privilege('account_reconciler', 'public.account_earned_awards', 'DELETE,TRUNCATE'),
-    'S2f awards cannot be deleted by the transaction');
+  PERFORM pg_temp.check(NOT has_table_privilege('account_reconciler', 'public.account_earned_awards', 'INSERT,DELETE,TRUNCATE'),
+    'S2f the transaction can neither CREATE nor delete earned awards (no trusted verification path)');
+  PERFORM pg_temp.check(NOT has_table_privilege('account_reconciler', 'public.account_provisional_award_claims', 'DELETE,TRUNCATE')
+                    AND NOT has_column_privilege('account_reconciler', 'public.account_provisional_award_claims', 'claimed_earned_on', 'UPDATE')
+                    AND NOT has_column_privilege('account_reconciler', 'public.account_provisional_award_claims', 'verification_status', 'UPDATE'),
+    'S2f2 quarantined claims cannot be deleted, re-dated, or self-verified by the transaction');
   PERFORM pg_temp.check(NOT has_column_privilege('account_reconciler', 'public.account_earned_awards', 'earned_on', 'UPDATE')
                     AND NOT has_column_privilege('account_reconciler', 'public.account_earned_awards', 'date_provenance', 'UPDATE')
                     AND NOT has_column_privilege('account_reconciler', 'public.account_earned_awards', 'award_id', 'UPDATE'),
@@ -110,7 +114,7 @@ BEGIN
 END $$;
 
 -- ---------------------------------------------------------------------------
--- S4. Direct client table writes remain denied on all 9 tables (R13-3 + evidence table)
+-- S4. Direct client table writes remain denied on all 10 tables (R13-3 + evidence + quarantine)
 -- ---------------------------------------------------------------------------
 DO $$
 DECLARE v_table text;
@@ -118,7 +122,8 @@ BEGIN
   FOREACH v_table IN ARRAY ARRAY[
     'account_participation_profiles', 'account_completed_challenges', 'account_in_progress_challenges',
     'account_saved_challenges', 'account_saved_scriptures', 'account_earned_awards',
-    'account_shelf_months', 'account_reconciliation_receipts', 'account_reconciliation_unresolved_items'
+    'account_shelf_months', 'account_reconciliation_receipts', 'account_reconciliation_unresolved_items',
+    'account_provisional_award_claims'
   ] LOOP
     PERFORM pg_temp.check(NOT has_table_privilege('authenticated', 'public.' || v_table, 'INSERT,UPDATE,DELETE,TRUNCATE'),
       'S4 authenticated has no direct write on ' || v_table);
