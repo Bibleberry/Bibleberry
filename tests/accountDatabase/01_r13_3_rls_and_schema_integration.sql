@@ -186,10 +186,11 @@ DO $$
 BEGIN
   -- 4a. Reject pilot namespace
   BEGIN
-    INSERT INTO public.account_participation_profiles (account_id, namespace)
-    VALUES ('22222222-2222-4222-8222-222222222222', 'pilot');
+    UPDATE public.account_participation_profiles
+       SET namespace = 'pilot'
+     WHERE account_id = '22222222-2222-4222-8222-222222222222';
     RAISE EXCEPTION 'Expected namespace check constraint failure';
-  EXCEPTION WHEN check_violation OR unique_violation THEN NULL;
+  EXCEPTION WHEN check_violation THEN NULL;
   END;
 
   -- 4b. Reject drafts.* challenge_id
