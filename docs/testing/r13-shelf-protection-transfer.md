@@ -16,7 +16,7 @@ LOCAL_TEST_DATABASE_URL='postgresql:///bibleberry_shelf_test?host=/tmp/bb-pg&por
   node --experimental-strip-types --test tests/accountSync/shelfProtectionSql.integration.test.ts
 ```
 
-The integration test applies the existing local-target guard, uses the simulated `authenticated` role and JWT subject from the SQL harness, and inserts one randomly identified test account. Destroy the disposable database after verification. This exercises the TypeScript coordinator → transaction RPC → account readback contract; it does not prove a running Supabase/PostgREST stack or a production transport.
+The SQL runner uses its existing local-target guard; the integration test independently rejects non-local URLs and libpq environment overrides. It uses the simulated `authenticated` role and JWT subject from the SQL harness, and inserts one randomly identified test account. Destroy the disposable database after verification. This exercises the TypeScript coordinator → transaction RPC → account readback contract; it does not prove a running Supabase/PostgREST stack or a production transport.
 
 ## Execution evidence
 

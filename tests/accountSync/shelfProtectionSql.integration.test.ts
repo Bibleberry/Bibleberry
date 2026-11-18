@@ -1,8 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import {
   coordinateGuestSync,
@@ -23,8 +21,28 @@ import {
 } from '../../src/participation/identity.ts'
 
 const databaseUrl = process.env.LOCAL_TEST_DATABASE_URL
-const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
-const localTargetGuard = resolve(projectRoot, 'scripts/accountDatabase/lib/local-target-guard.sh')
+
+function assertLocalDatabaseUrl(value: string): void {
+  for (const setting of ['PGHOST', 'PGHOSTADDR', 'PGSERVICE', 'PGSERVICEFILE']) {
+    assert.equal(process.env[setting], undefined, `${setting} must be unset for the local-only test`)
+  }
+  assert.match(value, /^postgres(?:ql)?:\/\//, 'Use an explicit local PostgreSQL URL')
+
+  const url = new URL(value)
+  assert.equal(url.searchParams.has('service'), false, 'PostgreSQL service aliases are not allowed')
+  assert.equal(url.searchParams.has('hostaddr'), false, 'Explicit host addresses are not allowed')
+  const destinations = [url.hostname, ...url.searchParams.getAll('host')].filter(Boolean)
+  assert.ok(destinations.length > 0, 'Specify an explicit local socket or loopback host')
+
+  for (const destination of destinations) {
+    assert.equal(destination.includes(','), false, 'Multiple PostgreSQL destinations are not allowed')
+    assert.ok(
+      destination.startsWith('/')
+        || ['localhost', '127.0.0.1', '::1', '[::1]'].includes(destination.toLowerCase()),
+      'PostgreSQL target must be a local socket or loopback host',
+    )
+  }
+}
 
 function runPsql(sql: string): string {
   if (!databaseUrl) throw new Error('LOCAL_TEST_DATABASE_URL is required')
@@ -163,12 +181,7 @@ test(
   { skip: databaseUrl ? false : 'Set LOCAL_TEST_DATABASE_URL to a fresh local database after running the R13-TX1 harness' },
   async () => {
     assert.ok(databaseUrl)
-    const guard = spawnSync(
-      'bash',
-      ['-c', 'source "$1"; validate_local_database_url "$2"', 'shelf-protection-test', localTargetGuard, databaseUrl],
-      { encoding: 'utf8' },
-    )
-    assert.equal(guard.status, 0, guard.stderr || 'Database URL must pass the local-only target guard')
+    assertLocalDatabaseUrl(databaseUrl)
 
     const accountId = parseAccountId(randomUUID())!
     runPsql(`INSERT INTO auth.users (id) VALUES ('${accountId}');`)
