@@ -128,6 +128,7 @@ export class AccountSessionController {
     signal: AbortSignal
     cleanup: () => void
   } {
+    this.activeAbortController?.abort('superseded')
     this.operationEpoch += 1
     const epoch = this.operationEpoch
     const { controller, cleanup } = linkAbortSignal(externalSignal)
@@ -137,6 +138,21 @@ export class AccountSessionController {
 
   private isStale(epoch: number): boolean {
     return epoch !== this.operationEpoch
+  }
+
+  private wasCancelled(epoch: number, signal: AbortSignal): boolean {
+    return this.isStale(epoch) || signal.aborted
+  }
+
+  private cancelledOutcome(message: string, fallback: AccountSessionState): AuthActionOutcome {
+    const error = makeError('cancelled', message, true)
+    const state = fallback.status === 'expired'
+      ? { ...fallback, lastError: error }
+      : fallback.status === 'awaitingEmailOtp'
+        ? fallback
+        : ({ status: 'guest', lastError: error } as AccountSessionState)
+    this.setState(state)
+    return { ok: false, state: this.state, error }
   }
 
   private clearActiveAbort(epoch: number): void {
@@ -293,12 +309,9 @@ export class AccountSessionController {
 
     try {
       const result = await this.provider.restoreSession({ signal })
-      if (this.isStale(epoch)) {
-        return {
-          ok: false,
-          state: this.state,
-          error: makeError('cancelled', 'Session restore was superseded or cancelled.', true),
-        }
+      if (this.wasCancelled(epoch, signal)) {
+        if (this.isStale(epoch)) return { ok: false, state: this.state, error: makeError('cancelled', 'Session restore was superseded or cancelled.', true) }
+        return this.cancelledOutcome('Session restore was cancelled.', previousState)
       }
 
       const handled = this.handleRestoreOutcome(result, previousState)
@@ -307,7 +320,8 @@ export class AccountSessionController {
       }
       return handled.outcome!
     } catch (err) {
-      if (this.isStale(epoch)) {
+      if (this.wasCancelled(epoch, signal)) {
+        if (!this.isStale(epoch)) return this.cancelledOutcome('Session restore was cancelled.', previousState)
         return {
           ok: false,
           state: this.state,
@@ -366,7 +380,8 @@ export class AccountSessionController {
 
     try {
       const result = await this.provider.signIn(request, { signal })
-      if (this.isStale(epoch)) {
+      if (this.wasCancelled(epoch, signal)) {
+        if (!this.isStale(epoch)) return this.cancelledOutcome('Sign-in was cancelled.', previousState)
         return {
           ok: false,
           state: this.state,
@@ -376,7 +391,8 @@ export class AccountSessionController {
 
       return await this.processSignInResult(result, request.method, previousState, options?.signal)
     } catch (err) {
-      if (this.isStale(epoch)) {
+      if (this.wasCancelled(epoch, signal)) {
+        if (!this.isStale(epoch)) return this.cancelledOutcome('Sign-in was cancelled.', previousState)
         return {
           ok: false,
           state: this.state,
@@ -444,7 +460,8 @@ export class AccountSessionController {
         { challengeId: request.challengeId, code: request.code.trim() },
         { signal },
       )
-      if (this.isStale(epoch)) {
+      if (this.wasCancelled(epoch, signal)) {
+        if (!this.isStale(epoch)) return this.cancelledOutcome('Email verification was cancelled.', challengeResumeState)
         return {
           ok: false,
           state: this.state,
@@ -474,7 +491,8 @@ export class AccountSessionController {
 
       return await this.processSignInResult(result, 'emailOtp', challengeResumeState, options?.signal)
     } catch (err) {
-      if (this.isStale(epoch)) {
+      if (this.wasCancelled(epoch, signal)) {
+        if (!this.isStale(epoch)) return this.cancelledOutcome('Email verification was cancelled.', challengeResumeState)
         return {
           ok: false,
           state: this.state,
@@ -607,7 +625,8 @@ export class AccountSessionController {
 
     try {
       const result = await this.provider.recoverSession({ signal })
-      if (this.isStale(epoch)) {
+      if (this.wasCancelled(epoch, signal)) {
+        if (!this.isStale(epoch)) return this.cancelledOutcome('Session recovery was cancelled.', previousState)
         return {
           ok: false,
           state: this.state,
@@ -621,7 +640,8 @@ export class AccountSessionController {
       }
       return handled.outcome!
     } catch (err) {
-      if (this.isStale(epoch)) {
+      if (this.wasCancelled(epoch, signal)) {
+        if (!this.isStale(epoch)) return this.cancelledOutcome('Session recovery was cancelled.', previousState)
         return {
           ok: false,
           state: this.state,
@@ -682,6 +702,10 @@ export class AccountSessionController {
     }
 
     const activeSession = this.state.session
+    if (this.state.syncStatus === 'syncing') {
+      const error = makeError('operationInProgress', 'Guest sync is already in progress.', true)
+      return { ok: false, state: this.state, error }
+    }
     const check = validateVerifiedAuthSession(activeSession, this.now())
     if (!check.valid) {
       if (check.reason === 'expired') {
@@ -720,11 +744,40 @@ export class AccountSessionController {
     })
 
     try {
+      const transport = this.transport
+      const sessionAwareTransport: AuthorizedAccountTransport = {
+        getAccount: (session, fetchOptions) => transport.getAccount(session, fetchOptions),
+        commitAccount: (session, payload, commitOptions) => {
+          if (
+            controller.signal.aborted ||
+            this.isStale(epoch) ||
+            this.state.status !== 'authenticated' ||
+            this.state.session.accountId !== check.session.accountId
+          ) {
+            return Promise.resolve({ status: 'aborted', message: 'Session changed before account commit.' })
+          }
+          return transport.commitAccount(session, payload, commitOptions)
+        },
+      }
       const syncOutcome: CoordinateGuestSyncOutcome = await coordinateGuestSync(
-        this.transport,
+        sessionAwareTransport,
         {
           session: toAuthorizedAccountSession(check.session),
-          guest: this.guest,
+          guest: this.guest && typeof (this.guest as GuestStorageAccessor).getSnapshot === 'function'
+            ? {
+                getSnapshot: () => (this.guest as GuestStorageAccessor).getSnapshot(),
+                clearGuestStorage: (decision) => {
+                  if (
+                    controller.signal.aborted ||
+                    this.isStale(epoch) ||
+                    this.state.status !== 'authenticated' ||
+                    this.state.session.accountId !== check.session.accountId
+                  ) return false
+                  const clear = (this.guest as GuestStorageAccessor).clearGuestStorage
+                  return clear ? clear.call(this.guest, decision) : false
+                },
+              }
+            : this.guest,
           mode: options?.mode ?? this.defaultSyncOptions?.mode ?? 'auto',
           context: options?.context ?? this.defaultSyncOptions?.context,
         },
@@ -738,7 +791,7 @@ export class AccountSessionController {
         },
       )
 
-      if (this.isStale(epoch) || this.state.status !== 'authenticated') {
+      if (this.isStale(epoch) || controller.signal.aborted || this.state.status !== 'authenticated') {
         return {
           ok: false,
           state: this.state,
@@ -789,7 +842,7 @@ export class AccountSessionController {
       })
       return { ok: false, state: this.state, error, syncOutcome }
     } catch (err) {
-      if (this.isStale(epoch) || this.state.status !== 'authenticated') {
+      if (this.isStale(epoch) || controller.signal.aborted || this.state.status !== 'authenticated') {
         return {
           ok: false,
           state: this.state,

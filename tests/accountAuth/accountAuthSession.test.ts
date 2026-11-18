@@ -12,12 +12,16 @@ import {
 import type {
   AccountSessionState,
   VerifiedAuthSession,
+  AuthProvider,
+  AuthProviderRestoreResult,
+  AuthProviderSignInResult,
 } from '../../src/accountAuth/index.ts'
 import {
   createMockAuthorizedAccountTransport,
   parseAccountId,
 } from '../../src/accountSync/index.ts'
 import type {
+  AccountTransportFetchResult,
   GuestClearanceDecision,
   GuestParticipationEnvelopeV2,
   GuestReconciliationInput,
@@ -34,6 +38,23 @@ const c1 = parseStoredChallengeId('cms:berrymark-challenge-2026-11-01-true-vine'
 const c2 = parseStoredChallengeId('cms:berrymark-challenge-2026-11-02-rejoice-always')!
 const dNov01 = parseLocalCalendarDate('2026-11-01')!
 const dNov02 = parseLocalCalendarDate('2026-11-02')!
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej })
+  return { promise, resolve, reject }
+}
+
+function verifiedSession(): VerifiedAuthSession {
+  return {
+    accountId: ACCT_A,
+    method: 'google',
+    verificationSource: 'serverVerified',
+    token: 'verified-token',
+    expiresAt: Date.now() + 60_000,
+  }
+}
 
 function makeGuestEnvelope(): GuestParticipationEnvelopeV2 {
   return {
@@ -272,6 +293,63 @@ describe('R13-2A Account Session Lifecycle & Safe Sync Boundary', () => {
     assert.equal(guest.cleared, false)
   })
 
+  test('external abort fails closed when providers ignore the signal on sign-in, restore, OTP, and recovery', async () => {
+    const cases = ['signIn', 'restore', 'otp', 'recover'] as const
+    for (const operation of cases) {
+      const pending = deferred<AuthProviderRestoreResult | AuthProviderSignInResult>()
+      let nowMs = Date.now()
+      const base = createMockAuthProvider({
+        accountId: ACCT_A,
+        expiresAt: operation === 'recover' ? nowMs + 10 : nowMs + 60_000,
+      })
+      const overrides = {
+        ...(operation === 'signIn' ? { signIn: () => pending.promise as Promise<AuthProviderSignInResult> } : {}),
+        ...(operation === 'restore' ? { restoreSession: () => pending.promise as Promise<AuthProviderRestoreResult> } : {}),
+        ...(operation === 'recover' ? { recoverSession: () => pending.promise as Promise<AuthProviderRestoreResult> } : {}),
+        ...(operation === 'otp' ? { verifyEmailOtp: () => pending.promise as Promise<AuthProviderSignInResult> } : {}),
+      }
+      const provider = Object.assign(Object.create(base) as AuthProvider, overrides)
+      const guest = new InMemoryGuestStorageAccessor({ envelope: makeGuestEnvelope() })
+      const transport = createMockAuthorizedAccountTransport()
+      const controller = createAccountSessionController(provider, {
+        guest,
+        transport,
+        autoSyncOnSignIn: false,
+        now: () => nowMs,
+      })
+      const observedStates: AccountSessionState['status'][] = []
+      controller.subscribe((state) => observedStates.push(state.status))
+
+      if (operation === 'otp') {
+        const challenge = await controller.signIn({ method: 'emailOtp', email: 'reader@example.com' })
+        assert.equal(challenge.state.status, 'awaitingEmailOtp')
+      }
+      if (operation === 'recover') {
+        await controller.signIn({ method: 'google' })
+        nowMs += 20
+      }
+
+      observedStates.length = 0
+      const abort = new AbortController()
+      const action = operation === 'signIn'
+        ? controller.signIn({ method: 'google' }, { signal: abort.signal })
+        : operation === 'restore'
+          ? controller.restoreSession({ signal: abort.signal })
+          : operation === 'otp'
+            ? controller.verifyEmailOtp({ challengeId: (controller.getState() as Extract<AccountSessionState, { status: 'awaitingEmailOtp' }>).challenge.challengeId, code: '123456' }, { signal: abort.signal })
+            : controller.recoverSession({ signal: abort.signal })
+      await Promise.resolve()
+      abort.abort()
+      pending.resolve({ status: 'authenticated', session: verifiedSession() })
+      const outcome = await action
+      assert.equal(outcome.ok, false, `${operation}: ${JSON.stringify(outcome)}`)
+      assert.notEqual(controller.getState().status, 'authenticated', operation)
+      assert.equal(observedStates.includes('authenticated'), false, operation)
+      assert.equal(guest.cleared, false, operation)
+      assert.equal(transport.commitCount, 0, operation)
+    }
+  })
+
   test('duplicate sign-in is rejected while signing in or already authenticated', async () => {
     const provider = createMockAuthProvider({
       accountId: ACCT_A,
@@ -471,6 +549,73 @@ describe('R13-2A Account Session Lifecycle & Safe Sync Boundary', () => {
     assert.equal(signOutOutcome.ok, true)
     assert.equal(controller.getState().status, 'guest')
     assert.equal(signOutOutcome.error?.code, 'networkError')
+  })
+
+  test('sync is single-flight and sign-out aborts a pending sync before guest clearance', async () => {
+    const provider = createMockAuthProvider({ accountId: ACCT_A })
+    const guest = new InMemoryGuestStorageAccessor({ envelope: makeGuestEnvelope() })
+    const transport = createMockAuthorizedAccountTransport()
+    const pendingFetch = deferred<AccountTransportFetchResult>()
+    let fetchCalls = 0
+    transport.getAccount = async () => {
+      fetchCalls += 1
+      return pendingFetch.promise
+    }
+    const controller = createAccountSessionController(provider, {
+      guest,
+      transport,
+      autoSyncOnSignIn: false,
+    })
+    await controller.signIn({ method: 'google' })
+
+    const first = controller.syncGuestToAccount()
+    await Promise.resolve()
+    const duplicate = await controller.retrySync()
+    assert.equal(duplicate.ok, false)
+    assert.equal(duplicate.error?.code, 'operationInProgress')
+    assert.equal(fetchCalls, 1)
+
+    const signedOut = await controller.signOut()
+    assert.equal(signedOut.ok, true)
+    pendingFetch.resolve({ status: 'notFound', accountId: ACCT_A })
+    const syncOutcome = await first
+    assert.equal(syncOutcome.ok, false)
+    assert.equal(controller.getState().status, 'guest')
+    assert.equal(guest.clearCalls, 0)
+    assert.equal(guest.cleared, false)
+    assert.equal(transport.commitCount, 0)
+  })
+
+  test('late commit completion after sign-out cannot clear guest storage', async () => {
+    const provider = createMockAuthProvider({ accountId: ACCT_A })
+    const guest = new InMemoryGuestStorageAccessor({ envelope: makeGuestEnvelope() })
+    const transport = createMockAuthorizedAccountTransport()
+    const originalCommit = transport.commitAccount.bind(transport)
+    const commitStarted = deferred<void>()
+    const allowCommitToFinish = deferred<void>()
+    transport.commitAccount = async (session, payload) => {
+      commitStarted.resolve()
+      await allowCommitToFinish.promise
+      // Simulate a remote transport that cannot stop an already-issued request.
+      return originalCommit(session, payload)
+    }
+    const controller = createAccountSessionController(provider, {
+      guest,
+      transport,
+      autoSyncOnSignIn: false,
+    })
+    await controller.signIn({ method: 'google' })
+
+    const syncing = controller.syncGuestToAccount()
+    await commitStarted.promise
+    await controller.signOut()
+    allowCommitToFinish.resolve()
+    const outcome = await syncing
+
+    assert.equal(outcome.ok, false)
+    assert.equal(controller.getState().status, 'guest')
+    assert.equal(guest.clearCalls, 0)
+    assert.equal(guest.cleared, false)
   })
 
   test('privacy & dependency isolation: no UUIDs/tokens in logs and zero forbidden imports/globals', () => {
