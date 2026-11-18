@@ -235,6 +235,7 @@ CREATE TABLE public.account_shelf_months (
     CONSTRAINT chk_shelf_admission_kind CHECK (
       admission_kind IN ('readerSelected', 'autoAdmitted')
     ),
+  is_protected boolean NOT NULL,
   admitted_on date,
   slot_order smallint NOT NULL
     CONSTRAINT chk_shelf_slot_order CHECK (slot_order BETWEEN 1 AND 3),

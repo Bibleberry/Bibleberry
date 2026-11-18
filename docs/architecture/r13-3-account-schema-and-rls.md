@@ -18,8 +18,13 @@ The migration provisions the 8 owner-scoped tables specified in [R13-0 §3](r13-
 | `public.account_saved_challenges` | `(account_id, challenge_id)` (PK) | Maps to `SavedChallengeRecord` (`saved_on`). Cross-device unsave tombstones remain deferred per R13-0 §4.3. |
 | `public.account_saved_scriptures` | `(account_id, scripture_key)` (PK) | Maps to `SavedScriptureRecord` (`scripture_key` as `<normalizedRef>\|<normalizedTranslationOrEmpty>`, `reference`, `translation`, `saved_on`, `source_challenge_id`). Indexed by `(account_id, saved_on ASC, scripture_key ASC)` for R13-0 §4.4 ordering. Stores zero passage manuscript text. |
 | `public.account_earned_awards` | `(account_id, award_id)` (PK) | Maps to `ProposedAccountEarnedAwardRecord`. Enforces `card:monthly:YYYY-MM:<slug>` format, `kind` (`thematic` / `fullMonth`) consistency, `discovery_id` consistency, independent `hub_announcement_acked` / `card_viewed` booleans, and rejects `passageText` / `manuscriptText` keys inside `earned_card_snapshot`. |
-| `public.account_shelf_months` | `(account_id, year_month)` (PK), `UNIQUE (account_id, slot_order)` | Maps to `ProposedAccountShelfEntry` (`admission_kind IN ('readerSelected', 'autoAdmitted')`, `admitted_on`, `slot_order BETWEEN 1 AND 3`). `UNIQUE (account_id, slot_order)` + `slot_order BETWEEN 1 AND 3` caps rows at `0–3` per account. Existing account Shelf precedence on guest merge is enforced by the R13-0 engine / future merge RPC. |
+| `public.account_shelf_months` | `(account_id, year_month)` (PK), `UNIQUE (account_id, slot_order)` | Maps Shelf identity and policy state (`admission_kind IN ('readerSelected', 'autoAdmitted')`, required `is_protected`, `admitted_on`, `slot_order BETWEEN 1 AND 3`). Protection is stored independently from admission kind, allowing both auto-admitted protected and reader-selected unprotected months to round-trip. `UNIQUE (account_id, slot_order)` + `slot_order BETWEEN 1 AND 3` caps rows at `0–3` per account. Existing account Shelf precedence on guest merge is enforced by the R13-0 engine / future merge RPC. |
 | `public.account_reconciliation_receipts` | `(account_id, idempotency_key)` (PK) | Maps to `CommitAckReceipt` idempotency storage (`mode`, `guest_payload_digest`, `committed_revision >= 1`, `outcome_status`, `unresolved_count`). Enables exact-once retry detection and `409 Conflict` on digest mismatch. |
+
+The older R13-0 `ProposedAccountShelfEntry` documentation predates the accepted
+`src/shelf/types.ts` contract and does not list `isProtected`. This migration follows
+the accepted Shelf contract without modifying the out-of-scope application types;
+the R13-0 proposal should be reconciled in its owning follow-up.
 
 ---
 
@@ -87,7 +92,13 @@ The runner executes:
 
 ### Verification Results & Limitations
 
-- **Verified in this environment:**
-  - `node --experimental-strip-types --test tests/accountDatabase/accountSchemaStatic.test.ts` — **4 passed, 0 failed** (static structural validation of the migration SQL and test fixture).
-- **Not executed in this environment (runtime limitation):**
-  - `scripts/accountDatabase/run-local-rls-tests.sh` (`00_local_supabase_auth_bootstrap.sql`, migration DDL execution, and `01_r13_3_rls_and_schema_integration.sql`) **could not be executed** because `psql`, `postgres`, `supabase`, and `docker` are not installed on the local machine. Live PostgreSQL execution of constraints, RLS policies, and `ON DELETE CASCADE` remains unverified until run against a local PostgreSQL or Supabase CLI instance.
+- **PostgreSQL:** `PostgreSQL 18.7`, run on 2026-11-17 against a newly
+  initialized, disposable local cluster with TCP disabled and a dedicated Unix
+  socket. The database contained no pre-existing Bibleberry schema or data.
+- `node --experimental-strip-types tests/accountDatabase/accountSchemaStatic.test.ts`
+  — **5 passed, 0 failed**.
+- `LOCAL_TEST_DATABASE_URL='postgresql:///bibleberry_r13_test?host=/tmp/bibleberry-pr164-postgres&port=55432' ./scripts/accountDatabase/run-local-rls-tests.sh`
+  — **passed**. The auth bootstrap, migration DDL, all eight RLS policies,
+  grants, owner isolation, write denial, constraints, independent Shelf
+  protection/admission combinations, and `ON DELETE CASCADE` fixture completed;
+  the fixture transaction rolled back cleanly.

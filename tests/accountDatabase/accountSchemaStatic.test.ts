@@ -70,6 +70,23 @@ test('R13-3 migration excludes prohibited PII, journaling, streak, and passage m
   }
 })
 
+test('R13-3 Shelf schema persists protection independently from admission kind', () => {
+  assert.match(
+    migrationSql,
+    /CREATE TABLE public\.account_shelf_months[\s\S]*?\bis_protected boolean NOT NULL[,\n]/,
+  )
+  assert.match(
+    integrationSql,
+    /'autoAdmitted', true/,
+    'Fixture must cover an auto-admitted protected month',
+  )
+  assert.match(
+    integrationSql,
+    /'readerSelected', false/,
+    'Fixture must cover a reader-selected unprotected month',
+  )
+})
+
 test('R13-3 local SQL integration fixture covers all 8 tables and rolls back cleanly', () => {
   for (const table of REQUIRED_TABLES) {
     assert.match(integrationSql, new RegExp(`'${table}'`), `Integration fixture missing ${table}`)

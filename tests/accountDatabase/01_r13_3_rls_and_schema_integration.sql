@@ -138,11 +138,13 @@ INSERT INTO public.account_earned_awards (
   '{"cardDocumentId":"card-doc-1","title":"Gratitude"}'::jsonb
 );
 
--- 0-3 Shelf months for User A
-INSERT INTO public.account_shelf_months (account_id, year_month, admission_kind, admitted_on, slot_order) VALUES
-  ('11111111-1111-4111-8111-111111111111', '2026-08', 'readerSelected', DATE '2026-09-01', 1),
-  ('11111111-1111-4111-8111-111111111111', '2026-09', 'autoAdmitted', DATE '2026-10-01', 2),
-  ('11111111-1111-4111-8111-111111111111', '2026-10', 'readerSelected', DATE '2026-11-01', 3);
+-- Protection is independent of admission kind: preserve all combinations losslessly.
+INSERT INTO public.account_shelf_months (
+  account_id, year_month, admission_kind, is_protected, admitted_on, slot_order
+) VALUES
+  ('11111111-1111-4111-8111-111111111111', '2026-08', 'readerSelected', false, DATE '2026-09-01', 1),
+  ('11111111-1111-4111-8111-111111111111', '2026-09', 'autoAdmitted', true, DATE '2026-10-01', 2),
+  ('11111111-1111-4111-8111-111111111111', '2026-10', 'readerSelected', true, DATE '2026-11-01', 3);
 
 INSERT INTO public.account_reconciliation_receipts (
   account_id, idempotency_key, mode, guest_payload_digest,
@@ -200,16 +202,16 @@ BEGIN
 
   -- 4c. Reject 4th Shelf month (slot_order = 4)
   BEGIN
-    INSERT INTO public.account_shelf_months (account_id, year_month, admission_kind, slot_order)
-    VALUES ('11111111-1111-4111-8111-111111111111', '2026-07', 'readerSelected', 4);
+    INSERT INTO public.account_shelf_months (account_id, year_month, admission_kind, is_protected, slot_order)
+    VALUES ('11111111-1111-4111-8111-111111111111', '2026-07', 'readerSelected', false, 4);
     RAISE EXCEPTION 'Expected 4th shelf slot rejection';
   EXCEPTION WHEN check_violation THEN NULL;
   END;
 
   -- 4d. Reject duplicate Shelf slot_order
   BEGIN
-    INSERT INTO public.account_shelf_months (account_id, year_month, admission_kind, slot_order)
-    VALUES ('11111111-1111-4111-8111-111111111111', '2026-07', 'readerSelected', 3);
+    INSERT INTO public.account_shelf_months (account_id, year_month, admission_kind, is_protected, slot_order)
+    VALUES ('11111111-1111-4111-8111-111111111111', '2026-07', 'readerSelected', false, 3);
     RAISE EXCEPTION 'Expected duplicate shelf slot_order rejection';
   EXCEPTION WHEN unique_violation THEN NULL;
   END;
@@ -297,6 +299,18 @@ BEGIN
     RAISE EXCEPTION 'Expected 3 shelf rows for User A, got %', v_count;
   END IF;
 
+  SELECT count(*) INTO v_count FROM public.account_shelf_months
+   WHERE admission_kind = 'autoAdmitted' AND is_protected = true;
+  IF v_count <> 1 THEN
+    RAISE EXCEPTION 'Expected 1 auto-admitted protected shelf row, got %', v_count;
+  END IF;
+
+  SELECT count(*) INTO v_count FROM public.account_shelf_months
+   WHERE admission_kind = 'readerSelected' AND is_protected = false;
+  IF v_count <> 1 THEN
+    RAISE EXCEPTION 'Expected 1 reader-selected unprotected shelf row, got %', v_count;
+  END IF;
+
   -- Direct client writes must be denied even for own account_id
   BEGIN
     UPDATE public.account_participation_profiles SET revision = 999
@@ -316,8 +330,8 @@ BEGIN
   END;
 
   BEGIN
-    INSERT INTO public.account_shelf_months (account_id, year_month, admission_kind, slot_order)
-    VALUES ('22222222-2222-4222-8222-222222222222', '2026-11', 'readerSelected', 1);
+    INSERT INTO public.account_shelf_months (account_id, year_month, admission_kind, is_protected, slot_order)
+    VALUES ('22222222-2222-4222-8222-222222222222', '2026-11', 'readerSelected', false, 1);
     RAISE EXCEPTION 'Expected authenticated cross-account INSERT denial on shelf';
   EXCEPTION WHEN insufficient_privilege THEN NULL;
   END;
