@@ -102,6 +102,21 @@ function makeGuestWithRecords(): GuestParticipationEnvelopeV2 {
   }
 }
 
+function makeEmptyGuestEnvelope(): GuestParticipationEnvelopeV2 {
+  return {
+    schemaVersion: 2,
+    namespace: 'cms',
+    data: {
+      completedChallenges: {},
+      inProgressChallenges: {},
+      savedChallenges: {},
+      savedScriptures: [],
+      lastOpenedChallenge: null,
+      earnedAwards: {},
+    },
+  }
+}
+
 class TestGuestStorageAccessor implements GuestStorageAccessor {
   public data: GuestReconciliationInput
   public clearCount = 0
@@ -156,6 +171,165 @@ describe('R13-1 Guest-to-Account Sync Orchestration', () => {
     assert.ok(stored.data.savedChallenges[c3])
     assert.equal(stored.data.savedScriptures.length, 1)
     assert.ok(stored.data.earnedAwards[awardThematic])
+  })
+
+  test('coordinator preserves both explicit protection values for each Shelf admission kind', async () => {
+    const cases = [
+      { yearMonth: '2026-10', admissionKind: 'readerSelected', isProtected: true },
+      { yearMonth: '2026-09', admissionKind: 'readerSelected', isProtected: false },
+      { yearMonth: '2026-08', admissionKind: 'autoAdmitted', isProtected: true },
+      { yearMonth: '2026-07', admissionKind: 'autoAdmitted', isProtected: false },
+    ] as const
+
+    for (const entry of cases) {
+      const transport = createMockAuthorizedAccountTransport()
+      const outcome = await coordinateGuestSync(transport, {
+        session: { accountId: ACCT_A },
+        guest: {
+          envelope: makeEmptyGuestEnvelope(),
+          shelf: {
+            months: [{
+              yearMonth: parsePublicationYearMonth(entry.yearMonth)!,
+              admissionKind: entry.admissionKind,
+              isProtected: entry.isProtected,
+              admittedOn: dNov05,
+            }],
+            activeFocusMonth: parsePublicationYearMonth(entry.yearMonth)!,
+            updatedOn: dNov05,
+          },
+        },
+        mode: 'newAccountTransfer',
+      })
+
+      assert.equal(outcome.ok, true)
+      const storedEntry = transport.getStoredAccount(ACCT_A)?.data.shelf?.months[0]
+      assert.equal(storedEntry?.admissionKind, entry.admissionKind)
+      assert.equal(storedEntry?.isProtected, entry.isProtected)
+      assert.equal(storedEntry?.admittedOn, dNov05)
+      assert.equal(transport.getStoredAccount(ACCT_A)?.data.shelf?.activeFocusMonth, entry.yearMonth)
+    }
+  })
+
+  test('coordinator leaves absent protection flags absent for both admission kinds', async () => {
+    const transport = createMockAuthorizedAccountTransport()
+    const outcome = await coordinateGuestSync(transport, {
+      session: { accountId: ACCT_A },
+      guest: {
+        envelope: makeEmptyGuestEnvelope(),
+        shelf: {
+          months: [
+            { yearMonth: parsePublicationYearMonth('2026-10')!, admissionKind: 'readerSelected' },
+            { yearMonth: parsePublicationYearMonth('2026-09')!, admissionKind: 'autoAdmitted' },
+            { yearMonth: parsePublicationYearMonth('2026-08')!, admissionKind: 'autoAdmitted' },
+            { yearMonth: parsePublicationYearMonth('2026-07')!, admissionKind: 'readerSelected' },
+          ],
+        },
+      },
+      mode: 'newAccountTransfer',
+    })
+
+    assert.equal(outcome.ok, true)
+    const months = transport.getStoredAccount(ACCT_A)?.data.shelf?.months
+    assert.equal(months?.length, 3)
+    assert.equal(Object.hasOwn(months?.[0] ?? {}, 'isProtected'), false)
+    assert.equal(Object.hasOwn(months?.[1] ?? {}, 'isProtected'), false)
+    assert.equal(Object.hasOwn(months?.[2] ?? {}, 'isProtected'), false)
+    assert.ok(outcome.reconciliation?.ok && outcome.reconciliation.rejectedRecords.some(
+      record => record.source === 'guest'
+        && record.rawKey === '2026-07'
+        && record.reason === 'shelfCapacityExceeded',
+    ))
+  })
+
+  test('existing account protection wins a conflicting guest Shelf choice', async () => {
+    const conflicts = [
+      { yearMonth: '2026-10', admissionKind: 'readerSelected', accountProtected: true, guestProtected: false },
+      { yearMonth: '2026-09', admissionKind: 'autoAdmitted', accountProtected: false, guestProtected: true },
+    ] as const
+
+    for (const conflict of conflicts) {
+      const transport = createMockAuthorizedAccountTransport()
+      const month = parsePublicationYearMonth(conflict.yearMonth)!
+      transport.seedAccount({
+        schemaVersion: 1,
+        accountId: ACCT_A,
+        namespace: 'cms',
+        revision: 1,
+        data: {
+          completedChallenges: {},
+          inProgressChallenges: {},
+          savedChallenges: {},
+          savedScriptures: [],
+          lastOpenedChallenge: null,
+          earnedAwards: {},
+          shelf: {
+            months: [{
+              yearMonth: month,
+              admissionKind: conflict.admissionKind,
+              isProtected: conflict.accountProtected,
+            }],
+            activeFocusMonth: month,
+          },
+        },
+      })
+
+      const outcome = await coordinateGuestSync(transport, {
+        session: { accountId: ACCT_A },
+        guest: {
+          envelope: makeEmptyGuestEnvelope(),
+          shelf: {
+            months: [{
+              yearMonth: month,
+              admissionKind: conflict.admissionKind,
+              isProtected: conflict.guestProtected,
+            }],
+          },
+        },
+        mode: 'existingAccountMerge',
+      })
+
+      assert.equal(outcome.ok, true)
+      assert.equal(
+        transport.getStoredAccount(ACCT_A)?.data.shelf?.months[0]?.isProtected,
+        conflict.accountProtected,
+      )
+      assert.equal(outcome.reconciliation?.ok && outcome.reconciliation.shelfConflicts.length, 0)
+    }
+  })
+
+  test('invalid guest protection flag is rejected and prevents guest storage clearance', async () => {
+    const transport = createMockAuthorizedAccountTransport()
+    const accessor = new TestGuestStorageAccessor({
+      envelope: makeEmptyGuestEnvelope(),
+      shelf: {
+        months: [{
+          yearMonth: parsePublicationYearMonth('2026-10')!,
+          admissionKind: 'readerSelected',
+          isProtected: 'false',
+        }],
+      } as never,
+    })
+
+    const outcome = await coordinateGuestSync(
+      transport,
+      {
+        session: { accountId: ACCT_A },
+        guest: accessor,
+        mode: 'newAccountTransfer',
+      },
+    )
+
+    assert.equal(outcome.ok, true)
+    assert.equal(outcome.reconciliation?.ok, true)
+    if (outcome.reconciliation?.ok) {
+      assert.ok(outcome.reconciliation.rejectedRecords.some(
+        record => record.source === 'guest' && record.section === 'shelf' && record.reason === 'invalidShelfEntry',
+      ))
+    }
+    assert.equal(outcome.guestClearanceDecision?.shouldClearGuestStorage, false)
+    assert.equal(outcome.guestClearanceDecision?.reason, 'reconciliationRequiresRetention')
+    assert.equal(outcome.guestCleared, false)
+    assert.equal(accessor.clearCount, 0)
   })
 
   test('existing-account merge combines accomplishments, preserves existing account shelf, and advances revision', async () => {
