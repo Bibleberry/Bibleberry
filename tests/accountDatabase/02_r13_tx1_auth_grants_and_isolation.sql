@@ -74,6 +74,11 @@ BEGIN
                     AND NOT has_column_privilege('account_reconciler', 'public.account_earned_awards', 'date_provenance', 'UPDATE')
                     AND NOT has_column_privilege('account_reconciler', 'public.account_earned_awards', 'award_id', 'UPDATE'),
     'S2g award identity / earned_on / provenance are not UPDATE-able');
+  PERFORM pg_temp.check(NOT has_column_privilege('account_reconciler', 'public.account_earned_awards', 'earned_card_snapshot', 'UPDATE')
+                    AND NOT has_column_privilege('account_reconciler', 'public.account_earned_awards', 'card_document_id', 'UPDATE')
+                    AND has_column_privilege('account_reconciler', 'public.account_earned_awards', 'card_viewed', 'UPDATE')
+                    AND has_column_privilege('account_reconciler', 'public.account_earned_awards', 'hub_announcement_acked', 'UPDATE'),
+    'S2g2 on earned awards the transaction may update ONLY the two presentation flags (no card metadata)');
   PERFORM pg_temp.check(NOT has_table_privilege('account_reconciler', 'public.account_reconciliation_receipts', 'UPDATE,DELETE,TRUNCATE'),
     'S2h receipts are immutable');
   PERFORM pg_temp.check(NOT has_table_privilege('account_reconciler', 'public.account_shelf_months', 'UPDATE,DELETE,TRUNCATE'),

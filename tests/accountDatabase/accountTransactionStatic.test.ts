@@ -64,3 +64,8 @@ test('R13-TX1 transaction never creates earned awards without trusted verificati
   assert.match(block, /INSERT INTO public\.account_provisional_award_claims/)
   assert.doesNotMatch(sql, /GRANT[^;]*\bINSERT\b[^;]*ON TABLE public\.account_earned_awards TO account_reconciler/)
 })
+
+test('R13-TX1 never adopts client card metadata onto an earned award', () => {
+  assert.match(sql, /GRANT UPDATE \(hub_announcement_acked, card_viewed, updated_at\)\s+ON TABLE public\.account_earned_awards TO account_reconciler;/)
+  assert.doesNotMatch(functionBlock('reconcile_guest_participation'), /UPDATE public\.account_earned_awards[^;]*earned_card_snapshot/)
+})

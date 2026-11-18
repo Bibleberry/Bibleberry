@@ -350,10 +350,15 @@ BEGIN
       WHERE account_id = u::uuid AND award_id = 'card:monthly:2026-11:grace'),
     'T3v false flags never regress true flags');
   PERFORM pg_temp.check(
-    (SELECT hub_announcement_acked AND card_viewed AND card_document_id = 'card-joy'
-            AND earned_card_snapshot ->> 'cardDocumentId' = 'card-joy'
+    (SELECT hub_announcement_acked AND card_viewed
        FROM public.account_earned_awards WHERE account_id = u::uuid AND award_id = 'card:monthly:2026-11:joy'),
-    'T3x incoming false hub flag cannot regress true while cardViewed / snapshot backfill updates the row');
+    'T3x incoming false hub flag cannot regress true while the cardViewed update runs');
+  -- Review of PR #207: a structurally valid but unattested client snapshot (here with
+  -- shareEligible:true) is never adopted onto a verified award lacking card metadata.
+  PERFORM pg_temp.check(
+    (SELECT card_document_id IS NULL AND earned_card_snapshot IS NULL
+       FROM public.account_earned_awards WHERE account_id = u::uuid AND award_id = 'card:monthly:2026-11:joy'),
+    'T3y verified award does not acquire client-supplied card document / snapshot / shareEligible');
   PERFORM pg_temp.check((SELECT count(*) FROM public.account_earned_awards WHERE account_id = u::uuid) = 3,
     'T3w awards are unique (no duplicate rows)');
 END $$;
@@ -772,6 +777,27 @@ BEGIN
     AND r -> 'committedEnvelope' -> 'data' -> 'earnedAwards' ? 'card:monthly:2026-10:faith'
     AND NOT (r -> 'committedEnvelope' -> 'data' -> 'earnedAwards' ? 'card:monthly:2026-10:hope'),
     'T9g verified award gets the reader''s flag; only verified awards appear in earnedAwards');
+
+  -- Review of PR #207 regression: seeded verified award with NULL snapshot/doc; client submits a
+  -- structurally valid but WRONG card snapshot with shareEligible:true. Flags OR; metadata ignored.
+  PERFORM pg_temp.check(
+    (SELECT card_document_id IS NULL AND earned_card_snapshot IS NULL FROM public.account_earned_awards
+      WHERE account_id = u::uuid AND award_id = 'card:monthly:2026-10:faith'),
+    'T9h precondition: verified award has no card metadata');
+  r := pg_temp.call_as(u, pg_temp.payload('t9-wrong-card', 4, 'existingAccountMerge', jsonb_build_object(
+    'earnedAwards', jsonb_build_object('card:monthly:2026-10:faith',
+      jsonb_build_object('earnedOn', '2026-10-07', 'hubAnnouncementAcked', false, 'cardViewed', true,
+        'cardDocumentId', 'card-faith',
+        'earnedCard', pg_temp.card('2026-10', 'faith') || jsonb_build_object(
+          'imageUrl', 'https://cdn.sanity.io/images/testproj/production/some-other-card-1200x1600.png',
+          'shareEligible', true, 'rightsStatus', 'cleared-by-client'))))));
+  PERFORM pg_temp.check(r ->> 'status' = 'committed', 'T9i wrong-card submission commits (flags only)');
+  PERFORM pg_temp.check(
+    (SELECT hub_announcement_acked AND card_viewed AND card_document_id IS NULL AND earned_card_snapshot IS NULL
+       FROM public.account_earned_awards WHERE account_id = u::uuid AND award_id = 'card:monthly:2026-10:faith')
+    AND NOT (r -> 'committedEnvelope' -> 'data' -> 'earnedAwards' -> 'card:monthly:2026-10:faith' ? 'earnedCard')
+    AND NOT (r -> 'committedEnvelope' -> 'data' -> 'earnedAwards' -> 'card:monthly:2026-10:faith' ? 'cardDocumentId'),
+    'T9j flags OR, but the verified award never adopts client artwork / document / shareEligible / rights');
 END $$;
 
 ROLLBACK;

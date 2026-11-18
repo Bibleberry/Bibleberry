@@ -225,9 +225,11 @@ GRANT UPDATE (reference, translation, saved_on, source_challenge_id)
 
 -- Awards are permanent; earned_on / provenance / identity are immutable. The transaction can
 -- NEVER create an earned award (no INSERT): earning requires a trusted verification path that
--- does not exist yet. It may only OR presentation flags / backfill a snapshot on existing rows.
+-- does not exist yet. On an existing (verified) award it may ONLY OR the two reader-owned
+-- presentation flags: card artwork / document identity / rights (`shareEligible`) must come from
+-- a trusted CMS/Gateway projection, never from client JSON (R13-0 §5.4; review of PR #207).
 GRANT SELECT ON TABLE public.account_earned_awards TO account_reconciler;
-GRANT UPDATE (hub_announcement_acked, card_viewed, card_document_id, earned_card_snapshot, updated_at)
+GRANT UPDATE (hub_announcement_acked, card_viewed, updated_at)
   ON TABLE public.account_earned_awards TO account_reconciler;
 
 -- Guest Shelf is only ever written into an account that has no Shelf state.
@@ -1445,7 +1447,8 @@ BEGIN
     END IF;
 
     -- 7e. Earned awards. Existing (verified) awards: monotonic independent flags, immutable
-    --     earned_on. A NEW award claim cannot be verified (no trusted CMS discovery/roster
+    --     earned_on; only the two presentation flags OR (card metadata is never taken from the
+    --     client). A NEW award claim cannot be verified (no trusted CMS discovery/roster
     --     projection; R08A-0 §6.2), so it is quarantined in account_provisional_award_claims,
     --     never written to account_earned_awards, and forces guest retention (see 7i).
     IF v_data ? 'earnedAwards' THEN
@@ -1530,19 +1533,13 @@ BEGIN
                   'reason', 'disagreeingUnverifiedClientDates'));
             END IF;
           END IF;
-          -- Backfill a snapshot only when the account has none and the identities agree.
-          IF v_ex_snap IS NOT NULL
-             OR (v_snap IS NOT NULL AND v_ex_doc IS NOT NULL AND v_snap ->> 'cardDocumentId' <> v_ex_doc) THEN
-            v_snap := v_ex_snap;
-          END IF;
-          IF (v_bool AND NOT v_ex_hub) OR (v_bool2 AND NOT v_ex_viewed)
-             OR (v_ex_doc IS NULL AND v_text IS NOT NULL)
-             OR v_snap IS DISTINCT FROM v_ex_snap THEN
+          -- Presentation flags ONLY. A client-supplied card snapshot / document ID is validated
+          -- above (so malformed input still fails closed) but never adopted: its structure and
+          -- CDN URL format cannot attest that the artwork or rights belong to this award.
+          IF (v_bool AND NOT v_ex_hub) OR (v_bool2 AND NOT v_ex_viewed) THEN
             UPDATE public.account_earned_awards
                SET hub_announcement_acked = v_ex_hub OR v_bool,
                    card_viewed = v_ex_viewed OR v_bool2,
-                   card_document_id = coalesce(v_ex_doc, v_text),
-                   earned_card_snapshot = v_snap,
                    updated_at = v_now
              WHERE account_id = v_uid AND award_id = v_k;
           END IF;
