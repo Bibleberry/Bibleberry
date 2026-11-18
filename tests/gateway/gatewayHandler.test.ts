@@ -856,14 +856,20 @@ test('preserves exact Sanity base document ID and screen _key identity for reade
 
 test('verifies zero imports of src/gateway/ in browser application entrypoint and tree', () => {
   const rootSrcDir = path.resolve(process.cwd(), 'src')
+  // Server-only trees: the Gateway itself and the R13-VERIFY1 trusted award verifier, which
+  // deliberately reuses the Gateway's validators. Every OTHER file under src/ is browser code and
+  // must import neither of them.
+  const serverOnlyDirs = new Set([
+    path.join(rootSrcDir, 'gateway'),
+    path.join(rootSrcDir, 'accountVerification'),
+  ])
 
   function checkDir(dir: string) {
     const entries = fs.readdirSync(dir, { withFileTypes: true })
     for (const entry of entries) {
       const fullPath = path.join(dir, entry.name)
       if (entry.isDirectory()) {
-        // Skip gateway itself
-        if (fullPath === path.join(rootSrcDir, 'gateway')) continue
+        if (serverOnlyDirs.has(fullPath)) continue
         checkDir(fullPath)
       } else if (entry.isFile() && (entry.name.endsWith('.ts') || entry.name.endsWith('.tsx'))) {
         const content = fs.readFileSync(fullPath, 'utf8')
@@ -872,9 +878,10 @@ test('verifies zero imports of src/gateway/ in browser application entrypoint an
           content.includes('from "./gateway') ||
           content.includes('from \'./gateway') ||
           content.includes('from "@/gateway') ||
+          content.includes('accountVerification') ||
           content.includes('SANITY_READ_TOKEN'),
           false,
-          `Browser file ${entry.name} must not import gateway or reference SANITY_READ_TOKEN`,
+          `Browser file ${entry.name} must not import gateway / accountVerification or reference SANITY_READ_TOKEN`,
         )
       }
     }

@@ -761,6 +761,8 @@ interface NormalizedDiscovery {
   readonly activeQualifyingIds: readonly string[]
   readonly reservedCardId?: string
   readonly linkedCardId?: string
+  /** Internal only (R13-VERIFY1): a Card reference/field is present, even if it failed closed. */
+  readonly cardLinked?: boolean
   readonly earnedCard?: GatewayEarnedScriptureCard
 }
 
@@ -768,6 +770,9 @@ interface ValidatedDiscoveries {
   readonly thematic: readonly NormalizedDiscovery[]
   readonly fullMonthTitle: string
   readonly fullMonthReservedCardId?: string
+  /** Internal only (R13-VERIFY1): linked Card reference even when its projection failed closed. */
+  readonly fullMonthLinkedCardId?: string
+  readonly fullMonthCardLinked?: boolean
   readonly fullMonthEarnedCard?: GatewayEarnedScriptureCard
 }
 
@@ -867,6 +872,7 @@ function validateDiscoveriesAndFullMonth(
       activeQualifyingIds,
       ...(reservedCardId ? { reservedCardId } : {}),
       ...(linkedCardId ? { linkedCardId } : {}),
+      ...(cardCheck.linked ? { cardLinked: true } : {}),
       ...(cardCheck.linked && cardCheck.card ? { earnedCard: cardCheck.card } : {}),
     })
   }
@@ -874,6 +880,7 @@ function validateDiscoveriesAndFullMonth(
   let fullMonthTitle = `Complete ${MONTH_NAMES[base.month - 1]}`
   let fullMonthReservedCardId: string | undefined
   let fullMonthLinkedCardId: string | undefined
+  let fullMonthCardLinked = false
   let fullMonthEarnedCard: GatewayEarnedScriptureCard | undefined
 
   if (doc.fullMonthCard !== undefined && doc.fullMonthCard !== null) {
@@ -905,6 +912,7 @@ function validateDiscoveriesAndFullMonth(
       options,
     )
     if (fullCardCheck.linked) {
+      fullMonthCardLinked = true
       fullMonthLinkedCardId = fullCardCheck.cardId
       if (fullMonthLinkedCardId) {
         cardIdCounts.set(fullMonthLinkedCardId, (cardIdCounts.get(fullMonthLinkedCardId) ?? 0) + 1)
@@ -933,6 +941,8 @@ function validateDiscoveriesAndFullMonth(
       thematic,
       fullMonthTitle,
       ...(fullMonthReservedCardId ? { fullMonthReservedCardId } : {}),
+      ...(fullMonthLinkedCardId ? { fullMonthLinkedCardId } : {}),
+      ...(fullMonthCardLinked ? { fullMonthCardLinked } : {}),
       ...(fullMonthEarnedCard ? { fullMonthEarnedCard } : {}),
     },
   }
@@ -1464,6 +1474,187 @@ export function validateAndProjectLibraryMonthSummary(
       title: m.title,
       ...(m.subtitle ? { subtitle: m.subtitle } : {}),
       ...(m.coverImage ? { coverImage: m.coverImage } : {}),
+    },
+  }
+}
+
+// ---------------------------------------------------------------------------
+// R13-VERIFY1: INTERNAL, SERVER-ONLY trusted award eligibility evaluation.
+//
+// Never serialize this result to a client: it contains the hidden qualifying basis and
+// unearned Card metadata. It is intentionally NOT exported from `src/gateway/index.ts` and is
+// not used by any public Gateway route. It reuses exactly the same `validateMonthlyBase` +
+// `validateDiscoveriesAndFullMonth` rules as `evaluateMonthProgress`, so the accepted
+// release / withdrawal / roster / Card-approval semantics cannot drift between the stateless
+// display calculation and durable account award issuance.
+// ---------------------------------------------------------------------------
+
+export type TrustedAwardCardStatus =
+  | { readonly status: 'approved'; readonly card: GatewayEarnedScriptureCard }
+  | { readonly status: 'legacyReservedOnly' }
+  | { readonly status: 'invalidOrUnapproved' }
+  | { readonly status: 'notLinked' }
+
+export interface TrustedAwardEligibilityEntry {
+  readonly awardId: string
+  readonly discoveryId: string
+  readonly kind: 'thematic' | 'fullMonth'
+  readonly isEarned: boolean
+  /** Active (non-withdrawn) requirement size under the CURRENT finalized roster. */
+  readonly targetCount: number
+  /** Base Challenge IDs (no `cms:` prefix) that satisfied the rule; sorted; empty if unearned. */
+  readonly basisBaseIds: readonly string[]
+  /** Latest civil release date among the basis slots (earliest credible earning date). */
+  readonly latestBasisReleaseDate?: string
+  readonly card: TrustedAwardCardStatus
+}
+
+export interface TrustedMonthAwardEligibility {
+  readonly yearMonth: string
+  readonly documentId: string
+  readonly rosterVersion: number
+  /** Count of validated `rosterFinalization.priorRosters[]` entries (historical evidence only). */
+  readonly priorRosterCount: number
+  readonly entries: readonly TrustedAwardEligibilityEntry[]
+}
+
+function countPriorRosters(rawDoc: Record<string, unknown>): number | null {
+  const rf = rawDoc.rosterFinalization
+  if (!isPlainObject(rf) || rf.priorRosters === undefined || rf.priorRosters === null) {
+    return 0
+  }
+  if (!Array.isArray(rf.priorRosters)) {
+    return null
+  }
+  for (const prior of rf.priorRosters) {
+    if (
+      !isPlainObject(prior) ||
+      typeof prior.rosterVersion !== 'number' ||
+      !Number.isInteger(prior.rosterVersion) ||
+      prior.rosterVersion < 1 ||
+      !Array.isArray(prior.finalizedChallengeIds)
+    ) {
+      return null
+    }
+  }
+  return rf.priorRosters.length
+}
+
+function classifyCard(
+  earnedCard: GatewayEarnedScriptureCard | undefined,
+  cardLinked: boolean,
+  reservedCardId: string | undefined,
+): TrustedAwardCardStatus {
+  if (earnedCard) return { status: 'approved', card: earnedCard }
+  if (cardLinked) return { status: 'invalidOrUnapproved' }
+  if (reservedCardId) return { status: 'legacyReservedOnly' }
+  return { status: 'notLinked' }
+}
+
+/**
+ * INTERNAL server-only evaluation of which monthly awards the given DATABASE-OWNED canonical
+ * completed Challenge IDs earn under the published, finalized month definition, with the
+ * trusted linked Card projection for each award. `authorizedLocalDate` must be a
+ * server-controlled civil date (the R13-VERIFY1 verifier uses the UTC-12 universal floor).
+ */
+export function evaluateTrustedMonthAwardEligibility(
+  rawDoc: unknown,
+  requestedYearMonth: string,
+  authorizedLocalDate: string,
+  completedCanonicalChallengeIds: readonly string[],
+  options?: MonthlyProjectionOptions,
+): ProjectionValidationResult<TrustedMonthAwardEligibility> {
+  const baseResult = validateMonthlyBase(rawDoc, requestedYearMonth, authorizedLocalDate, {
+    requireWelcomeAndChallengeRoutes: true,
+  })
+  if (!baseResult.ok) {
+    return baseResult
+  }
+  const base = baseResult.document
+  if (authorizedLocalDate < `${base.yearMonth}-01`) {
+    return { ok: false, reason: 'embargoed' }
+  }
+
+  const priorRosterCount = countPriorRosters(rawDoc as Record<string, unknown>)
+  if (priorRosterCount === null) {
+    return { ok: false, reason: 'malformedDocument' }
+  }
+
+  const discResult = validateDiscoveriesAndFullMonth(rawDoc as Record<string, unknown>, base, options)
+  if (!discResult.ok) {
+    return discResult
+  }
+
+  const releasedCanonicalToSlot = new Map<string, { baseId: string; date: string }>()
+  for (const slot of base.slots) {
+    if (slot.status === 'active' && slot.baseChallengeId && slot.date <= authorizedLocalDate) {
+      releasedCanonicalToSlot.set(`cms:${slot.baseChallengeId}`, {
+        baseId: slot.baseChallengeId,
+        date: slot.date,
+      })
+    }
+  }
+  const completedReleased = new Map<string, string>()
+  for (const id of completedCanonicalChallengeIds) {
+    if (typeof id !== 'string') continue
+    const slot = releasedCanonicalToSlot.get(id)
+    if (slot) completedReleased.set(slot.baseId, slot.date)
+  }
+
+  const buildBasis = (required: readonly string[]) => {
+    const basis = required.filter(id => completedReleased.has(id)).sort()
+    const latest = basis.reduce<string | undefined>(
+      (acc, id) => {
+        const d = completedReleased.get(id)!
+        return acc === undefined || d > acc ? d : acc
+      },
+      undefined,
+    )
+    return { basis, latest }
+  }
+
+  const entries: TrustedAwardEligibilityEntry[] = discResult.document.thematic.map(d => {
+    const targetCount = d.activeQualifyingIds.length
+    const { basis, latest } = buildBasis(d.activeQualifyingIds)
+    const isEarned = targetCount > 0 && basis.length >= targetCount
+    return {
+      awardId: `card:monthly:${base.yearMonth}:${d.discoverySlug}`,
+      discoveryId: d.discoveryId,
+      kind: 'thematic',
+      isEarned,
+      targetCount,
+      basisBaseIds: isEarned ? basis : [],
+      ...(isEarned && latest ? { latestBasisReleaseDate: latest } : {}),
+      card: classifyCard(d.earnedCard, d.cardLinked === true, d.reservedCardId),
+    }
+  })
+
+  const allActive = [...base.activeChallengeIds]
+  const full = buildBasis(allActive)
+  const fullEarned = allActive.length > 0 && full.basis.length >= allActive.length
+  entries.push({
+    awardId: `card:monthly:${base.yearMonth}:full-month`,
+    discoveryId: `discovery:${base.yearMonth}:full-month`,
+    kind: 'fullMonth',
+    isEarned: fullEarned,
+    targetCount: allActive.length,
+    basisBaseIds: fullEarned ? full.basis : [],
+    ...(fullEarned && full.latest ? { latestBasisReleaseDate: full.latest } : {}),
+    card: classifyCard(
+      discResult.document.fullMonthEarnedCard,
+      discResult.document.fullMonthCardLinked === true,
+      discResult.document.fullMonthReservedCardId,
+    ),
+  })
+
+  return {
+    ok: true,
+    document: {
+      yearMonth: base.yearMonth,
+      documentId: base.documentId,
+      rosterVersion: base.rosterVersion,
+      priorRosterCount,
+      entries,
     },
   }
 }
