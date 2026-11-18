@@ -49,7 +49,10 @@ export interface ShelfHostProps {
   /**
    * Callback invoked when the reader opens a validated historical month on the Shelf.
    */
-  readonly onOpenMonth: (yearMonth: PublicationYearMonth) => void
+  readonly onOpenMonth: (yearMonth: PublicationYearMonth) =>
+    | void
+    | string
+    | Promise<void | string>
 
   /**
    * Optional typed callback boundary to open the full Library picker.
@@ -144,7 +147,7 @@ export function ShelfHost({
   )
 
   const handleOpenMonth = useCallback(
-    (yearMonth: PublicationYearMonth) => {
+    async (yearMonth: PublicationYearMonth) => {
       const check = validateOpenShelfMonthTarget(
         yearMonth,
         currentState,
@@ -156,7 +159,17 @@ export function ShelfHost({
         return
       }
       setErrorMessage(null)
-      onOpenMonth(check.yearMonth)
+      try {
+        const rejection = await onOpenMonth(check.yearMonth)
+        if (typeof rejection === 'string') {
+          setErrorMessage(rejection)
+          setLiveAnnouncement(rejection)
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unable to open this month.'
+        setErrorMessage(message)
+        setLiveAnnouncement(message)
+      }
     },
     [currentState, onOpenMonth, referenceCurrentYearMonth],
   )

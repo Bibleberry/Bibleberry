@@ -24,6 +24,7 @@ import {
 import {
   attemptSelectLibraryMonthForShelf,
   buildShelfMonthMetadataMap,
+  isGatewayAuthorizedHistoricalMonth,
   resolveReferenceCurrentYearMonth,
   validateAuthorizedMonthOpen,
   type LibraryShelfSurface,
@@ -277,7 +278,7 @@ export function LibraryShelfHost({
   }, [])
 
   const handleOpenFromShelf = useCallback(
-    (yearMonth: PublicationYearMonth) => {
+    async (yearMonth: PublicationYearMonth) => {
       const check = validateAuthorizedMonthOpen({
         yearMonth,
         origin: 'shelf',
@@ -286,12 +287,34 @@ export function LibraryShelfHost({
         referenceCurrentYearMonth: resolvedCurrentYearMonth,
       })
       if (!check.ok) {
-        return
+        return check.reason
+      }
+      let authorized = false
+      try {
+        authorized = await isGatewayAuthorizedHistoricalMonth({
+          provider: libraryProvider,
+          yearMonth: check.yearMonth,
+          timeZone,
+          pageSize: libraryPageSize,
+        })
+      } catch {
+        authorized = false
+      }
+      if (!authorized) {
+        return `Month ${check.yearMonth} is no longer available in the authorized historical Library catalogue.`
       }
       setSelectedMonthYearMonth(check.yearMonth)
       onOpenMonth(check.yearMonth, { origin: 'shelf' })
     },
-    [activeShelfState, libraryState.items, onOpenMonth, resolvedCurrentYearMonth],
+    [
+      activeShelfState,
+      libraryPageSize,
+      libraryProvider,
+      libraryState.items,
+      onOpenMonth,
+      resolvedCurrentYearMonth,
+      timeZone,
+    ],
   )
 
   const handleOpenFromLibrary = useCallback(
@@ -332,10 +355,17 @@ export function LibraryShelfHost({
   const libraryHasBackToShelf = returnSurface === 'shelf' || initialSurface === 'shelf'
   const libraryOnExit = libraryHasBackToShelf || onExit ? handleLibraryBack : undefined
   const libraryExitLabel = libraryHasBackToShelf ? 'Back to Shelf' : exitLabel
+  const needsGatewayCalendarContext =
+    activeSurface === 'shelf' && !resolvedCurrentYearMonth
+  const calendarContextFailed =
+    libraryState.status === 'request-error' || libraryState.status === 'validation-error'
+  const showLibrary =
+    activeSurface === 'library' || (needsGatewayCalendarContext && calendarContextFailed)
+  const showShelf = activeSurface === 'shelf' && Boolean(resolvedCurrentYearMonth)
 
   return (
     <>
-      {activeSurface === 'shelf' ? (
+      {showShelf ? (
         <ShelfHost
           referenceCurrentYearMonth={resolvedCurrentYearMonth ?? ''}
           state={activeShelfState}
@@ -347,7 +377,16 @@ export function LibraryShelfHost({
           onExit={shelfOnExit}
           exitLabel={shelfExitLabel}
         />
-      ) : (
+      ) : null}
+      {needsGatewayCalendarContext && !calendarContextFailed && (
+        <main className="standard-page shelf-page" role="main" aria-label="Shelf loading">
+          <section className="library-state-panel library-loading-panel" role="status">
+            <div className="library-spinner" aria-hidden="true" />
+            <p className="library-loading-text">Preparing your Shelf…</p>
+          </section>
+        </main>
+      )}
+      <div hidden={!showLibrary} aria-hidden={!showLibrary}>
         <HistoricalLibraryHost
           provider={libraryProvider}
           pageSize={libraryPageSize}
@@ -364,7 +403,7 @@ export function LibraryShelfHost({
           preservedState={libraryState}
           onStateChange={setLibraryState}
         />
-      )}
+      </div>
 
       <ShelfReplaceDialog
         isOpen={pendingReplaceTarget !== null}

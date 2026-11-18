@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import type { LibraryMonthSummary } from '../../src/cms/reader/libraryMonthIndexProvider.ts'
+import type {
+  LibraryMonthIndexProvider,
+  LibraryMonthSummary,
+} from '../../src/cms/reader/libraryMonthIndexProvider.ts'
 import { getLibraryMonthShelfStatus } from '../../src/components/library/historicalLibraryModel.ts'
 import {
   attemptSelectLibraryMonthForShelf,
   buildShelfMonthMetadataMap,
+  isGatewayAuthorizedHistoricalMonth,
   resolveReferenceCurrentYearMonth,
   validateAuthorizedMonthOpen,
 } from '../../src/components/libraryShelf/libraryShelfModel.ts'
@@ -21,6 +25,58 @@ const APPROVED_LIBRARY_ITEMS: readonly LibraryMonthSummary[] = [
   { yearMonth: '2026-08', year: 2026, month: 8, title: 'Abiding Peace' },
   { yearMonth: '2026-07', year: 2026, month: 7, title: 'Living Word' },
 ]
+
+test('gateway authorization scans older pages beyond the currently loaded Library window', async () => {
+  const requestedCursors: (string | undefined)[] = []
+  const provider: LibraryMonthIndexProvider = {
+    async loadHistoricalMonths(options = {}) {
+      requestedCursors.push(options.cursor)
+      const base = {
+        page: {
+          limit: options.limit ?? 24,
+          hasMore: options.cursor === undefined,
+          nextCursor: options.cursor === undefined ? '2026-08' : null,
+        },
+        serverContext: {
+          authorizedLocalDate: '2026-11-16',
+          effectiveTimeZone: 'America/New_York',
+        },
+        source: 'gateway' as const,
+      }
+      return options.cursor === undefined
+        ? { status: 'ready' as const, items: APPROVED_LIBRARY_ITEMS.slice(0, 3), ...base }
+        : { status: 'ready' as const, items: [APPROVED_LIBRARY_ITEMS[3]], ...base }
+    },
+  }
+
+  assert.equal(
+    await isGatewayAuthorizedHistoricalMonth({ provider, yearMonth: '2026-07' }),
+    true,
+  )
+  assert.deepEqual(requestedCursors, [undefined, '2026-08'])
+})
+
+test('gateway authorization rejects a stale Shelf month omitted from the authorized catalogue', async () => {
+  const provider: LibraryMonthIndexProvider = {
+    async loadHistoricalMonths() {
+      return {
+        status: 'ready',
+        items: APPROVED_LIBRARY_ITEMS.filter(item => item.yearMonth !== '2026-10'),
+        page: { limit: 24, hasMore: false, nextCursor: null },
+        serverContext: {
+          authorizedLocalDate: '2026-11-16',
+          effectiveTimeZone: 'America/New_York',
+        },
+        source: 'gateway',
+      }
+    },
+  }
+
+  assert.equal(
+    await isGatewayAuthorizedHistoricalMonth({ provider, yearMonth: '2026-10' }),
+    false,
+  )
+})
 
 test('resolveReferenceCurrentYearMonth prefers valid explicit month and falls back to serverContext', () => {
   assert.equal(

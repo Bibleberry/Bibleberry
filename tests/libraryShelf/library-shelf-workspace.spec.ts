@@ -239,6 +239,59 @@ test.describe('Phase 05 / R08: Standalone Library-to-Shelf Workspace', () => {
     await expect(page.getByTestId('exit-calls')).toHaveText('1')
   })
 
+  test('waits for gateway calendar context before showing an existing Shelf', async ({ page }) => {
+    await page.goto(`${harnessRootUrl}?scenario=implicit-calendar`)
+
+    await expect(page.getByRole('status').getByText('Preparing your Shelf…')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Shelf', level: 1 })).toBeVisible()
+    await expect(page.locator('.shelf-card[data-year-month="2026-10"]')).toBeVisible()
+    await expect(page.getByText('Shelf is Empty')).toHaveCount(0)
+  })
+
+  test('keeps an initial Library request alive while leaving and returning', async ({ page }) => {
+    await page.goto(`${harnessRootUrl}?scenario=delayed-library`)
+    await expect(page.getByRole('heading', { name: 'Shelf', level: 1 })).toBeVisible()
+    await expect(page.getByTestId('provider-fetch-count')).toHaveText('1')
+    await page.getByRole('button', { name: 'Browse Library to Add a Month' }).click()
+    await expect(page.getByRole('heading', { name: 'Historical Library', level: 1 })).toBeVisible()
+    await expect(page.getByText('Loading historical catalogue…')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Back to Shelf' })).toBeVisible()
+    await page.getByRole('button', { name: 'Back to Shelf' }).click()
+    await expect(page.getByRole('heading', { name: 'Shelf', level: 1 })).toBeVisible()
+    await page.getByRole('button', { name: 'Browse Library to Add a Month' }).click()
+
+    await expect(page.locator('.library-card')).toHaveCount(3)
+    await expect(page.getByTestId('provider-fetch-count')).toHaveText('1')
+  })
+
+  test('keeps a load-more request alive while leaving and returning', async ({ page }) => {
+    await page.goto(`${harnessRootUrl}?scenario=delayed-more`)
+    await page.getByRole('button', { name: 'Browse Library to Add a Month' }).click()
+    await expect(page.locator('.library-card')).toHaveCount(3)
+    await page.getByRole('button', { name: 'Load more past months' }).click()
+    await expect(page.getByTestId('provider-fetch-count')).toHaveText('2')
+    await page.getByRole('button', { name: 'Back to Shelf' }).click()
+    await expect(page.getByRole('heading', { name: 'Shelf', level: 1 })).toBeVisible()
+    await page.getByRole('button', { name: 'Browse Library' }).click()
+
+    await expect(page.locator('.library-card')).toHaveCount(5)
+    await expect(page.getByTestId('provider-fetch-count')).toHaveText('2')
+  })
+
+  test('authorizes Shelf opens on older catalogue pages and rejects stale persisted entries', async ({
+    page,
+  }) => {
+    await page.goto(`${harnessRootUrl}?scenario=old-shelf-month`)
+    await expect(page.locator('.shelf-card[data-year-month="2026-06"]')).toBeVisible()
+    await page.getByRole('button', { name: /Open June 2026/ }).click()
+    await expect(page.getByTestId('opened-months')).toContainText('2026-06')
+
+    await page.goto(`${harnessRootUrl}?scenario=stale-shelf-month`)
+    await expect(page.locator('.shelf-card[data-year-month="2026-10"]')).toBeVisible()
+    await page.getByRole('button', { name: /Open October 2026/ }).click()
+    await expect(page.getByTestId('opened-months')).toHaveText('[]')
+  })
+
   test('keyboard navigation and Escape dismissal in replacement dialog', async ({ page }) => {
     await page.goto(`${harnessRootUrl}?scenario=three-months-full`)
 

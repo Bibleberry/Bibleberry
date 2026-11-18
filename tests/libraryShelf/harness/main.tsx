@@ -90,6 +90,31 @@ const MONTH_METADATA: Record<string, ShelfMonthMetadata> = {
 
 function buildScenarioShelfState(scenario: string): ShelfState {
   switch (scenario) {
+    case 'implicit-calendar':
+    case 'stale-shelf-month':
+      return {
+        months: [
+          {
+            yearMonth: '2026-10' as PublicationYearMonth,
+            admissionKind: 'readerSelected',
+            isProtected: true,
+            admittedOn: '2026-11-01' as LocalCalendarDate,
+          },
+        ],
+      }
+
+    case 'old-shelf-month':
+      return {
+        months: [
+          {
+            yearMonth: '2026-06' as PublicationYearMonth,
+            admissionKind: 'readerSelected',
+            isProtected: true,
+            admittedOn: '2026-07-01' as LocalCalendarDate,
+          },
+        ],
+      }
+
     case 'two-months-mixed':
       return {
         months: [
@@ -166,6 +191,9 @@ function LibraryShelfHarnessApp() {
     () => ({
       async loadHistoricalMonths(options = {}) {
         setFetchCount(c => c + 1)
+        if (scenario === 'delayed-library' || scenario === 'delayed-more') {
+          await new Promise(resolve => window.setTimeout(resolve, 1000))
+        }
         const serverContext = {
           authorizedLocalDate: CURRENT_LOCAL_DATE,
           effectiveTimeZone: options.timeZone ?? 'America/New_York',
@@ -181,11 +209,21 @@ function LibraryShelfHarnessApp() {
           }
         }
 
+        if (scenario === 'stale-shelf-month') {
+          return {
+            status: 'ready',
+            items: HISTORICAL_MONTHS_PAGE_1.filter(item => item.yearMonth !== '2026-10'),
+            page: { limit: options.limit ?? 3, hasMore: false, nextCursor: null },
+            serverContext,
+            source: 'gateway',
+          }
+        }
+
         if (!options.cursor) {
           return {
             status: 'ready',
             items: HISTORICAL_MONTHS_PAGE_1,
-            page: { limit: options.limit ?? 3, hasMore: true, nextCursor: 'page-2' },
+            page: { limit: options.limit ?? 3, hasMore: true, nextCursor: '2026-08' },
             serverContext,
             source: 'gateway',
           }
@@ -222,7 +260,7 @@ function LibraryShelfHarnessApp() {
   return (
     <>
       <LibraryShelfHost
-        referenceCurrentYearMonth={REFERENCE_CURRENT_MONTH}
+        referenceCurrentYearMonth={scenario === 'implicit-calendar' ? undefined : REFERENCE_CURRENT_MONTH}
         shelfState={persistedShelfState}
         onShelfStateChange={handleShelfStateChange}
         currentLocalDate={CURRENT_LOCAL_DATE}

@@ -1,6 +1,8 @@
-import type {
-  GatewayServerContext,
-  LibraryMonthSummary,
+import {
+  MAX_LIBRARY_PAGE_SIZE,
+  type GatewayServerContext,
+  type LibraryMonthIndexProvider,
+  type LibraryMonthSummary,
 } from '../../cms/reader/libraryMonthIndexProvider.ts'
 import type {
   LocalCalendarDate,
@@ -252,4 +254,50 @@ export function validateAuthorizedMonthOpen(params: {
   }
 
   return { ok: true, yearMonth: ym }
+}
+
+/**
+ * Re-checks a Shelf destination against the live gateway catalogue. Shelf state can
+ * outlive a catalogue publication, and the target may be older than the pages the
+ * reader has browsed, so checking only `approvedLibraryItems` is insufficient.
+ */
+export async function isGatewayAuthorizedHistoricalMonth(params: {
+  readonly provider: LibraryMonthIndexProvider
+  readonly yearMonth: string
+  readonly timeZone?: string
+  readonly pageSize?: number
+}): Promise<boolean> {
+  const target = parseValidPublicationYearMonth(params.yearMonth)
+  if (!target) return false
+
+  const seenCursors = new Set<string>()
+  let cursor: string | undefined
+
+  const pageSize =
+    typeof params.pageSize === 'number' && Number.isInteger(params.pageSize) && params.pageSize > 0
+      ? Math.min(params.pageSize, MAX_LIBRARY_PAGE_SIZE)
+      : MAX_LIBRARY_PAGE_SIZE
+
+  for (let pages = 0; pages < 512; pages += 1) {
+    const result = await params.provider.loadHistoricalMonths({
+      limit: pageSize,
+      cursor,
+      timeZone: params.timeZone,
+    })
+    if (result.status !== 'ready' && result.status !== 'empty') return false
+
+    const current = parseValidPublicationYearMonth(
+      result.serverContext.authorizedLocalDate.slice(0, 7),
+    )
+    if (!current || !isHistoricalPublicationYearMonth(target, current)) return false
+    if (result.items.some(item => item.yearMonth === target)) return true
+    if (!result.page.hasMore || !result.page.nextCursor) return false
+
+    const nextCursor = result.page.nextCursor
+    if (nextCursor <= target || seenCursors.has(nextCursor)) return false
+    seenCursors.add(nextCursor)
+    cursor = nextCursor
+  }
+
+  return false
 }
