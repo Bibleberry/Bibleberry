@@ -5,14 +5,19 @@ export {
   SAVED_SCRIPTURE_ROUTE_ALIASES,
   LIBRARY_ROUTE_HASH,
   LIBRARY_ROUTE_ALIASES,
+  NEWS_ROUTE_HASH,
+  NEWS_ROUTE_ALIASES,
   isFieldNotebookRouteEnabled,
   isSavedScriptureRouteEnabled,
   isHistoricalLibraryRouteEnabled,
+  isNewsReaderRouteEnabled,
   isHubCardAnnouncementsEnabled,
   parseAppIntegrationRoute,
+  parseNewsCategoryQuery,
   buildNotebookRoute,
   buildSavedScriptureRoute,
   buildLibraryRoute,
+  buildNewsRoute,
   type AppIntegrationRoute,
   type AppIntegrationRouteOptions,
 } from './appRoutes.ts'
@@ -26,3 +31,8 @@ export {
   ProvisionalLibraryEntryBar,
   type ProvisionalLibraryEntryBarProps,
 } from './ProvisionalLibraryEntryBar.tsx'
+
+export {
+  ProvisionalNewsEntryBar,
+  type ProvisionalNewsEntryBarProps,
+} from './ProvisionalNewsEntryBar.tsx'

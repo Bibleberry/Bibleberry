@@ -1,9 +1,11 @@
+import type { NewsFilterCategory } from '../components/news/newsModel.ts'
+
 /**
  * Controlled App-Shell Integration Routes (Issue #132 / R05-UI-1).
  *
- * Provides typed, feature-gated route parsing and destination builders for Field Notebook
- * and Saved Scripture collections without modifying central native navigation or altering
- * approved information architecture.
+ * Provides typed, feature-gated route parsing and destination builders for Field Notebook,
+ * Saved Scripture, Historical Library, and Ministry News without modifying central native
+ * navigation or altering approved information architecture.
  */
 
 export const NOTEBOOK_ROUTE_HASH = '#/notebook'
@@ -15,12 +17,23 @@ export const SAVED_SCRIPTURE_ROUTE_ALIASES = Object.freeze(['#/saved-scripture',
 export const LIBRARY_ROUTE_HASH = '#/library'
 export const LIBRARY_ROUTE_ALIASES = Object.freeze(['#/library'] as const)
 
-export type AppIntegrationRoute = 'notebook' | 'savedScripture' | 'library'
+export const NEWS_ROUTE_HASH = '#/news'
+export const NEWS_ROUTE_ALIASES = Object.freeze(['#/news', '#/ministry-news'] as const)
+
+const VALID_NEWS_CATEGORIES: readonly NewsFilterCategory[] = [
+  'all',
+  'ministryUpdate',
+  'announcement',
+  'monthlyPreview',
+]
+
+export type AppIntegrationRoute = 'notebook' | 'savedScripture' | 'library' | 'news'
 
 export interface AppIntegrationRouteOptions {
   readonly fieldNotebookEnabled: boolean
   readonly savedScriptureEnabled: boolean
   readonly historicalLibraryEnabled?: boolean
+  readonly newsReaderEnabled?: boolean
 }
 
 /**
@@ -42,6 +55,13 @@ export function isSavedScriptureRouteEnabled(): boolean {
  */
 export function isHistoricalLibraryRouteEnabled(): boolean {
   return typeof import.meta !== 'undefined' && import.meta.env?.VITE_ENABLE_HISTORICAL_LIBRARY === 'true'
+}
+
+/**
+ * Returns whether the Ministry News reader route is enabled via environment feature gate.
+ */
+export function isNewsReaderRouteEnabled(): boolean {
+  return typeof import.meta !== 'undefined' && import.meta.env?.VITE_ENABLE_NEWS_READER === 'true'
 }
 
 /**
@@ -100,7 +120,29 @@ export function parseAppIntegrationRoute(
     }
   }
 
+  if (options.newsReaderEnabled) {
+    if (NEWS_ROUTE_ALIASES.includes(normalized as (typeof NEWS_ROUTE_ALIASES)[number])) {
+      return 'news'
+    }
+  }
+
   return null
+}
+
+/**
+ * Parses an optional `?category=...` query parameter from a `#/news` hash.
+ * Defaults to `'all'` when missing or unrecognized.
+ */
+export function parseNewsCategoryQuery(candidate: unknown): NewsFilterCategory {
+  if (typeof candidate !== 'string') return 'all'
+  const queryIndex = candidate.indexOf('?')
+  if (queryIndex < 0) return 'all'
+  const params = new URLSearchParams(candidate.slice(queryIndex + 1))
+  const category = params.get('category')
+  if (category && VALID_NEWS_CATEGORIES.includes(category as NewsFilterCategory)) {
+    return category as NewsFilterCategory
+  }
+  return 'all'
 }
 
 export function buildNotebookRoute(): string {
@@ -113,4 +155,11 @@ export function buildSavedScriptureRoute(): string {
 
 export function buildLibraryRoute(): string {
   return LIBRARY_ROUTE_HASH
+}
+
+export function buildNewsRoute(category?: NewsFilterCategory): string {
+  if (category && category !== 'all' && VALID_NEWS_CATEGORIES.includes(category)) {
+    return `${NEWS_ROUTE_HASH}?category=${encodeURIComponent(category)}`
+  }
+  return NEWS_ROUTE_HASH
 }
