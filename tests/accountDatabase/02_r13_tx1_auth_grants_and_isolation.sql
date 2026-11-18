@@ -10,61 +10,7 @@
 
 BEGIN;
 
--- ---------------------------------------------------------------------------
--- Test helpers (session-temporary; never part of the migration)
--- ---------------------------------------------------------------------------
-CREATE FUNCTION pg_temp.check(p_ok boolean, p_label text) RETURNS void LANGUAGE plpgsql AS $$
-BEGIN
-  IF p_ok IS DISTINCT FROM true THEN
-    RAISE EXCEPTION 'ASSERTION FAILED: %', p_label;
-  END IF;
-  RAISE NOTICE 'ok - %', p_label;
-END $$;
-
--- Calls the transaction exactly as PostgREST would: role `authenticated` with a JWT `sub`.
-CREATE FUNCTION pg_temp.call_as(p_sub text, p_payload jsonb) RETURNS jsonb LANGUAGE plpgsql AS $$
-DECLARE r jsonb;
-BEGIN
-  PERFORM set_config('request.jwt.claim.sub', coalesce(p_sub, ''), true);
-  SET LOCAL ROLE authenticated;
-  r := public.reconcile_guest_participation(p_payload);
-  RESET ROLE;
-  RETURN r;
-END $$;
-
-CREATE FUNCTION pg_temp.get_as(p_sub text) RETURNS jsonb LANGUAGE plpgsql AS $$
-DECLARE r jsonb;
-BEGIN
-  PERFORM set_config('request.jwt.claim.sub', coalesce(p_sub, ''), true);
-  SET LOCAL ROLE authenticated;
-  r := public.get_account_participation();
-  RESET ROLE;
-  RETURN r;
-END $$;
-
-CREATE FUNCTION pg_temp.payload(
-  p_key text, p_expected integer, p_mode text, p_data jsonb, p_fp text DEFAULT NULL
-) RETURNS jsonb LANGUAGE sql AS $$
-  SELECT jsonb_build_object(
-    'expectedRevision', p_expected,
-    'idempotencyKey', p_key,
-    'guestPayloadFingerprint', coalesce(p_fp, encode(sha256(convert_to(p_key, 'UTF8')), 'hex')),
-    'mode', p_mode,
-    'envelope', jsonb_build_object('schemaVersion', 1, 'namespace', 'cms', 'revision', p_expected, 'data', p_data)
-  );
-$$;
-
-CREATE FUNCTION pg_temp.row_total(p_uid uuid) RETURNS bigint LANGUAGE sql AS $$
-  SELECT (SELECT count(*) FROM public.account_participation_profiles WHERE account_id = p_uid)
-       + (SELECT count(*) FROM public.account_completed_challenges WHERE account_id = p_uid)
-       + (SELECT count(*) FROM public.account_in_progress_challenges WHERE account_id = p_uid)
-       + (SELECT count(*) FROM public.account_saved_challenges WHERE account_id = p_uid)
-       + (SELECT count(*) FROM public.account_saved_scriptures WHERE account_id = p_uid)
-       + (SELECT count(*) FROM public.account_earned_awards WHERE account_id = p_uid)
-       + (SELECT count(*) FROM public.account_shelf_months WHERE account_id = p_uid)
-       + (SELECT count(*) FROM public.account_reconciliation_receipts WHERE account_id = p_uid)
-       + (SELECT count(*) FROM public.account_reconciliation_unresolved_items WHERE account_id = p_uid);
-$$;
+\ir _r13_tx1_test_helpers.sql
 
 INSERT INTO auth.users (id) VALUES
   ('a0000000-0000-4000-8000-00000000000a'),
