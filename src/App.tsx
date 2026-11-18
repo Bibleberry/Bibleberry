@@ -1689,6 +1689,19 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
     openMonthScreen(destination.monthId)
   }
 
+  const handleNewsCategoryChange = (category: NewsFilterCategory) => {
+    if (!newsReaderEnabled) return
+    setDetail(prev =>
+      prev?.type === 'news'
+        ? { type: 'news', ...(category !== 'all' ? { initialCategory: category } : {}) }
+        : prev,
+    )
+    const targetHash = buildNewsRoute(category)
+    if (window.location.hash !== targetHash) {
+      window.history.replaceState(window.history.state, '', targetHash)
+    }
+  }
+
   const todayKey = simulatedDate || localDateKey()
   const yesterday = simulatedDate ? new Date(`${simulatedDate}T12:00:00`) : new Date()
   yesterday.setDate(yesterday.getDate() - 1)
@@ -1822,8 +1835,8 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
     content = (
       <Suspense fallback={<div className="standard-page"><p role="status" aria-live="polite">Loading Ministry News…</p></div>}>
         <NewsReaderHost
-          key={detail.initialCategory ?? 'all'}
           initialCategory={detail.initialCategory}
+          onCategoryChange={handleNewsCategoryChange}
           onNavigate={monthScreenEnabled ? navigateFromNews : undefined}
           onBack={exitNewsReader}
         />

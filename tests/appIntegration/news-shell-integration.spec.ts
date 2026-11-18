@@ -386,6 +386,101 @@ test.describe('Ministry News App-Shell Integration (R11-2)', () => {
     }
   })
 
+  test('preserves in-reader tab selection (and keyboard focus) across Month preview return', async ({ page }) => {
+    const { server, baseUrl } = await startViteServer({
+      VITE_ENABLE_NEWS_READER: 'true',
+      VITE_ENABLE_MONTH_SCREEN: 'true',
+    })
+
+    try {
+      await page.route('**/api/news**', async route => {
+        const url = new URL(route.request().url())
+        const category = url.searchParams.get('category')
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(buildNewsGatewayPayload(category)),
+        })
+      })
+
+      await page.route('**/api/months/2026-12**', async route => {
+        const url = new URL(route.request().url())
+        if (url.pathname.endsWith('/preview')) {
+          await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(buildMonthPreviewDetailPayload('2026-12')),
+          })
+          return
+        }
+        if (url.pathname.endsWith('/progress')) {
+          await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ ok: true }),
+          })
+          return
+        }
+        await route.fulfill({
+          status: 404,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: false, error: 'Month not released yet' }),
+        })
+      })
+
+      await page.addInitScript(
+        ({ storageKey, state }) => {
+          window.localStorage.setItem(storageKey, JSON.stringify(state))
+        },
+        { storageKey: PROTOTYPE_STORAGE_KEY, state: makeOnboardedState() },
+      )
+
+      // 1. Bare #/news -> switch via keyboard to Monthly Previews tab (focus preserved) -> open preview -> Return
+      await page.goto(`${baseUrl}/#/news`)
+      await expect(page.getByRole('heading', { name: 'Ministry News', level: 1 })).toBeVisible({ timeout: 15000 })
+      const monthlyTab = page.getByRole('tab', { name: 'Monthly Previews' })
+      await monthlyTab.focus()
+      await page.keyboard.press('Enter')
+      await expect(monthlyTab).toBeFocused()
+      await expect(monthlyTab).toHaveAttribute('aria-selected', 'true')
+      await expect(page).toHaveURL(/#\/news\?category=monthlyPreview$/)
+      await expect(page.getByText('December 2026 Preview: Waiting in Hope')).toBeVisible()
+      await expect(page.getByText('Autumn Reading Rhythm Update')).toBeHidden()
+
+      await page.getByRole('link', { name: /Preview December 2026/i }).click()
+      await expect(page).toHaveURL(/#\/month\/2026-12$/)
+      await expect(page.getByRole('heading', { name: 'Entering Waiting in Hope' })).toBeVisible()
+
+      await page.getByRole('button', { name: 'View Preview Calendar' }).click()
+      await page.getByRole('button', { name: 'Return to Ministry News' }).click()
+      await expect(page).toHaveURL(/#\/news\?category=monthlyPreview$/)
+      await expect(page.getByRole('tab', { name: 'Monthly Previews' })).toHaveAttribute('aria-selected', 'true')
+      await expect(page.getByText('December 2026 Preview: Waiting in Hope')).toBeVisible()
+      await expect(page.getByText('Autumn Reading Rhythm Update')).toBeHidden()
+
+      // 2. Filtered #/news?category=announcement -> switch tab to Monthly Previews -> open preview -> Return
+      await page.goto(`${baseUrl}/#/news?category=announcement`)
+      await expect(page.getByRole('tab', { name: 'Announcements' })).toHaveAttribute('aria-selected', 'true')
+      await expect(page.getByText('Winter Ministry Schedule')).toBeVisible()
+
+      await page.getByRole('tab', { name: 'Monthly Previews' }).click()
+      await expect(page).toHaveURL(/#\/news\?category=monthlyPreview$/)
+      await expect(page.getByRole('tab', { name: 'Monthly Previews' })).toHaveAttribute('aria-selected', 'true')
+      await expect(page.getByText('December 2026 Preview: Waiting in Hope')).toBeVisible()
+
+      await page.getByRole('link', { name: /Preview December 2026/i }).click()
+      await expect(page).toHaveURL(/#\/month\/2026-12$/)
+      await page.getByRole('button', { name: 'Return to Ministry News' }).click()
+
+      await expect(page).toHaveURL(/#\/news\?category=monthlyPreview$/)
+      await expect(page.getByRole('tab', { name: 'Monthly Previews' })).toHaveAttribute('aria-selected', 'true')
+      await expect(page.getByText('December 2026 Preview: Waiting in Hope')).toBeVisible()
+      await expect(page.getByText('Winter Ministry Schedule')).toBeHidden()
+    } finally {
+      await server.close()
+    }
+  })
+
   test('fails closed on Month-preview destination when VITE_ENABLE_MONTH_SCREEN is disabled', async ({ page }) => {
     const { server, baseUrl } = await startViteServer({
       VITE_ENABLE_NEWS_READER: 'true',

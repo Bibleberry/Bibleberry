@@ -13,6 +13,7 @@ import './news.css'
 export interface NewsReaderHostProps {
   readonly provider?: NewsGatewayProvider
   readonly initialCategory?: NewsFilterCategory
+  readonly onCategoryChange?: (category: NewsFilterCategory) => void
   readonly onNavigate?: (destination: { kind: 'month'; monthId: string }) => void
   readonly onBack?: () => void
 }
@@ -26,20 +27,32 @@ export interface NewsReaderHostProps {
 export function NewsReaderHost({
   provider = defaultNewsGatewayProvider,
   initialCategory = 'all',
+  onCategoryChange,
   onNavigate,
   onBack,
 }: NewsReaderHostProps) {
+  const [prevInitialCategory, setPrevInitialCategory] = useState<NewsFilterCategory>(initialCategory)
   const [activeCategory, setActiveCategory] = useState<NewsFilterCategory>(initialCategory)
   const [articles, setArticles] = useState<readonly NewsArticle[]>([])
   const [status, setStatus] = useState<'loading' | 'ready' | 'empty' | 'error' | 'offline'>('loading')
   const [errorMessage, setErrorMessage] = useState<string | undefined>()
   const [fetchKey, setFetchKey] = useState(0)
 
+  if (prevInitialCategory !== initialCategory) {
+    setPrevInitialCategory(initialCategory)
+    if (activeCategory !== initialCategory) {
+      setActiveCategory(initialCategory)
+      setStatus('loading')
+      setErrorMessage(undefined)
+    }
+  }
+
   const handleSelectCategory = useCallback((category: NewsFilterCategory) => {
     setActiveCategory(category)
     setStatus('loading')
     setErrorMessage(undefined)
-  }, [])
+    onCategoryChange?.(category)
+  }, [onCategoryChange])
 
   const handleRetry = useCallback(() => {
     setStatus('loading')
