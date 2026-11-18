@@ -1,0 +1,43 @@
+/* Standalone Earned Scripture Card Share control styles (R14-9) */
+
+.earned-card-share-control {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.earned-card-share-control__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.earned-card-share-control__button,
+.earned-card-share-control__copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+}
+
+.earned-card-share-control__button:focus-visible,
+.earned-card-share-control__copy:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.earned-card-share-control__reason,
+.earned-card-share-control__status {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.earned-card-share-control__status--error {
+  color: var(--ink);
+  border-left: 3px solid var(--accent);
+  padding-left: 10px;
+}
