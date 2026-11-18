@@ -761,6 +761,8 @@ interface NormalizedDiscovery {
   readonly activeQualifyingIds: readonly string[]
   readonly reservedCardId?: string
   readonly linkedCardId?: string
+  /** Internal only (R13-VERIFY1): a Card reference/field is present, even if it failed closed. */
+  readonly cardLinked?: boolean
   readonly earnedCard?: GatewayEarnedScriptureCard
 }
 
@@ -770,6 +772,7 @@ interface ValidatedDiscoveries {
   readonly fullMonthReservedCardId?: string
   /** Internal only (R13-VERIFY1): linked Card reference even when its projection failed closed. */
   readonly fullMonthLinkedCardId?: string
+  readonly fullMonthCardLinked?: boolean
   readonly fullMonthEarnedCard?: GatewayEarnedScriptureCard
 }
 
@@ -869,6 +872,7 @@ function validateDiscoveriesAndFullMonth(
       activeQualifyingIds,
       ...(reservedCardId ? { reservedCardId } : {}),
       ...(linkedCardId ? { linkedCardId } : {}),
+      ...(cardCheck.linked ? { cardLinked: true } : {}),
       ...(cardCheck.linked && cardCheck.card ? { earnedCard: cardCheck.card } : {}),
     })
   }
@@ -876,6 +880,7 @@ function validateDiscoveriesAndFullMonth(
   let fullMonthTitle = `Complete ${MONTH_NAMES[base.month - 1]}`
   let fullMonthReservedCardId: string | undefined
   let fullMonthLinkedCardId: string | undefined
+  let fullMonthCardLinked = false
   let fullMonthEarnedCard: GatewayEarnedScriptureCard | undefined
 
   if (doc.fullMonthCard !== undefined && doc.fullMonthCard !== null) {
@@ -907,6 +912,7 @@ function validateDiscoveriesAndFullMonth(
       options,
     )
     if (fullCardCheck.linked) {
+      fullMonthCardLinked = true
       fullMonthLinkedCardId = fullCardCheck.cardId
       if (fullMonthLinkedCardId) {
         cardIdCounts.set(fullMonthLinkedCardId, (cardIdCounts.get(fullMonthLinkedCardId) ?? 0) + 1)
@@ -936,6 +942,7 @@ function validateDiscoveriesAndFullMonth(
       fullMonthTitle,
       ...(fullMonthReservedCardId ? { fullMonthReservedCardId } : {}),
       ...(fullMonthLinkedCardId ? { fullMonthLinkedCardId } : {}),
+      ...(fullMonthCardLinked ? { fullMonthCardLinked } : {}),
       ...(fullMonthEarnedCard ? { fullMonthEarnedCard } : {}),
     },
   }
@@ -1535,11 +1542,11 @@ function countPriorRosters(rawDoc: Record<string, unknown>): number | null {
 
 function classifyCard(
   earnedCard: GatewayEarnedScriptureCard | undefined,
-  linkedCardId: string | undefined,
+  cardLinked: boolean,
   reservedCardId: string | undefined,
 ): TrustedAwardCardStatus {
   if (earnedCard) return { status: 'approved', card: earnedCard }
-  if (linkedCardId) return { status: 'invalidOrUnapproved' }
+  if (cardLinked) return { status: 'invalidOrUnapproved' }
   if (reservedCardId) return { status: 'legacyReservedOnly' }
   return { status: 'notLinked' }
 }
@@ -1618,7 +1625,7 @@ export function evaluateTrustedMonthAwardEligibility(
       targetCount,
       basisBaseIds: isEarned ? basis : [],
       ...(isEarned && latest ? { latestBasisReleaseDate: latest } : {}),
-      card: classifyCard(d.earnedCard, d.linkedCardId, d.reservedCardId),
+      card: classifyCard(d.earnedCard, d.cardLinked === true, d.reservedCardId),
     }
   })
 
@@ -1635,7 +1642,7 @@ export function evaluateTrustedMonthAwardEligibility(
     ...(fullEarned && full.latest ? { latestBasisReleaseDate: full.latest } : {}),
     card: classifyCard(
       discResult.document.fullMonthEarnedCard,
-      discResult.document.fullMonthLinkedCardId,
+      discResult.document.fullMonthCardLinked === true,
       discResult.document.fullMonthReservedCardId,
     ),
   })

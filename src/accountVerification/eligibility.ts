@@ -62,9 +62,11 @@ export function evaluateClaimEligibility(input: EvaluateClaimInput): ClaimEligib
     { sanityProjectId: input.sanityProjectId, sanityDataset: input.month.dataset },
   )
   if (!evaluation.ok) {
+    // `embargoed` is also returned for a month that is not `scheduled`; only the server date
+    // decides whether the month has merely not started yet.
     return {
       decision: 'defer',
-      reason: evaluation.reason === 'embargoed' ? 'monthNotYetReleased' : 'monthNotPublishable',
+      reason: input.releasedThroughDate < `${yearMonth}-01` ? 'monthNotYetReleased' : 'monthNotPublishable',
     }
   }
 
