@@ -61,8 +61,8 @@ type Detail =
   | { type: 'challengeLab' }
   | { type: 'challengePilot' }
   | { type: 'participationPilot' }
-  | { type: 'releasedChallenge'; slug: string; origin: ChallengeOrigin; monthReturnTo?: 'library' | 'news' }
-  | { type: 'month'; yearMonth: string; returnTo?: 'library' | 'news' }
+  | { type: 'releasedChallenge'; slug: string; origin: ChallengeOrigin; monthReturnTo?: 'library' | 'news'; monthNewsCategory?: NewsFilterCategory }
+  | { type: 'month'; yearMonth: string; returnTo?: 'library' | 'news'; newsCategory?: NewsFilterCategory }
   | { type: 'library' }
   | { type: 'news'; initialCategory?: NewsFilterCategory }
   | { type: 'notebook' }
@@ -723,6 +723,14 @@ function readHistoryMonthReturnTo(): 'library' | 'news' | undefined {
   return undefined
 }
 
+function readHistoryMonthNewsCategory(): NewsFilterCategory | undefined {
+  if (typeof window === 'undefined' || !newsReaderEnabled) return undefined
+  const value = window.history.state?.monthNewsCategory
+  if (typeof value !== 'string') return undefined
+  const parsed = parseNewsCategoryQuery(`#/news?category=${encodeURIComponent(value)}`)
+  return parsed !== 'all' ? parsed : undefined
+}
+
 function parseMonthHash(hash: string): { yearMonth: string } | null {
   const destination = parseInternalReaderDestination(hash)
   return destination?.type === 'month' ? { yearMonth: destination.yearMonth } : null
@@ -771,9 +779,15 @@ function parseInitialRoute(): {
         ? window.history.state.originView
         : 'today'
       const returnTo = readHistoryMonthReturnTo()
+      const newsCategory = returnTo === 'news' ? readHistoryMonthNewsCategory() : undefined
       return {
         view: originView,
-        detail: { type: 'month', yearMonth: parsedMonth.yearMonth, ...(returnTo ? { returnTo } : {}) },
+        detail: {
+          type: 'month',
+          yearMonth: parsedMonth.yearMonth,
+          ...(returnTo ? { returnTo } : {}),
+          ...(newsCategory ? { newsCategory } : {}),
+        },
         developmentCollection: 'ordinary',
         previewDate: '',
       }
@@ -786,6 +800,7 @@ function parseInitialRoute(): {
         ? window.history.state.originView
         : 'today'
       const monthReturnTo = readHistoryMonthReturnTo()
+      const monthNewsCategory = monthReturnTo === 'news' ? readHistoryMonthNewsCategory() : undefined
       return {
         view: originView,
         detail: {
@@ -793,6 +808,7 @@ function parseInitialRoute(): {
           slug: parsedChallenge.slug,
           origin: parsedChallenge.origin,
           ...(monthReturnTo ? { monthReturnTo } : {}),
+          ...(monthNewsCategory ? { monthNewsCategory } : {}),
         },
         developmentCollection: 'ordinary',
         previewDate: '',
@@ -1019,8 +1035,14 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
             ? window.history.state.originView
             : undefined
           const returnTo = readHistoryMonthReturnTo()
+          const newsCategory = returnTo === 'news' ? readHistoryMonthNewsCategory() : undefined
           if (originView) setView(originView)
-          setDetail({ type: 'month', yearMonth: parsedMonth.yearMonth, ...(returnTo ? { returnTo } : {}) })
+          setDetail({
+            type: 'month',
+            yearMonth: parsedMonth.yearMonth,
+            ...(returnTo ? { returnTo } : {}),
+            ...(newsCategory ? { newsCategory } : {}),
+          })
           scrollTop()
           return
         }
@@ -1032,12 +1054,14 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
             ? window.history.state.originView
             : undefined
           const monthReturnTo = readHistoryMonthReturnTo()
+          const monthNewsCategory = monthReturnTo === 'news' ? readHistoryMonthNewsCategory() : undefined
           if (originView) setView(originView)
           setDetail({
             type: 'releasedChallenge',
             slug: parsedChallenge.slug,
             origin: parsedChallenge.origin,
             ...(monthReturnTo ? { monthReturnTo } : {}),
+            ...(monthNewsCategory ? { monthNewsCategory } : {}),
           })
           scrollTop()
           return
@@ -1463,15 +1487,32 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
           (detail?.type === 'news' || (detail?.type === 'month' && detail.returnTo === 'news'))
           ? 'news'
           : undefined
+    const newsCategory: NewsFilterCategory | undefined =
+      returnTo === 'news'
+        ? detail?.type === 'news'
+          ? detail.initialCategory
+          : detail?.type === 'month'
+            ? detail.newsCategory
+            : undefined
+        : undefined
     if (!returnTo) {
       window.history.replaceState({ ...(window.history.state ?? {}), bibleberryView: view }, '', window.location.href)
     }
     window.history.pushState(
-      { originView: view, ...(returnTo ? { monthReturnTo: returnTo } : {}) },
+      {
+        originView: view,
+        ...(returnTo ? { monthReturnTo: returnTo } : {}),
+        ...(newsCategory && newsCategory !== 'all' ? { monthNewsCategory: newsCategory } : {}),
+      },
       '',
       `#/month/${yearMonth}`,
     )
-    setDetail({ type: 'month', yearMonth, ...(returnTo ? { returnTo } : {}) })
+    setDetail({
+      type: 'month',
+      yearMonth,
+      ...(returnTo ? { returnTo } : {}),
+      ...(newsCategory && newsCategory !== 'all' ? { newsCategory } : {}),
+    })
     scrollTop()
   }
   const openMonthChallenge = (slug: string, yearMonth: string) => {
@@ -1483,13 +1524,26 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
         (newsReaderEnabled && detail.returnTo === 'news'))
         ? detail.returnTo
         : undefined
+    const monthNewsCategory: NewsFilterCategory | undefined =
+      monthReturnTo === 'news' && detail?.type === 'month' ? detail.newsCategory : undefined
     const targetHash = `#/challenge/${encodeURIComponent(slug)}?origin=month&yearMonth=${encodeURIComponent(yearMonth)}`
     window.history.pushState(
-      { originView: view, challengeOrigin: origin, ...(monthReturnTo ? { monthReturnTo } : {}) },
+      {
+        originView: view,
+        challengeOrigin: origin,
+        ...(monthReturnTo ? { monthReturnTo } : {}),
+        ...(monthNewsCategory && monthNewsCategory !== 'all' ? { monthNewsCategory } : {}),
+      },
       '',
       targetHash,
     )
-    setDetail({ type: 'releasedChallenge', slug, origin, ...(monthReturnTo ? { monthReturnTo } : {}) })
+    setDetail({
+      type: 'releasedChallenge',
+      slug,
+      origin,
+      ...(monthReturnTo ? { monthReturnTo } : {}),
+      ...(monthNewsCategory && monthNewsCategory !== 'all' ? { monthNewsCategory } : {}),
+    })
     scrollTop()
   }
   const exitMonthScreen = () => {
@@ -1501,8 +1555,12 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
       return
     }
     if (newsReaderEnabled && detail?.type === 'month' && detail.returnTo === 'news') {
-      setDetail({ type: 'news' })
-      window.history.pushState({ originView: view }, '', NEWS_ROUTE_HASH)
+      const newsCategory = detail.newsCategory
+      setDetail({
+        type: 'news',
+        ...(newsCategory && newsCategory !== 'all' ? { initialCategory: newsCategory } : {}),
+      })
+      window.history.pushState({ originView: view }, '', buildNewsRoute(newsCategory))
       scrollTop()
       return
     }
@@ -1523,13 +1581,21 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
           (newsReaderEnabled && detail.monthReturnTo === 'news'))
           ? detail.monthReturnTo
           : undefined
-      setDetail({ type: 'month', yearMonth: targetYearMonth, ...(returnTo ? { returnTo } : {}) })
+      const newsCategory: NewsFilterCategory | undefined =
+        returnTo === 'news' && detail?.type === 'releasedChallenge' ? detail.monthNewsCategory : undefined
+      setDetail({
+        type: 'month',
+        yearMonth: targetYearMonth,
+        ...(returnTo ? { returnTo } : {}),
+        ...(newsCategory && newsCategory !== 'all' ? { newsCategory } : {}),
+      })
       window.history.pushState(
         {
           bibleberryView: view,
           originView: view,
           returnedChallengeOrigin: normalizedOrigin,
           ...(returnTo ? { monthReturnTo: returnTo } : {}),
+          ...(newsCategory && newsCategory !== 'all' ? { monthNewsCategory: newsCategory } : {}),
         },
         '',
         `#/month/${targetYearMonth}`,
@@ -1756,6 +1822,7 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
     content = (
       <Suspense fallback={<div className="standard-page"><p role="status" aria-live="polite">Loading Ministry News…</p></div>}>
         <NewsReaderHost
+          key={detail.initialCategory ?? 'all'}
           initialCategory={detail.initialCategory}
           onNavigate={monthScreenEnabled ? navigateFromNews : undefined}
           onBack={exitNewsReader}

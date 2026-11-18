@@ -319,11 +319,68 @@ test.describe('Ministry News App-Shell Integration (R11-2)', () => {
       await expect(page).toHaveURL(/#\/month\/2026-12$/)
       await expect(page.getByRole('heading', { name: 'Entering Waiting in Hope' })).toBeVisible()
 
-      // Return to Ministry News from Month Screen
+      // Return to Ministry News from Month Screen preserves originating category deep link
       await page.getByRole('button', { name: 'View Preview Calendar' }).click()
       await page.getByRole('button', { name: 'Return to Ministry News' }).click()
-      await expect(page).toHaveURL(/#\/news$/)
+      await expect(page).toHaveURL(/#\/news\?category=monthlyPreview$/)
       await expect(page.getByRole('heading', { name: 'Ministry News', level: 1 })).toBeVisible()
+      await expect(page.getByRole('tab', { name: 'Monthly Previews' })).toHaveAttribute('aria-selected', 'true')
+      await expect(page.getByText('December 2026 Preview: Waiting in Hope')).toBeVisible()
+      await expect(page.getByText('Autumn Reading Rhythm Update')).toBeHidden()
+    } finally {
+      await server.close()
+    }
+  })
+
+  test('updates selected category on live hashchange and Back/Forward while News is mounted', async ({ page }) => {
+    const { server, baseUrl } = await startViteServer({
+      VITE_ENABLE_NEWS_READER: 'true',
+      VITE_ENABLE_MONTH_SCREEN: 'true',
+    })
+
+    try {
+      await page.route('**/api/news**', async route => {
+        const url = new URL(route.request().url())
+        const category = url.searchParams.get('category')
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(buildNewsGatewayPayload(category)),
+        })
+      })
+
+      await page.addInitScript(
+        ({ storageKey, state }) => {
+          window.localStorage.setItem(storageKey, JSON.stringify(state))
+        },
+        { storageKey: PROTOTYPE_STORAGE_KEY, state: makeOnboardedState() },
+      )
+
+      await page.goto(`${baseUrl}/#/news?category=monthlyPreview`)
+      await expect(page.getByRole('heading', { name: 'Ministry News', level: 1 })).toBeVisible({ timeout: 15000 })
+      await expect(page.getByRole('tab', { name: 'Monthly Previews' })).toHaveAttribute('aria-selected', 'true')
+      await expect(page.getByText('December 2026 Preview: Waiting in Hope')).toBeVisible()
+
+      // Live hashchange while NewsReaderHost remains mounted
+      await page.evaluate(() => {
+        window.location.hash = '#/news?category=announcement'
+      })
+      await expect(page).toHaveURL(/#\/news\?category=announcement$/)
+      await expect(page.getByRole('tab', { name: 'Announcements' })).toHaveAttribute('aria-selected', 'true')
+      await expect(page.getByText('Winter Ministry Schedule')).toBeVisible()
+      await expect(page.getByText('December 2026 Preview: Waiting in Hope')).toBeHidden()
+
+      // Browser Back/Forward updates the active category in place
+      await page.goBack()
+      await expect(page).toHaveURL(/#\/news\?category=monthlyPreview$/)
+      await expect(page.getByRole('tab', { name: 'Monthly Previews' })).toHaveAttribute('aria-selected', 'true')
+      await expect(page.getByText('December 2026 Preview: Waiting in Hope')).toBeVisible()
+      await expect(page.getByText('Winter Ministry Schedule')).toBeHidden()
+
+      await page.goForward()
+      await expect(page).toHaveURL(/#\/news\?category=announcement$/)
+      await expect(page.getByRole('tab', { name: 'Announcements' })).toHaveAttribute('aria-selected', 'true')
+      await expect(page.getByText('Winter Ministry Schedule')).toBeVisible()
     } finally {
       await server.close()
     }
