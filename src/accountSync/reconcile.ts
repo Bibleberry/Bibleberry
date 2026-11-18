@@ -436,6 +436,17 @@ function normalizeShelfState(
       })
       continue
     }
+    const hasExplicitProtection = Object.prototype.hasOwnProperty.call(entry, 'isProtected')
+    const isProtected = typeof entry.isProtected === 'boolean' ? entry.isProtected : undefined
+    if (hasExplicitProtection && isProtected === undefined) {
+      rejectedRecords.push({
+        source,
+        section: 'shelf',
+        rawKey: yearMonth,
+        reason: 'invalidShelfEntry',
+      })
+      continue
+    }
     if (seenMonths.has(yearMonth)) continue
     if (validMonths.length >= MAX_SHELF_MONTHS) {
       rejectedRecords.push({
@@ -456,6 +467,7 @@ function normalizeShelfState(
       Object.freeze({
         yearMonth,
         admissionKind: kind,
+        ...(isProtected !== undefined ? { isProtected } : {}),
         ...(admittedOn ? { admittedOn } : {}),
       }),
     )
