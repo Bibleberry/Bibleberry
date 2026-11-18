@@ -87,6 +87,43 @@ test('audit fails clearly with FIXTURE_INTEGRITY_VALIDATION when fixture bundle 
   assert.equal(report.findings[0]?.status, 'FAIL')
 })
 
+test('audit fails clearly with FIXTURE_INTEGRITY_VALIDATION when a required secret marker is dropped or duplicated', async () => {
+  const base = buildAuditFixtureBundle()
+
+  const droppedMarkerBundle: AuditFixtureBundle = {
+    ...base,
+    secretMarkers: base.secretMarkers.slice(1),
+  }
+  const droppedReport = await runMonthlyPublicationAudit({ fixtures: droppedMarkerBundle })
+  assert.equal(droppedReport.ok, false)
+  assert.equal(droppedReport.summary.passed, 0)
+  assert.equal(droppedReport.summary.failed, 1)
+  assert.equal(droppedReport.findings.length, 1)
+  assert.equal(droppedReport.findings[0]?.contract, 'FIXTURE_INTEGRITY_VALIDATION')
+  assert.equal(droppedReport.findings[0]?.status, 'FAIL')
+
+  const unrelatedOnlyBundle: AuditFixtureBundle = {
+    ...base,
+    secretMarkers: [{ markerId: 'unrelated_only', token: 'UNRELATED_TOKEN' }],
+  }
+  const unrelatedCheck = validateAuditFixtureBundle(unrelatedOnlyBundle)
+  assert.equal(unrelatedCheck.ok, false)
+
+  const duplicateMarkerBundle: AuditFixtureBundle = {
+    ...base,
+    secretMarkers: [...base.secretMarkers, base.secretMarkers[0]!],
+  }
+  const duplicateCheck = validateAuditFixtureBundle(duplicateMarkerBundle)
+  assert.equal(duplicateCheck.ok, false)
+
+  const missingInjectionBundle: AuditFixtureBundle = {
+    ...base,
+    draftChallengeDoc: { _id: 'drafts.empty' },
+  }
+  const missingInjectionCheck = validateAuditFixtureBundle(missingInjectionBundle)
+  assert.equal(missingInjectionCheck.ok, false)
+})
+
 test('auditor detects and redacts leaked welcomeScreen, future Challenge body, hidden discovery mapping, and unrewarded card art', async () => {
   const bundle = buildAuditFixtureBundle()
 
@@ -171,6 +208,54 @@ test('auditor detects and redacts leaked welcomeScreen, future Challenge body, h
   for (const marker of AUDIT_FIXTURE_MARKERS) {
     assert.equal(reportText.includes(marker.token), false)
   }
+})
+
+test('unrewarded-card-artwork fails closed when progress endpoint returns non-200 or omits discoveries array', async () => {
+  const bundle = buildAuditFixtureBundle()
+
+  const failingStatusReport = await runMonthlyPublicationAudit({
+    fixtures: bundle,
+    projectors: {
+      handleGatewayRequest: async request => {
+        const url = new URL(request.url)
+        if (url.pathname === '/api/months/2098-03/progress') {
+          return new Response(JSON.stringify({ ok: false, error: 'progress unavailable' }), {
+            status: 500,
+          })
+        }
+        return new Response(JSON.stringify({ ok: true }), { status: 200 })
+      },
+    },
+  })
+
+  assert.equal(failingStatusReport.ok, false)
+  const artFindingOn500 = failingStatusReport.findings.find(
+    f => f.contract === 'UNREWARDED_CARD_ARTWORK_LEAK',
+  )
+  assert.ok(artFindingOn500)
+  assert.equal(artFindingOn500.status, 'FAIL')
+
+  const missingDiscoveriesReport = await runMonthlyPublicationAudit({
+    fixtures: bundle,
+    projectors: {
+      handleGatewayRequest: async request => {
+        const url = new URL(request.url)
+        if (url.pathname === '/api/months/2098-03/progress') {
+          return new Response(JSON.stringify({ ok: true, completedInMonthCount: 0 }), {
+            status: 200,
+          })
+        }
+        return new Response(JSON.stringify({ ok: true }), { status: 200 })
+      },
+    },
+  })
+
+  assert.equal(missingDiscoveriesReport.ok, false)
+  const artFindingOnMissingDiscoveries = missingDiscoveriesReport.findings.find(
+    f => f.contract === 'UNREWARDED_CARD_ARTWORK_LEAK',
+  )
+  assert.ok(artFindingOnMissingDiscoveries)
+  assert.equal(artFindingOnMissingDiscoveries.status, 'FAIL')
 })
 
 test('sanitizeAuditText redacts secret markers and extra secret tokens', () => {

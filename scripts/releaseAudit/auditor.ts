@@ -198,7 +198,7 @@ export async function runMonthlyPublicationAudit(
       'FIXTURE_INTEGRITY_VALIDATION',
       false,
       fixtureCheck.reason ?? 'Fixture bundle validation failed.',
-      bundle.secretMarkers ?? markers,
+      [...markers, ...(Array.isArray(bundle.secretMarkers) ? bundle.secretMarkers : [])],
       extraSecrets,
     )
     return buildReport([finding], executedAtUtc)
@@ -460,13 +460,33 @@ export async function runMonthlyPublicationAudit(
 
     // 6. Unrewarded card artwork check (same unearned progress payload)
     const artIssues: string[] = []
-    if (progressRes.status === 200) {
-      const progressJson = JSON.parse(progressText) as {
-        discoveries?: Array<{ isEarned?: boolean; earnedCard?: unknown }>
+    if (progressRes.status !== 200) {
+      artIssues.push(
+        `Unable to verify unrewarded card artwork: progress endpoint returned status ${progressRes.status}.`,
+      )
+    } else {
+      let progressJson: { discoveries?: unknown } | null = null
+      try {
+        progressJson = JSON.parse(progressText) as { discoveries?: unknown }
+      } catch {
+        artIssues.push(
+          'Unable to verify unrewarded card artwork: progress response is not valid JSON.',
+        )
       }
-      for (const disc of progressJson.discoveries ?? []) {
-        if (!disc.isEarned && disc.earnedCard !== undefined) {
-          artIssues.push('Unearned discovery included earnedCard payload.')
+      if (progressJson !== null) {
+        if (!Array.isArray(progressJson.discoveries) || progressJson.discoveries.length === 0) {
+          artIssues.push(
+            'Unable to verify unrewarded card artwork: progress response is missing a non-empty discoveries array.',
+          )
+        } else {
+          for (const disc of progressJson.discoveries as Array<{
+            isEarned?: boolean
+            earnedCard?: unknown
+          }>) {
+            if (!disc.isEarned && disc.earnedCard !== undefined) {
+              artIssues.push('Unearned discovery included earnedCard payload.')
+            }
+          }
         }
       }
     }

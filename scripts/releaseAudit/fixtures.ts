@@ -269,15 +269,55 @@ export function buildAuditFixtureBundle(): AuditFixtureBundle {
   }
 }
 
+const REQUIRED_MARKER_INJECTION_DOCS: Readonly<Record<string, readonly (keyof AuditFixtureBundle)[]>> = {
+  embargoed_future_challenge_body: ['futureChallenge209803Day20', 'previewDoc209803'],
+  embargoed_future_scripture_passage: ['futureChallenge209803Day20'],
+  premature_welcome_screen: ['previewDoc209803'],
+  premature_discovery_title: ['previewDoc209803'],
+  hidden_discovery_qualifying_map: ['detailDoc209803', 'previewDoc209803'],
+  unrewarded_card_artwork_url: ['detailDoc209803', 'previewDoc209803'],
+  unrewarded_card_alt: ['detailDoc209803', 'previewDoc209803'],
+  unrewarded_card_transcription: ['detailDoc209803'],
+  unauthorized_asset_reference: [
+    'detailDoc209803',
+    'previewDoc209803',
+    'futureChallenge209803Day20',
+    'activeChallenge209803Day05',
+  ],
+  private_participation_data: [
+    'detailDoc209803',
+    'previewDoc209803',
+    'futureChallenge209803Day20',
+    'activeChallenge209803Day05',
+  ],
+  internal_editorial_notes: [
+    'detailDoc209803',
+    'previewDoc209803',
+    'futureChallenge209803Day20',
+    'activeChallenge209803Day05',
+  ],
+  draft_manuscript_text: ['draftChallengeDoc'],
+  unreviewed_manuscript_text: ['unreviewedChallengeDoc'],
+  unapproved_block_text: ['unapprovedBlockChallengeDoc'],
+  unlicensed_scripture_passage: ['unlicensedScriptureChallengeDoc'],
+  withdrawn_challenge_title: ['immediateWithdrawalDetailDoc'],
+  retracted_withdrawn_passage: ['retractedWithdrawalDetailDoc'],
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
 /**
- * Validates that the audit fixture bundle is structurally intact and strictly synthetic.
+ * Validates that the audit fixture bundle is structurally intact, strictly synthetic,
+ * and carries complete sentinel marker coverage and injection points.
  * Fails closed with a descriptive error if required fixtures or markers are missing.
  */
 export function validateAuditFixtureBundle(bundle: unknown): {
   readonly ok: boolean
   readonly reason?: string
 } {
-  if (!bundle || typeof bundle !== 'object') {
+  if (!isPlainRecord(bundle)) {
     return { ok: false, reason: 'Fixture bundle is missing or not an object.' }
   }
   const record = bundle as Partial<AuditFixtureBundle>
@@ -305,18 +345,84 @@ export function validateAuditFixtureBundle(bundle: unknown): {
   ]
   for (const key of requiredDocs) {
     const val = record[key]
-    if (!val || typeof val !== 'object') {
+    if (!isPlainRecord(val)) {
       return { ok: false, reason: `Required fixture document "${String(key)}" is missing or invalid.` }
     }
   }
   if (!Array.isArray(record.previewNewsDocs) || record.previewNewsDocs.length === 0) {
     return { ok: false, reason: 'Fixture previewNewsDocs must be a non-empty array.' }
   }
+  if (!record.previewNewsDocs.every(doc => isPlainRecord(doc))) {
+    return { ok: false, reason: 'Fixture previewNewsDocs must contain only valid document objects.' }
+  }
   if (!Array.isArray(record.libraryMonthDocs) || record.libraryMonthDocs.length === 0) {
     return { ok: false, reason: 'Fixture libraryMonthDocs must be a non-empty array.' }
+  }
+  if (!record.libraryMonthDocs.every(doc => isPlainRecord(doc))) {
+    return { ok: false, reason: 'Fixture libraryMonthDocs must contain only valid document objects.' }
   }
   if (!Array.isArray(record.secretMarkers) || record.secretMarkers.length === 0) {
     return { ok: false, reason: 'Fixture secretMarkers must be a non-empty array.' }
   }
+
+  const seenIds = new Set<string>()
+  const seenTokens = new Set<string>()
+  const markerMap = new Map<string, string>()
+
+  for (let i = 0; i < record.secretMarkers.length; i += 1) {
+    const entry = record.secretMarkers[i] as Partial<SecretMarker> | undefined
+    if (!isPlainRecord(entry)) {
+      return { ok: false, reason: `Fixture secretMarkers[${i}] must be an object.` }
+    }
+    if (typeof entry.markerId !== 'string' || entry.markerId.trim().length === 0) {
+      return { ok: false, reason: `Fixture secretMarkers[${i}].markerId must be a non-empty string.` }
+    }
+    if (typeof entry.token !== 'string' || entry.token.trim().length === 0) {
+      return {
+        ok: false,
+        reason: `Fixture secretMarkers[${i}] ("${entry.markerId}") token must be a non-empty string.`,
+      }
+    }
+    if (seenIds.has(entry.markerId)) {
+      return { ok: false, reason: `Duplicate secret markerId "${entry.markerId}" in fixture bundle.` }
+    }
+    if (seenTokens.has(entry.token)) {
+      return {
+        ok: false,
+        reason: `Duplicate secret marker token for "${entry.markerId}" in fixture bundle.`,
+      }
+    }
+    seenIds.add(entry.markerId)
+    seenTokens.add(entry.token)
+    markerMap.set(entry.markerId, entry.token)
+  }
+
+  for (const required of AUDIT_FIXTURE_MARKERS) {
+    const actualToken = markerMap.get(required.markerId)
+    if (!actualToken) {
+      return {
+        ok: false,
+        reason: `Required secret marker "${required.markerId}" is missing from fixture secretMarkers.`,
+      }
+    }
+    if (actualToken !== required.token) {
+      return {
+        ok: false,
+        reason: `Required secret marker "${required.markerId}" has an unexpected token value.`,
+      }
+    }
+
+    const expectedDocKeys = REQUIRED_MARKER_INJECTION_DOCS[required.markerId] ?? []
+    for (const docKey of expectedDocKeys) {
+      const serialized = JSON.stringify(record[docKey])
+      if (!serialized || !serialized.includes(required.token)) {
+        return {
+          ok: false,
+          reason: `Required secret marker "${required.markerId}" is missing from expected fixture document "${String(docKey)}".`,
+        }
+      }
+    }
+  }
+
   return { ok: true }
 }
