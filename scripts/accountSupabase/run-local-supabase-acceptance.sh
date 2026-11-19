@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# R13-SB1 (Issue #210): real disposable LOCAL Supabase security acceptance runner.
+# R13-SB1 (Issue #210) / R13-SB2 (Issue #225): real disposable LOCAL Supabase acceptance runner.
 #
 # What it does, in order:
 #   1. Hard preflight: refuses linked/remote projects, redirecting env, missing tools.
@@ -11,16 +11,19 @@ set -euo pipefail
 #      run's stack whose ownership is positively proven (see dispose_previous_runner_stack).
 #   3. Starts a fresh stack on a Docker network that forces 127.0.0.1 port binding and verifies
 #      every published port is loopback.
-#   4. Applies ONLY the accepted, unchanged migrations with the Supabase CLI's own runner
-#      (`supabase migration up --local`, identity `postgres`), WITHOUT the synthetic
-#      tests/accountDatabase/00_local_supabase_auth_bootstrap.sql, and reproduces D1 → D4 one
-#      at a time. After every expected failure it proves the failed migration stranded NO role,
-#      membership, schema ACL or default privilege (privilege snapshot comparison).
-#   5. Uses LOCAL-ONLY unblocks run as the container's bootstrap superuser (never a migration;
-#      impossible on hosted Supabase). Temporary D2 schema CREATE grants are revoked again and
-#      verified gone before any test runs.
-#   6. Fails on any unexpected migration WARNING; runs suites A and B (exactly 21 passes).
+#   4. Applies R13-3, R13-TX1 and R13-VERIFY1 (with the R13-SB2 D1-D4 corrections) with the
+#      Supabase CLI's own runner (`supabase migration up --local`, identity `postgres`, NOT
+#      superuser), WITHOUT tests/accountDatabase/00_local_supabase_auth_bootstrap.sql, with ZERO
+#      pre-unblocks: this script has no superuser access path at all (no `docker exec`).
+#   5. Fails on ANY WARNING/ERROR from the migration session, then runs the D1-D4 catalog and
+#      runtime checks (tests/accountSupabase/sb2RemediationChecks.sql) as postgres, rolled back.
+#   6. Runs suites A, B and C over real GoTrue/PostgREST and a dedicated verifier login.
 #   7. Tears down only what this run created (SB1_KEEP_STACK=1 keeps it for inspection).
+#
+#   SB2_MUTATION_DEMOS=1 replaces steps 4-6 with mutation/regression demonstrations on the fresh
+#   stack: each restores one D1-D4 defect in a throw-away copy of supabase/ (never the checkout)
+#   and must be caught by the CLI runner (with the failed migration proven to strand nothing) or by
+#   the D1-D4 checks inside a rolled-back transaction.
 #
 # Never: supabase login/link, db push, --linked, --remote, --db-url, hosted projects, real users.
 # Output is redacted; no key, JWT or password is printed or written to disk by this script.
@@ -28,7 +31,7 @@ set -euo pipefail
 # Usage:  SUPABASE_CLI=/path/to/supabase ./scripts/accountSupabase/run-local-supabase-acceptance.sh
 #         (defaults to `supabase` on PATH; tested with Supabase CLI 3.2.0)
 # Env:    SB1_IMAGE_REGISTRY   optional image registry override (e.g. ghcr.io)
-#         SB1_STOP_AFTER_DEFECTS=1  stop after reproducing D1-D4 (no D3/D4 unblock, no suites)
+#         SB2_MUTATION_DEMOS=1 run the mutation demonstrations instead of the acceptance suites
 #         SB1_KEEP_STACK=1     leave the stack running afterwards
 #         SB1_DISPOSE_PREVIOUS_RUNNER_STACK=1  dispose a stack left by an earlier run of THIS
 #                              runner from THIS checkout (e.g. after SB1_KEEP_STACK=1), only if
@@ -42,10 +45,6 @@ RUN_ID="run-$(date -u +%Y%m%dT%H%M%SZ)-$$-${RANDOM}"
 PROJECT_ID="$(sed -nE 's/^project_id = "([^"]+)"/\1/p' "${ROOT_DIR}/supabase/config.toml")"
 PROJECT_LABEL="com.supabase.cli.project=${PROJECT_ID}"
 DB_CONTAINER="supabase_db_${PROJECT_ID}"
-EXPECTED_WARNINGS=(
-  'no privileges were granted for "auth"'   # D4: TX1 GRANT USAGE ON SCHEMA auth (silent no-op)
-  'no privileges were granted for "uid"'    # D4: TX1 GRANT EXECUTE ON auth.uid() (harmless: PUBLIC has it)
-)
 TX1="20261118000001"
 VERIFY1="20261118000002"
 R13_3="20261116000001"
@@ -181,18 +180,21 @@ for v in SB1_PUBLISHABLE_KEY SB1_ANON_KEY SB1_SERVICE_ROLE_KEY SB1_SECRET_KEY SB
 done
 
 admin_sql() { psql "$SB1_ADMIN_DB_URL" -XAtq -v ON_ERROR_STOP=1 "$@"; }
-superuser_sql() { docker exec -i "$DB_CONTAINER" psql -U supabase_admin -d postgres -XAtq -v ON_ERROR_STOP=1 "$@"; }
 
 [[ "$(admin_sql -c "select current_user || '/' || (select rolsuper from pg_roles where rolname = current_user)")" == "postgres/false" ]] \
   || die "expected the Supabase runner identity postgres (non-superuser)"
 [[ "$(admin_sql -c "select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relname like 'account\_%'")" == "0" ]] \
   || die "fresh stack already contains account tables"
 echo "Runner identity: postgres (NOT superuser) | $(admin_sql -c 'select version()' | cut -d, -f1)"
-
 # ---------------------------------------------------------------------------
-# 4. Accepted migrations through the real CLI runner; staged D1 → D4 reproduction
+# 4. Shared helpers: applied set, privilege snapshot, owner-CREATE scan, expected failure
 # ---------------------------------------------------------------------------
-applied_set() { admin_sql -c "select coalesce(string_agg(version, ' ' order by version), '') from supabase_migrations.schema_migrations"; }
+# Probes for the CLI's history table first, so no query ever errors (and pollutes the DB log).
+applied_set() {
+  if [[ "$(admin_sql -c "select to_regclass('supabase_migrations.schema_migrations') is not null")" == "t" ]]; then
+    admin_sql -c "select coalesce(string_agg(version, ' ' order by version), '') from supabase_migrations.schema_migrations"
+  fi
+}
 
 # Everything a failed migration could strand: account roles and memberships, every schema ACL,
 # every default privilege. Compared before/after each expected failure.
@@ -208,7 +210,9 @@ privilege_snapshot() {
       'schemas: ' || coalesce((SELECT string_agg(nspname || '=' || coalesce(nspacl::text, ''), ';' ORDER BY nspname)
                                  FROM pg_namespace WHERE nspname <> 'supabase_migrations'), ''),
       'defacl: '  || coalesce((SELECT string_agg(defaclrole::regrole::text || '/' || defaclnamespace::text || '/' || defaclobjtype::text || '/' || defaclacl::text, ';' ORDER BY 1)
-                                 FROM pg_default_acl), ''))"
+                                 FROM pg_default_acl), ''),
+      'paramacl: ' || coalesce((SELECT string_agg(parname || '=' || coalesce(paracl::text, ''), ';' ORDER BY parname)
+                                 FROM pg_parameter_acl), ''))"
 }
 
 # No account role may hold CREATE on any schema, and no default privilege may name one.
@@ -217,27 +221,42 @@ assert_no_owner_create() {
   leaks="$(admin_sql -c "
     SELECT concat_ws(' ',
       (SELECT string_agg(r.rolname || ' CREATE on ' || n.nspname, ', ') FROM pg_namespace n CROSS JOIN pg_roles r
-        WHERE r.rolname LIKE 'account\_%' AND has_schema_privilege(r.oid, n.oid, 'CREATE')),
+        WHERE r.rolname LIKE 'account\_%' AND has_schema_privilege(r.oid, n.oid, 'CREATE')
+          AND n.nspname !~ '^pg_(toast_)?temp_'),
       (SELECT string_agg('default privilege ' || d.defaclobjtype::text || ' for ' || a.grantee::regrole::text, ', ')
          FROM pg_default_acl d, aclexplode(d.defaclacl) a
         WHERE a.grantee IN (SELECT oid FROM pg_roles WHERE rolname LIKE 'account\_%')))")"
   [[ -z "${leaks// /}" ]] || die "$1: owner-role privilege leak: $leaks"
 }
 
-# Runs the CLI migration runner, which must fail with the given error, leave exactly the given
-# applied set, and add nothing to the privilege snapshot taken just before. Scope "full" compares
-# the whole snapshot; "roles" compares only roles + memberships (used when an earlier migration
-# legitimately succeeds in the same CLI invocation; the caller then checks residue explicitly).
+# Every R13-VERIFY1 effect a failed VERIFY1 could strand (used when TX1 applied in the same run).
+verify1_residue() {
+  admin_sql -c "
+    SELECT concat_ws(' ',
+      CASE WHEN to_regnamespace('account_issuance') IS NOT NULL THEN 'schema account_issuance' END,
+      CASE WHEN to_regclass('public.account_award_admission_attestations') IS NOT NULL THEN 'attestations table' END,
+      CASE WHEN to_regclass('public.account_award_verification_attempts') IS NOT NULL THEN 'attempts table' END,
+      CASE WHEN EXISTS (SELECT 1 FROM pg_roles WHERE rolname IN ('account_award_verifier', 'account_award_issuer')) THEN 'issuer/verifier role' END,
+      CASE WHEN EXISTS (SELECT 1 FROM pg_policies WHERE policyname LIKE '%issuer%') THEN 'issuer policies' END,
+      CASE WHEN EXISTS (SELECT 1 FROM pg_parameter_acl WHERE parname LIKE 'bibleberry.%') THEN 'parameter ACL' END)"
+}
+
+# Runs the CLI migration runner from WORKDIR (the checkout, or a throw-away mutated copy of
+# supabase/), which must fail with the given error, leave exactly the given applied set, and add
+# nothing to the privilege snapshot taken just before. Scope "full" compares the whole snapshot;
+# "roles" compares roles + memberships only (an earlier migration legitimately succeeded in the
+# same CLI run); the caller then checks the residue explicitly.
 expect_migration_failure() {
-  local label="$1" pattern="$2" expected_applied="$3" scope="${4:-full}" before after out status
+  local label="$1" workdir="$2" pattern="$3" expected_applied="$4" scope="${5:-full}" before after out status
+  [[ -n "$workdir" && -d "$workdir/supabase/migrations" ]] || die "$label: no migration workdir (mutation failed to build?)"
   before="$(privilege_snapshot)"
   set +e
-  out="$(sb migration up --local 2>&1)"
+  out="$("$SUPABASE_CLI" --workdir "$workdir" migration up --local 2>&1)"
   status=$?
   set -e
-  echo "$out" | redact | grep -E '^Applying|MigrationApplyError' | sed -E 's/("message":"[^\\]*).*/\1 …"}}/'
-  [[ $status -ne 0 ]] || die "$label no longer reproduces (migration succeeded): re-evaluate the unblocks and docs"
-  grep -qF "$pattern" <<<"$out" || die "$label: migration failed for an unexpected reason"
+  echo "$out" | redact | grep -E '^Applying|MigrationApplyError' | sed -E 's/("message":"[^\\]*).*/\1 …"}}/;s/^/    /'
+  [[ $status -ne 0 ]] || die "$label: the migration unexpectedly succeeded"
+  grep -qF "$pattern" <<<"$out" || die "$label: migration failed for an unexpected reason (wanted: $pattern)"
   [[ "$(applied_set)" == "$expected_applied" ]] || die "$label: unexpected applied set '$(applied_set)'"
   after="$(privilege_snapshot)"
   if [[ "$scope" == "roles" ]]; then
@@ -247,114 +266,188 @@ expect_migration_failure() {
     diff <(echo "$before") <(echo "$after") >&2 || true
     die "$label: the failed migration stranded role/membership/ACL/default-privilege changes"
   fi
-  local scope_text="roles/memberships"
-  [[ "$scope" == "full" ]] && scope_text="roles/memberships, schema ACLs or default privileges"
-  echo "ok - $label reproduced; failed migration rolled back with NO stranded ${scope_text} (snapshot identical)"
+  assert_no_owner_create "$label"
+  echo "ok - $label: failed as expected and rolled back with nothing stranded"
+}
+
+CHECKS_SQL="${ROOT_DIR}/tests/accountSupabase/sb2RemediationChecks.sql"
+[[ -f "$CHECKS_SQL" ]] || die "missing $CHECKS_SQL"
+
+# The D1-D4 checks always run inside a transaction that is rolled back.
+run_checks() {
+  { echo 'BEGIN;'; cat "$CHECKS_SQL"; echo 'ROLLBACK;'; } | admin_sql 2>&1 | sed -E 's/^psql:[^ ]+ //; s/^NOTICE:  //'
+  return "${PIPESTATUS[1]}"
 }
 
 step "Baseline (fresh stack, before any account migration)"
 assert_no_owner_create "baseline"
 [[ -z "$(admin_sql -c "select string_agg(rolname, ',') from pg_roles where rolname like 'account\_%'")" ]] \
   || die "account roles already exist on a fresh stack"
-echo "ok - no account roles, no owner-role CREATE or default privilege"
+[[ -z "$(applied_set)" ]] || die "fresh stack already has migration history"
+echo "ok - no account roles, no migration history, no owner-role CREATE or default privilege"
 
-step "D1: accepted R13-TX1 cannot assign function ownership (CREATEROLE ADMIN-only membership)"
-expect_migration_failure "D1" 'must be able to SET ROLE \"account_reconciler\"' "$R13_3"
-echo "  [unblock D1] superuser pre-creates the 2 owner roles (identical attributes) and grants them to postgres WITH INHERIT TRUE, SET TRUE"
-superuser_sql <<'SQL'
-CREATE ROLE account_reconciler NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
-CREATE ROLE account_award_issuer NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
-GRANT account_reconciler TO postgres WITH INHERIT TRUE, SET TRUE;
-GRANT account_award_issuer TO postgres WITH INHERIT TRUE, SET TRUE;
-SQL
+if [[ "${SB2_MUTATION_DEMOS:-0}" == "1" ]]; then
+  # -------------------------------------------------------------------------
+  # 5M. Mutation / regression demonstrations (separate run; no suites)
+  # -------------------------------------------------------------------------
+  # Each demo restores one insecure/buggy behaviour in a THROW-AWAY copy of supabase/ (never the
+  # checkout) and proves the CLI runner or the D1-D4 checks catch it, as the real non-superuser
+  # identity `postgres`, with no superuser access and nothing stranded.
+  MUT_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/bibleberry-sb2-mutations.XXXXXX")"
+  trap 'rm -rf "$MUT_ROOT"; cleanup' EXIT
+  mutant() { # name file perl-substitution -> echoes a workdir holding the mutated migration set
+    local dir="$MUT_ROOT/$1" target
+    mkdir -p "$dir/supabase"
+    cp "${ROOT_DIR}/supabase/config.toml" "$dir/supabase/"
+    cp -R "${ROOT_DIR}/supabase/migrations" "$dir/supabase/"
+    case "$2" in
+      TX1) target="$dir/supabase/migrations/${TX1}_r13_tx1_account_reconciliation_transaction.sql" ;;
+      VERIFY1) target="$dir/supabase/migrations/${VERIFY1}_r13_verify1_trusted_card_admission.sql" ;;
+      *) die "unknown mutation target $2" ;;
+    esac
+    cp "$target" "$target.orig"
+    perl -0pi -e "$3" "$target"
+    ! cmp -s "$target" "$target.orig" || die "mutation $1 did not change $2"
+    rm -f "$target.orig"
+    echo "$dir"
+  }
+  # Mutated TX1+VERIFY1 bodies + the checks, in ONE transaction that always rolls back.
+  expect_check_failure() { # label workdir pattern
+    local label="$1" dir="$2" pattern="$3" before after out status
+  [[ -n "$dir" && -d "$dir/supabase/migrations" ]] || die "$label: no migration workdir (mutation failed to build?)"
+    before="$(privilege_snapshot)"
+    set +e
+    out="$({ echo 'BEGIN;'
+             for v in "$TX1" "$VERIFY1"; do grep -vxE 'BEGIN;|COMMIT;' "$dir"/supabase/migrations/"$v"_*.sql; done
+             cat "$CHECKS_SQL"; echo 'ROLLBACK;'; } | admin_sql 2>&1)"
+    status=$?
+    set -e
+    after="$(privilege_snapshot)"
+    [[ "$before" == "$after" ]] || die "$label: rolled-back demo changed the catalog"
+    if [[ -z "$pattern" ]]; then
+      [[ $status -eq 0 ]] || { echo "$out" | redact | tail -5 >&2; die "$label: positive control failed"; }
+      echo "ok - $label: unmutated migrations pass every D1-D4 check (rolled back)"
+      return
+    fi
+    [[ $status -ne 0 ]] || die "$label: the mutation was NOT detected"
+    grep -qF "$pattern" <<<"$out" || { echo "$out" | redact | grep -E 'ERROR' >&2; die "$label: failed for an unexpected reason (wanted: $pattern)"; }
+    echo "ok - $label: detected ($(grep -m1 -oE 'ERROR: .{0,110}' <<<"$out" | redact))"
+  }
 
-step "D2: the new owner lacks CREATE on the function's schema"
-expect_migration_failure "D2" 'permission denied for schema public' "$R13_3"
-echo "  [unblock D2, TEMPORARY] superuser grants CREATE on public to account_reconciler and a default CREATE-on-schemas for account_award_issuer (revoked and verified before any test)"
-superuser_sql <<'SQL'
-GRANT CREATE ON SCHEMA public TO account_reconciler;
-ALTER DEFAULT PRIVILEGES FOR ROLE postgres GRANT CREATE ON SCHEMAS TO account_award_issuer;
-SQL
+  step "Mutations caught by the CLI migration runner (R13-3 commits on the first run; TX1 must roll back)"
+  expect_migration_failure "M-D1 restore the 'MEMBER' self-grant guard (TX1)" \
+    "$(mutant d1 TX1 "s/NOT \(pg_has_role\(current_user, 'account_reconciler', 'SET'\)\s+AND pg_has_role\(current_user, 'account_reconciler', 'USAGE'\)\)/NOT pg_has_role(current_user, 'account_reconciler', 'MEMBER')/g")" \
+    'must be able to SET ROLE' "$R13_3"
+  expect_migration_failure "M-D2a drop the owner-transfer CREATE grant (TX1)" \
+    "$(mutant d2a TX1 's/^GRANT CREATE ON SCHEMA public TO account_reconciler;\n//m')" \
+    'permission denied for schema public' "$R13_3"
+  expect_migration_failure "M-D2b drop the CREATE revoke (TX1)" \
+    "$(mutant d2b TX1 's/^REVOKE CREATE ON SCHEMA public FROM account_reconciler;\n//m')" \
+    'R13-SB2 D2: owner role retains schema CREATE' "$R13_3"
+  expect_migration_failure "M-RB forced failure right after the temporary CREATE grant (TX1)" \
+    "$(mutant rb TX1 's/^(GRANT CREATE ON SCHEMA public TO account_reconciler;\n)/$1DO \$\$ BEGIN RAISE EXCEPTION \x27SB2 forced failure after D2 grant\x27; END \$\$;\n/m')" \
+    'SB2 forced failure after D2 grant' "$R13_3"
 
-step "D3: accepted R13-VERIFY1 placeholder GUC cannot be attached by the non-superuser runner"
-expect_migration_failure "D3" 'permission denied to set parameter \"bibleberry.award_issuance_account\"' "$R13_3 $TX1" roles
-# R13-TX1 applied in the same CLI run, so check every R13-VERIFY1 effect explicitly instead.
-residue="$(admin_sql -c "
-  SELECT concat_ws(' ',
-    CASE WHEN to_regnamespace('account_issuance') IS NOT NULL THEN 'schema account_issuance' END,
-    CASE WHEN to_regclass('public.account_award_admission_attestations') IS NOT NULL THEN 'attestations table' END,
-    CASE WHEN to_regclass('public.account_award_verification_attempts') IS NOT NULL THEN 'attempts table' END,
-    CASE WHEN EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'account_award_verifier') THEN 'role account_award_verifier' END,
-    CASE WHEN EXISTS (SELECT 1 FROM information_schema.role_table_grants WHERE grantee = 'account_award_issuer') THEN 'issuer table grants' END,
-    CASE WHEN EXISTS (SELECT 1 FROM pg_policies WHERE policyname LIKE '%issuer%') THEN 'issuer policies' END,
-    CASE WHEN EXISTS (SELECT 1 FROM pg_namespace n, aclexplode(n.nspacl) a
-                       WHERE a.grantee = 'account_award_issuer'::regrole AND a.privilege_type = 'USAGE') THEN 'issuer schema USAGE' END,
-    CASE WHEN EXISTS (SELECT 1 FROM pg_proc p, aclexplode(p.proacl) a
-                       WHERE a.grantee = 'account_award_issuer'::regrole) THEN 'issuer EXECUTE grants' END)")"
-[[ -z "${residue// /}" ]] || die "D3: failed R13-VERIFY1 left residue: $residue"
-echo "ok - D3: no R13-VERIFY1 schema, table, role, policy or grant survived the failure"
+  step "Mutations that apply but are caught by the D1-D4 checks (single rolled-back transaction)"
+  expect_check_failure "M-CTRL positive control (unmutated)" "$(mutant ctrl TX1 's/^(-- Bibleberry R13-TX1)/$1 [sb2 control copy]/m')" ""
+  expect_check_failure "M-D4a reconcile body calls auth.uid() directly again (TX1)" \
+    "$(mutant d4a TX1 's/v_uid uuid := account_private\.request_account_id\(\);/v_uid uuid := auth.uid();/')" \
+    'permission denied for schema auth'
+  expect_check_failure "M-D4b a reconciler policy calls auth.uid() directly again (TX1)" \
+    "$(mutant d4b TX1 's/(ON public\.account_shelf_months FOR ALL TO account_reconciler\n  USING \(account_id = )account_private\.request_account_id\(\)/$1auth.uid()/')" \
+    'SB2-CHECK D4e'
+  # (A widening placed before TX1's blanket account_private REVOKEs is neutralised by them; this
+  #  one is placed after every revoke so it really survives.)
+  expect_check_failure "M-D4c bridge EXECUTE widened to service_role after every revoke (TX1)" \
+    "$(mutant d4c TX1 's/^(COMMENT ON FUNCTION public\.reconcile_guest_participation)/GRANT EXECUTE ON FUNCTION account_private.request_account_id() TO service_role;\n$1/m')" \
+    'SB2-CHECK D4b'
+  expect_check_failure "M-D4d issuer keeps the bridge via the account_private grant (VERIFY1)" \
+    "$(mutant d4d VERIFY1 's/^REVOKE EXECUTE ON FUNCTION account_private\.request_account_id\(\) FROM account_award_issuer;\n//m')" \
+    'SB2-CHECK D4b'
+  expect_check_failure "M-D4e bridge body widened beyond auth.uid() (TX1)" \
+    "$(mutant d4e TX1 's/  SELECT auth\.uid\(\);\n\$\$;/  SELECT coalesce(auth.uid(), (SELECT id FROM auth.users LIMIT 1));\n\$\$;/')" \
+    'SB2-CHECK D4a'
+  expect_check_failure "M-D3a remove the fail-closed entry resets (VERIFY1)" \
+    "$(mutant d3a VERIFY1 's/^  PERFORM set_config\(\x27bibleberry\.award_issuance_account\x27, \x27\x27, true\);\n//mg')" \
+    'SB2-CHECK D3c'
 
-step "D4: accepted R13-TX1 'GRANT USAGE ON SCHEMA auth' was a silent no-op"
-[[ "$(admin_sql -c "select has_schema_privilege('account_reconciler', 'auth', 'USAGE')")" == "f" ]] \
-  || die "D4 no longer reproduces: account_reconciler has auth USAGE"
-# Capture first: `grep -q` closing the pipe early would SIGPIPE `docker logs` under pipefail.
-db_log="$(docker logs "$DB_CONTAINER" 2>&1)"
-grep -qF 'postgres@postgres WARNING:  no privileges were granted for "auth"' <<<"$db_log" \
-  || die "expected the D4 WARNING in the database log"
-echo "ok - D4 reproduced: account_reconciler lacks USAGE on schema auth; runner logged only a WARNING"
+  step "Mutations caught by the CLI runner on R13-VERIFY1 (unmutated R13-TX1 applied alone first)"
+  tx1_only="$MUT_ROOT/tx1-only"
+  mkdir -p "$tx1_only/supabase/migrations"
+  cp "${ROOT_DIR}/supabase/config.toml" "$tx1_only/supabase/"
+  cp "${ROOT_DIR}"/supabase/migrations/{"$R13_3","$TX1"}_*.sql "$tx1_only/supabase/migrations/"
+  "$SUPABASE_CLI" --workdir "$tx1_only" migration up --local 2>&1 | redact | grep -E '^Applying|Error' | sed 's/^/    /' || true
+  [[ "$(applied_set)" == "$R13_3 $TX1" ]] || die "unmutated R13-TX1 did not apply on its own: $(applied_set)"
+  assert_no_owner_create "after R13-TX1 alone"
+  echo "ok - unmutated R13-TX1 applied on its own with no owner-role CREATE left"
+  expect_migration_failure "M-D3b restore the function-level placeholder GUC clause (VERIFY1)" \
+    "$(mutant d3b VERIFY1 's/^(SECURITY DEFINER\nSET search_path = \x27\x27\nSET lock_timeout = \x275s\x27\n)(AS \$\$\nDECLARE\n  v_ceiling)/$1SET bibleberry.award_issuance_account TO \x27\x27\n$2/m')" \
+    'permission denied to set parameter' "$R13_3 $TX1"
+  [[ -z "$(verify1_residue | tr -d ' ')" ]] || die "M-D3b: failed R13-VERIFY1 left residue: $(verify1_residue)"
+  expect_migration_failure "M-D2c drop the account_issuance CREATE revoke (VERIFY1)" \
+    "$(mutant d2c VERIFY1 's/^REVOKE CREATE ON SCHEMA account_issuance FROM account_award_issuer;\n//m')" \
+    'R13-SB2 D2: owner role retains schema CREATE' "$R13_3 $TX1"
+  [[ -z "$(verify1_residue | tr -d ' ')" ]] || die "M-D2c: failed R13-VERIFY1 left residue: $(verify1_residue)"
 
-if [[ "${SB1_STOP_AFTER_DEFECTS:-0}" == "1" ]]; then
-  echo "SB1_STOP_AFTER_DEFECTS=1: stopping after D1-D4 reproduction. Real-stack acceptance NOT run."
+  step "Unmutated R13-VERIFY1 still applies after the failed attempts"
+  sb migration up --local 2>&1 | redact | grep -E '^Applying|Error' | sed 's/^/    /' || true
+  [[ "$(applied_set)" == "$R13_3 $TX1 $VERIFY1" ]] || die "remaining migration did not apply: $(applied_set)"
+  assert_no_owner_create "after mutation demos"
+  run_checks | grep -E '^ok - |SB2 remediation|ERROR' | sed 's/^/    /' || die "D1-D4 checks failed after the demos"
+  echo
+  echo "R13-SB2 mutation demonstrations passed: every restored defect was caught; nothing was stranded."
   exit 0
 fi
 
 # ---------------------------------------------------------------------------
-# 5. Remaining LOCAL-ONLY unblocks, then remove every temporary privilege
+# 5. The accepted migrations through the real CLI runner: zero unblocks, zero warnings
 # ---------------------------------------------------------------------------
-step "Applying LOCAL-ONLY D3/D4 unblocks as the container bootstrap superuser"
-superuser_sql -c 'GRANT SET ON PARAMETER bibleberry.award_issuance_account TO postgres'
-echo "  [unblock D3] GRANT SET ON PARAMETER bibleberry.award_issuance_account TO postgres"
-superuser_sql -c 'GRANT USAGE ON SCHEMA auth TO account_reconciler'
-echo "  [unblock D4] GRANT USAGE ON SCHEMA auth TO account_reconciler   (exactly the privilege R13-TX1 intended)"
+step "Applying R13-3, R13-TX1, R13-VERIFY1 with 'supabase migration up --local' (identity postgres, no pre-unblock)"
+apply_started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+set +e
+out="$(sb migration up --local 2>&1)"
+status=$?
+set -e
+echo "$out" | redact | grep -E '^Applying|Error' | sed 's/^/    /' || true
+[[ $status -eq 0 ]] || { echo "$out" | redact | tail -5 >&2; die "the migrations did not apply under the real Supabase runner"; }
+[[ "$(applied_set)" == "$R13_3 $TX1 $VERIFY1" ]] || die "unexpected applied set: $(applied_set)"
+echo "ok - all 3 migrations applied, in order, by the CLI runner: $(applied_set)"
 
-sb migration up --local 2>&1 | redact | grep -E '^Applying|Error' || true
-[[ "$(applied_set)" == "$R13_3 $TX1 $VERIFY1" ]] || die "not all accepted migrations applied: $(applied_set)"
-echo "ok - the 3 accepted, unchanged migrations applied by the CLI runner: $(applied_set)"
+step "Migration WARNING scan (database log, runner session, this apply only)"
+# Capture first: `grep -q` closing the pipe early would SIGPIPE `docker logs` under pipefail.
+db_log="$(docker logs --since "$apply_started" "$DB_CONTAINER" 2>&1)"
+# Zero WARNINGs, zero ERRORs. The single allowed line is the CLI's OWN first-run probe of its
+# history table on a fresh database (`SELECT version FROM supabase_migrations.schema_migrations`,
+# immediately followed by its `CREATE SCHEMA IF NOT EXISTS supabase_migrations`).
+CLI_HISTORY_PROBE='ERROR: relation "supabase_migrations.schema_migrations" does not exist at character 21'
+warnings="$(grep -E 'postgres@postgres (WARNING|ERROR):' <<<"$db_log" | sed -E 's/.*(WARNING|ERROR):  /\1: /' \
+            | grep -vxF "$CLI_HISTORY_PROBE" | sort -u || true)"
+[[ -z "$warnings" ]] || { echo "$warnings" | sed 's/^/  /' >&2; grep -E -A2 'postgres@postgres (WARNING|ERROR):' <<<"$db_log" | redact | head -20 >&2; die "the migration session logged warnings/errors"; }
+echo "ok - zero WARNING and zero ERROR lines from the migration session (besides the CLI's own history-table probe)"
 
-step "Revoking the temporary D2 unblock and verifying no owner-role CREATE remains"
-superuser_sql <<'SQL'
-REVOKE CREATE ON SCHEMA public, account_private, account_issuance FROM account_reconciler, account_award_issuer;
-ALTER DEFAULT PRIVILEGES FOR ROLE postgres REVOKE CREATE ON SCHEMAS FROM account_award_issuer;
-SQL
-assert_no_owner_create "after D2 revoke"
-echo "ok - no account role holds CREATE on any schema; no default privilege names one"
-
-step "Migration WARNING scan (database log, runner session only)"
-db_log="$(docker logs "$DB_CONTAINER" 2>&1)"
-warnings="$(grep -E 'postgres@postgres WARNING:' <<<"$db_log" | sed -E 's/.*WARNING:  //' | sort -u || true)"
-unexpected="$warnings"
-for w in "${EXPECTED_WARNINGS[@]}"; do unexpected="$(grep -vF "$w" <<<"$unexpected" || true)"; done
-echo "$warnings" | sed 's/^/  WARNING: /'
-[[ -z "$unexpected" ]] || die "unexpected migration warnings: $unexpected"
-echo "ok - only the two known D4 warnings"
+step "Post-apply catalog: no owner-role CREATE; D1-D4 checks as postgres (rolled back)"
+assert_no_owner_create "after apply"
+run_checks | grep -E '^ok - |SB2 remediation|ERROR' | sed 's/^/    /' || die "D1-D4 checks failed"
 
 # ---------------------------------------------------------------------------
 # 6. Acceptance suites
 # ---------------------------------------------------------------------------
-step "Running R13-SB1 suites A (GoTrue + PostgREST) and B (verifier login + issuance)"
+SUITE_PASS_EXPECTED=29
+step "Running suites A (GoTrue + PostgREST), B (verifier login + issuance), C (R13-SB2 D1-D4)"
 set +e
 out="$(cd "$ROOT_DIR" && node --experimental-strip-types --test --test-concurrency=1 \
   tests/accountSupabase/authPostgrestBoundary.supabase.test.ts \
-  tests/accountSupabase/verifierRoleIssuance.supabase.test.ts 2>&1)"
+  tests/accountSupabase/verifierRoleIssuance.supabase.test.ts \
+  tests/accountSupabase/migrationRemediation.supabase.test.ts 2>&1)"
 suite_status=$?
 set -e
 echo "$out" | redact | grep -E '^\s*(not )?ok [0-9]+ - |^# (pass|fail|skipped)'
 # A skipped suite reports "# pass 0", so require the exact number of executed passes as well.
-if [[ $suite_status -ne 0 ]] || ! grep -qx '# pass 21' <<<"$out" \
+if [[ $suite_status -ne 0 ]] || ! grep -qx "# pass ${SUITE_PASS_EXPECTED}" <<<"$out" \
    || ! grep -qx '# fail 0' <<<"$out" || ! grep -qx '# skipped 0' <<<"$out"; then
   echo "$out" | redact | grep -E 'error:|^\s{8}' | head -60 >&2
-  die "R13-SB1 suites failed or were skipped"
+  die "suites failed or were skipped"
 fi
 
 echo
-echo "R13-SB1 local Supabase acceptance passed with the documented LOCAL-ONLY unblocks for D1-D4 (NOT deployability proof)."
+echo "R13-SB2 local Supabase acceptance passed: corrected migrations apply with ZERO unblocks and ZERO warnings (local stack only; NOT hosted deployability proof)."

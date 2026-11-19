@@ -40,11 +40,84 @@ BEGIN
      WHERE n.nspname = 'account_private'
        AND (p.proconfig IS NULL OR NOT ('search_path=""' = ANY (p.proconfig)))
   ), 'S1f every account_private helper pins search_path');
+  -- R13-SB2 D4: exactly ONE definer helper is allowed in account_private: the auth.uid() bridge.
   PERFORM pg_temp.check(NOT EXISTS (
     SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
      WHERE n.nspname = 'account_private' AND p.prosecdef
-  ), 'S1g no account_private helper is SECURITY DEFINER');
+       AND p.oid <> 'account_private.request_account_id()'::regprocedure
+  ), 'S1g no account_private helper other than request_account_id() is SECURITY DEFINER');
 END $$;
+
+-- ---------------------------------------------------------------------------
+-- S1h. R13-SB2 D4: account_private.request_account_id() is a minimal, reconciler-only bridge
+-- ---------------------------------------------------------------------------
+DO $$
+DECLARE p record;
+BEGIN
+  SELECT pr.prosecdef, pr.provolatile, pr.pronargs, pr.prorettype::regtype::text AS rettype,
+         pr.proconfig, l.lanname, btrim(pr.prosrc, E' \n\t') AS body, pg_get_userbyid(pr.proowner) AS owner
+    INTO p
+    FROM pg_proc pr JOIN pg_language l ON l.oid = pr.prolang
+   WHERE pr.oid = 'account_private.request_account_id()'::regprocedure;
+  PERFORM pg_temp.check(p.prosecdef AND p.lanname = 'sql' AND p.provolatile = 's'
+                    AND p.pronargs = 0 AND p.rettype = 'uuid',
+    'S1h1 request_account_id() is a zero-argument STABLE SQL SECURITY DEFINER returning uuid');
+  PERFORM pg_temp.check(p.proconfig = ARRAY['search_path=""'],
+    'S1h2 request_account_id() pins an empty search_path and nothing else');
+  PERFORM pg_temp.check(p.body = 'SELECT auth.uid();',
+    'S1h3 request_account_id() body is exactly one auth.uid() call (no table, no other SQL)');
+  PERFORM pg_temp.check(p.owner NOT LIKE 'account\_%' AND p.owner NOT IN ('anon', 'authenticated', 'service_role'),
+    'S1h4 request_account_id() is owned by the migration runner, not an account/client role');
+  PERFORM pg_temp.check(has_function_privilege('account_reconciler', 'account_private.request_account_id()', 'EXECUTE'),
+    'S1h5 account_reconciler may execute request_account_id()');
+  PERFORM pg_temp.check(NOT has_function_privilege('public', 'account_private.request_account_id()', 'EXECUTE')
+                    AND NOT has_function_privilege('anon', 'account_private.request_account_id()', 'EXECUTE')
+                    AND NOT has_function_privilege('authenticated', 'account_private.request_account_id()', 'EXECUTE')
+                    AND NOT has_function_privilege('service_role', 'account_private.request_account_id()', 'EXECUTE'),
+    'S1h6 PUBLIC/anon/authenticated/service_role cannot execute request_account_id()');
+  PERFORM pg_temp.check(NOT EXISTS (
+    SELECT 1 FROM pg_proc pr, aclexplode(pr.proacl) a
+     WHERE pr.oid = 'account_private.request_account_id()'::regprocedure
+       AND a.privilege_type = 'EXECUTE'
+       AND a.grantee NOT IN (pr.proowner, 'account_reconciler'::regrole)
+  ), 'S1h7 request_account_id() ACL names only its owner and account_reconciler');
+  PERFORM pg_temp.check(NOT has_schema_privilege('account_reconciler', 'auth', 'USAGE'),
+    'S1h8 account_reconciler holds NO USAGE on schema auth (no silent no-op grant relied upon)');
+  -- R13-SB2 D2: the temporary ownership-transfer CREATE was revoked in the migration itself.
+  PERFORM pg_temp.check(NOT EXISTS (
+    SELECT 1 FROM pg_namespace n CROSS JOIN pg_roles r
+     WHERE r.rolname LIKE 'account\_%' AND has_schema_privilege(r.oid, n.oid, 'CREATE')
+       -- (a session's own temp schema reports CREATE for any role; not a real grant)
+       AND n.nspname !~ '^pg_(toast_)?temp_'
+  ), 'S1h9 no account_* role holds CREATE on any schema');
+  PERFORM pg_temp.check(NOT EXISTS (
+    SELECT 1 FROM pg_default_acl d, aclexplode(d.defaclacl) a
+     WHERE a.grantee IN (SELECT oid FROM pg_roles WHERE rolname LIKE 'account\_%')
+  ), 'S1h10 no default privilege names an account_* role');
+END $$;
+
+-- S1i. The helper returns exactly the CALLER's verified subject; direct auth.uid() is denied to
+--      the reconciler (it lacks auth USAGE), so the bridge is the only path.
+SAVEPOINT s1i;
+SELECT set_config('request.jwt.claim.sub', 'a0000000-0000-4000-8000-00000000000a', true);
+SET LOCAL ROLE account_reconciler;
+DO $$
+DECLARE v_denied boolean := false;
+BEGIN
+  PERFORM pg_temp.check(account_private.request_account_id() = 'a0000000-0000-4000-8000-00000000000a',
+    'S1i1 as account_reconciler, request_account_id() = the session subject (A)');
+  PERFORM set_config('request.jwt.claim.sub', 'b0000000-0000-4000-8000-00000000000b', true);
+  PERFORM pg_temp.check(account_private.request_account_id() = 'b0000000-0000-4000-8000-00000000000b',
+    'S1i2 a different session subject (B) is returned as B (no caching across claims)');
+  BEGIN
+    PERFORM auth.uid();
+  EXCEPTION WHEN insufficient_privilege THEN
+    v_denied := true;
+  END;
+  PERFORM pg_temp.check(v_denied, 'S1i3 account_reconciler cannot call auth.uid() directly');
+END $$;
+ROLLBACK TO SAVEPOINT s1i;
+RESET ROLE;
 
 -- ---------------------------------------------------------------------------
 -- S2. Elevated owner role attributes

@@ -38,3 +38,46 @@ test('R13-VERIFY1 issuer cannot rewrite trusted award date, provenance or Card m
 test('R13-VERIFY1 contains no credentials, service keys or remote endpoints', () => {
   assert.doesNotMatch(sql, /service_role_key|SUPABASE_SERVICE|SANITY_READ_TOKEN|eyJ[A-Za-z0-9_-]{10,}|https?:\/\/[a-z0-9.-]*(supabase\.co|api\.sanity\.io)/i)
 })
+
+// ---------------------------------------------------------------------------
+// R13-SB2 (Issue #225): real-Supabase migration compatibility guards (D1, D2, D3, D4)
+// ---------------------------------------------------------------------------
+function issuanceFunction(name: string): string {
+  const start = sql.indexOf(`CREATE FUNCTION account_issuance.${name}(`)
+  assert.notEqual(start, -1, `missing account_issuance.${name}`)
+  return sql.slice(start, sql.indexOf('\n$$;', start))
+}
+
+test('R13-SB2 D1: issuer self-grant is guarded by SET+USAGE and grants INHERIT+SET', () => {
+  assert.doesNotMatch(sql, /pg_has_role\(current_user, 'account_award_issuer', 'MEMBER'\)/)
+  assert.match(sql, /GRANT account_award_issuer TO %I WITH INHERIT TRUE, SET TRUE/)
+})
+
+test('R13-SB2 D2: account_issuance CREATE exists only around the ownership transfers', () => {
+  const grant = sql.indexOf('GRANT CREATE ON SCHEMA account_issuance TO account_award_issuer;')
+  const firstOwner = sql.indexOf('OWNER TO account_award_issuer;')
+  const lastOwner = sql.lastIndexOf('OWNER TO account_award_issuer;')
+  const revoke = sql.indexOf('REVOKE CREATE ON SCHEMA account_issuance FROM account_award_issuer;')
+  assert.ok(grant !== -1 && grant < firstOwner && lastOwner < revoke, 'GRANT < every OWNER TO < REVOKE')
+  assert.equal(sql.match(/GRANT CREATE ON SCHEMA/g)?.length, 1)
+  assert.doesNotMatch(sql, /ALTER DEFAULT PRIVILEGES[^;]*\bGRANT\b/i)
+  assert.match(sql, /R13-SB2 D2: owner role retains schema CREATE/)
+})
+
+test('R13-SB2 D3: no function-level placeholder GUC; every confining function resets it on entry', () => {
+  assert.doesNotMatch(sql, /^SET bibleberry\./m)
+  assert.doesNotMatch(sql, /GRANT SET ON PARAMETER/i)
+  for (const fn of ['get_claim_verification_context', 'record_verification_deferral', 'admit_verified_award']) {
+    const block = issuanceFunction(fn)
+    const body = block.slice(block.indexOf('\nBEGIN\n') + 7)
+    const firstStatement = body.split('\n').find((line) => line.trim() !== '' && !line.trim().startsWith('--'))
+    assert.equal(firstStatement?.trim(), "PERFORM set_config('bibleberry.award_issuance_account', '', true);",
+      `${fn} must reset the confinement as its first statement`)
+  }
+})
+
+test('R13-SB2 D4: the issuer never receives the reconciler-only auth.uid() bridge', () => {
+  const grantAll = sql.indexOf('GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA account_private TO account_award_issuer;')
+  const revoke = sql.indexOf('REVOKE EXECUTE ON FUNCTION account_private.request_account_id() FROM account_award_issuer;')
+  assert.ok(grantAll !== -1 && grantAll < revoke)
+})
