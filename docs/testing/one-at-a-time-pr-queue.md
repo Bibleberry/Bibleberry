@@ -1,5 +1,7 @@
 # One-at-a-time pull request verification (Linux foundation)
 
+> **Superseded by Issue [#239](https://github.com/Bibleberry/Bibleberry/issues/239) (`Silver Badger`):** Following the public-repository cutover to standard GitHub-hosted runners, the historical Draft-PR waiting-room test suppression documented below was removed. Draft PRs now run scope-filtered read-only hosted CI while remaining Draft and ineligible for merge or queue entry until independent review and explicit owner promotion. See [draft-pr-hosted-ci.md](draft-pr-hosted-ci.md) for current policy.
+
 Bibleberry's required GitHub Actions checks remain part of protected `main`. This phase introduces a **Draft PR waiting room for Linux CI and Collections Browser**, without disabling branch protection or reducing those checks.
 
 **Scope:** Only `.github/workflows/ci.yml` (Reader, CMS/BerryMark, Release Gateway, Studio) and `.github/workflows/collections-browser.yml` are draft-gated in this PR. Android and iOS workflows remain unchanged and can still run on draft PRs when their path filters match. Migrating those builds to Bibleberry self-hosted runners and adding native draft gating will be handled separately. Native GitHub-hosted runs may currently be blocked by GitHub billing.

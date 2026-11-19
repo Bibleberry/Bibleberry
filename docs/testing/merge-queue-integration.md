@@ -31,6 +31,7 @@ PRs are verified and integrated one by one.
   group mode, it does not use PR merge-base diff resolution.
 - Existing draft-PR waiting-room semantics, read-only workflow token
   permissions, job identities, and per-PR cancellation behavior remain.
+  *(Updated by [#239](https://github.com/Bibleberry/Bibleberry/issues/239) / `Silver Badger`: Draft-PR waiting-room CI suppression was later removed on standard hosted runners; read-only token permissions, job identities, per-PR cancellation, and Draft PR ineligibility for merge/queue entry remain unchanged. See [draft-pr-hosted-ci.md](draft-pr-hosted-ci.md).)*
 
 **iOS:** `Native iOS simulator build` remains PR/push/workflow_dispatch only
 and is **not** a merge-queue gate at this stage. Its simulator runtime
