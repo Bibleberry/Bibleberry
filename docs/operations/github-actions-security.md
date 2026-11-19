@@ -63,7 +63,7 @@ For a public repository, fork pull-request workflows from **all outside collabor
 - [ ] Top-level `permissions: contents: read` is preserved; no unnecessary write scopes.
 - [ ] `persist-credentials: false` is set on every `actions/checkout` step.
 - [ ] No `pull_request_target`, no secrets passed to untrusted PRs, and no self-hosted runner labels.
-- [ ] Required status check names (`Build reader application`, `Verify Sanity Studio`) and Draft PR waiting-room filters remain intact.
+- [ ] Required status check names (`Build reader application`, `Verify Sanity Studio`), change-scope filtering, and Draft PR merge/queue ineligibility remain intact (Draft PRs run read-only hosted CI without waiting-room suppression; fork PRs from external contributors still require maintainer approval).
 
 ## Repository Settings Reference (GitHub Admin UI)
 

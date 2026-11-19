@@ -2,8 +2,8 @@ name: Native Android debug build
 
 on:
   pull_request:
-    # Keep native build jobs in the Draft-PR waiting room.
-    types: [opened, reopened, synchronize, ready_for_review, converted_to_draft]
+    # Draft and Ready PRs run when matching Android or packaged web-app paths change; Draft PRs remain ineligible for merge/queue entry until review and owner promotion.
+    types: [opened, reopened, synchronize, ready_for_review]
     branches: [main]
     paths:
       - android/**
@@ -49,7 +49,6 @@ permissions:
 jobs:
   android-debug-apk:
     name: Native Android debug APK
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
     # GitHub-hosted Ubuntu isolates PR builds from local development computers.
     runs-on: ubuntu-24.04
 
