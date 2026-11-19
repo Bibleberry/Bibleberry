@@ -58,7 +58,7 @@ test('LOCAL REAL Supabase GoTrue/PostgREST: A/B isolation, durable commit, and l
     data: {
       completedChallenges: {}, inProgressChallenges: {}, savedChallenges: {}, savedScriptures: [],
       lastOpenedChallenge: null, earnedAwards: {},
-      shelf: { months: [{ yearMonth: '2026-11' as never, admissionKind: 'readerSelected', isProtected: true }] },
+      shelf: { months: [{ yearMonth: '2026-10' as never, admissionKind: 'readerSelected', isProtected: true }] },
     },
   }
   const payload = {

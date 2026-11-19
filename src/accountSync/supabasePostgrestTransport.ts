@@ -68,7 +68,8 @@ function parseReceipt(value: unknown): CommitAckReceipt | null {
       !['committed', 'alreadyCommittedDuplicate'].includes(String(value.status)) ||
       typeof value.accountId !== 'string' || typeof value.idempotencyKey !== 'string' ||
       typeof value.committedGuestFingerprint !== 'string' || !Number.isSafeInteger(value.durableRevision) ||
-      !Number.isSafeInteger(value.unresolvedCount) || typeof value.unresolvedPersistedOnServer !== 'boolean') return null
+      Number(value.durableRevision) < 1 || !Number.isSafeInteger(value.unresolvedCount) ||
+      Number(value.unresolvedCount) < 0 || typeof value.unresolvedPersistedOnServer !== 'boolean') return null
   return value as unknown as CommitAckReceipt
 }
 
@@ -177,10 +178,12 @@ export class SupabasePostgrestTransport implements AuthorizedAccountTransport {
     }
     const receipt = parseReceipt(body.receipt)
     const envelope = body.committedEnvelope
+    const currentRevision = body.committedEnvelopeRevision
     if (!receipt || receipt.status !== body.status || receipt.accountId !== session.accountId ||
         receipt.idempotencyKey !== payload.idempotencyKey || receipt.committedGuestFingerprint !== payload.guestPayloadFingerprint ||
-        !validEnvelope(envelope, session.accountId) || envelope.revision !== receipt.durableRevision ||
-        body.committedEnvelopeRevision !== receipt.durableRevision) {
+        !Number.isSafeInteger(currentRevision) || Number(currentRevision) < receipt.durableRevision ||
+        !validEnvelope(envelope, session.accountId) || envelope.revision !== currentRevision ||
+        (body.status === 'committed' && currentRevision !== receipt.durableRevision)) {
       return { status: 'networkError', retryable: false, message: 'Account service returned an invalid durable receipt.' }
     }
     const success = { receipt, committedEnvelope: envelope }
