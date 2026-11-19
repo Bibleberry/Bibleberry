@@ -51,6 +51,39 @@ jobs:
         if: steps.scope.outputs.should_run == 'true'
         run: npm run test:shelf-persistence
 
+      - name: Run hermetic regression tests
+        if: steps.scope.outputs.should_run == 'true'
+        run: >-
+          node --experimental-strip-types --test
+          tests/accountAuth/accountAuthSession.test.ts
+          tests/accountSync/accountSyncCoordinator.test.ts
+          tests/accountSync/supabasePostgrestTransport.test.ts
+          tests/savedScripture/savedScriptureCollectionModel.test.ts
+          tests/accountVerification/databaseIssuancePort.test.ts
+          tests/accountVerification/eligibility.test.ts
+          tests/accountVerification/providerAndBoundary.test.ts
+          tests/accountVerification/runOnce.test.ts
+          tests/accountVerification/runtimeBoundary.test.ts
+          tests/accountVerification/runtimeConfig.test.ts
+          tests/accountVerification/verifierOrchestration.test.ts
+          tests/deepLinkIngress/authorizer.test.ts
+          tests/deepLinkIngress/controller.test.ts
+          tests/deepLinkIngress/parser.test.ts
+          tests/hubContinue/hubContinueAppInput.test.ts
+          tests/hubContinue/hubContinueEngine.test.ts
+          tests/onboardingReplay/onboardingReplayModel.test.ts
+          tests/scriptureCapture/scriptureCapture.test.ts
+          tests/cardSharing/cardSharingService.test.ts
+          tests/shelf/shelfAccountPrecedence.test.ts
+          tests/shelf/shelfActiveFocusAndSeparation.test.ts
+          tests/shelf/shelfProtectionAndRollover.test.ts
+          tests/shelf/shelfSelectionAndPutAway.test.ts
+          tests/shelf/shelfValidation.test.ts
+          tests/news/newsModel.test.ts
+          tests/news/newsProvider.test.ts
+          tests/library/historicalLibraryHost.test.ts
+          tests/library/historicalLibraryModel.test.ts
+
       - name: Install Playwright Chromium
         # Runner image supplies OS libraries; avoid apt mirrors during browser provisioning.
         # The reader smoke suite still launches actual Chromium and fails if runtime libraries are missing.
