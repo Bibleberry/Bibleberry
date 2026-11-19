@@ -92,7 +92,7 @@ export function ReplayableOnboarding({
   const headingId = useId()
   const timeInputId = useId()
   const headingRef = useRef<HTMLHeadingElement | null>(null)
-  const shouldFocusHeadingRef = useRef(false)
+  const shouldFocusHeadingRef = useRef(mode === 'replay')
 
   const step = getOnboardingStep(flow.currentStepIndex)
   const announcement = getOnboardingStepAnnouncement(flow)

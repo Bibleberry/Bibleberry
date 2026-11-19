@@ -490,4 +490,137 @@ test.describe('Issue #132: Controlled App-Shell Integration', () => {
     // Returned to Hub
     await expect(page).not.toHaveURL(/#\/notebook/)
   })
+
+  test('Review Introduction returns to More on Skip, Escape, and Finish without changing reader data', async ({
+    page,
+  }) => {
+    const prototypeState = {
+      ...makeOnboardedState(),
+      appearance: 'dark',
+      textSize: 'large',
+      reminderEnabled: false,
+      reminderTime: '07:30',
+      explored: ['foundation-quiet-place'],
+      journey: [{ id: 'existing-journey', label: 'Opened a teaching', at: '2026-11-08T12:00:00.000Z' }],
+      lastOpened: {
+        entryId: '2026-11-08-day-1',
+        challengeId: '2026-11-08-challenge',
+        openedAt: '2026-11-08T12:00:00.000Z',
+      },
+    }
+
+    await page.addInitScript(
+      ({ protoKey, partKey, protoState, partData, shelfKey }) => {
+        window.localStorage.setItem(protoKey, JSON.stringify(protoState))
+        window.localStorage.setItem(partKey, JSON.stringify(partData))
+        window.localStorage.setItem(shelfKey, 'preserve-shelf-state')
+      },
+      {
+        protoKey: PROTOTYPE_STORAGE_KEY,
+        partKey: PARTICIPATION_STORAGE_KEY,
+        protoState: prototypeState,
+        partData: makeSampleParticipationEnvelope({ cardViewed: true, hubAnnouncementAcked: true }),
+        shelfKey: 'bibleberry-guest-shelf-v1',
+      },
+    )
+
+    await page.goto(enabledBaseUrl)
+    await page.getByRole('button', { name: 'More' }).click()
+
+    const reviewButton = page.getByRole('button', { name: 'Review Introduction', exact: true })
+    await expect(reviewButton).toBeVisible()
+    const localDataBefore = await page.evaluate(() =>
+      Object.fromEntries(
+        Object.keys(localStorage)
+          .sort()
+          .map(key => [key, localStorage.getItem(key)]),
+      ),
+    )
+
+    await reviewButton.click()
+    await expect(page.getByTestId('onboarding-replay-badge')).toBeVisible()
+    await expect(page.getByTestId('onboarding-step-heading')).toBeFocused()
+    await page.getByTestId('onboarding-skip-button').click()
+    await expect(page.getByRole('heading', { name: 'Make the space your own.' })).toBeVisible()
+    await expect(reviewButton).toBeFocused()
+
+    // Repeated entry and keyboard Escape must also return to the same More action.
+    await reviewButton.click()
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('heading', { name: 'Make the space your own.' })).toBeVisible()
+    await expect(reviewButton).toBeFocused()
+
+    // Finish reaches the final step and returns to More rather than navigating to Foundations.
+    await reviewButton.click()
+    await page.getByTestId('onboarding-continue-button').click()
+    await page.getByTestId('onboarding-continue-button').click()
+    await page.getByTestId('onboarding-finish-button').click()
+    await expect(page.getByRole('heading', { name: 'Make the space your own.' })).toBeVisible()
+    await expect(reviewButton).toBeFocused()
+
+    const localDataAfter = await page.evaluate(() =>
+      Object.fromEntries(
+        Object.keys(localStorage)
+          .sort()
+          .map(key => [key, localStorage.getItem(key)]),
+      ),
+    )
+    expect(localDataAfter).toEqual(localDataBefore)
+    expect(JSON.parse(localDataAfter[PROTOTYPE_STORAGE_KEY] ?? '{}')).toMatchObject({
+      onboarded: true,
+      reminderEnabled: false,
+      reminderTime: '07:30',
+      appearance: 'dark',
+      textSize: 'large',
+      explored: ['foundation-quiet-place'],
+    })
+    expect(JSON.parse(localDataAfter[PARTICIPATION_STORAGE_KEY] ?? '{}').data.savedScriptures).toHaveLength(2)
+    expect(JSON.parse(localDataAfter[PARTICIPATION_STORAGE_KEY] ?? '{}').data.earnedAwards).toHaveProperty(
+      'card:monthly:2026-11:light-path',
+    )
+    expect(localDataAfter['bibleberry-guest-shelf-v1']).toBe('preserve-shelf-state')
+  })
+
+  test('Review Introduction changes reminder preferences only after explicit save', async ({ page }) => {
+    const prototypeState = {
+      ...makeOnboardedState(),
+      reminderEnabled: false,
+      reminderTime: '07:30',
+      appearance: 'dark',
+      textSize: 'large',
+    }
+    await page.addInitScript(
+      ({ protoKey, protoState, partKey, partData }) => {
+        window.localStorage.setItem(protoKey, JSON.stringify(protoState))
+        window.localStorage.setItem(partKey, JSON.stringify(partData))
+      },
+      {
+        protoKey: PROTOTYPE_STORAGE_KEY,
+        protoState: prototypeState,
+        partKey: PARTICIPATION_STORAGE_KEY,
+        partData: makeSampleParticipationEnvelope({ cardViewed: true, hubAnnouncementAcked: true }),
+      },
+    )
+
+    await page.goto(enabledBaseUrl)
+    await page.getByRole('button', { name: 'More' }).click()
+    await page.getByRole('button', { name: 'Review Introduction', exact: true }).click()
+    await page.getByTestId('onboarding-continue-button').click()
+    await page.getByTestId('onboarding-continue-button').click()
+    await page.getByLabel('Suggested reminder time').fill('09:15')
+    await page.getByTestId('onboarding-save-reminder-replay-button').click()
+
+    await expect(page.getByRole('heading', { name: 'Make the space your own.' })).toBeVisible()
+    const persistedState = await page.evaluate(key => {
+      const raw = localStorage.getItem(key)
+      return raw ? JSON.parse(raw) : null
+    }, PROTOTYPE_STORAGE_KEY)
+    expect(persistedState).toMatchObject({
+      onboarded: true,
+      reminderEnabled: true,
+      reminderTime: '09:15',
+      appearance: 'dark',
+      textSize: 'large',
+    })
+  })
 })
