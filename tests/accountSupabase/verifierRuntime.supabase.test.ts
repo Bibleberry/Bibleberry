@@ -52,6 +52,15 @@ const LOGIN = `r13v2_verifier_${run}`
 const NO_GROUP_LOGIN = `r13v2_nogroup_${run}`
 const WIDE_LOGIN = `r13v2_wide_${run}`
 const BYPASS_LOGIN = `r13v2_bypass_${run}`
+// Review of PR #234: membership allowlist regressions (logins first, then their NOLOGIN groups).
+const EXTRA_LOGIN = `r13v2_extra_${run}`
+const BUILTIN_LOGIN_PREFIX = `r13v2_builtin_${run}_`
+const NESTED_LOGIN = `r13v2_nested_${run}`
+const WRAPPED_LOGIN = `r13v2_wrapped_${run}`
+const CUSTOM_GROUP = `r13v2_harmless_group_${run}`
+const WRAPPER_GROUP = `r13v2_wrapper_${run}`
+const VERIFIER_ONLY_WRAPPER = `r13v2_verifier_wrapper_${run}`
+const BUILTIN_GROUPS = ['pg_write_all_data', 'pg_read_all_data', 'pg_monitor', 'pg_signal_backend']
 const SANITY_TOKEN = `sanity-fixture-token-${randomBytes(8).toString('hex')}`
 const ROOT = process.cwd()
 const CLI = path.join(ROOT, 'scripts', 'accountVerification', 'run-award-verifier-once.ts')
@@ -234,8 +243,9 @@ suite('R13-VERIFY2 D: private verifier runtime on real local Supabase', { skip: 
 
   after(() => {
     if (!stack) return
-    for (const login of [LOGIN, NO_GROUP_LOGIN, WIDE_LOGIN, BYPASS_LOGIN]) {
-      psql(stack.adminDbUrl, `SELECT format('DROP ROLE IF EXISTS %I', :'l') \\gexec`, { l: login })
+    for (const role of [LOGIN, NO_GROUP_LOGIN, WIDE_LOGIN, BYPASS_LOGIN, EXTRA_LOGIN, NESTED_LOGIN, WRAPPED_LOGIN,
+      ...BUILTIN_GROUPS.map(g => BUILTIN_LOGIN_PREFIX + g), CUSTOM_GROUP, WRAPPER_GROUP, VERIFIER_ONLY_WRAPPER]) {
+      psql(stack.adminDbUrl, `SELECT format('DROP ROLE IF EXISTS %I', :'l') \\gexec`, { l: role })
     }
   })
 
@@ -295,6 +305,61 @@ suite('R13-VERIFY2 D: private verifier runtime on real local Supabase', { skip: 
       assert.equal(report.status, 'configurationError', user)
       assert.equal(report.failure?.code, 'AWARD_VERIFIER_DB_USER')
     }
+  })
+
+  test('D14 membership ALLOWLIST: any role beyond exactly the direct verifier grant fails closed, with no reads or writes', async () => {
+    const grant = (role: string, to: string) =>
+      psqlOk(stack.adminDbUrl, `SELECT format('GRANT %I TO %I', :'r', :'t') \\gexec`, { r: role, t: to })
+    const createGroup = (name: string) =>
+      psqlOk(stack.adminDbUrl, `SELECT format('CREATE ROLE %I NOLOGIN NOINHERIT', :'g') \\gexec`, { g: name })
+
+    // (a) verifier + an otherwise harmless, newly created custom NOLOGIN group (not on any denylist).
+    createGroup(CUSTOM_GROUP)
+    createLogin(EXTRA_LOGIN)
+    grant('account_award_verifier', EXTRA_LOGIN)
+    grant(CUSTOM_GROUP, EXTRA_LOGIN)
+    // (b) nested: the login's ONLY direct grant is a wrapper that carries the verifier AND the extra group.
+    createGroup(WRAPPER_GROUP)
+    grant('account_award_verifier', WRAPPER_GROUP)
+    grant(CUSTOM_GROUP, WRAPPER_GROUP)
+    createLogin(NESTED_LOGIN)
+    grant(WRAPPER_GROUP, NESTED_LOGIN)
+    // (c) nested verifier-only wrapper: still not the exact direct grant the runtime requires.
+    createGroup(VERIFIER_ONLY_WRAPPER)
+    grant('account_award_verifier', VERIFIER_ONLY_WRAPPER)
+    createLogin(WRAPPED_LOGIN)
+    grant(VERIFIER_ONLY_WRAPPER, WRAPPED_LOGIN)
+    const cases: string[] = [EXTRA_LOGIN, NESTED_LOGIN, WRAPPED_LOGIN]
+    // (d) built-in powerful groups, where the Supabase `postgres` identity can grant them.
+    const builtins: string[] = []
+    for (const group of BUILTIN_GROUPS) {
+      const login = BUILTIN_LOGIN_PREFIX + group
+      createLogin(login)
+      grant('account_award_verifier', login)
+      if (psql(stack.adminDbUrl, `SELECT format('GRANT %I TO %I', :'r', :'t') \\gexec`, { r: group, t: login }).ok) {
+        builtins.push(group)
+        cases.push(login)
+      }
+    }
+    assert.ok(builtins.length >= 1, 'at least one built-in privileged group could be provisioned for the regression')
+
+    const writesBefore = attemptSnapshot()
+    const earnedBefore = psqlOk(stack.adminDbUrl, 'SELECT count(*) FROM public.account_earned_awards;')
+    for (const user of cases) {
+      const report = await runVerifier(sanity({}), { AWARD_VERIFIER_DB_USER: user, AWARD_VERIFIER_DB_PASSWORD: passwords[user] })
+      assert.equal(report.status, 'authorizationFailure', `${user}: ${JSON.stringify(report)}`)
+      assert.equal(report.exitCode, 6)
+      assert.equal(report.failure?.code, 'LOGIN_PREFLIGHT', user)
+      assert.equal(report.retries.database, 0, 'no hot retry')
+      assert.equal(report.examined, 0, 'no claim was read')
+    }
+    assert.equal(attemptSnapshot(), writesBefore, 'no deferral written by a refused login')
+    assert.equal(psqlOk(stack.adminDbUrl, 'SELECT count(*) FROM public.account_earned_awards;'), earnedBefore, 'no award written')
+
+    // Positive control: a LOGIN with exactly the direct verifier membership still runs.
+    const ok = await runVerifier(sanity({}))
+    assert.equal(ok.status, 'completed', JSON.stringify(ok))
+    assert.equal(ok.failure, null)
   })
 
   let userA: TestUser

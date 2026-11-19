@@ -438,7 +438,7 @@ run_checks | grep -E '^ok - |SB2 remediation|ERROR' | sed 's/^/    /' || die "D1
 # ---------------------------------------------------------------------------
 # 6. Acceptance suites
 # ---------------------------------------------------------------------------
-SUITE_PASS_EXPECTED=42
+SUITE_PASS_EXPECTED=43
 step "Running suites A (GoTrue + PostgREST), B (verifier login + issuance), C (R13-SB2 D1-D4), D (R13-VERIFY2 verifier runtime)"
 set +e
 out="$(cd "$ROOT_DIR" && node --experimental-strip-types --test --test-concurrency=1 \

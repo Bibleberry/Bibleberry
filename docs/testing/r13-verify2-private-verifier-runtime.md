@@ -19,7 +19,7 @@
 | `scripts/accountVerification/run-award-verifier-once.ts` | **Node-only** | The CLI entrypoint: signals, a hard-exit grace period, exactly one JSON line on stdout, and a final redaction gate. |
 | `tests/accountVerification/{databaseIssuancePort,runtimeConfig,runOnce,runtimeBoundary,pgExecutorTls}.test.ts` | tests | Unit, boundary/bundle and TLS-handshake tests. |
 | `tests/accountSupabase/verifierRuntime.supabase.test.ts` (+ `lib/denyExternalFetch.mjs`) | tests | **Suite D** on a real local Supabase stack. |
-| `scripts/accountSupabase/run-local-supabase-acceptance.sh` | runner | Runs suite D after A/B/C; expects `# pass 42`; requires `node_modules/pg`. |
+| `scripts/accountSupabase/run-local-supabase-acceptance.sh` | runner | Runs suite D after A/B/C; expects `# pass 43`; requires `node_modules/pg`. |
 | `package.json` / `package-lock.json` | dependency | Adds `pg@8.23.1` and `@types/pg@8.23.1` (dev), both pinned exactly (see §11). |
 
 **Unchanged:** every accepted VERIFY1 core file (`types`, `verifier`, `eligibility`, `trustedMonthProvider`, `serverCivilDates`), all SQL migrations, `src/gateway/**`, every grant, `supabase/config.toml` and CI. `index.ts` only gained exports.
@@ -41,7 +41,7 @@ external scheduler (not configured) ──► node run-award-verifier-once.ts   
 - **No caller-supplied account ID is issuance authority.** Account and award IDs come only from `list_pending_award_claims` rows. The database re-checks the pending claim and the basis ownership at admission (`noPendingClaim`, `basisNotInAccountCompletions`).
 - **The database identity** is a dedicated LOGIN that is a member of `account_award_verifier` only. After connecting, the session runs `SET ROLE account_award_verifier`, so only the group's EXECUTE on the four functions is active. The preflight then refuses the run (exit 6) if any of the following holds:
   - the login is a superuser or BYPASSRLS;
-  - the login is a member of any owner or API role (`postgres`, `service_role`, `authenticated`, `anon`, `authenticator`, `supabase_*`, `account_award_issuer`, `account_reconciler`, …);
+  - the login's role memberships are anything other than **exactly one direct grant of `account_award_verifier`**. This is an allowlist, not a denylist: every role reachable through any chain of nested grants counts, so any additional custom group, built-in `pg_*` role, API or owner role, or wrapper role fails closed (added after review of PR #234; see §12);
   - the active role is not the verifier group;
   - the four port functions are not all executable;
   - session hardening did not apply.
@@ -150,9 +150,10 @@ Real here: GoTrue A/B/… identities, PostgREST reconciliation (claims are nomin
 | D10 | Hard cap: 2 × 2 claims per run. Paging over all pending claims (including other suites' leftovers) reaches every claim (no starvation). Deferred claims are never discarded | pass |
 | D11 | **Real CLI process**, with secrets from 0600 files and a minimal environment. Config refusal (exit 2, names `AWARD_VERIFIER_DB_USER` or `PGHOST`). A real run with denied network: private deferral, nothing granted, exit 3, **one** stdout line, **empty** stderr. Wrong password: exit 6. **SIGTERM** while blocked on a database lock: exit 4 within 5 s, and no verifier session survives | pass |
 | D12 | Issuance functions are `404` on `/rest/v1/rpc` for a user. `Content-Profile: account_issuance` is `406` even for service_role. Reader and anon direct INSERT into `account_earned_awards` is denied. **Finding F1** (§7) | pass (F1 recorded) |
+| D14 | **Membership allowlist** (review of PR #234). Each of these is refused with `LOGIN_PREFLIGHT`, exit 6, 0 retries, 0 claims examined, and the attempts and earned-award tables unchanged:<br>• verifier plus a newly created, otherwise harmless custom NOLOGIN group;<br>• nested: the only direct grant is a wrapper carrying the verifier and the custom group;<br>• nested verifier-only wrapper (not the exact direct grant);<br>• verifier plus each built-in group the Supabase `postgres` identity can grant: `pg_read_all_data`, `pg_monitor`, `pg_signal_backend` (`pg_write_all_data` is not grantable by `postgres` and was not exercised).<br>Positive control: the exact-membership LOGIN still completes. The extra roles are dropped afterwards | pass |
 | D13 | Every runtime output of the suite (in-process lines plus child stdout/stderr, ≥ 30 outputs) is scanned: no account ID, credential, award ID, Card URL, `trusted-` asset, internal label, DB URL, loopback host or login name | pass |
 
-**Full guarded runner result** (fresh stack, code at `7566f4a`): exit 0. 3 migrations applied with zero warnings, SB2 checks passed, `# pass 42`, `# fail 0`, `# skipped 0` (A 13 + B 8 + C 8 + D 13). `SB2_MUTATION_DEMOS=1` on its own fresh stack: exit 0, all 13 mutation demonstrations caught. A grep of both complete logs for JWT, API-key and DB-URL credential patterns found 0 matches.
+**Full guarded runner result** (fresh stack, code with the review fix): exit 0. 3 migrations applied with zero warnings, SB2 checks passed, `# pass 43`, `# fail 0`, `# skipped 0` (A 13 + B 8 + C 8 + D 14). The earlier run at `7566f4a` (before D14) gave 42/42. `SB2_MUTATION_DEMOS=1` on its own fresh stack: exit 0, all 13 mutation demonstrations caught. A grep of both complete logs for JWT, API-key and DB-URL credential patterns found 0 matches.
 
 ### 6.2 Plain unit / boundary tests (no database)
 
@@ -226,3 +227,11 @@ This branch shares **no file** with either PR. Neither assignment may change dep
 The adapter needs real extended-protocol parameter binding, explicit TLS options (CA, servername, `rejectUnauthorized`) and connect/query timeouts. A `psql` subprocess (the existing **test-only** port) offers only psql-variable quoting, puts credentials in a child environment, and adds a binary dependency to the runtime.
 
 `pg` is the de-facto Node driver and pure JS (the optional `pg-native` is not installed). It is pinned exactly; the published version is older than two weeks. It is imported **only** by `scripts/accountVerification/pgSqlExecutor.ts` and, in tests, by the TLS and suite-D tests. The boundary tests prove it never reaches the browser or Capacitor bundle. No other dependency changed.
+
+## 12. Review response (PR #234, review of `b9ea289`)
+
+| Finding | Resolution |
+| --- | --- |
+| **Required correction 1.** The preflight only denylisted known role names, so a LOGIN with `account_award_verifier` **plus** an arbitrary other group (custom, or built-in such as `pg_read_all_data`) passed. A holder of that credential could connect without the runtime's `SET ROLE` and use the extra membership. | `PREFLIGHT_SQL` is now an **allowlist**. The run fails closed unless all three hold:<br>• the login has exactly one direct membership, and it is `account_award_verifier`;<br>• no other role is reachable via `pg_has_role(session_user, r, 'MEMBER')` (covers nested grants; the verifier group itself must belong to nothing);<br>• the existing superuser, BYPASSRLS, active-role, port and session checks still pass.<br>No SQL migration or grant changed. Real-stack regression **D14** covers custom-group, nested-wrapper, verifier-only-wrapper and 3 built-in-group logins, with no claim reads or writes and no retry; a positive control and cleanup are included. **Mutation check:** with the allowlist disabled (old behaviour), D14 fails: the extra-group login runs as `completed`. Restored, D14 passes. |
+| **F1** (service_role direct award writes) | Unchanged: an owner decision (§7). D12 stays a tripwire. |
+| **CI integration** | Unchanged: an owner-controlled gate (§9.7). No workflow was edited. |

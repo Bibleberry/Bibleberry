@@ -8,8 +8,9 @@
  *   dedicated LOGIN, then `SET ROLE account_award_verifier`, so only the group's privileges
  *   (EXECUTE on the four account_issuance functions) are active for every statement.
  * - Hardens the session: empty search_path, statement/lock/idle timeouts, READ COMMITTED.
- * - Preflight refuses a superuser / BYPASSRLS login, a login that belongs to an owner or API
- *   role, or a database where the accepted issuance port is missing or not executable.
+ * - Preflight refuses a superuser / BYPASSRLS login, a login with ANY role membership other than
+ *   exactly one direct grant of `account_award_verifier` (allowlist; nested grants included), or a
+ *   database where the accepted issuance port is missing or not executable.
  * - TLS: `verify-full` verifies chain + hostname (custom CA or platform trust store);
  *   `disable` is accepted only for loopback (validated earlier by runtimeConfig).
  * - Every statement is parameterized; errors are reduced to a category + SQLSTATE/network code.
@@ -25,8 +26,6 @@ import { VerifierRuntimeError, classifyDatabaseError } from '../../src/accountVe
 export const VERIFIER_GROUP_ROLE = 'account_award_verifier'
 export const VERIFIER_APPLICATION_NAME = 'bibleberry-award-verifier'
 
-const PRIVILEGED_MEMBERSHIPS = [...FORBIDDEN_LOGINS].filter(r => r !== VERIFIER_GROUP_ROLE)
-
 const ISSUANCE_SIGNATURES = [
   'account_issuance.list_pending_award_claims(integer)',
   'account_issuance.get_claim_verification_context(uuid,text)',
@@ -41,9 +40,21 @@ SELECT session_user::text AS login,
        (SELECT r.rolbypassrls FROM pg_catalog.pg_roles r WHERE r.rolname = session_user) AS login_bypassrls,
        (SELECT r.rolsuper OR r.rolbypassrls FROM pg_catalog.pg_roles r WHERE r.rolname = current_user) AS active_privileged,
        pg_catalog.pg_has_role(session_user, $1::text, 'MEMBER') AS in_verifier_group,
+       -- ALLOWLIST, not a denylist: the login may belong (directly or through any chain of
+       -- nested grants) to exactly ONE role, the verifier group. Any other membership, whether a
+       -- custom group, a built-in pg_* role, an API role or a wrapper role, fails closed.
        (SELECT count(*)::int FROM pg_catalog.pg_roles r
-         WHERE r.rolname = ANY ($2::text[]) AND pg_catalog.pg_has_role(session_user, r.oid, 'MEMBER')) AS privileged_memberships,
-       (SELECT count(*)::int FROM unnest($3::text[]) AS s(sig)
+         WHERE r.rolname <> session_user AND r.rolname <> $1::text
+           AND pg_catalog.pg_has_role(session_user, r.oid, 'MEMBER')) AS other_memberships,
+       (SELECT count(*)::int FROM pg_catalog.pg_auth_members m
+          JOIN pg_catalog.pg_roles g ON g.oid = m.roleid
+          JOIN pg_catalog.pg_roles u ON u.oid = m.member
+         WHERE u.rolname = session_user) AS direct_memberships,
+       (SELECT count(*)::int FROM pg_catalog.pg_auth_members m
+          JOIN pg_catalog.pg_roles g ON g.oid = m.roleid
+          JOIN pg_catalog.pg_roles u ON u.oid = m.member
+         WHERE u.rolname = session_user AND g.rolname = $1::text) AS direct_verifier_memberships,
+       (SELECT count(*)::int FROM unnest($2::text[]) AS s(sig)
          WHERE pg_catalog.to_regprocedure(s.sig) IS NOT NULL
            AND pg_catalog.has_function_privilege(pg_catalog.to_regprocedure(s.sig), 'EXECUTE')) AS executable_port_functions,
        pg_catalog.current_setting('transaction_isolation') AS isolation,
@@ -118,7 +129,7 @@ export function createPgVerifierExecutor(
                 pg_catalog.set_config('default_transaction_isolation', 'read committed', false)`,
         [`${db.statementTimeoutMs}ms`],
       )
-      const result = await candidate.query(PREFLIGHT_SQL, [VERIFIER_GROUP_ROLE, PRIVILEGED_MEMBERSHIPS, ISSUANCE_SIGNATURES])
+      const result = await candidate.query(PREFLIGHT_SQL, [VERIFIER_GROUP_ROLE, ISSUANCE_SIGNATURES])
       const row = result.rows[0] as Record<string, unknown> | undefined
       if (
         !row ||
@@ -129,7 +140,9 @@ export function createPgVerifierExecutor(
         row.login_bypassrls !== false ||
         row.active_privileged !== false ||
         row.in_verifier_group !== true ||
-        row.privileged_memberships !== 0
+        row.other_memberships !== 0 ||
+        row.direct_memberships !== 1 ||
+        row.direct_verifier_memberships !== 1
       ) {
         throw new VerifierRuntimeError('authorization', 'database login is not a least-privilege verifier login', 'LOGIN_PREFLIGHT')
       }
