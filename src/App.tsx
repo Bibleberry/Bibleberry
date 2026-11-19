@@ -19,6 +19,8 @@ import {
 } from './cms/reader/challengeOrigin'
 import { defaultGuestParticipationStore } from './participation/defaultGuestStore'
 import { useReaderParticipation } from './participation/useReaderParticipation'
+import { SaveScriptureControl } from './components/scriptureCapture/SaveScriptureControl'
+import { getTeachingScriptureCapture } from './appIntegration/teachingScripture'
 import {
   defaultAnnouncementPreferencesStore,
   useAnnouncementPreferences,
@@ -402,6 +404,8 @@ function TeachingView({ teaching, onBack, onShare, onMedia, previous, next, onNa
   onNavigateTeaching?: (entry: ChallengeEntry) => void
   showMedia?: boolean
 }) {
+  const scriptureCapture = getTeachingScriptureCapture(teaching)
+
   return (
     <article className="teaching" id="daily-teaching">
       {onBack && <button className="back-link teaching__back" onClick={onBack}><ArrowLeft size={17} /> Back to Archive</button>}
@@ -422,7 +426,15 @@ function TeachingView({ teaching, onBack, onShare, onMedia, previous, next, onNa
             <span className="section-label" id={`scripture-${teaching.id}`}>Today’s Passage</span>
             <blockquote className="scripture-block">
               <p>{teaching.scriptureText}</p>
-              <cite>{teaching.scripture}</cite>
+              <div className="scripture-block__citation-actions">
+                <cite>{teaching.scripture}</cite>
+                {scriptureCapture && (
+                  <SaveScriptureControl
+                    reference={scriptureCapture.reference}
+                    translation={scriptureCapture.translation}
+                  />
+                )}
+              </div>
             </blockquote>
           </section>
           <section className="teaching-exposition" aria-labelledby={`teaching-${teaching.id}`}>
