@@ -4,19 +4,23 @@ set -euo pipefail
 # R13-SB1 (Issue #210): real disposable LOCAL Supabase security acceptance runner.
 #
 # What it does, in order:
-#   1. Hard preflight: refuses linked/remote projects, remote-looking env, missing tools.
-#   2. Starts a FRESH disposable stack from supabase/config.toml on a Docker network whose
-#      published ports bind to 127.0.0.1 only, then verifies every published port is loopback.
-#   3. Applies the versioned migrations with the Supabase CLI's own runner
+#   1. Hard preflight: refuses linked/remote projects, redirecting env, missing tools.
+#   2. Resource ownership: FAILS CLOSED if any container, volume or network of this project
+#      already exists. It only stops/removes resources it created in this run (run-unique owner
+#      label), or, with the documented opt-in SB1_DISPOSE_PREVIOUS_RUNNER_STACK=1, a previous
+#      run's stack whose ownership is positively proven (see dispose_previous_runner_stack).
+#   3. Starts a fresh stack on a Docker network that forces 127.0.0.1 port binding and verifies
+#      every published port is loopback.
+#   4. Applies ONLY the accepted, unchanged migrations with the Supabase CLI's own runner
 #      (`supabase migration up --local`, identity `postgres`), WITHOUT the synthetic
-#      tests/accountDatabase/00_local_supabase_auth_bootstrap.sql.
-#   4. Asserts the two reproduced Supabase incompatibilities of accepted migrations
-#      (D3: VERIFY1 placeholder GUC; D4: TX1 silent `auth` grant no-op) are still present.
-#   5. Applies the LOCAL-ONLY test unblocks for D3/D4 as the container's bootstrap superuser
-#      (never in a migration; impossible on hosted Supabase), finishes the migrations, and
-#      fails on any unexpected migration WARNING in the database log.
-#   6. Runs the A (GoTrue + PostgREST) and B (verifier login + issuance) suites.
-#   7. Tears the stack down (set SB1_KEEP_STACK=1 to keep it for inspection).
+#      tests/accountDatabase/00_local_supabase_auth_bootstrap.sql, and reproduces D1 → D4 one
+#      at a time. After every expected failure it proves the failed migration stranded NO role,
+#      membership, schema ACL or default privilege (privilege snapshot comparison).
+#   5. Uses LOCAL-ONLY unblocks run as the container's bootstrap superuser (never a migration;
+#      impossible on hosted Supabase). Temporary D2 schema CREATE grants are revoked again and
+#      verified gone before any test runs.
+#   6. Fails on any unexpected migration WARNING; runs suites A and B (exactly 21 passes).
+#   7. Tears down only what this run created (SB1_KEEP_STACK=1 keeps it for inspection).
 #
 # Never: supabase login/link, db push, --linked, --remote, --db-url, hosted projects, real users.
 # Output is redacted; no key, JWT or password is printed or written to disk by this script.
@@ -24,18 +28,27 @@ set -euo pipefail
 # Usage:  SUPABASE_CLI=/path/to/supabase ./scripts/accountSupabase/run-local-supabase-acceptance.sh
 #         (defaults to `supabase` on PATH; tested with Supabase CLI 3.2.0)
 # Env:    SB1_IMAGE_REGISTRY   optional image registry override (e.g. ghcr.io)
-#         SB1_STOP_AFTER_DEFECTS=1  stop after step 4 (no unblocks, no suites)
+#         SB1_STOP_AFTER_DEFECTS=1  stop after reproducing D1-D4 (no D3/D4 unblock, no suites)
 #         SB1_KEEP_STACK=1     leave the stack running afterwards
+#         SB1_DISPOSE_PREVIOUS_RUNNER_STACK=1  dispose a stack left by an earlier run of THIS
+#                              runner from THIS checkout (e.g. after SB1_KEEP_STACK=1), only if
+#                              ownership is proven; anything else still fails closed.
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SUPABASE_CLI="${SUPABASE_CLI:-supabase}"
 NETWORK="bibleberry_sb1_loopback"
+OWNER_LABEL="bibleberry.sb1.owner"
+RUN_ID="run-$(date -u +%Y%m%dT%H%M%SZ)-$$-${RANDOM}"
 PROJECT_ID="$(sed -nE 's/^project_id = "([^"]+)"/\1/p' "${ROOT_DIR}/supabase/config.toml")"
+PROJECT_LABEL="com.supabase.cli.project=${PROJECT_ID}"
 DB_CONTAINER="supabase_db_${PROJECT_ID}"
 EXPECTED_WARNINGS=(
   'no privileges were granted for "auth"'   # D4: TX1 GRANT USAGE ON SCHEMA auth (silent no-op)
   'no privileges were granted for "uid"'    # D4: TX1 GRANT EXECUTE ON auth.uid() (harmless: PUBLIC has it)
 )
+TX1="20261118000001"
+VERIFY1="20261118000002"
+R13_3="20261116000001"
 
 redact() {
   sed -E \
@@ -51,7 +64,7 @@ step() { echo; echo "== $*"; }
 sb() { (cd "$ROOT_DIR" && "$SUPABASE_CLI" "$@"); }
 
 # ---------------------------------------------------------------------------
-# 1. Hard preflight
+# 1. Hard preflight (no Docker or database access before these pass)
 # ---------------------------------------------------------------------------
 step "Preflight"
 [[ "$PROJECT_ID" == "bibleberry-sb1-local" ]] || die "unexpected project_id '$PROJECT_ID' in supabase/config.toml"
@@ -74,24 +87,72 @@ if [[ -n "${SB1_IMAGE_REGISTRY:-}" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# 2. Fresh disposable stack, loopback-only
+# 2. Resource ownership: never stop or remove anything this runner cannot prove it owns
+# ---------------------------------------------------------------------------
+step "Checking for pre-existing resources of project ${PROJECT_ID}"
+existing_containers() { docker ps -a --filter "label=${PROJECT_LABEL}" --format '{{.Names}}'; }
+existing_volumes() { docker volume ls --filter "label=${PROJECT_LABEL}" --format '{{.Name}}'; }
+network_exists() { docker network inspect "$NETWORK" >/dev/null 2>&1; }
+network_label() { docker network inspect "$NETWORK" --format "{{index .Labels \"$1\"}}"; }
+
+# A stack is only disposable here if it is positively the product of an earlier run of THIS
+# runner from THIS checkout: the network carries the runner's labels and loopback binding, and
+# every container of the project was started by the CLI from this working directory and is
+# attached to that network. Volumes are only removed together with such a proven stack.
+dispose_previous_runner_stack() {
+  network_exists || die "cannot prove ownership: no runner network $NETWORK"
+  [[ "$(network_label bibleberry.sb1)" == "local" && -n "$(network_label "$OWNER_LABEL")" ]] \
+    || die "cannot prove ownership: network $NETWORK lacks this runner's labels"
+  [[ "$(docker network inspect "$NETWORK" --format '{{index .Options "com.docker.network.bridge.host_binding_ipv4"}}')" == "127.0.0.1" ]] \
+    || die "cannot prove ownership: network $NETWORK does not force loopback binding"
+  local containers name workdir networks
+  containers="$(existing_containers)"
+  [[ -n "$containers" ]] || die "cannot prove ownership: volumes/network exist without the runner's containers"
+  while IFS= read -r name; do
+    workdir="$(docker inspect "$name" --format '{{index .Config.Labels "com.supabase.cli.workdir"}}')"
+    networks="$(docker inspect "$name" --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}')"
+    [[ "$workdir" == "$ROOT_DIR" ]] || die "cannot prove ownership: container $name belongs to workdir '$workdir'"
+    [[ " $networks " == *" $NETWORK "* ]] || die "cannot prove ownership: container $name is not on $NETWORK"
+  done <<<"$containers"
+  echo "Ownership proven (runner network $(network_label "$OWNER_LABEL"), workdir $ROOT_DIR): disposing previous runner stack"
+  sb stop --no-backup 2>&1 | redact | tail -1
+  docker network rm "$NETWORK" >/dev/null
+}
+
+pre_containers="$(existing_containers)"; pre_volumes="$(existing_volumes)"
+if [[ -n "$pre_containers" || -n "$pre_volumes" ]] || network_exists; then
+  echo "Found existing resources:" >&2
+  [[ -z "$pre_containers" ]] || sed 's/^/  container: /' <<<"$pre_containers" >&2
+  [[ -z "$pre_volumes" ]] || sed 's/^/  volume:    /' <<<"$pre_volumes" >&2
+  ! network_exists || echo "  network:   $NETWORK" >&2
+  if [[ "${SB1_DISPOSE_PREVIOUS_RUNNER_STACK:-0}" == "1" ]]; then
+    dispose_previous_runner_stack
+    [[ -z "$(existing_containers)$(existing_volumes)" ]] && ! network_exists \
+      || die "previous runner stack was not fully removed"
+  else
+    die "refusing to touch pre-existing resources of project ${PROJECT_ID}. If they are a stack left by this runner (SB1_KEEP_STACK=1), re-run with SB1_DISPOSE_PREVIOUS_RUNNER_STACK=1; otherwise remove them yourself after checking what they are"
+  fi
+fi
+echo "No pre-existing resources; this run owns everything it creates (owner label ${RUN_ID})"
+
+# ---------------------------------------------------------------------------
+# 3. Fresh disposable stack, loopback-only
 # ---------------------------------------------------------------------------
 step "Starting a fresh disposable local stack (${PROJECT_ID})"
-sb stop --no-backup >/dev/null 2>&1 || true
-if ! docker network inspect "$NETWORK" >/dev/null 2>&1; then
-  docker network create --label bibleberry.sb1=local \
-    -o com.docker.network.bridge.host_binding_ipv4=127.0.0.1 "$NETWORK" >/dev/null
-fi
-binding="$(docker network inspect "$NETWORK" --format '{{index .Options "com.docker.network.bridge.host_binding_ipv4"}}')"
-[[ "$binding" == "127.0.0.1" ]] || die "network $NETWORK does not force loopback port binding"
+docker network create --label bibleberry.sb1=local --label "${OWNER_LABEL}=${RUN_ID}" \
+  -o com.docker.network.bridge.host_binding_ipv4=127.0.0.1 "$NETWORK" >/dev/null
+CREATED_NETWORK=1
 
 cleanup() {
-  if [[ "${SB1_KEEP_STACK:-0}" != "1" ]]; then
-    step "Teardown"
-    sb stop --no-backup 2>&1 | redact | tail -1 || true
+  if [[ "${SB1_KEEP_STACK:-0}" == "1" ]]; then
+    echo "SB1_KEEP_STACK=1: stack left running. Dispose later with SB1_DISPOSE_PREVIOUS_RUNNER_STACK=1 or 'supabase stop --no-backup' + 'docker network rm ${NETWORK}'"
+    return
+  fi
+  step "Teardown (only resources created by ${RUN_ID})"
+  # Safe: step 2 proved no resource of this project existed before this run.
+  sb stop --no-backup 2>&1 | redact | tail -1 || true
+  if [[ "${CREATED_NETWORK:-0}" == "1" ]] && network_exists && [[ "$(network_label "$OWNER_LABEL")" == "$RUN_ID" ]]; then
     docker network rm "$NETWORK" >/dev/null 2>&1 || true
-  else
-    echo "SB1_KEEP_STACK=1: stack left running (stop with: supabase stop --no-backup)"
   fi
 }
 trap cleanup EXIT
@@ -100,7 +161,7 @@ trap cleanup EXIT
 sb start --network-id "$NETWORK" 2>&1 | grep -vE '^\{|Pulling|Pull complete|Download|Digest|Status:|Waiting|Extracting|Verifying' | redact || true
 
 # Every published port of this project must be bound to loopback.
-published="$(docker ps --filter "label=com.supabase.cli.project=${PROJECT_ID}" --format '{{.Ports}}' | tr ',' '\n' | grep -- '->' || true)"
+published="$(docker ps --filter "label=${PROJECT_LABEL}" --format '{{.Ports}}' | tr ',' '\n' | grep -- '->' || true)"
 [[ -n "$published" ]] || die "no published ports found; did the stack start?"
 if grep -vqE '^\s*127\.0\.0\.1:' <<<"$published"; then
   echo "$published" >&2
@@ -129,25 +190,111 @@ superuser_sql() { docker exec -i "$DB_CONTAINER" psql -U supabase_admin -d postg
 echo "Runner identity: postgres (NOT superuser) | $(admin_sql -c 'select version()' | cut -d, -f1)"
 
 # ---------------------------------------------------------------------------
-# 3-4. Real migration runner + reproduced defects
+# 4. Accepted migrations through the real CLI runner; staged D1 → D4 reproduction
 # ---------------------------------------------------------------------------
-step "Applying versioned migrations with the Supabase CLI runner (no synthetic auth bootstrap)"
-set +e
-first_up="$(sb migration up --local 2>&1)"
-first_status=$?
-set -e
-echo "$first_up" | redact | grep -E '^Applying|MigrationApplyError' | sed -E 's/("message":"[^\\]*).*/\1 …"}}/'
+applied_set() { admin_sql -c "select coalesce(string_agg(version, ' ' order by version), '') from supabase_migrations.schema_migrations"; }
 
-step "D3 reproduction: accepted R13-VERIFY1 cannot be applied by the non-superuser runner"
-[[ $first_status -ne 0 ]] || die "D3 no longer reproduces (VERIFY1 applied): re-evaluate the unblock and docs"
-grep -q 'permission denied to set parameter \\"bibleberry.award_issuance_account\\"' <<<"$first_up" \
-  || die "migration failed for an unexpected reason"
-applied="$(admin_sql -c "select string_agg(version, ' ' order by version) from supabase_migrations.schema_migrations")"
-[[ "$applied" == "20261116000001 20261118000000 20261118000001" ]] || die "unexpected applied set: $applied"
-[[ -z "$(admin_sql -c "select to_regnamespace('account_issuance')")" ]] || die "VERIFY1 left partial state"
-echo "ok - D3 reproduced: CREATE FUNCTION ... SET bibleberry.award_issuance_account denied (42501); VERIFY1 rolled back cleanly"
+# Everything a failed migration could strand: account roles and memberships, every schema ACL,
+# every default privilege. Compared before/after each expected failure.
+privilege_snapshot() {
+  admin_sql -c "
+    SELECT concat_ws(E'\n',
+      'roles: '   || coalesce((SELECT string_agg(rolname || ':' || rolcanlogin || rolsuper || rolinherit || rolbypassrls, ',' ORDER BY rolname)
+                                 FROM pg_roles WHERE rolname LIKE 'account\_%'), ''),
+      'members: ' || coalesce((SELECT string_agg(r.rolname || '>' || m.rolname || ':' || a.inherit_option || a.set_option || a.admin_option, ',' ORDER BY 1)
+                                 FROM pg_auth_members a JOIN pg_roles r ON r.oid = a.roleid JOIN pg_roles m ON m.oid = a.member
+                                WHERE r.rolname LIKE 'account\_%' OR m.rolname LIKE 'account\_%'), ''),
+      -- supabase_migrations is the CLI's own history schema (created on its first run, empty ACL).
+      'schemas: ' || coalesce((SELECT string_agg(nspname || '=' || coalesce(nspacl::text, ''), ';' ORDER BY nspname)
+                                 FROM pg_namespace WHERE nspname <> 'supabase_migrations'), ''),
+      'defacl: '  || coalesce((SELECT string_agg(defaclrole::regrole::text || '/' || defaclnamespace::text || '/' || defaclobjtype::text || '/' || defaclacl::text, ';' ORDER BY 1)
+                                 FROM pg_default_acl), ''))"
+}
 
-step "D4 reproduction: accepted R13-TX1 'GRANT USAGE ON SCHEMA auth' was a silent no-op"
+# No account role may hold CREATE on any schema, and no default privilege may name one.
+assert_no_owner_create() {
+  local leaks
+  leaks="$(admin_sql -c "
+    SELECT concat_ws(' ',
+      (SELECT string_agg(r.rolname || ' CREATE on ' || n.nspname, ', ') FROM pg_namespace n CROSS JOIN pg_roles r
+        WHERE r.rolname LIKE 'account\_%' AND has_schema_privilege(r.oid, n.oid, 'CREATE')),
+      (SELECT string_agg('default privilege ' || d.defaclobjtype::text || ' for ' || a.grantee::regrole::text, ', ')
+         FROM pg_default_acl d, aclexplode(d.defaclacl) a
+        WHERE a.grantee IN (SELECT oid FROM pg_roles WHERE rolname LIKE 'account\_%')))")"
+  [[ -z "${leaks// /}" ]] || die "$1: owner-role privilege leak: $leaks"
+}
+
+# Runs the CLI migration runner, which must fail with the given error, leave exactly the given
+# applied set, and add nothing to the privilege snapshot taken just before. Scope "full" compares
+# the whole snapshot; "roles" compares only roles + memberships (used when an earlier migration
+# legitimately succeeds in the same CLI invocation; the caller then checks residue explicitly).
+expect_migration_failure() {
+  local label="$1" pattern="$2" expected_applied="$3" scope="${4:-full}" before after out status
+  before="$(privilege_snapshot)"
+  set +e
+  out="$(sb migration up --local 2>&1)"
+  status=$?
+  set -e
+  echo "$out" | redact | grep -E '^Applying|MigrationApplyError' | sed -E 's/("message":"[^\\]*).*/\1 …"}}/'
+  [[ $status -ne 0 ]] || die "$label no longer reproduces (migration succeeded): re-evaluate the unblocks and docs"
+  grep -qF "$pattern" <<<"$out" || die "$label: migration failed for an unexpected reason"
+  [[ "$(applied_set)" == "$expected_applied" ]] || die "$label: unexpected applied set '$(applied_set)'"
+  after="$(privilege_snapshot)"
+  if [[ "$scope" == "roles" ]]; then
+    before="$(head -2 <<<"$before")"; after="$(head -2 <<<"$after")"
+  fi
+  if [[ "$before" != "$after" ]]; then
+    diff <(echo "$before") <(echo "$after") >&2 || true
+    die "$label: the failed migration stranded role/membership/ACL/default-privilege changes"
+  fi
+  local scope_text="roles/memberships"
+  [[ "$scope" == "full" ]] && scope_text="roles/memberships, schema ACLs or default privileges"
+  echo "ok - $label reproduced; failed migration rolled back with NO stranded ${scope_text} (snapshot identical)"
+}
+
+step "Baseline (fresh stack, before any account migration)"
+assert_no_owner_create "baseline"
+[[ -z "$(admin_sql -c "select string_agg(rolname, ',') from pg_roles where rolname like 'account\_%'")" ]] \
+  || die "account roles already exist on a fresh stack"
+echo "ok - no account roles, no owner-role CREATE or default privilege"
+
+step "D1: accepted R13-TX1 cannot assign function ownership (CREATEROLE ADMIN-only membership)"
+expect_migration_failure "D1" 'must be able to SET ROLE \"account_reconciler\"' "$R13_3"
+echo "  [unblock D1] superuser pre-creates the 2 owner roles (identical attributes) and grants them to postgres WITH INHERIT TRUE, SET TRUE"
+superuser_sql <<'SQL'
+CREATE ROLE account_reconciler NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
+CREATE ROLE account_award_issuer NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
+GRANT account_reconciler TO postgres WITH INHERIT TRUE, SET TRUE;
+GRANT account_award_issuer TO postgres WITH INHERIT TRUE, SET TRUE;
+SQL
+
+step "D2: the new owner lacks CREATE on the function's schema"
+expect_migration_failure "D2" 'permission denied for schema public' "$R13_3"
+echo "  [unblock D2, TEMPORARY] superuser grants CREATE on public to account_reconciler and a default CREATE-on-schemas for account_award_issuer (revoked and verified before any test)"
+superuser_sql <<'SQL'
+GRANT CREATE ON SCHEMA public TO account_reconciler;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres GRANT CREATE ON SCHEMAS TO account_award_issuer;
+SQL
+
+step "D3: accepted R13-VERIFY1 placeholder GUC cannot be attached by the non-superuser runner"
+expect_migration_failure "D3" 'permission denied to set parameter \"bibleberry.award_issuance_account\"' "$R13_3 $TX1" roles
+# R13-TX1 applied in the same CLI run, so check every R13-VERIFY1 effect explicitly instead.
+residue="$(admin_sql -c "
+  SELECT concat_ws(' ',
+    CASE WHEN to_regnamespace('account_issuance') IS NOT NULL THEN 'schema account_issuance' END,
+    CASE WHEN to_regclass('public.account_award_admission_attestations') IS NOT NULL THEN 'attestations table' END,
+    CASE WHEN to_regclass('public.account_award_verification_attempts') IS NOT NULL THEN 'attempts table' END,
+    CASE WHEN EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'account_award_verifier') THEN 'role account_award_verifier' END,
+    CASE WHEN EXISTS (SELECT 1 FROM information_schema.role_table_grants WHERE grantee = 'account_award_issuer') THEN 'issuer table grants' END,
+    CASE WHEN EXISTS (SELECT 1 FROM pg_policies WHERE policyname LIKE '%issuer%') THEN 'issuer policies' END,
+    CASE WHEN EXISTS (SELECT 1 FROM pg_namespace n, aclexplode(n.nspacl) a
+                       WHERE a.grantee = 'account_award_issuer'::regrole AND a.privilege_type = 'USAGE') THEN 'issuer schema USAGE' END,
+    CASE WHEN EXISTS (SELECT 1 FROM pg_proc p, aclexplode(p.proacl) a
+                       WHERE a.grantee = 'account_award_issuer'::regrole) THEN 'issuer EXECUTE grants' END)")"
+[[ -z "${residue// /}" ]] || die "D3: failed R13-VERIFY1 left residue: $residue"
+echo "ok - D3: no R13-VERIFY1 schema, table, role, policy or grant survived the failure"
+
+step "D4: accepted R13-TX1 'GRANT USAGE ON SCHEMA auth' was a silent no-op"
 [[ "$(admin_sql -c "select has_schema_privilege('account_reconciler', 'auth', 'USAGE')")" == "f" ]] \
   || die "D4 no longer reproduces: account_reconciler has auth USAGE"
 # Capture first: `grep -q` closing the pipe early would SIGPIPE `docker logs` under pipefail.
@@ -157,24 +304,30 @@ grep -qF 'postgres@postgres WARNING:  no privileges were granted for "auth"' <<<
 echo "ok - D4 reproduced: account_reconciler lacks USAGE on schema auth; runner logged only a WARNING"
 
 if [[ "${SB1_STOP_AFTER_DEFECTS:-0}" == "1" ]]; then
-  echo "SB1_STOP_AFTER_DEFECTS=1: stopping before local unblocks. Real-stack acceptance NOT run."
+  echo "SB1_STOP_AFTER_DEFECTS=1: stopping after D1-D4 reproduction. Real-stack acceptance NOT run."
   exit 0
 fi
 
 # ---------------------------------------------------------------------------
-# 5. LOCAL-ONLY unblocks (test harness, never a migration, impossible on hosted Supabase)
+# 5. Remaining LOCAL-ONLY unblocks, then remove every temporary privilege
 # ---------------------------------------------------------------------------
-step "Applying LOCAL-ONLY test unblocks as the container bootstrap superuser"
+step "Applying LOCAL-ONLY D3/D4 unblocks as the container bootstrap superuser"
 superuser_sql -c 'GRANT SET ON PARAMETER bibleberry.award_issuance_account TO postgres'
 echo "  [unblock D3] GRANT SET ON PARAMETER bibleberry.award_issuance_account TO postgres"
 superuser_sql -c 'GRANT USAGE ON SCHEMA auth TO account_reconciler'
 echo "  [unblock D4] GRANT USAGE ON SCHEMA auth TO account_reconciler   (exactly the privilege R13-TX1 intended)"
 
 sb migration up --local 2>&1 | redact | grep -E '^Applying|Error' || true
-applied="$(admin_sql -c "select string_agg(version, ' ' order by version) from supabase_migrations.schema_migrations")"
-[[ "$applied" == "20261116000001 20261118000000 20261118000001 20261118000002 20261118000003" ]] \
-  || die "not all migrations applied: $applied"
-echo "ok - all 5 migrations applied by the CLI runner: $applied"
+[[ "$(applied_set)" == "$R13_3 $TX1 $VERIFY1" ]] || die "not all accepted migrations applied: $(applied_set)"
+echo "ok - the 3 accepted, unchanged migrations applied by the CLI runner: $(applied_set)"
+
+step "Revoking the temporary D2 unblock and verifying no owner-role CREATE remains"
+superuser_sql <<'SQL'
+REVOKE CREATE ON SCHEMA public, account_private, account_issuance FROM account_reconciler, account_award_issuer;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres REVOKE CREATE ON SCHEMAS FROM account_award_issuer;
+SQL
+assert_no_owner_create "after D2 revoke"
+echo "ok - no account role holds CREATE on any schema; no default privilege names one"
 
 step "Migration WARNING scan (database log, runner session only)"
 db_log="$(docker logs "$DB_CONTAINER" 2>&1)"
@@ -204,4 +357,4 @@ if [[ $suite_status -ne 0 ]] || ! grep -qx '# pass 21' <<<"$out" \
 fi
 
 echo
-echo "R13-SB1 local Supabase acceptance passed (with the documented LOCAL-ONLY unblocks for D3/D4)."
+echo "R13-SB1 local Supabase acceptance passed with the documented LOCAL-ONLY unblocks for D1-D4 (NOT deployability proof)."
