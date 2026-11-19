@@ -356,7 +356,7 @@ test.describe('Issue #158: Historical Library App-Shell Integration', () => {
     await expect(page.getByText('Quiet Trust')).toBeVisible()
 
     // Open historical month 2026-10
-    await page.getByRole('button', { name: /October 2026/i }).click()
+    await page.getByRole('button', { name: /Open October 2026/i }).click()
     await expect(page).toHaveURL(/#\/month\/2026-10$/)
 
     // First-time historical month introduction
@@ -409,7 +409,7 @@ test.describe('Issue #158: Historical Library App-Shell Integration', () => {
     await expect(page.getByRole('heading', { level: 1, name: 'Historical Library' })).toBeVisible()
 
     // Navigate to Month Screen, then test browser Back and Forward
-    await page.getByRole('button', { name: /October 2026/i }).click()
+    await page.getByRole('button', { name: /Open October 2026/i }).click()
     await expect(page).toHaveURL(/#\/month\/2026-10$/)
     await page.getByRole('button', { name: 'Continue' }).click()
     await page.getByRole('button', { name: 'Begin the Month' }).click()
@@ -476,7 +476,7 @@ test.describe('Issue #158: Historical Library App-Shell Integration', () => {
     // 2. Library enabled, Month Screen disabled: month click & #/month/2026-10 fail closed
     await page.goto(`${libraryOnlyBaseUrl}#/library`, { waitUntil: 'domcontentloaded' })
     await expect(page.getByRole('heading', { level: 1, name: 'Historical Library' })).toBeVisible()
-    await page.getByRole('button', { name: /October 2026/i }).click()
+    await page.getByRole('button', { name: /Open October 2026/i }).click()
     await expect(page).toHaveURL(/#\/library$/)
     await expect(page.getByRole('heading', { level: 1, name: 'Walking in Wisdom' })).toHaveCount(0)
 
@@ -519,7 +519,7 @@ test.describe('Issue #158: Historical Library App-Shell Integration', () => {
     )
     expect(libraryOverflow).toBe(true)
 
-    const octCard = page.getByRole('button', { name: /October 2026/i })
+    const octCard = page.getByRole('button', { name: /Open October 2026/i })
     await octCard.focus()
     await page.keyboard.press('Enter')
     await expect(page).toHaveURL(/#\/month\/2026-10$/)

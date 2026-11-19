@@ -1,18 +1,20 @@
-import { Library } from 'lucide-react'
-import { LIBRARY_ROUTE_HASH } from './appRoutes.ts'
+import { Bookmark, Library } from 'lucide-react'
+import { LIBRARY_ROUTE_HASH, SHELF_ROUTE_HASH } from './appRoutes.ts'
 import './provisionalCollections.css'
 
 export interface ProvisionalLibraryEntryBarProps {
   readonly onOpenLibrary: () => void
+  readonly onOpenShelf?: () => void
 }
 
 /**
- * Temporary, feature-gated entry point from Archive to the Historical Library (Issue #158 / R08-3).
+ * Feature-gated entry point from Archive to the Historical Library and Shelf (Phase 05 / R08).
  *
- * Explicitly provisional: does not alter global navigation or pre-empt final IA decisions.
+ * Uses approved reader-experience terminology (Shelf and Library) without altering global tabs.
  */
 export function ProvisionalLibraryEntryBar({
   onOpenLibrary,
+  onOpenShelf,
 }: ProvisionalLibraryEntryBarProps) {
   return (
     <aside
@@ -20,12 +22,25 @@ export function ProvisionalLibraryEntryBar({
       aria-label="Historical Library entry"
     >
       <div className="provisional-collections-bar__header">
-        <p className="eyebrow">HISTORICAL LIBRARY</p>
+        <p className="eyebrow">SHELF &amp; LIBRARY</p>
         <p className="provisional-collections-bar__description">
-          Browse past monthly studies by publication month and open their Month Screens.
+          Keep up to three past months on your Shelf or browse the full Historical Library.
         </p>
       </div>
       <div className="provisional-collections-bar__actions">
+        {onOpenShelf ? (
+          <a
+            href={SHELF_ROUTE_HASH}
+            className="button button--secondary button--small provisional-collections-btn"
+            onClick={event => {
+              event.preventDefault()
+              onOpenShelf()
+            }}
+          >
+            <Bookmark size={16} aria-hidden="true" />
+            <span>Open Shelf</span>
+          </a>
+        ) : null}
         <a
           href={LIBRARY_ROUTE_HASH}
           className="button button--secondary button--small provisional-collections-btn"

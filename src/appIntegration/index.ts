@@ -5,6 +5,8 @@ export {
   SAVED_SCRIPTURE_ROUTE_ALIASES,
   LIBRARY_ROUTE_HASH,
   LIBRARY_ROUTE_ALIASES,
+  SHELF_ROUTE_HASH,
+  SHELF_ROUTE_ALIASES,
   NEWS_ROUTE_HASH,
   NEWS_ROUTE_ALIASES,
   isFieldNotebookRouteEnabled,
@@ -17,6 +19,7 @@ export {
   buildNotebookRoute,
   buildSavedScriptureRoute,
   buildLibraryRoute,
+  buildShelfRoute,
   buildNewsRoute,
   type AppIntegrationRoute,
   type AppIntegrationRouteOptions,
@@ -36,3 +39,8 @@ export {
   ProvisionalNewsEntryBar,
   type ProvisionalNewsEntryBarProps,
 } from './ProvisionalNewsEntryBar.tsx'
+
+export {
+  AppLibraryShelfHost,
+  type AppLibraryShelfHostProps,
+} from './AppLibraryShelfHost.tsx'

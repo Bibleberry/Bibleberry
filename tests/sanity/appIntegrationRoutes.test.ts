@@ -7,6 +7,8 @@ import {
   SAVED_SCRIPTURE_ROUTE_ALIASES,
   LIBRARY_ROUTE_HASH,
   LIBRARY_ROUTE_ALIASES,
+  SHELF_ROUTE_HASH,
+  SHELF_ROUTE_ALIASES,
   NEWS_ROUTE_HASH,
   NEWS_ROUTE_ALIASES,
   parseAppIntegrationRoute,
@@ -14,6 +16,7 @@ import {
   buildNotebookRoute,
   buildSavedScriptureRoute,
   buildLibraryRoute,
+  buildShelfRoute,
   buildNewsRoute,
   isHubCardAnnouncementsEnabled,
 } from '../../src/appIntegration/appRoutes.ts'
@@ -31,6 +34,7 @@ test('appIntegrationRoutes parses canonical and alias routes when feature flags 
   assert.equal(parseAppIntegrationRoute('#/saved-scripture', options), 'savedScripture')
   assert.equal(parseAppIntegrationRoute('#/savedScripture', options), 'savedScripture')
   assert.equal(parseAppIntegrationRoute('#/library', options), 'library')
+  assert.equal(parseAppIntegrationRoute('#/shelf', options), 'shelf')
   assert.equal(parseAppIntegrationRoute('#/news', options), 'news')
   assert.equal(parseAppIntegrationRoute('#/ministry-news', options), 'news')
 
@@ -55,6 +59,7 @@ test('appIntegrationRoutes fails closed when feature flags are disabled', () => 
   assert.equal(parseAppIntegrationRoute('#/saved-scripture', allDisabled), null)
   assert.equal(parseAppIntegrationRoute('#/savedScripture', allDisabled), null)
   assert.equal(parseAppIntegrationRoute('#/library', allDisabled), null)
+  assert.equal(parseAppIntegrationRoute('#/shelf', allDisabled), null)
   assert.equal(parseAppIntegrationRoute('#/news', allDisabled), null)
   assert.equal(parseAppIntegrationRoute('#/ministry-news', allDisabled), null)
 
@@ -70,6 +75,7 @@ test('appIntegrationRoutes fails closed when feature flags are disabled', () => 
 
   const onlyLibrary = { fieldNotebookEnabled: false, savedScriptureEnabled: false, historicalLibraryEnabled: true }
   assert.equal(parseAppIntegrationRoute('#/library', onlyLibrary), 'library')
+  assert.equal(parseAppIntegrationRoute('#/shelf', onlyLibrary), 'shelf')
   assert.equal(parseAppIntegrationRoute('#/notebook', onlyLibrary), null)
   assert.equal(parseAppIntegrationRoute('#/saved-scripture', onlyLibrary), null)
   assert.equal(parseAppIntegrationRoute('#/news', onlyLibrary), null)
@@ -107,12 +113,14 @@ test('appIntegrationRoutes builds canonical route hashes', () => {
   assert.equal(buildNotebookRoute(), NOTEBOOK_ROUTE_HASH)
   assert.equal(buildSavedScriptureRoute(), SAVED_SCRIPTURE_ROUTE_HASH)
   assert.equal(buildLibraryRoute(), LIBRARY_ROUTE_HASH)
+  assert.equal(buildShelfRoute(), SHELF_ROUTE_HASH)
   assert.equal(buildNewsRoute(), NEWS_ROUTE_HASH)
   assert.equal(buildNewsRoute('all'), NEWS_ROUTE_HASH)
   assert.equal(buildNewsRoute('monthlyPreview'), '#/news?category=monthlyPreview')
   assert.ok(NOTEBOOK_ROUTE_ALIASES.includes('#/notebook'))
   assert.ok(SAVED_SCRIPTURE_ROUTE_ALIASES.includes('#/saved-scripture'))
   assert.ok(LIBRARY_ROUTE_ALIASES.includes('#/library'))
+  assert.ok(SHELF_ROUTE_ALIASES.includes('#/shelf'))
   assert.ok(NEWS_ROUTE_ALIASES.includes('#/news'))
 })
 
