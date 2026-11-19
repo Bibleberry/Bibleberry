@@ -261,4 +261,78 @@ describe('createHubContinueAppInput', () => {
     assert.equal(result.suggestion.yearMonth, yearMonth('2026-10'))
     assert.equal(result.suggestion.formalFocusMonth, yearMonth('2026-10'))
   })
+
+  it('rejects mismatched timezones across required months and requires non-shelf activeFocusMonth detail', () => {
+    const sources = makeSources()
+    const octoberResult = sources.monthDetailsByYearMonth!.get('2026-10')!
+    const septemberResult: MonthDetailResult = {
+      status: 'ready',
+      month: makeMonthDetail([makeSlot(1, 'sep-1', '09')], '2026-09'),
+      serverContext: {
+        authorizedLocalDate: '2026-11-18',
+        effectiveTimeZone: 'America/Los_Angeles',
+      },
+      source: 'gateway',
+    }
+
+    const shelfWithTwoMonths: ShelfState = {
+      months: [
+        { yearMonth: yearMonth('2026-10'), admissionKind: 'readerSelected', isProtected: true },
+        { yearMonth: yearMonth('2026-09'), admissionKind: 'readerSelected', isProtected: true },
+      ],
+      activeFocusMonth: yearMonth('2026-10'),
+    }
+
+    // Mismatched timezone across required months fails closed
+    assert.equal(
+      createHubContinueAppInput({
+        ...sources,
+        shelf: { ...sources.shelf!, state: shelfWithTwoMonths },
+        monthDetailsByYearMonth: new Map([
+          ['2026-10', octoberResult],
+          ['2026-09', septemberResult],
+        ]),
+      }),
+      null,
+    )
+
+    // Missing detail for an activeFocusMonth outside shelf.months fails closed
+    assert.equal(
+      createHubContinueAppInput({
+        ...sources,
+        shelf: {
+          ...sources.shelf!,
+          state: {
+            months: [
+              { yearMonth: yearMonth('2026-10'), admissionKind: 'readerSelected', isProtected: true },
+            ],
+            activeFocusMonth: yearMonth('2026-09'),
+          },
+        },
+        monthDetailsByYearMonth: new Map([['2026-10', octoberResult]]),
+      }),
+      null,
+    )
+
+    // Empty gateway catalog passes adapter cleanly but yields zero suggestions
+    const emptyCatalogInput = createHubContinueAppInput({
+      ...sources,
+      releasedCatalog: { status: 'empty', source: 'gateway' },
+    })
+    assert.ok(emptyCatalogInput)
+    assert.equal(deriveHubContinueSuggestion(emptyCatalogInput).status, 'none')
+
+    // Validation error catalog fails closed
+    assert.equal(
+      createHubContinueAppInput({
+        ...sources,
+        releasedCatalog: {
+          status: 'validationError',
+          message: 'malformed catalog',
+          source: 'gateway',
+        },
+      }),
+      null,
+    )
+  })
 })

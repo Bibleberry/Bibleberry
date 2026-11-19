@@ -101,7 +101,8 @@ test.describe('Build Isolation and Public Production Verification', () => {
         f.startsWith('participationPilot') ||
         f.startsWith('ReleasedChallengeHost') ||
         f.startsWith('MonthScreenHost') ||
-        f.startsWith('MonthPreviewNewsBanner'),
+        f.startsWith('MonthPreviewNewsBanner') ||
+        f.startsWith('AppHubContinueHost'),
     );
     expect(nonPublicChunk).toBeUndefined();
 
@@ -135,6 +136,9 @@ test.describe('Build Isolation and Public Production Verification', () => {
       'Read Monthly Introduction',
       'Open Month Calendar',
       '/api/months/',
+      'Continue Historical Study',
+      'Next in Your Study Focus',
+      'Continue From Your Shelf',
     ];
 
     for (const jsFile of jsFiles) {

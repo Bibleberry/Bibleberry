@@ -46,6 +46,7 @@ import {
 } from './appIntegration'
 import type { LibraryShelfSurface, OpenMonthContext } from './components/libraryShelf/libraryShelfModel'
 import type { NewsFilterCategory } from './components/news/newsModel'
+import type { HubContinueSuggestion } from './hubContinue/types'
 import { parseInternalDestination } from './native/internalDestination'
 import './App.css'
 
@@ -67,7 +68,7 @@ type Detail =
   | { type: 'challengeLab' }
   | { type: 'challengePilot' }
   | { type: 'participationPilot' }
-  | { type: 'releasedChallenge'; slug: string; origin: ChallengeOrigin; monthReturnTo?: 'shelf' | 'library' | 'news'; monthNewsCategory?: NewsFilterCategory }
+  | { type: 'releasedChallenge'; slug: string; origin: ChallengeOrigin; expectedDocumentId?: string; monthReturnTo?: 'shelf' | 'library' | 'news'; monthNewsCategory?: NewsFilterCategory }
   | { type: 'month'; yearMonth: string; returnTo?: 'shelf' | 'library' | 'news'; newsCategory?: NewsFilterCategory }
   | { type: 'library'; surface?: LibraryShelfSurface }
   | { type: 'news'; initialCategory?: NewsFilterCategory }
@@ -116,6 +117,9 @@ const savedScriptureEnabled = isSavedScriptureRouteEnabled()
 const historicalLibraryEnabled = import.meta.env.VITE_ENABLE_HISTORICAL_LIBRARY === 'true'
 const newsReaderEnabled = import.meta.env.VITE_ENABLE_NEWS_READER === 'true'
 const hubCardAnnouncementsEnabled = isHubCardAnnouncementsEnabled(fieldNotebookEnabled)
+const hubContinueEnabled =
+  import.meta.env.VITE_ENABLE_HUB_CONTINUE === 'true' &&
+  (releasedChallengeRouteEnabled || monthScreenEnabled)
 
 const ReleasedChallengeHost = releasedChallengeRouteEnabled || monthScreenEnabled
   ? lazy(() => import('./cms/reader/ReleasedChallengeHost').then(module => ({ default: module.ReleasedChallengeHost })))
@@ -155,6 +159,12 @@ const NewsReaderHost = newsReaderEnabled
   : null
 const ProvisionalNewsEntryBar = newsReaderEnabled
   ? lazy(() => import('./appIntegration/ProvisionalNewsEntryBar').then(module => ({ default: module.ProvisionalNewsEntryBar })))
+  : null
+const AppHubContinueHost = hubContinueEnabled
+  ? lazy(() => import('./appIntegration/AppHubContinueHost').then(module => ({ default: module.AppHubContinueHost })))
+  : null
+const HubContinueChallengeHost = hubContinueEnabled
+  ? lazy(() => import('./appIntegration/AppHubContinueHost').then(module => ({ default: module.HubContinueChallengeHost })))
   : null
 const initialState: PrototypeState = {
   onboarded: false,
@@ -748,6 +758,15 @@ function readHistoryMonthNewsCategory(): NewsFilterCategory | undefined {
   return parsed !== 'all' ? parsed : undefined
 }
 
+function readHistoryHubContinueDocumentId(): string | undefined {
+  if (typeof window === 'undefined' || !hubContinueEnabled) return undefined
+  const value = window.history.state?.hubContinueDocumentId
+  if (typeof value !== 'string') return undefined
+  const trimmed = value.trim()
+  if (!trimmed || trimmed.startsWith('drafts.')) return undefined
+  return trimmed
+}
+
 function parseMonthHash(hash: string): { yearMonth: string } | null {
   const destination = parseInternalReaderDestination(hash)
   return destination?.type === 'month' ? { yearMonth: destination.yearMonth } : null
@@ -816,6 +835,9 @@ function parseInitialRoute(): {
       const originView = typeof window !== 'undefined' && isPrimaryView(window.history.state?.originView)
         ? window.history.state.originView
         : 'today'
+      const expectedDocumentId = parsedChallenge.origin.kind === 'hub'
+        ? readHistoryHubContinueDocumentId()
+        : undefined
       const monthReturnTo = readHistoryMonthReturnTo()
       const monthNewsCategory = monthReturnTo === 'news' ? readHistoryMonthNewsCategory() : undefined
       return {
@@ -824,6 +846,7 @@ function parseInitialRoute(): {
           type: 'releasedChallenge',
           slug: parsedChallenge.slug,
           origin: parsedChallenge.origin,
+          ...(expectedDocumentId ? { expectedDocumentId } : {}),
           ...(monthReturnTo ? { monthReturnTo } : {}),
           ...(monthNewsCategory ? { monthNewsCategory } : {}),
         },
@@ -1083,6 +1106,9 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
           const originView = isPrimaryView(window.history.state?.originView)
             ? window.history.state.originView
             : undefined
+          const expectedDocumentId = parsedChallenge.origin.kind === 'hub'
+            ? readHistoryHubContinueDocumentId()
+            : undefined
           const monthReturnTo = readHistoryMonthReturnTo()
           const monthNewsCategory = monthReturnTo === 'news' ? readHistoryMonthNewsCategory() : undefined
           if (originView) setView(originView)
@@ -1090,6 +1116,7 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
             type: 'releasedChallenge',
             slug: parsedChallenge.slug,
             origin: parsedChallenge.origin,
+            ...(expectedDocumentId ? { expectedDocumentId } : {}),
             ...(monthReturnTo ? { monthReturnTo } : {}),
             ...(monthNewsCategory ? { monthNewsCategory } : {}),
           })
@@ -1257,8 +1284,15 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
     } else if ((releasedChallengeRouteEnabled || monthScreenEnabled) && hash.startsWith('#/challenge/')) {
       const parsedChallenge = parseReleasedChallengeHash(hash)
       if (parsedChallenge) {
+        const expectedDocumentId = parsedChallenge.origin.kind === 'hub'
+          ? readHistoryHubContinueDocumentId()
+          : undefined
         window.history.replaceState(
-          { originView: destination, challengeOrigin: parsedChallenge.origin },
+          {
+            originView: destination,
+            challengeOrigin: parsedChallenge.origin,
+            ...(expectedDocumentId ? { hubContinueDocumentId: expectedDocumentId } : {}),
+          },
           '',
           hash,
         )
@@ -1266,6 +1300,7 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
           type: 'releasedChallenge',
           slug: parsedChallenge.slug,
           origin: parsedChallenge.origin,
+          ...(expectedDocumentId ? { expectedDocumentId } : {}),
         })
       }
     } else if (fieldNotebookEnabled && NOTEBOOK_ROUTE_ALIASES.some(alias => hash.startsWith(alias))) {
@@ -1333,7 +1368,7 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
       }
     }
     let shelfCleared = true
-    if (historicalLibraryEnabled) {
+    if (historicalLibraryEnabled || hubContinueEnabled) {
       try {
         const shelfStoreModule = await import('./shelfPersistence/defaultGuestShelfStore')
         await shelfStoreModule.defaultGuestShelfStore.clearLocalData()
@@ -1584,6 +1619,32 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
       yearMonth,
       ...(returnTo ? { returnTo } : {}),
       ...(newsCategory && newsCategory !== 'all' ? { newsCategory } : {}),
+    })
+    scrollTop()
+  }
+  const openHubContinueChallenge = (suggestion: HubContinueSuggestion) => {
+    if (!hubContinueEnabled) return
+    const slug = suggestion.challengeSlug.trim()
+    const expectedDocumentId = suggestion.challengeDocumentId.trim()
+    if (!slug || !expectedDocumentId || expectedDocumentId.startsWith('drafts.')) return
+    const origin: ChallengeOrigin = { kind: 'hub' }
+    const targetHash = `#/challenge/${encodeURIComponent(slug)}?origin=hub`
+    window.history.replaceState({ ...(window.history.state ?? {}), bibleberryView: view }, '', window.location.href)
+    window.history.pushState(
+      {
+        originView: 'today',
+        challengeOrigin: origin,
+        hubContinueDocumentId: expectedDocumentId,
+      },
+      '',
+      targetHash,
+    )
+    setView('today')
+    setDetail({
+      type: 'releasedChallenge',
+      slug,
+      origin,
+      expectedDocumentId,
     })
     scrollTop()
   }
@@ -1909,12 +1970,22 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
       ? `Return to ${primaryViewLabel(view)}`
       : formatChallengeOriginLabel(detail.origin)
     content = <Suspense fallback={<div className="standard-page"><p role="status" aria-live="polite">Loading Challenge…</p></div>}>
-      <ReleasedChallengeHost
-        slug={detail.slug}
-        origin={detail.origin}
-        returnLabel={returnLabel}
-        onReturn={exitReleasedChallenge}
-      />
+      {hubContinueEnabled && detail.expectedDocumentId && HubContinueChallengeHost ? (
+        <HubContinueChallengeHost
+          slug={detail.slug}
+          expectedDocumentId={detail.expectedDocumentId}
+          origin={detail.origin}
+          returnLabel={returnLabel}
+          onReturn={exitReleasedChallenge}
+        />
+      ) : (
+        <ReleasedChallengeHost
+          slug={detail.slug}
+          origin={detail.origin}
+          returnLabel={returnLabel}
+          onReturn={exitReleasedChallenge}
+        />
+      )}
     </Suspense>
   } else if (detail?.type === 'notebook' && fieldNotebookEnabled && FieldNotebookHost) {
     content = (
@@ -1982,9 +2053,21 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
   } else if (view === 'today') {
     const todayEntry = previewDate ? previewedEntry : latestEntryThrough(todayKey, simulatedDate && developmentCollection === 'pilot' ? weeklyPilotEntries : ordinaryEntries)
     const { previous, next } = todayEntry ? entryNeighbors(todayEntry, previewDate ? '9999-12-31' : todayKey) : { previous: undefined, next: undefined }
+    const legacyResumeCard = showResume && lastOpenedEntry
+      ? <ResumeCard entry={lastOpenedEntry} next={resumeNext} todayEntryType={todayEntry?.entryType} onOpen={openEntry} onJump={jumpToToday} />
+      : null
     content = <>
       <AnnouncementBar onInternalRoute={openAnnouncementRoute} onAction={addActivity} nowOverride={simulatedDate ? new Date(`${simulatedDate}T12:00:00`).getTime() : undefined} />
-      {showResume && lastOpenedEntry && <ResumeCard entry={lastOpenedEntry} next={resumeNext} todayEntryType={todayEntry?.entryType} onOpen={openEntry} onJump={jumpToToday} />}
+      {hubContinueEnabled && AppHubContinueHost && !previewDate && !simulatedDate ? (
+        <Suspense fallback={legacyResumeCard}>
+          <AppHubContinueHost
+            participationSnapshot={participationSnapshot}
+            onContinueChallenge={openHubContinueChallenge}
+            onOpenMonth={monthScreenEnabled ? openMonthScreen : undefined}
+            legacyFallback={legacyResumeCard}
+          />
+        </Suspense>
+      ) : legacyResumeCard}
       {todayEntry
         ? todayEntry.entryType === 'teaching'
           ? <TeachingView teaching={todayEntry} onShare={() => shareTeaching(todayEntry)} onMedia={addActivity} showMedia={todayEntry.id === novemberTeaching.id} previous={previous} next={next} onNavigateTeaching={target => previewDate ? previewDevelopmentDate(target.date) : openEntry(target.id)} />
