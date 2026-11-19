@@ -29,7 +29,8 @@ test('R13-TX1 commit is SECURITY DEFINER with empty search_path, owned by the de
   const block = functionBlock('reconcile_guest_participation')
   assert.match(block, /SECURITY DEFINER/)
   assert.match(block, /SET search_path = ''/)
-  assert.match(block, /v_uid uuid := auth\.uid\(\);/)
+  // R13-SB2 D4: the reconciler reads auth.uid() only through the reconciler-only bridge.
+  assert.match(block, /v_uid uuid := account_private\.request_account_id\(\);/)
   assert.match(sql, /ALTER FUNCTION public\.reconcile_guest_participation\(jsonb\) OWNER TO account_reconciler;/)
   assert.match(sql, /CREATE ROLE account_reconciler\s+NOLOGIN[^;]*NOBYPASSRLS/)
 })
@@ -68,4 +69,45 @@ test('R13-TX1 transaction never creates earned awards without trusted verificati
 test('R13-TX1 never adopts client card metadata onto an earned award', () => {
   assert.match(sql, /GRANT UPDATE \(hub_announcement_acked, card_viewed, updated_at\)\s+ON TABLE public\.account_earned_awards TO account_reconciler;/)
   assert.doesNotMatch(functionBlock('reconcile_guest_participation'), /UPDATE public\.account_earned_awards[^;]*earned_card_snapshot/)
+})
+
+// ---------------------------------------------------------------------------
+// R13-SB2 (Issue #225): real-Supabase migration compatibility guards (D1, D2, D4)
+// ---------------------------------------------------------------------------
+test('R13-SB2 D1: runner self-grant is guarded by SET+USAGE, never by MEMBER, and grants INHERIT+SET', () => {
+  assert.doesNotMatch(sql, /pg_has_role\(current_user, 'account_reconciler', 'MEMBER'\)/)
+  assert.match(sql, /pg_has_role\(current_user, 'account_reconciler', 'SET'\)\s+AND pg_has_role\(current_user, 'account_reconciler', 'USAGE'\)/)
+  assert.match(sql, /GRANT account_reconciler TO %I WITH INHERIT TRUE, SET TRUE/)
+})
+
+test('R13-SB2 D2: owner-transfer CREATE is granted and revoked in this migration, then asserted absent', () => {
+  const grant = sql.indexOf('GRANT CREATE ON SCHEMA public TO account_reconciler;')
+  const owner = sql.indexOf('ALTER FUNCTION public.reconcile_guest_participation(jsonb) OWNER TO account_reconciler;')
+  const revoke = sql.indexOf('REVOKE CREATE ON SCHEMA public FROM account_reconciler;')
+  const check = sql.indexOf('R13-SB2 D2: owner role retains schema CREATE')
+  assert.ok(grant !== -1 && grant < owner && owner < revoke && revoke < check, 'GRANT < OWNER TO < REVOKE < assertion')
+  assert.equal(sql.match(/GRANT CREATE ON SCHEMA/g)?.length, 1)
+  assert.doesNotMatch(sql, /ALTER DEFAULT PRIVILEGES[^;]*\bGRANT\b/i)
+  assert.ok(sql.trimEnd().endsWith('COMMIT;'), 'single migration transaction')
+})
+
+test('R13-SB2 D4: no schema auth grant; the bridge is minimal and reconciler-only', () => {
+  assert.doesNotMatch(sql, /GRANT[^;]*ON SCHEMA auth/i)
+  assert.doesNotMatch(sql, /GRANT[^;]*ON FUNCTION auth\./i)
+  const start = sql.indexOf('CREATE FUNCTION account_private.request_account_id()')
+  assert.notEqual(start, -1)
+  const block = sql.slice(start, sql.indexOf('\n$$;', start))
+  assert.match(block, /SECURITY DEFINER/)
+  assert.match(block, /SET search_path = ''/)
+  assert.match(block, /AS \$\$\n {2}SELECT auth\.uid\(\);$/)
+  assert.match(sql, /REVOKE ALL ON FUNCTION account_private\.request_account_id\(\) FROM PUBLIC, anon, authenticated;/)
+  assert.match(sql, /GRANT EXECUTE ON FUNCTION account_private\.request_account_id\(\) TO account_reconciler;/)
+  assert.doesNotMatch(sql, /GRANT EXECUTE ON FUNCTION account_private\.request_account_id\(\) TO [^;]*(anon|authenticated|service_role|PUBLIC)/i)
+  // Every reconciler policy is confined through the bridge, never through auth.uid() directly.
+  const policies = sql.match(/CREATE POLICY "[a-z_]+_reconciler_own"[^;]*;/g) ?? []
+  assert.equal(policies.length, 10)
+  for (const p of policies) {
+    assert.doesNotMatch(p, /auth\.uid\(\)/)
+    assert.match(p, /USING \(account_id = account_private\.request_account_id\(\)\)\s+WITH CHECK \(account_id = account_private\.request_account_id\(\)\)/)
+  }
 })

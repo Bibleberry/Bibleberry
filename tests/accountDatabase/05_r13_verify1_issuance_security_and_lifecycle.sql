@@ -511,6 +511,150 @@ BEGIN
   PERFORM pg_temp.check(r ->> 'status' = 'admitted', 'V8c retry after the fault clears admits exactly once');
 END $$;
 
+-- ===========================================================================
+-- V10. R13-SB2 D3: transaction-local confinement with fail-closed entry resets
+--      (no function-level `SET bibleberry.award_issuance_account` clause any more)
+-- ===========================================================================
+INSERT INTO auth.users (id) VALUES
+  ('e5000000-0000-4000-8000-0000000000e5'),
+  ('f6000000-0000-4000-8000-0000000000f6');
+
+-- Reads the confinement setting exactly as the verifier's own session sees it after a call.
+CREATE FUNCTION pg_temp.confinement() RETURNS text LANGUAGE sql AS $$
+  SELECT coalesce(current_setting('bibleberry.award_issuance_account', true), '');
+$$;
+
+-- Verifier-side preset of the confinement GUC (any role may set an unregistered placeholder).
+CREATE FUNCTION pg_temp.verifier_preset(p_value text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  SET LOCAL ROLE account_award_verifier;
+  PERFORM set_config('bibleberry.award_issuance_account', p_value, true);
+  RESET ROLE;
+END $$;
+
+DO $$
+DECLARE
+  e constant text := 'e5000000-0000-4000-8000-0000000000e5';
+  f constant text := 'f6000000-0000-4000-8000-0000000000f6';
+  r jsonb;
+  n bigint;
+  v_raised boolean := false;
+BEGIN
+  PERFORM pg_temp.check(NOT EXISTS (
+    SELECT 1 FROM pg_proc p, unnest(p.proconfig) c
+     WHERE p.pronamespace = 'account_issuance'::regnamespace AND c LIKE 'bibleberry.%'),
+    'V10a no account_issuance function carries a function-level bibleberry.* SET clause');
+  PERFORM pg_temp.check(NOT has_function_privilege('account_award_issuer', 'account_private.request_account_id()', 'EXECUTE')
+                    AND NOT has_function_privilege('account_award_verifier', 'account_private.request_account_id()', 'EXECUTE'),
+    'V10b the issuer and verifier cannot execute the reconciler-only auth.uid() bridge');
+
+  r := pg_temp.call_as(e, pg_temp.payload('v10-e', 0, 'newAccountTransfer', jsonb_build_object(
+    'completedChallenges', jsonb_build_object('cms:vrf-e1', jsonb_build_object('completedOn', '2026-10-03')),
+    'earnedAwards', jsonb_build_object('card:monthly:2026-10:hope', jsonb_build_object('earnedOn', '2026-10-04')))));
+  PERFORM pg_temp.check(r ->> 'status' = 'committed', 'V10c account E nominated a claim through TX1');
+  r := pg_temp.call_as(f, pg_temp.payload('v10-f', 0, 'newAccountTransfer', jsonb_build_object(
+    'completedChallenges', jsonb_build_object('cms:vrf-f1', jsonb_build_object('completedOn', '2026-10-03')),
+    'earnedAwards', jsonb_build_object('card:monthly:2026-10:hope', jsonb_build_object('earnedOn', '2026-10-04')))));
+  PERFORM pg_temp.check(r ->> 'status' = 'committed', 'V10d account F nominated a claim through TX1');
+
+  -- Caller preset F; context for E must use E's data and leave E (never F) behind.
+  PERFORM pg_temp.verifier_preset(f);
+  r := pg_temp.context(e, 'card:monthly:2026-10:hope');
+  PERFORM pg_temp.check(r ->> 'status' = 'pending' AND r -> 'completedChallengeIds' = '["cms:vrf-e1"]'::jsonb
+                    AND pg_temp.confinement() = e,
+    'V10e caller-preset F is ignored: context for E returns only E''s completions and confines to E');
+
+  -- Early-return paths (before any account is confined) must leave NO confinement at all.
+  PERFORM pg_temp.verifier_preset(f);
+  r := pg_temp.context(e, 'card:monthly:2026-10:never-claimed');
+  PERFORM pg_temp.check(r ->> 'status' = 'noPendingClaim' AND pg_temp.confinement() = '',
+    'V10f context early return discards a caller preset (fail-closed entry reset)');
+  PERFORM pg_temp.verifier_preset(f);
+  r := pg_temp.defer(e, 'card:monthly:2026-10:never-claimed', 'missingTrustedMetadata');
+  PERFORM pg_temp.check(r ->> 'status' = 'noPendingClaim' AND pg_temp.confinement() = '',
+    'V10g deferral early return discards a caller preset');
+  PERFORM pg_temp.verifier_preset(f);
+  r := pg_temp.admit('{"unexpected": true}'::jsonb);
+  PERFORM pg_temp.check(r ->> 'detail' = 'invalidAttestationShape' AND pg_temp.confinement() = '',
+    'V10h admission shape rejection discards a caller preset');
+  PERFORM pg_temp.verifier_preset(f);
+  r := pg_temp.admit(pg_temp.att(e, 'card:monthly:2026-10:hope', ARRAY['cms:vrf-e1'], '2026-10-03',
+         '{"verificationKey": "run-v10-bad", "targetCount": 2}'));
+  PERFORM pg_temp.check(r ->> 'status' = 'rejected' AND pg_temp.confinement() = '',
+    'V10i admission validation rejection discards a caller preset');
+
+  -- Two accounts in ONE transaction, caller presetting the OTHER account each time.
+  PERFORM pg_temp.verifier_preset(f);
+  r := pg_temp.admit(pg_temp.att(e, 'card:monthly:2026-10:hope', ARRAY['cms:vrf-e1'], '2026-10-03',
+         '{"verificationKey": "run-v10-e"}'));
+  PERFORM pg_temp.check(r ->> 'status' = 'admitted' AND pg_temp.confinement() = e,
+    'V10j admission for E (caller preset F) admitted and confined to E');
+  PERFORM pg_temp.verifier_preset(e);
+  r := pg_temp.admit(pg_temp.att(f, 'card:monthly:2026-10:hope', ARRAY['cms:vrf-f1'], '2026-10-03',
+         '{"verificationKey": "run-v10-f"}'));
+  PERFORM pg_temp.check(r ->> 'status' = 'admitted' AND pg_temp.confinement() = f,
+    'V10k admission for F in the same transaction (caller preset E) admitted and confined to F');
+  PERFORM pg_temp.check(
+    (SELECT count(*) FROM public.account_earned_awards WHERE account_id = e::uuid) = 1
+    AND (SELECT count(*) FROM public.account_earned_awards WHERE account_id = f::uuid) = 1
+    AND (SELECT count(*) FROM public.account_award_admission_attestations
+          WHERE account_id = e::uuid AND verification_key = 'run-v10-e') = 1
+    AND (SELECT count(*) FROM public.account_award_admission_attestations
+          WHERE account_id = f::uuid AND verification_key = 'run-v10-f') = 1
+    AND NOT EXISTS (SELECT 1 FROM public.account_award_admission_attestations
+                     WHERE (account_id = e::uuid AND verification_key = 'run-v10-f')
+                        OR (account_id = f::uuid AND verification_key = 'run-v10-e')),
+    'V10l each admission wrote exactly its own account (no cross-account row)');
+  -- While confined to F, the issuer sees nothing of E.
+  SET LOCAL ROLE account_award_issuer;
+  SELECT count(*) INTO n FROM public.account_earned_awards WHERE account_id = e::uuid;
+  RESET ROLE;
+  PERFORM pg_temp.check(n = 0, 'V10m after F''s admission the issuer is not confined to E');
+
+  -- Idempotent replay in the same transaction after switching accounts.
+  r := pg_temp.admit(pg_temp.att(e, 'card:monthly:2026-10:hope', ARRAY['cms:vrf-e1'], '2026-10-03',
+         '{"verificationKey": "run-v10-e"}'));
+  PERFORM pg_temp.check(r ->> 'status' IN ('alreadyEarned', 'noPendingClaim') AND pg_temp.confinement() IN (e, ''),
+    'V10n replay for E after F returns a non-admitting status and never stays confined to F');
+END $$;
+
+-- Exception paths: an injected constraint failure (handled) and a hard failure (propagated).
+DO $$
+DECLARE
+  e constant text := 'e5000000-0000-4000-8000-0000000000e5';
+  f constant text := 'f6000000-0000-4000-8000-0000000000f6';
+  r jsonb;
+  v_raised boolean := false;
+BEGIN
+  r := pg_temp.call_as(e, pg_temp.payload('v10-e2',
+    (SELECT revision::integer FROM public.account_participation_profiles WHERE account_id = e::uuid), 'existingAccountMerge', jsonb_build_object(
+    'earnedAwards', jsonb_build_object('card:monthly:2026-10:faith', jsonb_build_object('earnedOn', '2026-10-04')))));
+  PERFORM pg_temp.check(r ->> 'status' = 'committed', 'V10o account E nominated a second claim');
+
+  PERFORM pg_temp.verifier_preset(f);
+  r := pg_temp.admit(pg_temp.att(e, 'card:monthly:2026-10:faith', ARRAY['cms:vrf-e1'], '2026-10-03',
+         '{"verificationKey": "run-boom"}'));
+  PERFORM pg_temp.check(r ->> 'status' = 'rejected' AND r ->> 'detail' = 'constraintViolation'
+                    AND pg_temp.confinement() IN (e, ''),
+    'V10p handled exception path: rejected, and never left confined to the caller preset F');
+
+  PERFORM pg_temp.verifier_preset(f);
+  BEGIN
+    r := pg_temp.admit(pg_temp.att(e, 'card:monthly:2026-10:faith', ARRAY['cms:vrf-e1'], '2026-10-03',
+           '{"verificationKey": "run-crash"}'));
+  EXCEPTION WHEN SQLSTATE 'XX001' THEN
+    v_raised := true;
+  END;
+  -- The aborted subtransaction restores the CALLER's own value; the next issuer call resets it.
+  r := pg_temp.context(e, 'card:monthly:2026-10:faith');
+  PERFORM pg_temp.check(v_raised AND r ->> 'status' = 'pending'
+                    AND r -> 'completedChallengeIds' = '["cms:vrf-e1"]'::jsonb
+                    AND pg_temp.confinement() = e
+                    AND NOT EXISTS (SELECT 1 FROM public.account_earned_awards
+                                     WHERE account_id = e::uuid AND award_id = 'card:monthly:2026-10:faith'),
+    'V10q hard failure persisted nothing; the next call ignores the restored preset and confines to E');
+END $$;
+
 DROP TRIGGER v1_test_inject_attestation_failure ON public.account_award_admission_attestations;
 
 ROLLBACK;

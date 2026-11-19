@@ -7,6 +7,17 @@
 --
 -- Forward-only. Does NOT recreate or drop any R13-3 table, policy, or grant.
 --
+-- Revision R13-SB2 (Issue #225), amended IN PLACE before any deployment under a one-time,
+-- owner-authorized exception to forward-only practice (never a general policy). This file had
+-- never been applied to a hosted database; it could not apply on Supabase at all (D1), so no
+-- later migration could have corrected it. Evidence: docs/testing/r13-sb1-real-local-supabase-
+-- security-acceptance.md §§3, 10 and docs/testing/r13-sb2-supabase-migration-remediation.md.
+--   D1  runner self-grant guarded by SET+USAGE (not MEMBER), granted WITH INHERIT TRUE, SET TRUE.
+--   D2  temporary CREATE ON SCHEMA public for the new owner, revoked in this same transaction,
+--       then asserted absent for every account_* role.
+--   D4  the two no-op `auth` grants are removed; the reconciler reads auth.uid() only through
+--       account_private.request_account_id() (sections 0b, 2b policies, 4, 5).
+--
 -- Adds:
 --   1. `account_reconciler`: a dedicated NOLOGIN, NOBYPASSRLS role that owns the
 --      SECURITY DEFINER transaction. It receives only column-scoped DML on the account
@@ -40,20 +51,62 @@ BEGIN
     CREATE ROLE account_reconciler
       NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
   END IF;
-  -- The migration runner must be able to assign function ownership to this role
-  -- (PostgreSQL 16+ requires SET ROLE capability). Superusers already can.
+  -- The migration runner must be able to assign function ownership to this role and keep
+  -- owner rights over it afterwards (PostgreSQL 16+: `OWNER TO` needs SET ROLE capability,
+  -- later REVOKE/GRANT on the owned function need INHERIT). Superusers already can.
+  -- R13-SB2 (D1): a CREATEROLE creator's automatic membership is ADMIN-only
+  -- (INHERIT FALSE, SET FALSE), so 'MEMBER' is already true and must NOT be the guard.
   IF NOT (SELECT rolsuper FROM pg_roles WHERE rolname = current_user)
-     AND NOT pg_has_role(current_user, 'account_reconciler', 'MEMBER') THEN
-    EXECUTE format('GRANT account_reconciler TO %I', current_user);
+     AND NOT (pg_has_role(current_user, 'account_reconciler', 'SET')
+              AND pg_has_role(current_user, 'account_reconciler', 'USAGE')) THEN
+    EXECUTE format('GRANT account_reconciler TO %I WITH INHERIT TRUE, SET TRUE', current_user);
+  END IF;
+  IF NOT (SELECT rolsuper FROM pg_roles WHERE rolname = current_user)
+     AND NOT (pg_has_role(current_user, 'account_reconciler', 'SET')
+              AND pg_has_role(current_user, 'account_reconciler', 'USAGE')) THEN
+    RAISE EXCEPTION 'R13-SB2 D1: migration runner % cannot SET ROLE/inherit account_reconciler', current_user;
   END IF;
 END
 $$;
 
--- auth.uid() is the sole identity authority; the owner role must be able to call it,
--- both in the function body and inside its own RLS policies.
-GRANT USAGE ON SCHEMA auth TO account_reconciler;
-GRANT EXECUTE ON FUNCTION auth.uid() TO account_reconciler;
 GRANT USAGE ON SCHEMA public TO account_reconciler;
+
+-- ---------------------------------------------------------------------------
+-- 0b. Private schema and the reconciler's identity helper (R13-SB2, D4)
+-- ---------------------------------------------------------------------------
+-- auth.uid() is the sole identity authority. On Supabase, schema `auth` belongs to
+-- supabase_admin and the migration identity cannot grant USAGE on it, so the reconciler
+-- cannot call auth.uid() directly. `request_account_id()` is the ONLY bridge: owned by the
+-- migration runner (which holds auth USAGE), SECURITY DEFINER, empty search_path, its body is
+-- exactly one `auth.uid()` call (no table, no argument, no other SQL), and EXECUTE is granted
+-- to account_reconciler ONLY. auth.uid() reads the request's verified JWT claim GUC, which a
+-- definer switch does not change, so it returns the CALLER's JWT subject.
+CREATE SCHEMA account_private;
+REVOKE ALL ON SCHEMA account_private FROM PUBLIC;
+GRANT USAGE ON SCHEMA account_private TO account_reconciler;
+ALTER DEFAULT PRIVILEGES IN SCHEMA account_private REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+
+CREATE FUNCTION account_private.request_account_id()
+RETURNS uuid
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  SELECT auth.uid();
+$$;
+
+REVOKE ALL ON FUNCTION account_private.request_account_id() FROM PUBLIC, anon, authenticated;
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+    REVOKE ALL ON FUNCTION account_private.request_account_id() FROM service_role;
+  END IF;
+END
+$$;
+GRANT EXECUTE ON FUNCTION account_private.request_account_id() TO account_reconciler;
+COMMENT ON FUNCTION account_private.request_account_id() IS
+  'R13-SB2 D4: SELECT auth.uid() for account_reconciler only (definer bridge to schema auth). Never widen.';
 
 -- ---------------------------------------------------------------------------
 -- 1. Narrow schema additions
@@ -245,45 +298,54 @@ GRANT UPDATE (hub_announcement_acked, card_viewed, card_document_id, earned_card
               last_claimed_at, last_idempotency_key)
   ON TABLE public.account_provisional_award_claims TO account_reconciler;
 
--- RLS confinement of the elevated role itself: every row it touches must belong to auth.uid().
+-- RLS confinement of the elevated role itself: every row it touches must belong to auth.uid(),
+-- read through the reconciler-only bridge account_private.request_account_id() (R13-SB2 D4).
 CREATE POLICY "account_participation_profiles_reconciler_own"
   ON public.account_participation_profiles FOR ALL TO account_reconciler
-  USING (account_id = auth.uid()) WITH CHECK (account_id = auth.uid());
+  USING (account_id = account_private.request_account_id())
+  WITH CHECK (account_id = account_private.request_account_id());
 CREATE POLICY "account_completed_challenges_reconciler_own"
   ON public.account_completed_challenges FOR ALL TO account_reconciler
-  USING (account_id = auth.uid()) WITH CHECK (account_id = auth.uid());
+  USING (account_id = account_private.request_account_id())
+  WITH CHECK (account_id = account_private.request_account_id());
 CREATE POLICY "account_in_progress_challenges_reconciler_own"
   ON public.account_in_progress_challenges FOR ALL TO account_reconciler
-  USING (account_id = auth.uid()) WITH CHECK (account_id = auth.uid());
+  USING (account_id = account_private.request_account_id())
+  WITH CHECK (account_id = account_private.request_account_id());
 CREATE POLICY "account_saved_challenges_reconciler_own"
   ON public.account_saved_challenges FOR ALL TO account_reconciler
-  USING (account_id = auth.uid()) WITH CHECK (account_id = auth.uid());
+  USING (account_id = account_private.request_account_id())
+  WITH CHECK (account_id = account_private.request_account_id());
 CREATE POLICY "account_saved_scriptures_reconciler_own"
   ON public.account_saved_scriptures FOR ALL TO account_reconciler
-  USING (account_id = auth.uid()) WITH CHECK (account_id = auth.uid());
+  USING (account_id = account_private.request_account_id())
+  WITH CHECK (account_id = account_private.request_account_id());
 CREATE POLICY "account_earned_awards_reconciler_own"
   ON public.account_earned_awards FOR ALL TO account_reconciler
-  USING (account_id = auth.uid()) WITH CHECK (account_id = auth.uid());
+  USING (account_id = account_private.request_account_id())
+  WITH CHECK (account_id = account_private.request_account_id());
 CREATE POLICY "account_shelf_months_reconciler_own"
   ON public.account_shelf_months FOR ALL TO account_reconciler
-  USING (account_id = auth.uid()) WITH CHECK (account_id = auth.uid());
+  USING (account_id = account_private.request_account_id())
+  WITH CHECK (account_id = account_private.request_account_id());
 CREATE POLICY "account_reconciliation_receipts_reconciler_own"
   ON public.account_reconciliation_receipts FOR ALL TO account_reconciler
-  USING (account_id = auth.uid()) WITH CHECK (account_id = auth.uid());
+  USING (account_id = account_private.request_account_id())
+  WITH CHECK (account_id = account_private.request_account_id());
 CREATE POLICY "account_reconciliation_unresolved_items_reconciler_own"
   ON public.account_reconciliation_unresolved_items FOR ALL TO account_reconciler
-  USING (account_id = auth.uid()) WITH CHECK (account_id = auth.uid());
+  USING (account_id = account_private.request_account_id())
+  WITH CHECK (account_id = account_private.request_account_id());
 CREATE POLICY "account_provisional_award_claims_reconciler_own"
   ON public.account_provisional_award_claims FOR ALL TO account_reconciler
-  USING (account_id = auth.uid()) WITH CHECK (account_id = auth.uid());
+  USING (account_id = account_private.request_account_id())
+  WITH CHECK (account_id = account_private.request_account_id());
 
 -- ---------------------------------------------------------------------------
 -- 3. Private pure validation helpers (never exposed to anon/authenticated)
 -- ---------------------------------------------------------------------------
-CREATE SCHEMA account_private;
-REVOKE ALL ON SCHEMA account_private FROM PUBLIC;
-GRANT USAGE ON SCHEMA account_private TO account_reconciler;
-ALTER DEFAULT PRIVILEGES IN SCHEMA account_private REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+-- (Schema `account_private` and its ACL are created in section 0b, before the reconciler
+--  policies that reference account_private.request_account_id().)
 
 -- Raises the single typed validation error that the transaction maps to `rejected`.
 CREATE FUNCTION account_private.reject(p_code text)
@@ -867,6 +929,11 @@ GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA account_private TO account_reconciler;
 -- Returns {status:'found', revision, envelope} | {status:'notFound'} |
 --         {status:'unauthorized', reason:'unauthenticated'}.
 -- Runs with the caller's privileges, so RLS guarantees owner-only rows.
+-- Callers: `authenticated` (PostgREST) and, from inside reconcile_guest_participation,
+-- `account_reconciler`. R13-SB2 D4: only a caller that can use schema `auth` calls auth.uid()
+-- directly; any other caller goes through account_private.request_account_id(), which only
+-- account_reconciler may execute (anyone else fails closed with permission denied). Both
+-- sources return the same verified JWT subject. PL/pgSQL plans each branch only when reached.
 CREATE FUNCTION public.get_account_participation()
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -875,11 +942,16 @@ SECURITY INVOKER
 SET search_path = ''
 AS $$
 DECLARE
-  v_uid uuid := auth.uid();
+  v_uid uuid;
   v_profile public.account_participation_profiles%ROWTYPE;
   v_shelf_months jsonb;
   v_data jsonb;
 BEGIN
+  IF has_schema_privilege('auth', 'USAGE') THEN
+    v_uid := auth.uid();
+  ELSE
+    v_uid := account_private.request_account_id();
+  END IF;
   IF v_uid IS NULL THEN
     RETURN jsonb_build_object('status', 'unauthorized', 'reason', 'unauthenticated',
                               'message', 'No authenticated account session');
@@ -1015,7 +1087,9 @@ DECLARE
   c_max_records constant integer := 5000;
   c_max_unresolved constant integer := 500;
 
-  v_uid uuid := auth.uid();
+  -- R13-SB2 D4: this body runs as account_reconciler, which has no USAGE on schema auth;
+  -- the reconciler-only bridge returns exactly auth.uid() of the calling session.
+  v_uid uuid := account_private.request_account_id();
   v_now timestamptz := clock_timestamp();
   -- Server-derived UTC+14 (Pacific/Kiritimati, fixed offset) calendar ceiling.
   v_ceiling date := ((clock_timestamp() AT TIME ZONE 'UTC') + interval '14 hours')::date;
@@ -1756,7 +1830,32 @@ BEGIN
 END
 $$;
 
+-- R13-SB2 (D2): for a non-superuser runner the NEW owner must hold CREATE on the function's
+-- schema. Grant it only for the ownership transfer and revoke it again in this same
+-- transaction; if anything in this migration fails, both the object and the grant roll back.
+GRANT CREATE ON SCHEMA public TO account_reconciler;
 ALTER FUNCTION public.reconcile_guest_participation(jsonb) OWNER TO account_reconciler;
+REVOKE CREATE ON SCHEMA public FROM account_reconciler;
+
+DO $$
+DECLARE
+  v_leaks text;
+BEGIN
+  SELECT string_agg(r.rolname || ' CREATE on ' || n.nspname, ', ') INTO v_leaks
+    FROM pg_namespace n CROSS JOIN pg_roles r
+   WHERE r.rolname LIKE 'account\_%' AND has_schema_privilege(r.oid, n.oid, 'CREATE')
+       -- (a session's own temp schema reports CREATE for any role; not a real grant)
+       AND n.nspname !~ '^pg_(toast_)?temp_';
+  IF v_leaks IS NOT NULL THEN
+    RAISE EXCEPTION 'R13-SB2 D2: owner role retains schema CREATE: %', v_leaks;
+  END IF;
+  IF (SELECT pg_get_userbyid(proowner) FROM pg_proc
+       WHERE oid = 'public.reconcile_guest_participation(jsonb)'::regprocedure) <> 'account_reconciler' THEN
+    RAISE EXCEPTION 'R13-SB2 D2: reconcile_guest_participation is not owned by account_reconciler';
+  END IF;
+END
+$$;
+
 REVOKE ALL ON FUNCTION public.reconcile_guest_participation(jsonb) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.reconcile_guest_participation(jsonb) TO authenticated;
 

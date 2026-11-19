@@ -4,6 +4,7 @@
 > **Baseline `main`:** `8f95b9a` (R13-VERIFY1, PR #209, merged; R13-TX1 PR #207 merged)
 > **Environment:** disposable local stack on loopback only. No hosted Supabase project, Sanity dataset, real user, `supabase login`/`link`/`db push`, or `--remote`/`--linked`/`--db-url` path was used.
 > **Status:** **partial evidence.** Completing I-210 depends on Aaron's decision on the D1–D4 migration remediation (§10). This PR contains **no migration**.
+> **Update (R13-SB2, Issue #225):** the §10 remediation is now implemented in place in R13-TX1 and R13-VERIFY1. The runner applies them with **zero** unblocks and **zero** warnings and no longer has any superuser path. §§4–6 below describe the SB1-era runner and are historical. See [`r13-sb2-supabase-migration-remediation.md`](r13-sb2-supabase-migration-remediation.md), which also records one call site §10 missed (`get_account_participation()` invoked by the definer body).
 
 ---
 
@@ -198,7 +199,7 @@ SELECT * FROM pg_default_acl d, aclexplode(d.defaclacl) a
 
 Then delete that stack's `supabase_migrations.schema_migrations` rows for `20261118000000` and `20261118000003`, or simply recreate the stack.
 
-## 10. Recommended D1–D4 remediation (**NOT implemented, awaiting Aaron's decision**)
+## 10. Recommended D1–D4 remediation (implemented in R13-SB2; see the SB2 note for deviations)
 
 **Recommendation: amend R13-TX1 and R13-VERIFY1 in place, before first deployment, under a separately scoped issue.** Nothing has been deployed, so no hosted migration history needs preserving. Every correction then lives inside the migration it corrects, in the same transaction, so any failure rolls back completely and nothing can be stranded. The alternatives are worse:
 

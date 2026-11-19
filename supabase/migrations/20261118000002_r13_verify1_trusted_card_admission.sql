@@ -5,6 +5,17 @@
 --
 -- Forward-only. Does NOT modify any R13-3 / R13-TX1 object, grant, policy or function.
 --
+-- Revision R13-SB2 (Issue #225), amended IN PLACE before any deployment under a one-time,
+-- owner-authorized exception to forward-only practice (never a general policy). This file had
+-- never been applied to a hosted database; it could not apply on Supabase at all (D3).
+-- Evidence: docs/testing/r13-sb2-supabase-migration-remediation.md.
+--   D1  issuer self-grant guarded by SET+USAGE (not MEMBER), WITH INHERIT TRUE, SET TRUE.
+--   D2  temporary CREATE ON SCHEMA account_issuance for the new owner, revoked in this same
+--       transaction, then asserted absent.
+--   D3  no function-level `SET bibleberry.award_issuance_account` clause (needs a superuser-only
+--       parameter privilege on Supabase); each confining issuer function resets it on entry.
+--   D4  revokes the issuer's EXECUTE on the reconciler-only account_private.request_account_id().
+--
 -- Trust model (summary; see handoff §2):
 --   * A provisional claim (written only by the TX1 reconciler under auth.uid()) merely
 --     NOMINATES an (account, award) pair for verification. Its client flags/date are evidence;
@@ -40,9 +51,17 @@ BEGIN
     CREATE ROLE account_award_verifier
       NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
   END IF;
+  -- R13-SB2 (D1): the runner needs SET (for `OWNER TO`) and INHERIT (owner rights afterwards).
+  -- A CREATEROLE creator's automatic ADMIN-only membership already satisfies 'MEMBER'.
   IF NOT (SELECT rolsuper FROM pg_roles WHERE rolname = current_user)
-     AND NOT pg_has_role(current_user, 'account_award_issuer', 'MEMBER') THEN
-    EXECUTE format('GRANT account_award_issuer TO %I', current_user);
+     AND NOT (pg_has_role(current_user, 'account_award_issuer', 'SET')
+              AND pg_has_role(current_user, 'account_award_issuer', 'USAGE')) THEN
+    EXECUTE format('GRANT account_award_issuer TO %I WITH INHERIT TRUE, SET TRUE', current_user);
+  END IF;
+  IF NOT (SELECT rolsuper FROM pg_roles WHERE rolname = current_user)
+     AND NOT (pg_has_role(current_user, 'account_award_issuer', 'SET')
+              AND pg_has_role(current_user, 'account_award_issuer', 'USAGE')) THEN
+    RAISE EXCEPTION 'R13-SB2 D1: migration runner % cannot SET ROLE/inherit account_award_issuer', current_user;
   END IF;
 END
 $$;
@@ -50,6 +69,8 @@ $$;
 GRANT USAGE ON SCHEMA public TO account_award_issuer;
 GRANT USAGE ON SCHEMA account_private TO account_award_issuer;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA account_private TO account_award_issuer;
+-- R13-SB2 (D4): the auth.uid() bridge is for account_reconciler ONLY.
+REVOKE EXECUTE ON FUNCTION account_private.request_account_id() FROM account_award_issuer;
 
 -- ---------------------------------------------------------------------------
 -- 1. Private audit tables (no client access at all)
@@ -137,7 +158,10 @@ $$;
 
 -- ---------------------------------------------------------------------------
 -- 2. Issuer privileges: column-scoped, and RLS-confined to the ONE account the running
---    admission function is processing (session setting scoped by the function's SET clause).
+--    admission function is processing. R13-SB2 (D3): the setting is transaction-local
+--    (`set_config(..., true)`); every account-confining issuer function resets it to '' on
+--    entry before confining itself, so a caller preset or a value left by an earlier call in
+--    the same transaction is never used. Only account_award_issuer's policies read it.
 -- ---------------------------------------------------------------------------
 CREATE SCHEMA account_issuance;
 REVOKE ALL ON SCHEMA account_issuance FROM PUBLIC;
@@ -235,11 +259,13 @@ LANGUAGE plpgsql
 VOLATILE
 SECURITY DEFINER
 SET search_path = ''
-SET bibleberry.award_issuance_account TO ''
 AS $$
 DECLARE
   v_claim public.account_provisional_award_claims%ROWTYPE;
 BEGIN
+  -- R13-SB2 (D3): fail-closed entry reset. Any value preset by the caller, or left by an
+  -- earlier issuer call in this transaction, is discarded before anything else runs.
+  PERFORM set_config('bibleberry.award_issuance_account', '', true);
   IF p_account_id IS NULL OR p_award_id IS NULL THEN
     RETURN jsonb_build_object('status', 'noPendingClaim');
   END IF;
@@ -276,9 +302,11 @@ VOLATILE
 SECURITY DEFINER
 SET search_path = ''
 SET lock_timeout = '5s'
-SET bibleberry.award_issuance_account TO ''
 AS $$
 BEGIN
+  -- R13-SB2 (D3): fail-closed entry reset. Any value preset by the caller, or left by an
+  -- earlier issuer call in this transaction, is discarded before anything else runs.
+  PERFORM set_config('bibleberry.award_issuance_account', '', true);
   IF p_account_id IS NULL OR p_award_id IS NULL THEN
     RETURN jsonb_build_object('status', 'noPendingClaim');
   END IF;
@@ -316,7 +344,6 @@ VOLATILE
 SECURITY DEFINER
 SET search_path = ''
 SET lock_timeout = '5s'
-SET bibleberry.award_issuance_account TO ''
 AS $$
 DECLARE
   v_ceiling date := ((clock_timestamp() AT TIME ZONE 'UTC') + interval '14 hours')::date;
@@ -347,6 +374,9 @@ DECLARE
   v_new_rev bigint;
   v_status text;
 BEGIN
+  -- R13-SB2 (D3): fail-closed entry reset. Any value preset by the caller, or left by an
+  -- earlier issuer call in this transaction, is discarded before anything else runs.
+  PERFORM set_config('bibleberry.award_issuance_account', '', true);
   IF current_setting('transaction_isolation') <> 'read committed' THEN
     RETURN jsonb_build_object('status', 'rejected', 'detail', 'unsupportedTransactionIsolation');
   END IF;
@@ -538,11 +568,40 @@ BEGIN
 END
 $$;
 
+-- R13-SB2 (D2): the new owner needs CREATE on `account_issuance` (created above by this
+-- migration) only for the ownership transfer; revoked again in this same transaction.
+GRANT CREATE ON SCHEMA account_issuance TO account_award_issuer;
 ALTER FUNCTION account_issuance.current_account() OWNER TO account_award_issuer;
 ALTER FUNCTION account_issuance.list_pending_award_claims(integer) OWNER TO account_award_issuer;
 ALTER FUNCTION account_issuance.get_claim_verification_context(uuid, text) OWNER TO account_award_issuer;
 ALTER FUNCTION account_issuance.record_verification_deferral(uuid, text, text, integer) OWNER TO account_award_issuer;
 ALTER FUNCTION account_issuance.admit_verified_award(jsonb) OWNER TO account_award_issuer;
+REVOKE CREATE ON SCHEMA account_issuance FROM account_award_issuer;
+
+DO $$
+DECLARE
+  v_leaks text;
+BEGIN
+  SELECT string_agg(r.rolname || ' CREATE on ' || n.nspname, ', ') INTO v_leaks
+    FROM pg_namespace n CROSS JOIN pg_roles r
+   WHERE r.rolname LIKE 'account\_%' AND has_schema_privilege(r.oid, n.oid, 'CREATE')
+       -- (a session's own temp schema reports CREATE for any role; not a real grant)
+       AND n.nspname !~ '^pg_(toast_)?temp_';
+  IF v_leaks IS NOT NULL THEN
+    RAISE EXCEPTION 'R13-SB2 D2: owner role retains schema CREATE: %', v_leaks;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_proc p WHERE p.pronamespace = 'account_issuance'::regnamespace
+                AND pg_get_userbyid(p.proowner) <> 'account_award_issuer') THEN
+    RAISE EXCEPTION 'R13-SB2 D2: an account_issuance function is not owned by account_award_issuer';
+  END IF;
+  -- R13-SB2 (D3): no issuance function may carry a function-level placeholder GUC.
+  IF EXISTS (SELECT 1 FROM pg_proc p, unnest(p.proconfig) c
+              WHERE p.pronamespace = 'account_issuance'::regnamespace
+                AND c LIKE 'bibleberry.%') THEN
+    RAISE EXCEPTION 'R13-SB2 D3: an account_issuance function still SETs a bibleberry.* GUC';
+  END IF;
+END
+$$;
 
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA account_issuance FROM PUBLIC, anon, authenticated, account_reconciler;
 GRANT EXECUTE ON FUNCTION account_issuance.current_account() TO account_award_issuer;

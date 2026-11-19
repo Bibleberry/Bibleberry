@@ -144,4 +144,21 @@ expect_collision_refusal "opt-in: refuses orphaned volumes without the runner's 
 expect_collision_refusal "opt-in: refuses project resources with no runner network" "no runner network" \
   SB1_DISPOSE_PREVIOUS_RUNNER_STACK=1 STUB_CONTAINERS="$CONTAINER|$WORK|$NET"
 
-echo "R13-SB1 runner guard tests passed."
+# R13-SB2 (Issue #225): mutation demonstrations run through the same fail-closed ownership gate.
+expect_collision_refusal "SB2 mutation mode still refuses an existing project container" "refusing to touch pre-existing" \
+  SB2_MUTATION_DEMOS=1 STUB_CONTAINERS="$CONTAINER|$WORK|$NET" "${RUNNER_NET[@]}"
+
+# R13-SB2: the runner must have NO superuser / pre-unblock path at all.
+RUNNER_SRC="$ROOT_DIR/scripts/accountSupabase/run-local-supabase-acceptance.sh"
+if grep -nE 'docker exec|supabase_admin|-U postgres\b|GRANT SET ON PARAMETER|ON SCHEMA auth' "$RUNNER_SRC" \
+     | grep -vE '^\s*[0-9]+:\s*#'; then
+  echo "not ok - runner contains a superuser/pre-unblock path" >&2
+  exit 1
+fi
+echo "ok - runner has no superuser or pre-unblock path (no docker exec, supabase_admin, parameter or auth grant)"
+# Mutation copies are built under a fresh mktemp directory, never inside the checkout.
+grep -qE 'MUT_ROOT="\$\(mktemp -d ' "$RUNNER_SRC" || { echo "not ok - mutation workdir is not a mktemp directory" >&2; exit 1; }
+if grep -nE 'perl -0pi[^\n]*ROOT_DIR' "$RUNNER_SRC"; then echo "not ok - a mutation edits the checkout" >&2; exit 1; fi
+echo "ok - mutation demonstrations only edit throw-away copies"
+
+echo "R13-SB1/SB2 runner guard tests passed."
