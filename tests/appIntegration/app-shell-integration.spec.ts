@@ -539,6 +539,7 @@ test.describe('Issue #132: Controlled App-Shell Integration', () => {
 
     await reviewButton.click()
     await expect(page.getByTestId('onboarding-replay-badge')).toBeVisible()
+    await expect(page.getByTestId('onboarding-step-heading')).toBeFocused()
     await page.getByTestId('onboarding-skip-button').click()
     await expect(page.getByRole('heading', { name: 'Make the space your own.' })).toBeVisible()
     await expect(reviewButton).toBeFocused()

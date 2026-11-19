@@ -2,8 +2,9 @@
 
 The ordinary app's **More → Review Introduction** action opens the accepted
 `ReplayableOnboarding` component in replay mode. Skip, Escape, and Finish return
-to More; focus returns to the Review Introduction button so keyboard and
-screen-reader users can resume at their entry point. The replay receives the
+to More; focus moves to the introduction heading on entry and returns to the
+Review Introduction button on exit so keyboard and screen-reader users can
+follow the transition. The replay receives the
 current More origin and reminder time. Reminder preferences change only when
 the reader explicitly chooses **Save reminder preference**.
 
