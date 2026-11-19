@@ -15,8 +15,9 @@ on:
       - public/**
       - index.html
       - vite.config.*
-      - src/participation/drivers/capacitorPreferencesDriver.ts
-      - src/participation/defaultGuestStore.ts
+      - tsconfig*.json
+      - tailwind.config.js
+      - postcss.config.js
       - .github/workflows/native-android.yml
   push:
     branches: [main]
@@ -30,8 +31,9 @@ on:
       - public/**
       - index.html
       - vite.config.*
-      - src/participation/drivers/capacitorPreferencesDriver.ts
-      - src/participation/defaultGuestStore.ts
+      - tsconfig*.json
+      - tailwind.config.js
+      - postcss.config.js
       - .github/workflows/native-android.yml
   # No path filter here: queue builds must validate the integrated Android app.
   merge_group:

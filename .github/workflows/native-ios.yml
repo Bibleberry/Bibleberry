@@ -8,9 +8,14 @@ on:
       - capacitor.config.ts
       - package.json
       - package-lock.json
-      - src/native/**
-      - src/participation/drivers/capacitorPreferencesDriver.ts
-      - src/participation/defaultGuestStore.ts
+      # Vite/Capacitor packages current web app assets into the native iOS app.
+      - src/**
+      - public/**
+      - index.html
+      - vite.config.*
+      - tsconfig*.json
+      - tailwind.config.js
+      - postcss.config.js
       - scripts/ios-simulator-snapshot.py
       - scripts/ios-simulator-smoke.py
       - tests/ci/test_ios_simulator_smoke.py
@@ -22,9 +27,14 @@ on:
       - capacitor.config.ts
       - package.json
       - package-lock.json
-      - src/native/**
-      - src/participation/drivers/capacitorPreferencesDriver.ts
-      - src/participation/defaultGuestStore.ts
+      # Vite/Capacitor packages current web app assets into the native iOS app.
+      - src/**
+      - public/**
+      - index.html
+      - vite.config.*
+      - tsconfig*.json
+      - tailwind.config.js
+      - postcss.config.js
       - scripts/ios-simulator-snapshot.py
       - scripts/ios-simulator-smoke.py
       - tests/ci/test_ios_simulator_smoke.py
