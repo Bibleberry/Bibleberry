@@ -3,6 +3,7 @@
 > **Issue:** [#210](https://github.com/Bibleberry/Bibleberry/issues/210) (Phase 05 / R13-SB1)
 > **Baseline `main`:** `8f95b9a` (R13-VERIFY1, PR #209, merged; R13-TX1 PR #207 merged)
 > **Environment:** disposable local stack on loopback only. No hosted Supabase project, Sanity dataset, real user, `supabase login`/`link`/`db push`, or `--remote`/`--linked`/`--db-url` path was used.
+> **Status:** **partial evidence.** Completing I-210 depends on Aaron's decision on the D1–D4 migration remediation (§10). This PR contains **no migration**.
 
 ---
 
@@ -10,17 +11,17 @@
 
 | Question | Result |
 | --- | --- |
-| Do the **accepted** migrations apply unchanged under the real Supabase migration runner? | **No.** Four Supabase-specific defects (§3). D1/D2 are fixed by two new migrations in this PR. **D3 and D4 cannot be fixed by any migration the Supabase runner can execute.** |
-| Is the account security model sound on a real Supabase runtime **once D3/D4 are unblocked locally**? | **Yes.** All 21 real-stack tests pass (GoTrue sessions, PostgREST, RLS, grants, private issuance, dedicated verifier login) in two complete runner executions on fresh stacks, plus earlier manual suite runs. |
-| Can the current migrations be deployed to a hosted Supabase project? | **BLOCKED** until Aaron decides the D3/D4 remedies (§3.3, §9). The local unblocks need the bootstrap superuser, which hosted projects do not provide. |
+| Do the **accepted** migrations apply unchanged under the real Supabase migration runner? | **No.** Four Supabase-specific defects (D1–D4, §3). None can be corrected by a migration ordered *after* the accepted files, because D1 aborts R13-TX1 itself and D3 aborts R13-VERIFY1. |
+| Is the account security model sound on a real Supabase runtime once D1–D4 are unblocked **locally**? | **Yes.** All 21 real-stack tests pass: GoTrue sessions, PostgREST, RLS, grants, private issuance and a dedicated verifier login (§6). |
+| Can the migrations be deployed to a hosted Supabase project? | **BLOCKED** until Aaron authorizes a remediation (§10, recommended design, **not implemented**). The local unblocks need the container's bootstrap superuser, which hosted projects do not provide. |
 
-The real-stack acceptance therefore proves the **design** under real Supabase Auth/PostgREST/roles. It does **not** prove that the accepted migration files are deployable. That is the main finding of this work order.
+The real-stack run proves the **design** under real Supabase Auth, PostgREST and roles. It does **not** prove the accepted migration files are deployable, and the local test-only grants are not a hosted solution.
 
 ## 2. Environment and exact versions
 
 | Component | Version |
 | --- | --- |
-| Host | Claude Code cloud container, Ubuntu 24.04.5 LTS, Linux 6.18 x86_64, 4 vCPU, 15 GiB |
+| Host | Claude Code cloud container, Ubuntu 24.04.5 LTS, Linux 6.18 x86_64 |
 | Container runtime | Docker Engine 29.10.0 (linux/amd64), started inside the container |
 | Supabase CLI | 3.2.0 (npm `supabase@3.2.0`, not added to `package.json`) |
 | Database | `ghcr.io/supabase/postgres:17.12.0.000` → PostgreSQL 17.12, `supautils` 4.0.0 |
@@ -32,35 +33,30 @@ Images were pulled from GHCR (`SB1_IMAGE_REGISTRY=ghcr.io`) because this contain
 
 ## 3. Supabase-specific defects in the accepted migrations
 
-The Supabase migration runner connects as **`postgres`**, which is `CREATEROLE` but **not superuser**. The plain-PostgreSQL harness of R13-3/TX1/VERIFY1 ran migrations as a superuser, so none of these surfaced there.
+The Supabase migration runner connects as **`postgres`**, which is `CREATEROLE` but **not superuser**. The plain-PostgreSQL harness of R13-3/TX1/VERIFY1 ran migrations as a superuser and simulated `auth`, so none of these surfaced there. The runner reproduces each defect **in order on every run**, and after each expected failure it proves the failed migration stranded nothing (§5, step 4).
 
-### D1 — owner role cannot be assigned (TX1, VERIFY1) — **fixed in this PR**
+### D1 — owner role cannot be assigned (R13-TX1; same pattern in R13-VERIFY1)
 
-Repro: `supabase migration up --local` → `ERROR: must be able to SET ROLE "account_reconciler" (42501)` at `ALTER FUNCTION public.reconcile_guest_participation(jsonb) OWNER TO account_reconciler`.
+**Repro.** `supabase migration up --local` fails with `ERROR: must be able to SET ROLE "account_reconciler" (42501)` at `ALTER FUNCTION public.reconcile_guest_participation(jsonb) OWNER TO account_reconciler`.
 
-Root cause: since PostgreSQL 16, a `CREATEROLE` creator gets an automatic membership with `ADMIN` but `INHERIT FALSE, SET FALSE`. The migrations guard their self-grant with `pg_has_role(current_user, role, 'MEMBER')`, which is already true, so the grant is skipped. Verified directly:
+**Root cause.** Since PostgreSQL 16, a `CREATEROLE` creator receives an automatic membership with `ADMIN` but `INHERIT FALSE, SET FALSE`. The migrations guard their self-grant with `pg_has_role(current_user, role, 'MEMBER')`, which is already true, so the grant is skipped:
 
 ```sql
 CREATE ROLE sb1_probe NOLOGIN NOINHERIT;           -- as postgres
 SELECT pg_has_role(current_user,'sb1_probe','MEMBER'), pg_has_role(current_user,'sb1_probe','SET');  -- t | f
 ```
 
-Without INHERIT, the runner also loses owner rights right after `OWNER TO`. TX1's following `REVOKE ALL ... FROM PUBLIC, anon, authenticated` then only raises a WARNING and **silently revokes nothing** (reproduced).
+Without INHERIT the runner also loses owner rights right after `OWNER TO`. The following `REVOKE ALL ... FROM PUBLIC, anon, authenticated` then only raises a WARNING and **silently revokes nothing** (reproduced earlier on this branch).
 
-### D2 — new owner lacks schema `CREATE` (TX1, VERIFY1) — **fixed in this PR**
+### D2 — new owner lacks schema `CREATE` (R13-TX1, R13-VERIFY1)
 
-Repro (after D1): `ERROR: permission denied for schema public` at the same `ALTER ... OWNER TO`. A non-superuser can only transfer ownership to a role that has `CREATE` on the object's schema.
+**Repro** (with D1 unblocked). The run fails with `ERROR: permission denied for schema public (42501)` at the same `ALTER ... OWNER TO`.
 
-### Fix for D1/D2: `20261118000000_…_prerequisite.sql` + `20261118000003_…_cleanup.sql`
+**Root cause.** For a non-superuser, the **new owner** must hold `CREATE` on the object's schema.
 
-- **Prerequisite (ordered before TX1):** pre-creates `account_reconciler` and `account_award_issuer` with byte-identical attributes. TX1/VERIFY1 use `IF NOT EXISTS`, so their own creation is skipped. For a non-superuser runner it grants `WITH INHERIT TRUE, SET TRUE`, which is what the migrations' own `GRANT <role> TO current_user` would have produced. It also temporarily grants `CREATE ON SCHEMA public` to the reconciler, plus a default privilege so `account_award_issuer` gets `CREATE` on the schema VERIFY1 creates.
-- **Cleanup (ordered after VERIFY1):** revokes every temporary `CREATE` and the default privilege, then **raises an exception** if any owner role still holds schema `CREATE` or a default schema privilege.
-- **Deviation, for Aaron:** the issue asks for forward-only corrections *after* accepted migrations. That is impossible here because TX1 itself aborts. The prerequisite is ordered **before** TX1 and changes no table, policy, grant or function; only roles and temporary schema privileges. No accepted migration file was edited. On superuser databases both files are no-ops apart from role creation, which TX1/VERIFY1 would have done anyway (plain-PG suites still pass, §7).
-- Final catalog state on the real stack: functions owned by the intended roles, function ACLs exactly as designed (`reconcile_guest_participation`: `account_reconciler`, `authenticated`; issuance functions: issuer, `account_award_verifier`), no owner role holds `CREATE` anywhere.
+### D3 — R13-VERIFY1 placeholder GUC (blocking)
 
-### D3 — VERIFY1 cannot be applied on Supabase — **BLOCKING, not fixed**
-
-Repro: `supabase migration up --local` → `ERROR: permission denied to set parameter "bibleberry.award_issuance_account" (42501)` at `CREATE FUNCTION account_issuance.get_claim_verification_context ... SET bibleberry.award_issuance_account TO ''`. The CLI rolls VERIFY1 back cleanly (no `account_issuance` schema remains). Minimal repro as `postgres`:
+**Repro** (with D1/D2 unblocked). R13-TX1 applies, then R13-VERIFY1 fails with `ERROR: permission denied to set parameter "bibleberry.award_issuance_account" (42501)` at `CREATE FUNCTION account_issuance.get_claim_verification_context ... SET bibleberry.award_issuance_account TO ''`. Minimal repro as `postgres`:
 
 ```sql
 SET bibleberry.repro = 'x';                                                    -- allowed (session level)
@@ -69,37 +65,31 @@ CREATE FUNCTION public.sb1_repro() RETURNS int LANGUAGE sql
 GRANT SET ON PARAMETER bibleberry.award_issuance_account TO postgres;          -- ERROR: permission denied
 ```
 
-Root cause: since PostgreSQL 15, attaching an unregistered **placeholder** GUC to `CREATE FUNCTION ... SET` requires superuser or `SET` privilege on that parameter, and only a superuser can grant it. Supabase's `supautils.privileged_role_allowed_configs` allow-lists namespaces such as `pgrst.*` and `pg_net.*`, not `bibleberry.*`. **No migration run by `postgres` can make the accepted VERIFY1 file apply.**
+**Root cause.** Since PostgreSQL 15, attaching an unregistered placeholder GUC to a `CREATE FUNCTION ... SET` clause requires superuser or `SET` privilege on that parameter, and only a superuser can grant that. Supabase's `supautils.privileged_role_allowed_configs` allow-lists `pgrst.*`, `pg_net.*` and similar namespaces, but not `bibleberry.*`.
 
-### D4 — TX1's `auth` grant is a silent no-op — **BLOCKING, not fixed**
+### D4 — R13-TX1 `auth` grant is a silent no-op (blocking)
 
-Repro: the migration "succeeds", but every authenticated commit returns HTTP 403 `{"code":"42501","message":"permission denied for schema auth"}`. The database log of the migration session shows:
+**Repro.** The migration "succeeds", but every authenticated commit returns HTTP 403 `{"code":"42501","message":"permission denied for schema auth"}`. The migration session logs:
 
 ```
 postgres@postgres WARNING:  no privileges were granted for "auth"
 postgres@postgres WARNING:  no privileges were granted for "uid"
 ```
 
-Root cause: schema `auth` is owned by `supabase_admin`, and `postgres` holds `USAGE` on it **without** grant option (`postgres=U/supabase_admin`). TX1's `GRANT USAGE ON SCHEMA auth TO account_reconciler` therefore grants nothing. The SECURITY DEFINER body and the reconciler's RLS policies both call `auth.uid()`, so **the client transaction cannot work on Supabase**. The `uid` warning is harmless because `auth.uid()` is already executable by `PUBLIC`. These are the only two warnings the runner produces across all five migrations; the runner fails on any other.
-
-### 3.3 Remedy options for D3/D4 (owner decision; none applied)
-
-Nothing is deployed, so changing the accepted files before first deployment is possible, but it needs Aaron's authorization.
-
-- **D3:** (a) amend VERIFY1 to scope the per-call account without a placeholder `SET` clause, e.g. `set_config(..., true)` in the body with an explicit reset/exception path. This changes V7's call-scoped confinement to transaction-scoped and must be re-reviewed. (b) Ask the platform (Supabase support) for `GRANT SET ON PARAMETER` to `postgres`. Not self-serve; availability unverified.
-- **D4:** (a) amend TX1 so the definer body and reconciler policies resolve identity through a `postgres`-owned helper. `postgres` has `auth` USAGE. Needs review of the trust boundary. (b) Make the reconciler a member of a Supabase role that has `auth` USAGE, e.g. `authenticated`. That **broadens** the least-privilege owner role, including Supabase's default grants on future `public` objects. Not recommended without review. (c) A platform-side grant, as for D3.
-- None of these were tested; they are listed only to frame the decision.
+**Root cause.** Schema `auth` is owned by `supabase_admin`, and `postgres` holds `USAGE` on it **without** grant option (`postgres=U/supabase_admin`). The SECURITY DEFINER body and the reconciler RLS policies call `auth.uid()`, so **the client transaction cannot work on Supabase**. The `uid` warning is harmless, because `PUBLIC` already has EXECUTE on `auth.uid()`. These are the only two migration warnings; the runner fails on any other.
 
 ## 4. Local-only unblocks used for the real-stack tests
 
-To test everything else on the real runtime, the runner executes exactly these two statements **as the container's bootstrap superuser** (`docker exec … psql -U supabase_admin`). This happens after reproducing D3/D4 and before finishing the migrations. They live in the test harness only, never in a migration, and are impossible on hosted Supabase:
+These are run only by the test runner, as the container's bootstrap superuser (`docker exec … psql -U supabase_admin`). They never appear in a migration and are impossible on hosted Supabase. Each is applied only **after** its defect has been reproduced and the failure proven clean.
 
-```sql
-GRANT SET ON PARAMETER bibleberry.award_issuance_account TO postgres;  -- unblocks D3
-GRANT USAGE ON SCHEMA auth TO account_reconciler;                      -- unblocks D4: exactly TX1's intended grant
-```
+| Defect | Unblock | Lifetime |
+| --- | --- | --- |
+| D1 | Pre-create `account_reconciler` and `account_award_issuer` with attributes identical to the migrations; `GRANT … TO postgres WITH INHERIT TRUE, SET TRUE` (what the migrations' own self-grant intended) | stack lifetime |
+| D2 | `GRANT CREATE ON SCHEMA public TO account_reconciler`; `ALTER DEFAULT PRIVILEGES FOR ROLE postgres GRANT CREATE ON SCHEMAS TO account_award_issuer` | **temporary**: revoked after the migrations apply, and verified absent (no account role holds `CREATE` on any schema; no default privilege names one) **before any test runs** |
+| D3 | `GRANT SET ON PARAMETER bibleberry.award_issuance_account TO postgres` | stack lifetime |
+| D4 | `GRANT USAGE ON SCHEMA auth TO account_reconciler` (exactly the privilege R13-TX1 intended) | stack lifetime |
 
-Neither grants any client role, issuer or verifier anything beyond the accepted design. `SB1_STOP_AFTER_DEFECTS=1` runs the reproductions only.
+None of these grants a client role, the issuer or the verifier anything beyond the accepted design. `SB1_STOP_AFTER_DEFECTS=1` stops after reproducing D1–D4, before the D3/D4 unblocks.
 
 ## 5. How to run (local, disposable, repeatable)
 
@@ -107,84 +97,156 @@ Neither grants any client role, issuer or verifier anything beyond the accepted 
 SUPABASE_CLI=/path/to/supabase ./scripts/accountSupabase/run-local-supabase-acceptance.sh
 ```
 
-Optional: `SB1_IMAGE_REGISTRY=ghcr.io`, `SB1_KEEP_STACK=1` (inspect afterwards; stop with `supabase stop --no-backup`), `SB1_STOP_AFTER_DEFECTS=1`.
+Optional settings: `SB1_IMAGE_REGISTRY=ghcr.io`, `SB1_STOP_AFTER_DEFECTS=1`, `SB1_KEEP_STACK=1` (keep the stack for inspection), and `SB1_DISPOSE_PREVIOUS_RUNNER_STACK=1` (see step 2).
 
-The runner:
+The runner works through these steps:
 
-1. **Preflight.** Refuses before touching Docker if `SUPABASE_ACCESS_TOKEN`, `SUPABASE_DB_URL`, `SUPABASE_DB_PASSWORD`, `SUPABASE_PROJECT_ID`, `DATABASE_URL` or any libpq redirect variable is set, if `supabase/.temp/project-ref` exists (linked checkout), if `project_id` is not `bibleberry-sb1-local`, or if the Data API exposes anything beyond `public`/`graphql_public` (`tests/accountSupabase/runLocalSupabaseGuard.test.sh`, 14 cases).
-2. **Stack.** Stops any previous stack of this project and starts fresh on a Docker network created with `com.docker.network.bridge.host_binding_ipv4=127.0.0.1`. The CLI otherwise publishes ports on `0.0.0.0`, even with daemon `ip` set. It then asserts that every published port is `127.0.0.1` and that both the API and DB URLs are loopback. Ports are 55421 (API) and 55422 (DB), not the CLI defaults, so they never collide with another local project.
-3. **Migrations.** Checks the runner identity is `postgres`, non-superuser, on a database with no `account_*` tables. Applies migrations with **`supabase migration up --local`** and **without** `00_local_supabase_auth_bootstrap.sql`: no fake `auth.users`, no `auth.uid()` override. Asserts D3 and D4, applies §4, finishes the migrations, and scans the DB log for unexpected migration warnings.
-4. **Suites.** Runs suites A and B and requires exactly `# pass 21`, `# fail 0`, `# skipped 0`. Tears down the stack and network on exit.
+1. **Preflight**, before any Docker or database access. It refuses if `SUPABASE_ACCESS_TOKEN`, `SUPABASE_DB_URL`, `SUPABASE_DB_PASSWORD`, `SUPABASE_PROJECT_ID`, `DATABASE_URL` or any libpq redirect variable is set. It also refuses if `supabase/.temp/project-ref` exists (a linked checkout), if `project_id` is not `bibleberry-sb1-local`, or if the Data API exposes anything beyond `public`/`graphql_public`.
+2. **Resource ownership (fails closed).** If any container, volume or network of this project already exists, the runner exits **without stopping or removing anything**. The only disposal path is the documented opt-in `SB1_DISPOSE_PREVIOUS_RUNNER_STACK=1`, which acts only after it **proves** the stack came from an earlier run of this runner in this checkout:
+   - the network carries `bibleberry.sb1=local` and a `bibleberry.sb1.owner` label, and forces `127.0.0.1` binding;
+   - every project container was started from this working directory and is attached to that network;
+   - volumes are removed only together with such a proven stack.
 
-## 6. Results matrix (real stack; 2 complete fresh runner executions, both passed)
+   Each run labels its network with a run-unique owner ID. Teardown removes only the network carrying that ID. It stops the project stack only because this step proved nothing pre-existed.
+3. **Stack.** A fresh stack starts on a network created with `com.docker.network.bridge.host_binding_ipv4=127.0.0.1`. The CLI otherwise publishes ports on `0.0.0.0`. The runner asserts every published port is `127.0.0.1` and that the API and DB URLs are loopback. Ports are 55421 and 55422, not the CLI defaults.
+4. **Migrations.** The runner checks the runner identity is `postgres`, non-superuser, and that the database has no `account_*` tables. It then applies **only the 3 accepted, unchanged migrations** with **`supabase migration up --local`**, **without** `00_local_supabase_auth_bootstrap.sql` (no fake `auth.users`, no `auth.uid()` override), and reproduces D1 → D4:
+   - After each expected failure it asserts the exact error and the applied migration set.
+   - For D1 and D2 it asserts that a full snapshot of account roles, memberships, **every schema ACL and every default privilege** is byte-identical to the snapshot taken just before the failing run. The CLI's own `supabase_migrations` history schema is excluded.
+   - For D3, R13-TX1 legitimately applies in the same CLI run. The runner compares roles and memberships, then checks explicitly that no R13-VERIFY1 schema, table, role, policy, schema `USAGE` or `EXECUTE` grant survived.
+5. **Unblocks and warning scan.** It applies the §4 unblocks, revokes the temporary D2 grants and verifies them gone, then scans the DB log for unexpected migration warnings.
+6. **Suites.** It runs suites A and B and requires exactly `# pass 21`, `# fail 0`, `# skipped 0`.
 
-**A — GoTrue + PostgREST (`tests/accountSupabase/authPostgrestBoundary.supabase.test.ts`).** Users sign up and sign in through real GoTrue with random passwords held in memory only, and every request carries the local **publishable** key.
+## 6. Results matrix (real stack)
+
+Latest complete run at this PR's head: exit 0. D1–D4 were reproduced, and every failure was proven clean. All 3 accepted migrations applied, the temporary D2 grants were verified revoked, only the 2 known warnings appeared, and the suites reported **21 pass, 0 fail, 0 skipped**.
+
+**A — GoTrue + PostgREST (`tests/accountSupabase/authPostgrestBoundary.supabase.test.ts`).** Users sign up and sign in through real GoTrue with random in-memory passwords. Every request carries the local **publishable** key.
 
 | # | Proven over real HTTP | Result |
 | --- | --- | --- |
-| A1 | Sessions are ES256 JWTs, `role=authenticated`, `sub` = real `auth.users.id`; `/auth/v1/user` works; schema has the 12 `account_*` tables | pass |
-| A2 | Fresh account → `{"status":"notFound"}`. Anon → **HTTP 401** `42501` (PostgREST/SQL privilege denial, not function JSON) for both RPCs | pass |
-| A3 | A's `newAccountTransfer` via `/rest/v1/rpc/reconcile_guest_participation` commits rev 1. **Every written row has `account_id = A`** (DB-side check), nothing for B, so `auth.uid()` = A inside the SECURITY DEFINER body. Explicit Shelf `isProtected` false/true stored exactly | pass |
-| A4 | Same key + different guest fingerprint → `conflict/idempotencyPayloadMismatch`. Award claim quarantined (not in `earnedAwards`; in `pendingAwardVerification`). Receipt `unresolved_persisted_on_server = false` | pass |
-| A5 | B reads only B. On all 10 client-readable tables B gets `[]` even when filtering `account_id=eq.A`. The 2 VERIFY1 audit tables → 401/403 `42501` | pass |
-| A6 | POST, upsert (`resolution=merge-duplicates`), PATCH and DELETE on **all 12** tables as anon and as A → 401/403 `42501`; A's row count unchanged | pass |
-| A7 | B sends `accountId = A` in body and envelope plus forged `Role: service_role`, `X-Jwt-Claim-Sub`, `Request.Jwt.Claim.Sub` headers → HTTP 200 `unauthorized/accountMismatch`, zero writes. The same headers on B's own payload commit **to B** | pass |
-| A8 | Malformed, tampered (sub swapped), `alg:none`, wrong-key HS256 and expired (validly signed) tokens → **HTTP 401 `PGRST30x`** before SQL, both RPCs | pass |
-| A9 | Legacy `service_role` JWT and `sb_secret_` key → `42501` on both client RPCs | pass |
-| A10 | B `existingAccountMerge` → rev 2. Stale `expectedRevision` → `conflict/revisionMismatch` (`currentRevision` 2). Exact replay → `alreadyCommittedDuplicate` with the original receipt. Readback merged | pass |
-| A11 | 6 concurrent HTTP writers at the same revision → exactly 1 `committed`, 5 `revisionMismatch`. Receipts `[1,2,3]`, no duplicates | pass |
-| A12 | `Content-Profile`/`Accept-Profile` `account_issuance`, `account_private` and `auth` → **406 `PGRST106`** for anon, A and service_role. Issuance/helper names on `/rpc/` → **404 `PGRST202`** | pass |
-| A13 | GraphQL: `pg_graphql` is **not installed** on this image. `/graphql/v1` returns no schema or account data (see §8) | pass (limited) |
+| A1 | Sessions are ES256 JWTs with `role=authenticated` and `sub` = real `auth.users.id`; `/auth/v1/user` works; schema has the 12 `account_*` tables | pass |
+| A2 | Fresh account returns `{"status":"notFound"}`. Anon gets **HTTP 401** `42501` (privilege denial, not function JSON) on both RPCs | pass |
+| A3 | A's `newAccountTransfer` via `/rest/v1/rpc/reconcile_guest_participation` commits rev 1. **Every written row has `account_id = A`** (checked database-side), nothing for B, so `auth.uid()` = A inside the SECURITY DEFINER body. Explicit Shelf `isProtected` false/true is stored exactly | pass |
+| A4 | Same key with a different guest fingerprint returns `conflict/idempotencyPayloadMismatch`. The award claim is quarantined (in `pendingAwardVerification`, not in `earnedAwards`), and the receipt has `unresolved_persisted_on_server = false` | pass |
+| A5 | B reads only B. On all 10 client-readable tables B gets `[]`, even when filtering `account_id=eq.A`. The 2 VERIFY1 audit tables return 401/403 `42501` | pass |
+| A6 | POST, upsert, PATCH and DELETE on **all 12** tables, as anon and as A, return 401/403 `42501`; A's row count is unchanged | pass |
+| A7 | B sends `accountId = A` in body and envelope plus forged `Role`, `X-Jwt-Claim-Sub` and `Request.Jwt.Claim.Sub` headers: HTTP 200 `unauthorized/accountMismatch`, zero writes. The same headers on B's own payload commit **to B** | pass |
+| A8 | Malformed, tampered (sub swapped), `alg:none`, wrong-key HS256 and expired (validly signed) tokens return **HTTP 401 `PGRST30x`** before any SQL runs, on both RPCs | pass |
+| A9 | The legacy `service_role` JWT and the `sb_secret_` key get `42501` on both client RPCs | pass |
+| A10 | B `existingAccountMerge` commits rev 2. A stale `expectedRevision` returns `conflict/revisionMismatch`; an exact replay returns `alreadyCommittedDuplicate` with the original receipt | pass |
+| A11 | 6 concurrent HTTP writers at the same revision: exactly 1 `committed`, 5 `revisionMismatch`; receipts `[1,2,3]` | pass |
+| A12 | `Content-Profile`/`Accept-Profile` set to `account_issuance`, `account_private` or `auth` returns **406 `PGRST106`** for anon, A and service_role. Issuance and helper names on `/rpc/` return **404 `PGRST202`** | pass |
+| A13 | `pg_graphql` is **not installed** on this image; `/graphql/v1` serves no schema or account data (§8) | pass (limited) |
 
-**B — dedicated verifier login + private issuance (`tests/accountSupabase/verifierRoleIssuance.supabase.test.ts`).** An ephemeral `LOGIN` role `sb1_verifier_login_<run>` is created **by `postgres`** with a random password, granted `account_award_verifier`, connected directly over loopback TCP, and dropped afterwards.
+**B — dedicated verifier login + private issuance (`tests/accountSupabase/verifierRoleIssuance.supabase.test.ts`).** `postgres` creates an ephemeral `LOGIN` role with a random password and grants it `account_award_verifier`. The role connects directly over loopback and is dropped afterwards.
 
 | # | Proven | Result |
 | --- | --- | --- |
-| B1 | Reconciler, issuer and verifier are `NOLOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT`, and login attempts as them fail. The login has `session_user = current_user = login`, non-superuser, no BYPASSRLS | pass |
-| B2 | `SET ROLE account_award_verifier` works. `SET ROLE` to issuer, reconciler, postgres, service_role, authenticated, anon, supabase_admin and authenticator → denied | pass |
-| B3 | SELECT/DELETE on all 12 account tables → denied; `auth.users` → denied. A hand-set `request.jwt.claims` for C cannot open `get_account_participation` (no EXECUTE). `reconcile_guest_participation`, `account_private.*` and issuer-internal `current_account()` → denied | pass |
-| B4 | `list_pending_award_claims` lists C's two real claims, identifiers/dates only. `get_claim_verification_context` returns completions only for an existing claim; `noPendingClaim` for D or for an unclaimed award | pass |
-| B5 | `record_verification_deferral` → `deferred`; reader readback byte-identical and the reason never reaches the reader | pass |
-| B6 | Extra `verified:true` → rejected. C's basis replayed onto D → `noPendingClaim`. Unclaimed award → `noPendingClaim`. Foreign basis → `basisNotInAccountCompletions`. Valid → `admitted`, replay → `alreadyEarned`. Owner sees the trusted card via PostgREST; counts C 1 award / 1 attestation / 1 pending claim, D 0 | pass |
-| B7 | C reconciles a re-skinned card (other image, `shareEligible:false`) → snapshot and date unchanged, flags OR. With FAITH still claimed, the fresh receipt is `false` and lists FAITH. After admitting FAITH, the original receipt replays `false` (immutable) and only a fresh reconcile returns `true` | pass |
-| B8 | Catalog under Supabase's default privileges (which auto-grant ALL in `public` to anon/authenticated/service_role): anon executes nothing; **service_role executes no account function**; authenticated executes only the two client RPCs; the verifier group only the 4 issuance functions. Anon has no table privilege, authenticated no write privilege. RLS is on for all 12 tables. service_role cannot touch the 2 private audit tables. No owner role touches `auth.users`. No API role has USAGE on `account_private`/`account_issuance` | pass |
+| B1 | Owner and group roles are `NOLOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT`, and logging in as them fails. For the login, `session_user = current_user = login`; it is not a superuser and has no BYPASSRLS | pass |
+| B2 | `SET ROLE account_award_verifier` works. `SET ROLE` to issuer, reconciler, postgres, service_role, authenticated, anon, supabase_admin or authenticator is denied | pass |
+| B3 | No table, `auth.users`, client RPC, `account_private` or issuer-internal access, even with a hand-set `request.jwt.claims` | pass |
+| B4 | Pending-claim listing returns identifiers and dates only. Verification context returns data only for an existing claim; otherwise `noPendingClaim` | pass |
+| B5 | Deferral is private; the reader's readback is byte-identical | pass |
+| B6 | Self-asserted field: rejected. Cross-account or unclaimed award: `noPendingClaim`. Foreign basis: `basisNotInAccountCompletions`. Valid claim: `admitted`; replay: `alreadyEarned`. The owner sees the trusted card | pass |
+| B7 | A client re-skin cannot change the earned snapshot or date; flags still OR. Old receipts are immutable; only a fresh reconcile clears | pass |
+| B8 | Catalog checked under Supabase default privileges: anon executes nothing; service_role executes no account function; authenticated executes only the 2 client RPCs; the verifier group only the 4 issuance functions. No anon table privilege, no authenticated write privilege, RLS enabled on all 12 tables, private audit tables closed, no owner role touches `auth.users` | pass |
 
-`auth.uid()` under a role change: Supabase's real `auth.uid()` reads `request.jwt.claim.sub`, falling back to `request.jwt.claims->>'sub'`. PostgREST 16.5 sets only the latter from the verified JWT. A3/A7 prove it resolves to the JWT subject inside the `account_reconciler`-owned SECURITY DEFINER body, and that no HTTP header can set it. The issuance functions do not use `auth.uid()`; they are confined by `bibleberry.award_issuance_account`, which is exercised in B6/B7.
+**`auth.uid()`.** Supabase's real `auth.uid()` reads `request.jwt.claim.sub`, falling back to `request.jwt.claims->>'sub'`. PostgREST 16.5 sets only the latter, from the verified JWT. A3 and A7 prove it resolves to the JWT subject inside the definer body, and that no HTTP header can set it.
 
-## 7. Regression and parity
+## 7. Regression and parity (at this PR's head)
 
-| Command (plain PostgreSQL 16.15, fresh cluster on a Unix socket, TCP disabled, fresh DB each) | Result |
+| Command (plain PostgreSQL 16.15, fresh socket-only cluster, TCP disabled, fresh DB each) | Result |
 | --- | --- |
-| `run-local-rls-tests.sh` | **passed** |
-| `run-local-transaction-tests.sh` (now also applies `20261118000000`) | **passed**: 250 assertions (S, T, C), matching the TX1 handoff |
-| `run-local-verify1-tests.sh` (now also applies `20261118000000` and `20261118000003`) | **passed**: 334 assertions plus end-to-end proof 1/1, 0 skipped |
+| `run-local-rls-tests.sh` | passed |
+| `run-local-transaction-tests.sh` (unchanged from `main`) | passed, 250 assertions |
+| `run-local-verify1-tests.sh` (unchanged from `main`) | passed, 334 assertions plus end-to-end proof 1/1, 0 skipped |
 | `node --experimental-strip-types --test tests/accountDatabase/*.test.ts` | 17 passed |
-| `runLocal{Rls,Transaction,Verify1}Guard.test.sh`, `tests/accountSupabase/runLocalSupabaseGuard.test.sh` | passed |
+| `runLocal{Rls,Transaction,Verify1}Guard.test.sh` | passed |
+| `tests/accountSupabase/runLocalSupabaseGuard.test.sh` | passed (§11) |
 | `npm run lint`, `npm run build`, `git diff --check` | passed |
 
-**Parity:** the plain-PG harness simulates Supabase with a superuser runner and a fake `auth` schema, which **masked D1–D4**. Its results remain valid for SQL logic, but not for Supabase role and grant behaviour. Future account migrations must also pass this runner.
+The plain-PG harness's superuser runner and simulated `auth` **masked D1–D4**. It remains valid for SQL logic, but not for Supabase role and grant behaviour.
 
 ## 8. Observations, unresolved assumptions and limits
 
-1. **GraphQL not proven.** The local `supabase/postgres:17.12.0.000` image has no `pg_graphql` installed, so A13 proves only that no data is served here. Hosted projects commonly enable it. Because `authenticated` can SELECT the account tables and EXECUTE the two RPCs, pg_graphql would expose them (RLS-bound) once enabled. Re-test there before relying on it.
-2. **Supabase defaults are hostile by design.** Default privileges in `public` grant ALL on every new table/function to anon/authenticated/service_role. The accepted migrations' explicit REVOKEs hold (B8). **Every future account migration must revoke explicitly**, and the runner's warning scan helps catch silent no-op grants.
-3. **service_role table access (by R13-3 design).** R13-3/TX1 grant service_role ALL on the 10 client-visible account tables (BYPASSRLS). This was confirmed from the migrations, not exercised over HTTP. service_role cannot execute any account function or touch the private audit tables (B8).
-4. **Per-commit `unresolvedPersistedOnServer`.** A payload that *omits* a still-pending server claim receives `true`. That is consistent with TX1 §6 and V3b, since the coordinator always sends the full guest envelope, but an adapter must never send partial envelopes.
-5. **Legacy HS256 secret.** PostgREST still accepts HS256 tokens signed with the project JWT secret (A8 used the *local default* secret only to mint an **expired** token). Whoever holds that secret can mint any identity, so it must stay server-only.
-6. **Port binding.** The CLI publishes on `0.0.0.0` by default; the runner forces loopback through the Docker network option. This is verified on Docker Engine/Linux. **Docker Desktop (macOS) was not tested.**
-7. **Not run here:** Docker Desktop on Aaron's machine, the default ECR image path, PostgreSQL 15 images, hosted Supabase (forbidden), and a real verifier runtime or adapter (out of scope).
+1. **GraphQL not proven.** The local image has no `pg_graphql`. Hosted projects commonly enable it, and it would expose the account tables and RPCs that `authenticated` can reach, still RLS-bound. Re-test there.
+2. **Supabase default privileges in `public` grant ALL** on new tables and functions to anon, authenticated and service_role. The accepted explicit REVOKEs hold (B8). Every future migration must revoke explicitly; the runner's warning scan catches silent no-op grants.
+3. **service_role table access** to the 10 client-visible account tables is by R13-3 design. It was confirmed from the migrations but not exercised over HTTP.
+4. **Per-commit `unresolvedPersistedOnServer`.** A payload that omits a still-pending server claim receives `true`. This is consistent with TX1 §6 and V3b, but the adapter must never send partial envelopes.
+5. **Legacy HS256 secret.** Its holder can mint any identity, so it must stay server-only. A8 used only the local default secret, and only to mint an expired token.
+6. **Not tested here:** Docker Desktop (macOS), the default ECR image path, hosted Supabase (forbidden), and the verifier runtime and adapter (out of scope).
 
-## 9. Remaining work (not started)
+## 9. Review response (PR #224, review of `91a01c8`)
 
-1. **Owner decision D3/D4 (§3.3):** pick remedies; then a scoped Issue to amend or supersede the affected migrations before any deployment. Re-run this runner, which will fail its "D3/D4 reproduced" assertions and must then be updated to drop the unblocks.
-2. Real `AuthorizedAccountTransport` adapter over `/rest/v1/rpc` (TX1 §6 mapping), using A8/A2's 401/`PGRST30x`/`42501` distinctions.
-3. Verifier runtime with a dedicated login like B's, secret custody and network placement (VERIFY1 §10).
-4. Re-run on Docker Desktop and with `pg_graphql` enabled.
+| Finding | Resolution |
+| --- | --- |
+| **1. Privileges left elevated on the known failure path.** The prerequisite migration committed temporary `CREATE` grants that only the cleanup migration revoked, after R13-VERIFY1, which fails (D3). | **Both migrations removed from this PR.** A grant and its revoke are only safe in **one transaction**, which is impossible across separate migration files. The corrections belong inside the owner-authorized remediation (§10), where an aborted migration rolls everything back. The runner now applies only the accepted migrations and **tests the post-failure catalog after every expected failure, before any unblock** (§5 step 4). The temporary harness D2 grants are verified revoked before tests. |
+| **2. Destructive stack ownership not checked.** The runner ran an unconditional `supabase stop`, and reused or removed a same-named network. | **Fails closed** on any pre-existing project container, volume or network; disposes only a stack whose ownership is proven, and only with the documented opt-in (§5 step 2). Teardown touches only resources carrying this run's owner ID. Guard regressions cover 9 collision cases (§11). The old unconditional stop was re-inserted to confirm the test fails, then removed. Real-Docker checks: a kept stack is refused by default and disposed with the opt-in; a foreign same-named network is refused and left intact even with the opt-in. |
 
-## 10. Cleanup
+**Recovery if someone applied the `91a01c8` migration sequence.** That sequence was never merged or deployed. Running it with `supabase migration up --local` stops at D3 and leaves `CREATE ON SCHEMA public` for `account_reconciler`, `CREATE ON SCHEMA account_private` for `account_award_issuer`, and a default `CREATE`-on-schemas privilege for `account_award_issuer`. For a disposable stack, run `supabase stop --no-backup`. To repair in place instead, run this as `postgres`:
 
-The runner tears down on exit (`supabase stop --no-backup`, `docker network rm bibleberry_sb1_loopback`); no volumes are kept. Manual cleanup: `supabase stop --no-backup --workdir <repo>` and `docker network rm bibleberry_sb1_loopback`. Test users and the ephemeral verifier login exist only inside the disposable stack, and the login is also dropped by suite B.
+```sql
+REVOKE CREATE ON SCHEMA public FROM account_reconciler, account_award_issuer;
+REVOKE CREATE ON SCHEMA account_private FROM account_reconciler, account_award_issuer;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres REVOKE CREATE ON SCHEMAS FROM account_award_issuer;
+-- verify: both must return 0 rows
+SELECT r.rolname, n.nspname FROM pg_namespace n CROSS JOIN pg_roles r
+ WHERE r.rolname LIKE 'account\_%' AND has_schema_privilege(r.oid, n.oid, 'CREATE');
+SELECT * FROM pg_default_acl d, aclexplode(d.defaclacl) a
+ WHERE a.grantee IN (SELECT oid FROM pg_roles WHERE rolname LIKE 'account\_%');
+```
 
-## 11. Secrets and redaction
+Then delete that stack's `supabase_migrations.schema_migrations` rows for `20261118000000` and `20261118000003`, or simply recreate the stack.
 
-Keys, JWTs and passwords are read from `supabase status` into environment variables in memory and are never printed. The `supabase start` status JSON is dropped. All CLI/test output goes through redaction (JWTs, `sb_publishable_`/`sb_secret_` keys, `"…KEY|SECRET|PASSWORD|TOKEN…":"value"`, DB URL credentials). A grep of both complete passing run logs for JWT, key, secret and DB-credential patterns found **0** matches. (An earlier runner draft echoed the CLI's status JSON including the CLI's public default local JWT secret into a scratch log; that path was removed and the log was never committed.) No user JWT, admin key, service-role token, OTP or password is committed or logged.
+## 10. Recommended D1–D4 remediation (**NOT implemented, awaiting Aaron's decision**)
+
+**Recommendation: amend R13-TX1 and R13-VERIFY1 in place, before first deployment, under a separately scoped issue.** Nothing has been deployed, so no hosted migration history needs preserving. Every correction then lives inside the migration it corrects, in the same transaction, so any failure rolls back completely and nothing can be stranded. The alternatives are worse:
+
+- **Corrective migrations after the accepted files** cannot run, because D1 and D3 abort those files first.
+- **Prerequisite and cleanup pairs** strand privileges (review finding 1).
+- **Platform superuser grants** are not self-serve and are unverifiable.
+- **Making the reconciler a member of `authenticated`** broadens the least-privilege owner role, including Supabase's default grants on future `public` objects.
+
+The three design premises below were **prototype-checked on a disposable real stack** (scratch objects only, then discarded). Nothing is committed.
+
+| Defect | Proposed change (in the accepted file, same transaction) | Prototype result on real Supabase |
+| --- | --- | --- |
+| D1 | Replace the `pg_has_role(..., 'MEMBER')` guard with: if not superuser and not (`SET` and `USAGE`), then `GRANT <role> TO current_user WITH INHERIT TRUE, SET TRUE`. This is exactly what the original self-grant intended. | `postgres` creates the role, has `SET=false USAGE=false`, self-grants, then `OWNER TO` succeeds |
+| D2 | Wrap each `OWNER TO` block: `GRANT CREATE ON SCHEMA <s> TO <owner>` … `ALTER … OWNER TO` … `REVOKE CREATE ON SCHEMA <s> FROM <owner>`, then an in-migration assertion that no owner role keeps `CREATE`. For R13-VERIFY1, grant `CREATE` on `account_issuance` (created in the same file), so no default privilege is needed. | Owner assigned, ACL `{owner=X/owner}`, `CREATE` false after the revoke. **On a forced error after the grant, the whole transaction rolls back: role gone, ACL clean** |
+| D3 | Remove the function-level `SET bibleberry.award_issuance_account TO ''` clause from the 3 issuance functions. At **entry** each function resets the setting with `set_config(..., '', true)` before setting its own account, and the confining policies are unchanged. Scope becomes transaction-local instead of call-local, so every issuer function must reset it on entry. | Created by `postgres`, owned by the issuer, no superuser needed. **A value preset by the caller is ignored**; the function's own account is used |
+| D4 | Add `account_private.request_account_id()`: `SECURITY DEFINER`, owned by `postgres` (which has `auth` USAGE), `SET search_path = ''`, body `SELECT auth.uid()`. EXECUTE goes to `account_reconciler` only and is revoked from PUBLIC, anon, authenticated and service_role. Use it in place of `auth.uid()` in the reconcile body and the 10 reconciler RLS policies, and drop the 2 no-op `auth` grants. The R13-3 `authenticated` policies keep `auth.uid()`. | As `account_reconciler` with claims for a test sub, the helper returns that sub while direct `auth.uid()` is denied. Anon, authenticated and service_role cannot execute it |
+
+**Review points for D3/D4 before implementation:**
+
+- The D3 confinement change from call scope to transaction scope needs mutation tests: a caller preset, a second account in the same transaction, and an exception path.
+- D4 adds one tiny `postgres`-owned definer function. `postgres` has BYPASSRLS, so its body must stay a single `auth.uid()` call with an empty `search_path`.
+
+**Acceptance for the remediation PR:**
+
+- This runner, with the D1–D4 reproductions **inverted** (the accepted files must apply with **zero** unblocks and **zero** migration warnings), passes 21/21.
+- The plain-PG runners still pass (250 / 334 + E2E).
+- New SQL assertions cover the helper's grants and owner, the absence of owner-role `CREATE`, and preset-GUC resistance.
+- Mutation checks: restoring the `MEMBER` guard, removing the revoke, or removing the entry reset must each fail a suite.
+
+## 11. Runner guard tests
+
+`tests/accountSupabase/runLocalSupabaseGuard.test.sh` runs anywhere without Docker. Every case must exit 2, and the collision cases are also checked to issue **no** `supabase stop/start/migration` and no `docker network create/rm`, `rm` or `exec`.
+
+- **Preflight (14 cases).** Each redirecting environment variable is refused. A linked checkout, a foreign `project_id`, an exposed private schema and a missing CLI are each refused.
+- **Collisions (9 cases, stubbed `docker`/`supabase`).**
+  - By default: an existing container, an existing volume, or a same-named network is refused.
+  - With the opt-in, the following are still refused:
+    - an unlabelled network;
+    - a non-loopback runner network;
+    - a container from another checkout;
+    - a container off the runner network;
+    - orphaned volumes;
+    - project resources without a runner network.
+
+## 12. Cleanup
+
+The runner tears down on exit only what it created. Use `SB1_DISPOSE_PREVIOUS_RUNNER_STACK=1` for a stack kept with `SB1_KEEP_STACK=1`, or after checking what it is, `supabase stop --no-backup` and `docker network rm bibleberry_sb1_loopback`. Test users and the ephemeral verifier login exist only inside the disposable stack, and suite B drops the login.
+
+## 13. Secrets and redaction
+
+Keys, JWTs and passwords are read from `supabase status` into in-memory environment variables and never printed. The `supabase start` status JSON is dropped. All CLI and test output is redacted: JWTs, `sb_publishable_`/`sb_secret_` keys, `"…KEY|SECRET|PASSWORD|TOKEN…":"value"` fields, and DB URL credentials. A grep of the complete passing run logs for JWT, key, secret and DB-credential patterns found **0** matches. No user JWT, admin key, service-role token, OTP or password is committed or logged.
