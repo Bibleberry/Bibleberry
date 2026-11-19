@@ -10,3 +10,28 @@ export { credibleDateCeiling, universalReleasedThroughDate } from './serverCivil
 export { runAwardVerificationPass, verifyPendingAwardClaim } from './verifier.ts'
 export type { AwardVerificationPassOptions } from './verifier.ts'
 export type * from './types.ts'
+// R13-VERIFY2 — private runtime (driver-neutral; the Node `pg` executor and CLI live in
+// scripts/accountVerification/** and are never part of any browser/native bundle).
+export {
+  ISSUANCE_SQL,
+  createDatabaseAwardIssuancePort,
+  parseAdmissionResult,
+  parseClaimVerificationContext,
+  parseDeferralResult,
+  parsePendingClaimRows,
+} from './databaseIssuancePort.ts'
+export type { DatabaseIssuancePortOptions, SqlParameter, VerifierSqlExecutor } from './databaseIssuancePort.ts'
+export {
+  R13_VERIFY2_RUNTIME_VERSION,
+  VERIFIER_EXIT_CODES,
+  abortableSleep,
+  backoffDelay,
+  createBoundedSanityFetch,
+  deriveRunId,
+  runVerifierOnce,
+} from './runOnce.ts'
+export type { RunVerifierOnceOptions, VerifierRunReport, VerifierRunStatus } from './runOnce.ts'
+export { FORBIDDEN_AMBIENT_ENV, RuntimeSecret, parseVerifierRuntimeConfig } from './runtimeConfig.ts'
+export type { DatabaseTlsPolicy, VerifierRuntimeConfig } from './runtimeConfig.ts'
+export { VerifierRuntimeError, classifyDatabaseError } from './runtimeErrors.ts'
+export type { VerifierFailureCategory } from './runtimeErrors.ts'
