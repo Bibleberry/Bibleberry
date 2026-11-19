@@ -2,8 +2,8 @@ name: Bibleberry CI
 
 on:
   pull_request:
-    # Drafts are waiting-room PRs; Ready for review starts real verification.
-    types: [opened, reopened, synchronize, ready_for_review, converted_to_draft]
+    # Draft and Ready PRs both run scope-filtered read-only hosted CI; Draft PRs remain ineligible for merge/queue entry until review and owner promotion.
+    types: [opened, reopened, synchronize, ready_for_review]
     branches: [main]
   # GitHub tests the proposed queue integration SHA, not just the standalone PR.
   merge_group:
@@ -23,7 +23,6 @@ jobs:
   reader-app:
     name: Build reader application
     # Standard ephemeral GitHub-hosted Ubuntu runner; no dependency on home machines.
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
     runs-on: ubuntu-24.04
 
     steps:
@@ -88,12 +87,12 @@ jobs:
 
       - name: Report skipped reader verification
         if: steps.scope.outputs.should_run != 'true'
-        run: echo "Reader application tests skipped because no reader source or shared dependencies changed."
+        run: |
+          echo "Change-scope skip (irrelevant files; not Draft PR suppression): Reader application tests skipped because no reader source or shared dependencies changed."
 
   cms-adapter-tests:
     name: Verify CMS adapters and BerryMark preview
     # Standard ephemeral GitHub-hosted Ubuntu runner; no dependency on home machines.
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
     runs-on: ubuntu-24.04
 
     steps:
@@ -124,12 +123,12 @@ jobs:
 
       - name: Report skipped CMS adapter verification
         if: steps.scope.outputs.should_run != 'true'
-        run: echo "CMS adapter tests skipped because no relevant adapter or application source files changed."
+        run: |
+          echo "Change-scope skip (irrelevant files; not Draft PR suppression): CMS adapter tests skipped because no relevant adapter or application source files changed."
 
   release-gateway-tests:
     name: Verify Release Gateway core
     # Standard ephemeral GitHub-hosted Ubuntu runner; no dependency on home machines.
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
     runs-on: ubuntu-24.04
 
     steps:
@@ -156,12 +155,12 @@ jobs:
 
       - name: Report skipped Release Gateway verification
         if: steps.scope.outputs.should_run != 'true'
-        run: echo "Release Gateway tests skipped because no gateway source files changed."
+        run: |
+          echo "Change-scope skip (irrelevant files; not Draft PR suppression): Release Gateway tests skipped because no gateway source files changed."
 
   sanity-studio:
     name: Verify Sanity Studio
     # Standard ephemeral GitHub-hosted Ubuntu runner; no dependency on home machines.
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
     runs-on: ubuntu-24.04
 
     defaults:
@@ -202,4 +201,5 @@ jobs:
 
       - name: Report skipped Studio verification
         if: steps.scope.outputs.should_run != 'true'
-        run: echo "Sanity Studio tests skipped because no studio schemas, studio sources, or shared fixtures changed."
+        run: |
+          echo "Change-scope skip (irrelevant files; not Draft PR suppression): Sanity Studio tests skipped because no studio schemas, studio sources, or shared fixtures changed."

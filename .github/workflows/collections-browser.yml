@@ -2,8 +2,8 @@ name: Collections Browser Tests
 
 on:
   pull_request:
-    # Drafts are waiting-room PRs; Ready for review starts real verification.
-    types: [opened, reopened, synchronize, ready_for_review, converted_to_draft]
+    # Draft and Ready PRs both run scope-filtered read-only hosted CI; Draft PRs remain ineligible for merge/queue entry until review and owner promotion.
+    types: [opened, reopened, synchronize, ready_for_review]
     branches: [main]
   # Run Chromium regressions on the exact merge-queue integration commit.
   merge_group:
@@ -21,7 +21,6 @@ jobs:
   browser-collections:
     name: Saved Scripture and Field Notebook (Chromium)
     # Hosted runner is isolated from persistent development machines.
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
     runs-on: ubuntu-24.04
 
     steps:
@@ -61,4 +60,5 @@ jobs:
 
       - name: Report skipped collection browser suites
         if: steps.scope.outputs.should_run != 'true'
-        run: echo "Collection browser suites skipped because no collections or application source files changed."
+        run: |
+          echo "Change-scope skip (irrelevant files; not Draft PR suppression): Collection browser suites skipped because no collections or application source files changed."

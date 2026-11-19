@@ -46,13 +46,13 @@ test('Merge-group queue builds must not be canceled as ordinary PR synchronizati
   }
 });
 
-test('Draft PR jobs remain skipped without skipping merge-group validation', () => {
+test('Integration workflows run on Draft PRs without skipping merge-group validation', () => {
   for (const file of requiredWorkflows) {
     const workflow = readRepoFile(file);
-    assert.match(
+    assert.doesNotMatch(
       workflow,
-      /github\.event_name != 'pull_request' \|\| !github\.event\.pull_request\.draft/,
-      `${file} must keep draft PR waiting-room semantics`,
+      /pull_request\.draft/,
+      `${file} must not suppress hosted CI jobs solely because a PR is Draft`,
     );
   }
 });
