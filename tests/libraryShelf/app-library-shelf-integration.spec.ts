@@ -2,6 +2,7 @@ import { test, expect } from '../smoke/helpers/frameSafeTest'
 import { createServer, type ViteDevServer } from 'vite'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { parseParticipationEnvelope } from '../../src/participation/persistence.ts'
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const PROTOTYPE_STORAGE_KEY = 'bibleberry-prototype-v1'
@@ -440,12 +441,36 @@ test.describe('Issue #227 [Velvet Badger]: Ordinary Reader Library & Shelf Integ
       rolloverWatermark: null,
     }
     const seededParticipation = {
-      schemaVersion: 1,
-      completedChallengeIds: ['cms:2026-09-day-01-doc'],
-      savedScriptureIds: [],
-      earnedAwards: { 'award:2026-09-first': { earnedAt: '2026-09-10T12:00:00.000Z' } },
-      updatedAt: '2026-09-10T12:00:00.000Z',
+      schemaVersion: 2,
+      data: {
+        completedChallenges: {
+          'cms:2026-09-day-01-doc': { completedOn: '2026-09-10' },
+        },
+        inProgressChallenges: {},
+        savedChallenges: {},
+        savedScriptures: [],
+        lastOpenedChallenge: null,
+        earnedAwards: {
+          'card:monthly:2026-09:full-month': {
+            awardId: 'card:monthly:2026-09:full-month',
+            kind: 'fullMonth',
+            publicationYearMonth: '2026-09',
+            discoveryId: 'discovery:2026-09:full-month',
+            earnedOn: '2026-09-30',
+            hubAnnouncementAcked: true,
+            cardViewed: true,
+          },
+        },
+      },
     }
+    const seededCheck = parseParticipationEnvelope(JSON.stringify(seededParticipation), 'cms')
+    expect(seededCheck.health).toBe('ok')
+    expect(seededCheck.data.completedChallenges['cms:2026-09-day-01-doc']?.completedOn).toBe(
+      '2026-09-10',
+    )
+    expect(seededCheck.data.earnedAwards['card:monthly:2026-09:full-month']?.earnedOn).toBe(
+      '2026-09-30',
+    )
 
     await page.addInitScript(
       ({ prototypeKey, prototypeState, shelfKey, shelfPayload, participationKey, participationPayload }) => {
@@ -485,18 +510,37 @@ test.describe('Issue #227 [Velvet Badger]: Ordinary Reader Library & Shelf Integ
     await expect(shelfMain.getByText('Steadfast Joy')).toBeVisible()
     await expect(shelfMain.getByText('Quiet Trust')).toHaveCount(0)
 
-    // Verify 2026-09 participation and earned awards were NOT erased
+    // Verify 2026-09 participation and earned awards remain contract-valid and intact
     const participationAfterReplace = await page.evaluate(
       key => window.localStorage.getItem(key),
       PARTICIPATION_STORAGE_KEY,
     )
-    expect(participationAfterReplace).toContain('cms:2026-09-day-01-doc')
-    expect(participationAfterReplace).toContain('award:2026-09-first')
+    const parsedAfterReplace = parseParticipationEnvelope(participationAfterReplace, 'cms')
+    expect(parsedAfterReplace.health).toBe('ok')
+    expect(parsedAfterReplace.data.completedChallenges['cms:2026-09-day-01-doc']?.completedOn).toBe(
+      '2026-09-10',
+    )
+    expect(
+      parsedAfterReplace.data.earnedAwards['card:monthly:2026-09:full-month']?.earnedOn,
+    ).toBe('2026-09-30')
 
-    // Put Away July 2026 from Shelf and verify focus/participation remain intact
+    // Put Away July 2026 from Shelf and verify focus and valid participation remain intact
     await shelfMain.getByRole('button', { name: /Put Away July 2026/i }).click()
     await expect(shelfMain.getByText('Steadfast Joy')).toHaveCount(0)
     await expect(shelfMain.getByText('Walking in Wisdom')).toBeVisible()
+
+    const participationAfterPutAway = await page.evaluate(
+      key => window.localStorage.getItem(key),
+      PARTICIPATION_STORAGE_KEY,
+    )
+    const parsedAfterPutAway = parseParticipationEnvelope(participationAfterPutAway, 'cms')
+    expect(parsedAfterPutAway.health).toBe('ok')
+    expect(parsedAfterPutAway.data.completedChallenges['cms:2026-09-day-01-doc']?.completedOn).toBe(
+      '2026-09-10',
+    )
+    expect(
+      parsedAfterPutAway.data.earnedAwards['card:monthly:2026-09:full-month']?.earnedOn,
+    ).toBe('2026-09-30')
   })
 
   test('fails closed on unsupported Shelf schema without overwriting storage, and respects feature gate', async ({
@@ -511,8 +555,12 @@ test.describe('Issue #227 [Velvet Badger]: Ordinary Reader Library & Shelf Integ
 
     await page.addInitScript(
       ({ prototypeKey, prototypeState, shelfKey, shelfPayload }) => {
-        window.localStorage.setItem(prototypeKey, JSON.stringify(prototypeState))
-        window.localStorage.setItem(shelfKey, JSON.stringify(shelfPayload))
+        if (!window.localStorage.getItem(prototypeKey)) {
+          window.localStorage.setItem(prototypeKey, JSON.stringify(prototypeState))
+        }
+        if (!window.localStorage.getItem(shelfKey)) {
+          window.localStorage.setItem(shelfKey, JSON.stringify(shelfPayload))
+        }
       },
       {
         prototypeKey: PROTOTYPE_STORAGE_KEY,
@@ -525,8 +573,40 @@ test.describe('Issue #227 [Velvet Badger]: Ordinary Reader Library & Shelf Integ
     await page.goto(`${enabledBaseUrl}#/shelf`, { waitUntil: 'domcontentloaded' })
     await expect(page.getByRole('heading', { level: 2, name: 'Shelf Unavailable' })).toBeVisible()
 
+    // Browsing Library from unavailable Shelf withholds all Shelf mutation controls & false success notices
+    await page.getByRole('button', { name: 'Browse Historical Library' }).click()
+    await expect(page).toHaveURL(/#\/library$/)
+    await expect(page.getByRole('heading', { level: 1, name: 'Historical Library' })).toBeVisible()
+    await expect(page.getByText('Walking in Wisdom')).toBeVisible()
+    await expect(
+      page.getByText(/Shelf actions are paused to protect existing device storage/i),
+    ).toBeVisible()
+    await expect(page.getByRole('button', { name: /Add .* to Shelf/i })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /Keep .* on Shelf/i })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /View Shelf/i })).toHaveCount(0)
+    await expect(page.getByText(/Added .* to your Shelf/i)).toHaveCount(0)
+
     const rawAfter = await page.evaluate(key => window.localStorage.getItem(key), SHELF_STORAGE_KEY)
-    expect(rawAfter).toContain('do-not-overwrite')
+    expect(rawAfter).toBe(JSON.stringify(futureSchemaPayload))
+
+    // Direct #/library entry with malformed Shelf JSON also withholds Shelf mutations and leaves storage untouched
+    const corruptRaw = '{malformed-shelf-json'
+    await page.evaluate(
+      ({ shelfKey, raw }) => {
+        window.localStorage.setItem(shelfKey, raw)
+      },
+      { shelfKey: SHELF_STORAGE_KEY, raw: corruptRaw },
+    )
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await expect(page.getByRole('heading', { level: 1, name: 'Historical Library' })).toBeVisible()
+    await expect(page.getByText('Walking in Wisdom')).toBeVisible()
+    await expect(page.getByRole('button', { name: /Add .* to Shelf/i })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /View Shelf/i })).toHaveCount(0)
+    const rawCorruptAfter = await page.evaluate(
+      key => window.localStorage.getItem(key),
+      SHELF_STORAGE_KEY,
+    )
+    expect(rawCorruptAfter).toBe(corruptRaw)
 
     // Feature-disabled bundle fails closed on #/shelf and #/library
     await page.goto(`${disabledBaseUrl}#/shelf`, { waitUntil: 'domcontentloaded' })

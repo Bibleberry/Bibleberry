@@ -1,6 +1,7 @@
 import { useCallback } from 'react'
 import { ArrowLeft, Library } from 'lucide-react'
 import type { LibraryMonthIndexProvider } from '../cms/reader/libraryMonthIndexProvider.ts'
+import { HistoricalLibraryHost } from '../components/library/HistoricalLibraryHost.tsx'
 import { LibraryShelfHost } from '../components/libraryShelf/LibraryShelfHost.tsx'
 import type {
   LibraryShelfSurface,
@@ -133,20 +134,35 @@ export function AppLibraryShelfHost({
     )
   }
 
-  return (
-    <>
-      {readBlocked ? (
+  if (readBlocked && surface === 'library') {
+    return (
+      <>
         <aside
           className="provisional-collections-bar"
           role="status"
           aria-live="polite"
         >
           <p className="provisional-collections-bar__description">
-            Saved Shelf data could not be read safely; Shelf changes are paused to
-            protect existing device storage.
+            Saved Shelf data could not be read safely; Shelf actions are paused to
+            protect existing device storage. You can still browse and open
+            historical months from the Library.
           </p>
         </aside>
-      ) : writeWarning ? (
+        <HistoricalLibraryHost
+          provider={libraryProvider}
+          onOpenMonth={yearMonth => {
+            onOpenMonth(yearMonth as PublicationYearMonth, { origin: 'library' })
+          }}
+          onExit={onExit}
+          exitLabel={exitLabel}
+        />
+      </>
+    )
+  }
+
+  return (
+    <>
+      {writeWarning ? (
         <aside
           className="provisional-collections-bar"
           role="status"
