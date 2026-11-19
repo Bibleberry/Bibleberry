@@ -30,6 +30,12 @@ set -euo pipefail
 #   Suite E (serviceRoleAwardGrant) and the SB3 privilege checks then run with A-D.
 #   SB3_FRESH_APPLY=1 instead applies all four migrations in ONE CLI run on the fresh stack.
 #
+#   R13 Quartz Meadow (Issue #246) adds suite F (cross-client account continuity through the
+#   PRODUCTION SupabasePostgrestTransport + coordinateGuestSync + private verifier, two simulated
+#   devices per account) to the A-E run, and then runs the existing opt-in Cinnamon Bear transport
+#   test (tests/accountSync/supabasePostgrestTransport.local.test.ts) against the same stack with
+#   its documented BIBLEBERRY_* flags. Both must pass with zero skips.
+#
 #   SB2_MUTATION_DEMOS=1 replaces steps 4-6 with mutation/regression demonstrations on the fresh
 #   stack: each restores one D1-D4 defect in a throw-away copy of supabase/ (never the checkout)
 #   and must be caught by the CLI runner (with the failed migration proven to strand nothing) or by
@@ -544,15 +550,16 @@ fi
 # ---------------------------------------------------------------------------
 # 6. Acceptance suites
 # ---------------------------------------------------------------------------
-SUITE_PASS_EXPECTED=50
-step "Running suites A (GoTrue + PostgREST), B (verifier login + issuance), C (R13-SB2 D1-D4), D (R13-VERIFY2 verifier runtime), E (R13-SB3 service_role)"
+SUITE_PASS_EXPECTED=62
+step "Running suites A (GoTrue + PostgREST), B (verifier login + issuance), C (R13-SB2 D1-D4), D (R13-VERIFY2 verifier runtime), E (R13-SB3 service_role), F (cross-client continuity)"
 set +e
 out="$(cd "$ROOT_DIR" && node --experimental-strip-types --test --test-concurrency=1 \
   tests/accountSupabase/authPostgrestBoundary.supabase.test.ts \
   tests/accountSupabase/verifierRoleIssuance.supabase.test.ts \
   tests/accountSupabase/migrationRemediation.supabase.test.ts \
   tests/accountSupabase/verifierRuntime.supabase.test.ts \
-  tests/accountSupabase/serviceRoleAwardGrant.supabase.test.ts 2>&1)"
+  tests/accountSupabase/serviceRoleAwardGrant.supabase.test.ts \
+  tests/accountSupabase/crossClientContinuity.supabase.test.ts 2>&1)"
 suite_status=$?
 set -e
 echo "$out" | redact | grep -E '^\s*(not )?ok [0-9]+ - |^# (pass|fail|skipped)'
@@ -561,6 +568,21 @@ if [[ $suite_status -ne 0 ]] || ! grep -qx "# pass ${SUITE_PASS_EXPECTED}" <<<"$
    || ! grep -qx '# fail 0' <<<"$out" || ! grep -qx '# skipped 0' <<<"$out"; then
   echo "$out" | redact | grep -E 'error:|^\s{8}' | head -60 >&2
   die "suites failed or were skipped"
+fi
+# Suite F reports what it could only observe (not assert) as test diagnostics.
+echo "$out" | redact | grep -E '^\s*# F[0-9a-z]+ observation:' || true
+
+step "Cinnamon Bear opt-in transport test (tests/accountSync/supabasePostgrestTransport.local.test.ts) on this stack"
+set +e
+out="$(cd "$ROOT_DIR" && BIBLEBERRY_RUN_LOCAL_SUPABASE_TRANSPORT=1 BIBLEBERRY_LOCAL_SUPABASE_URL="$SB1_API_URL" \
+  BIBLEBERRY_LOCAL_SUPABASE_PUBLISHABLE_KEY="$SB1_PUBLISHABLE_KEY" node --experimental-strip-types --test \
+  tests/accountSync/supabasePostgrestTransport.local.test.ts 2>&1)"
+transport_status=$?
+set -e
+echo "$out" | redact | grep -E '^\s*(not )?ok [0-9]+ - |^# (pass|fail|skipped)'
+if [[ $transport_status -ne 0 ]] || ! grep -qx '# pass 1' <<<"$out" || ! grep -qx '# fail 0' <<<"$out" || ! grep -qx '# skipped 0' <<<"$out"; then
+  echo "$out" | redact | grep -E 'error:|^\s{8}' | head -40 >&2
+  die "the opt-in transport test failed or was skipped"
 fi
 
 echo

@@ -1,0 +1,129 @@
+# Test coverage and GitHub Actions matrix
+
+**Audit snapshot:** `main` at `1eacda5c90ac97734b34ea08f4b8abf02098c9bf` (2026-11-19). This is a static audit of workflow definitions, package scripts, test files and scope logic. No historical workflow runs were independently rerun or queried for this document. Workflow links below lead to GitHub Actions run history; inspect a run for proof about a particular SHA.
+
+## Executive summary
+
+- The main verification workflows are [Bibleberry CI](https://github.com/Bibleberry/Bibleberry/actions/workflows/ci.yml), [Collections Browser Tests](https://github.com/Bibleberry/Bibleberry/actions/workflows/collections-browser.yml), [Native Android debug build](https://github.com/Bibleberry/Bibleberry/actions/workflows/native-android.yml), and [Native iOS simulator build](https://github.com/Bibleberry/Bibleberry/actions/workflows/native-ios.yml). [Merge Queue Batch Coordinator](https://github.com/Bibleberry/Bibleberry/actions/workflows/merge-queue-batch.yml) is operational automation, not a test workflow.
+- Draft PR events start the first three workflows (when Android's path filter matches), but their jobs skip while the PR is draft. Ready-for-review restarts CI, Collections and Android. iOS has neither an explicit Draft guard nor the `ready_for_review` activity type, so a Draft PR converted to Ready may have only its earlier run and no fresh Ready run.
+- A Ready PR and `merge_group` run the directly wired web checks: CI scope tests, shelf persistence, Library-to-Shelf model/browser tests, lint, build, staging Worker dry-run, seven-pass reader smoke, CMS adapter/participation, gateway core, Studio validation/build, and the saved-scripture/notebook browser suites. `merge_group` forces all CI scopes to run. Android also builds/tests on a merge group. iOS does not run on `merge_group`.
+- `push` to `main` runs all CI scopes and Android/iOS only when their path filters match. Collections Browser has no `push` trigger, so those browser suites have no post-merge main run from that workflow. Several focused pure tests and the performance suite exist but are not directly invoked by these workflows.
+- `workflow_dispatch` exists only for the merge-queue coordinator and the native workflows. Manual Android/iOS dispatch runs their build paths; iOS lifecycle probe is opt-in. There is no manual dispatch for CI or Collections.
+- Workflow test jobs use read-only repository contents permissions, ephemeral GitHub-hosted runners (`ubuntu-24.04`, `macos-26`), and test fixtures/harnesses in-tree. Database acceptance uses local Supabase/Postgres/Docker and is not part of the normal hosted test jobs. Never treat the latter or physical-device acceptance as satisfied by these checks.
+
+## Trigger and enforcement matrix
+
+| Workflow / job | Draft PR | Ready PR | `merge_group` | `push main` | `workflow_dispatch` | Scope / gap |
+|---|---|---|---|---|---|---|
+| `ci.yml` — `reader-app`, `cms-adapter-tests`, `release-gateway-tests`, `sanity-studio` | Workflow events include open/reopen/synchronize/ready/converted-to-draft; jobs skip for drafts. A skipped job is not a test result. | All four jobs start; target scope can report skipped based on file patterns. | All four jobs start and `check-scope.mjs` returns run=true for every target. | All four jobs start; scope returns run=true. | No trigger. | No workflow-level path filter. Pull-request scope uses merge-base diff against `main`; inability to determine changed files fails open. `tests/**`, `.github/**`, `scripts/ci/**`, root manifests/config trigger universal coverage as described below. |
+| `collections-browser.yml` — `browser-collections` | Same events and draft job skip as CI. | Runs only when scope says changed files are relevant. | Runs; merge-group scope always true. | **No trigger.** | No trigger. | Scope patterns are universal files, `src/**`, savedScripture, notebook, cardViewer and announcements tests, testing runner and root Playwright config. Missing `push: main` means no workflow post-merge test. |
+| `native-android.yml` — `android-debug-apk` | PR path-filtered; job skips for drafts. | Runs if any listed path matches. | Runs on every main merge group, without path filter. | Runs when listed path patterns match. | Runs (workflow has no required inputs). | Includes `:app:testDebugUnitTest`, but also requires SDK provisioning, Vite build, Capacitor sync and APK checks; it is a platform build gate, not the general web test suite. |
+| `native-ios.yml` — `ios-simulator` | PR path-filtered; no Draft job guard; default PR event activity types do not include `ready_for_review`. | A conversion to Ready alone does not trigger a fresh run; a later matching synchronize/reopen can. | **No trigger.** | Runs when listed paths match. | Runs; optional lifecycle probe defaults off. | Does simulator build, Python smoke unit tests, and install/launch/restart/UI lifecycle smoke on macOS. A green Draft run can become stale by Ready promotion. |
+| `merge-queue-batch.yml` — coordinator | Only PR `closed` event for advancement, not CI. | No test jobs. | Only `destroyed` event for stopping the batch, not `checks_requested`. | No push trigger. | Dry-run/status and gated batch operations; no application tests. | Operational queue writer/watchdog. Its `workflow_dispatch` is not a substitute for test dispatch. |
+
+The trigger claims above are read from [the workflow files at the audited SHA](https://github.com/Bibleberry/Bibleberry/tree/1eacda5c90ac97734b34ea08f4b8abf02098c9bf/.github/workflows). Branch protection's required check configuration was not inspected; a workflow job existing does not prove that GitHub requires it to merge.
+
+## Test inventory
+
+**Classification:** *Hermetic* means the checked-in command has no declared live-service prerequisite and uses local code/fixtures. *Browser* means Playwright/Chromium against a local Vite app or test harness. *Gated* means local database, Docker/Supabase, private service or explicit environment is required. *Manual* means real physical device/editorial acceptance. CI columns describe direct invocation by workflow commands; source imports or build-time type checking are called out as indirect and do not count as a suite execution.
+
+| Suite / files | Executable command and dependencies | Class / fixture privacy | CI execution and changed-file scope |
+|---|---|---|---|
+| `tests/ci/**` | `node --experimental-strip-types --test tests/ci/*.test.ts`; iOS-only `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v tests/ci/test_ios_simulator_smoke.py` | Hermetic static policy tests; synthetic configuration, no user data. | Direct in `ci.yml` reader job for universal `tests/ci/**`; Python unittest also in iOS job when its path filter triggers. |
+| `tests/sanity/**` | `npm run test:adapter` → Node test runner `tests/sanity/*.test.ts` | Hermetic adapter/model tests; checked-in fixtures. | Direct in `ci.yml` CMS job. `tests/**` triggers reader scope too. |
+| `tests/gateway/**` | `npm run test:gateway` → Node test runner `tests/gateway/*.test.ts` | Hermetic local Worker/request tests and fixtures; staging-named fixtures are not evidence of live staging. | Direct in `ci.yml` Release Gateway job. |
+| `tests/participation/**` | `npm run test:native-participation` → Node test runner `tests/participation/*.test.ts` | Hermetic domain/driver tests with in-memory/fake Capacitor preferences; not a native device run. | Direct in `ci.yml` CMS job. |
+| `tests/shelfPersistence/**` | `npm run test:shelf-persistence` → Node test runner `tests/shelfPersistence/*.test.ts` | Hermetic storage/envelope/concurrency tests. | Direct in `ci.yml` reader job. |
+| `tests/libraryShelf/libraryShelfModel.test.ts`, `tests/libraryShelf/*.spec.ts` | `npm run test:library-shelf` → model test then Playwright with `tests/libraryShelf/playwright.config.ts`; install Chromium first. | Hermetic model plus browser harness/local app; fixture data only. | Direct in CI reader job. `tests/**` triggers reader; Collections scope does not include this directory. |
+| `tests/smoke/*.spec.ts` | `npm run test:smoke` → seven build/preview/Playwright passes; Chromium, local Vite preview. | Browser regression against public/feature-flag builds using synthetic data; no production service. | Direct in CI reader job. All tests trigger reader scope; only the exact specs in `scripts/run-smoke-suite.ts` execute (not every file in the directory). |
+| `tests/savedScripture/savedScriptureCollectionModel.test.ts` | `node --experimental-strip-types --test tests/savedScripture/savedScriptureCollectionModel.test.ts` | Hermetic Node `node:test` model coverage for projection, sorting, malformed/legacy sanitization, matching and privacy behavior; synthetic local fixtures, no account data or service. | **Not directly invoked** by a current hosted workflow. Its path triggers the reader job (`tests/**`) and Collections job (`tests/savedScripture/**`) on relevant PRs/merge groups, but neither command runs this model test. Reader also runs on push to main; Collections has no push trigger. |
+| `tests/savedScripture/saved-scripture-collection.spec.ts`, `tests/notebook/field-notebook.spec.ts` | `npm run test:collections` invokes these two Playwright specs with their local harnesses. Install Chromium first. | Browser tests with local fixtures; no account/backend credentials. | Direct in Collections job on Ready PR and merge group when scope matches; no `push main` run. |
+| `studio/tests/**` | In `studio/`: `npm run test:schema` executes six `sanity exec` test files; `npm run typecheck`; `npm run build`. | Hermetic schema/fixture validation; editorial fixture data is checked-in and synthetic/sample, not fetched from private Sanity. | Direct in CI Studio job. `studio/**` and universal files trigger Studio; independent `tests/**` changes do not unless universal path applies. |
+| `tests/accountAuth/**` | Candidate local: `node --experimental-strip-types --test tests/accountAuth/*.test.ts`. | Hermetic session model tests; fake/local identities. | **Not directly invoked** by current CI commands. `tests/**` changes trigger reader job, but that job does not run this directory. |
+| `tests/accountSync/**` | Pure candidate: `node --experimental-strip-types --test tests/accountSync/accountSyncCoordinator.test.ts tests/accountSync/supabasePostgrestTransport.test.ts`; local transport/SQL integration files require local service and are separate. | Mixed: hermetic model/transport tests and local Postgres integration; integration fixtures use local accounts, not real account data. | No direct invocation. Test changes trigger reader, not suite. `.integration.test.ts` is not part of an existing wildcard command. |
+| `tests/accountVerification/**` | Node test runner on selected `*.test.ts` for pure cases; `verifierPostgres.integration.ts` requires local PostgreSQL/psql. | Mixed hermetic verifier/fixture tests and database-gated issuance; fixtures are fake and must stay non-production. | No direct invocation. Reader is scope-triggered by test changes but omits this directory. |
+| `tests/accountDatabase/**` | `node --experimental-strip-types --test tests/accountDatabase/*Static.test.ts` for static guards; `tests/accountDatabase/runLocal*Guard.test.sh` and SQL/concurrency scripts require local Supabase/Postgres CLI and Docker. | Mixed static and local DB. Auth/bootstrap and SQL fixtures are for isolated local disposable DB only. | No direct invocation. Not safe to add directory-wide wildcard without separating local-service tests. Reader runs on test-file changes but does not execute it. |
+| `tests/accountSupabase/**` | Local-only scripts: `tests/accountSupabase/runLocalSupabaseGuard.test.sh`; individual `*.supabase.test.ts` via Node require configured local Supabase stack/Docker. | Gated local stack; tests explicitly deny external fetch and use local credentials/data. | No direct invocation. Test path causes reader job but no suite execution. |
+| `tests/deepLinkIngress/**` | Candidate local: Node test runner `tests/deepLinkIngress/*.test.ts`. | Hermetic parser/controller/authorizer tests with synthetic links and identities. | No direct invocation; test change triggers reader job only. |
+| `tests/hubContinue/**` | Unit: Node test runner for `*Engine.test.ts` and `*Input.test.ts`; browser specs require Playwright config/harness. | Mixed hermetic domain tests and local browser fixture. | Neither part directly invoked; `tests/**` triggers reader but it doesn't run hubContinue. |
+| `tests/onboardingReplay/**` | Model `.test.ts` by Node; `.spec.ts` requires Playwright/local harness. | Mixed hermetic and browser local fixtures. | No direct invocation. |
+| `tests/scriptureCapture/**` | `scriptureCapture.test.ts` by Node; `*.spec.ts` requires Playwright; `teaching-integration.spec.ts` also browser harness. | Mixed hermetic model and local browser flow, synthetic scripture/card content. | No direct invocation; Collections scope does not include scriptureCapture. |
+| `tests/cardSharing/**` | Service `.test.ts` by Node; earned-card spec requires Playwright and harness. | Mixed hermetic share model and local browser; fixture cards, no external sharing endpoint. | No direct invocation. |
+| `tests/cardViewer/**` | Playwright config/spec, Chromium and local harness. | Browser/local fixture; synthetic scripture card content. | Directly included in `test:collections`? No: the Collections runner lists only savedScripture and notebook. Collections scope watches cardViewer, so a changed cardViewer test causes the browser job to run but the configured script does not execute the cardViewer spec. This is a false-green scope-to-command mismatch. Reader job also runs but smoke list omits this spec. |
+| `tests/announcements/**` | Playwright spec/config; Chromium and local harness. | Browser/local announcement fixtures. | Collections scope watches announcements, but `test:collections` does not list the announcements spec. Reader job runs on test change but smoke omits it. Scope match can therefore produce a green job without that changed suite executing. |
+| `tests/appIntegration/**` | Playwright config/specs require Chromium and local app harness; `teachingScripture.test.ts` by Node separately. | Mixed hermetic unit and local browser; fixtures only. | No direct invocation. Reader is scope-triggered for tests but executes only listed smoke and library-shelf specs. |
+| `tests/library/**` | Model/host `.test.ts` by Node; historical library browser spec needs Chromium and local harness. | Mixed hermetic model and browser local fixture. | No direct invocation. |
+| `tests/shelf/**` | Node runner on `*.test.ts`. | Hermetic domain/model tests and synthetic account/shelf records. | No direct invocation. |
+| `tests/shelfUI/**` | Playwright config/spec with Chromium and local harness; `shelfModel.test.ts` by Node. | Mixed hermetic model and browser local fixture. | No direct invocation. |
+| `tests/monthAccessibility/**` | Playwright spec/config, Chromium, local harness. | Browser accessibility assertions, synthetic month content; not assistive technology/device acceptance. | No direct invocation. |
+| `tests/news/**` | `newsModel.test.ts` and `newsProvider.test.ts` by Node; `news-reader.spec.ts` via Playwright/local harness. | Mixed hermetic and local browser; checked-in news fixtures. | No direct invocation. |
+| `tests/performance/**` | `npm run test:performance` → Node tests; `perf:baseline` and `perf:compare` are separate scripts and baseline comparison needs recorded baseline/preview tooling. | Deterministic interruption/baseline logic tests; actual performance qualification is environment/device-dependent. | `test:performance` exists but **is not invoked** by workflows. CI changed-file scope still starts reader job for `tests/performance/**`; smoke does not run these tests. |
+| `tests/releaseAudit/**` | Node runner `tests/releaseAudit/*.test.ts` for fixture audit. | Hermetic release audit using fixture content; not a live CMS/private-service audit. | No direct invocation. |
+| `tests/ci/**` and `scripts/ci/**` subareas | `node --experimental-strip-types --test tests/ci/*.test.ts`; `scripts/ci/merge-queue-batch.ts` exercised by corresponding Node tests. | Hermetic policy/coordinator logic tests, synthetic API responses; no live mutations. | CI policy tests are direct; check-scope universal pattern ensures scripts and test changes invoke all CI target scopes. |
+
+### Indirect checks and non-coverage
+
+`npm run lint`, `npm run build`, Studio `typecheck`/`build`, the staging `wrangler deploy --dry-run`, and Android/iOS compile steps may parse, type-check, bundle or package source files. They do not execute the behavioral tests above. Similarly, fixture imports in a test do not mean every feature test using a related module ran. `test:performance` is present in `package.json` but no workflow invokes it. No workflow in this matrix proves production Supabase behavior, private Sanity publication, release content approval, real account privacy/deletion, or physical iOS/Android device acceptance.
+
+## Scope rules, fixture security, and false-green risks
+
+`scripts/ci/check-scope.mjs` defines universal triggers: `.github/**`, root `package.json`/lockfile, ESLint config, `scripts/ci/**`, and `tests/ci/**`. For PRs it reads the complete merge-base diff against `main`, failing open (run=true) when the diff cannot be determined. A missing/empty diff is treated as no matching changes. `merge_group`, `push`, and manual calls always run. Target rules also make all `tests/**` changes run the reader job; relevant Studio, gateway, or browser code runs their corresponding jobs.
+
+The key false-green gap is that target scope and invoked test command are different sets. Collections scope includes `tests/cardViewer/**` and `tests/announcements/**`, while its command invokes only the saved Scripture and Notebook Playwright specs. A change to `tests/savedScripture/savedScriptureCollectionModel.test.ts` also triggers both reader and Collections jobs, but neither command invokes that hermetic Node model suite. Conversely, broad reader test scope causes the reader job to run for every test edit, but `test:smoke` invokes only the seven pass list. Thus job success does not mean all changed test files executed. There is no CI workflow-level path filter on `ci.yml`; subsystem scope skips are visible as successful jobs with an explicit skipped step. Android and iOS use workflow-level filters, so a non-matching PR/push has no check run at all. iOS' missing Ready activity can leave stale green evidence from Draft.
+
+Fixture policy for the current automated tests: use checked-in synthetic fixtures and local harnesses; do not include account credentials, private service tokens, live reader identities or non-public editorial exports. The account DB/Supabase suites intentionally require isolated local services and their own setup. Do not run them against shared or production endpoints. Workflow permissions declare `contents: read`; write-capable merge coordinator workflows are separate from test workflows.
+
+## Bounded follow-up proposal for Jasper Turtle (#241)
+
+After this matrix is reviewed and the Silver Badger Draft-CI policy is settled, consider adding one explicit hermetic test command to the existing `reader-app` job in `.github/workflows/ci.yml`, after dependency install and before browser provisioning. Keep its command an explicit list (no wildcard across mixed directories) and use the already universal `tests/**` reader trigger. A safe first candidate set is:
+
+```sh
+node --experimental-strip-types --test \
+  tests/accountAuth/accountAuthSession.test.ts \
+  tests/accountSync/accountSyncCoordinator.test.ts \
+  tests/accountSync/supabasePostgrestTransport.test.ts \
+  tests/savedScripture/savedScriptureCollectionModel.test.ts \
+  tests/accountVerification/databaseIssuancePort.test.ts \
+  tests/accountVerification/eligibility.test.ts \
+  tests/accountVerification/pgExecutorTls.test.ts \
+  tests/accountVerification/providerAndBoundary.test.ts \
+  tests/accountVerification/runOnce.test.ts \
+  tests/accountVerification/runtimeBoundary.test.ts \
+  tests/accountVerification/runtimeConfig.test.ts \
+  tests/accountVerification/verifierOrchestration.test.ts \
+  tests/deepLinkIngress/authorizer.test.ts \
+  tests/deepLinkIngress/controller.test.ts \
+  tests/deepLinkIngress/parser.test.ts \
+  tests/hubContinue/hubContinueAppInput.test.ts \
+  tests/hubContinue/hubContinueEngine.test.ts \
+  tests/onboardingReplay/onboardingReplayModel.test.ts \
+  tests/scriptureCapture/scriptureCapture.test.ts \
+  tests/cardSharing/cardSharingService.test.ts \
+  tests/shelf/shelfAccountPrecedence.test.ts \
+  tests/shelf/shelfActiveFocusAndSeparation.test.ts \
+  tests/shelf/shelfProtectionAndRollover.test.ts \
+  tests/shelf/shelfSelectionAndPutAway.test.ts \
+  tests/shelf/shelfValidation.test.ts \
+  tests/news/newsModel.test.ts \
+  tests/news/newsProvider.test.ts \
+  tests/library/historicalLibraryHost.test.ts \
+  tests/library/historicalLibraryModel.test.ts
+```
+
+Before wiring, check each selected test for network/service access and exclude all `*.integration.*`, `*.supabase.*`, Playwright specs, and local-service shell runners. The expected impact is one additional Node process over a bounded set of unit tests; exact wall-clock cost is **unknown until measured on the first PR run**, so capture duration and test count rather than estimate. The job already runs for test-file changes and every main push/merge group, so no scope expansion is proposed here. This proposal intentionally does not edit workflows or add jobs in this matrix task.
+
+Keep Docker/Supabase acceptance in a separately gated job with disposable local services, no secrets and a hard prohibition on shared endpoints; retain it out of normal required checks until startup, cleanup, cost and privacy are validated. Keep broad Playwright suites as a separate browser gate: first repair the Collections command/scope mismatch, then decide whether each browser suite is safe/reliable enough for Ready PR and merge-group enforcement. Physical-device and release qualification remain manual acceptance with their own evidence.
+
+## Executive change list
+
+1. For Jasper Turtle, include the Saved Scripture model Node test and other reviewed hermetic cases in an explicit `reader-app` command; measure exact runtime and confirm missing/unknown changed-file detection still fails open.
+2. Separately decide whether Collections should add `push: main`, and align its scope list with actually executed specs before describing the job as covering every watched directory.
+3. Separately reconcile iOS PR `ready_for_review`/Draft semantics and whether it belongs in merge-group checks; current workflow changes are outside this issue's documentation boundary.
+4. Keep DB-backed, private-service, heavy browser and real-device suites as distinct gates until their setup and fixture isolation are independently approved and evidenced.
+
+## Evidence links
+
+- [Issue #240](https://github.com/Bibleberry/Bibleberry/issues/240), [Jasper Turtle #241](https://github.com/Bibleberry/Bibleberry/issues/241), [Silver Badger #239](https://github.com/Bibleberry/Bibleberry/issues/239).
+- [CI workflow source](https://github.com/Bibleberry/Bibleberry/blob/1eacda5c90ac97734b34ea08f4b8abf02098c9bf/.github/workflows/ci.yml), [Collections workflow source](https://github.com/Bibleberry/Bibleberry/blob/1eacda5c90ac97734b34ea08f4b8abf02098c9bf/.github/workflows/collections-browser.yml), [Android workflow source](https://github.com/Bibleberry/Bibleberry/blob/1eacda5c90ac97734b34ea08f4b8abf02098c9bf/.github/workflows/native-android.yml), [iOS workflow source](https://github.com/Bibleberry/Bibleberry/blob/1eacda5c90ac97734b34ea08f4b8abf02098c9bf/.github/workflows/native-ios.yml), [coordinator workflow source](https://github.com/Bibleberry/Bibleberry/blob/1eacda5c90ac97734b34ea08f4b8abf02098c9bf/.github/workflows/merge-queue-batch.yml).
+- [Scope evaluator](https://github.com/Bibleberry/Bibleberry/blob/1eacda5c90ac97734b34ea08f4b8abf02098c9bf/scripts/ci/check-scope.mjs), [smoke command list](https://github.com/Bibleberry/Bibleberry/blob/1eacda5c90ac97734b34ea08f4b8abf02098c9bf/scripts/run-smoke-suite.ts), [Collections command](https://github.com/Bibleberry/Bibleberry/blob/1eacda5c90ac97734b34ea08f4b8abf02098c9bf/scripts/testing/run-collections-browser-tests.mjs), [root scripts](https://github.com/Bibleberry/Bibleberry/blob/1eacda5c90ac97734b34ea08f4b8abf02098c9bf/package.json), [Studio scripts](https://github.com/Bibleberry/Bibleberry/blob/1eacda5c90ac97734b34ea08f4b8abf02098c9bf/studio/package.json).
+- [CI workflow runs](https://github.com/Bibleberry/Bibleberry/actions/workflows/ci.yml), [Collections workflow runs](https://github.com/Bibleberry/Bibleberry/actions/workflows/collections-browser.yml), [Android runs](https://github.com/Bibleberry/Bibleberry/actions/workflows/native-android.yml), [iOS runs](https://github.com/Bibleberry/Bibleberry/actions/workflows/native-ios.yml). This static matrix does not assert any particular historical run passed.
