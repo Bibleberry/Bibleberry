@@ -33,6 +33,8 @@ import {
   SAVED_SCRIPTURE_ROUTE_ALIASES,
   LIBRARY_ROUTE_HASH,
   LIBRARY_ROUTE_ALIASES,
+  SHELF_ROUTE_HASH,
+  SHELF_ROUTE_ALIASES,
   NEWS_ROUTE_HASH,
   NEWS_ROUTE_ALIASES,
   isFieldNotebookRouteEnabled,
@@ -42,6 +44,7 @@ import {
   parseNewsCategoryQuery,
   buildNewsRoute,
 } from './appIntegration'
+import type { LibraryShelfSurface, OpenMonthContext } from './components/libraryShelf/libraryShelfModel'
 import type { NewsFilterCategory } from './components/news/newsModel'
 import { parseInternalDestination } from './native/internalDestination'
 import './App.css'
@@ -64,9 +67,9 @@ type Detail =
   | { type: 'challengeLab' }
   | { type: 'challengePilot' }
   | { type: 'participationPilot' }
-  | { type: 'releasedChallenge'; slug: string; origin: ChallengeOrigin; monthReturnTo?: 'library' | 'news'; monthNewsCategory?: NewsFilterCategory }
-  | { type: 'month'; yearMonth: string; returnTo?: 'library' | 'news'; newsCategory?: NewsFilterCategory }
-  | { type: 'library' }
+  | { type: 'releasedChallenge'; slug: string; origin: ChallengeOrigin; monthReturnTo?: 'shelf' | 'library' | 'news'; monthNewsCategory?: NewsFilterCategory }
+  | { type: 'month'; yearMonth: string; returnTo?: 'shelf' | 'library' | 'news'; newsCategory?: NewsFilterCategory }
+  | { type: 'library'; surface?: LibraryShelfSurface }
   | { type: 'news'; initialCategory?: NewsFilterCategory }
   | { type: 'notebook' }
   | { type: 'savedScripture' }
@@ -141,8 +144,8 @@ const CardAnnouncementPreferenceControl = hubCardAnnouncementsEnabled
 const ProvisionalCollectionsEntryBar = (fieldNotebookEnabled || savedScriptureEnabled)
   ? lazy(() => import('./appIntegration/ProvisionalCollectionsEntryBar').then(module => ({ default: module.ProvisionalCollectionsEntryBar })))
   : null
-const HistoricalLibraryHost = historicalLibraryEnabled
-  ? lazy(() => import('./components/library').then(module => ({ default: module.HistoricalLibraryHost })))
+const AppLibraryShelfHost = historicalLibraryEnabled
+  ? lazy(() => import('./appIntegration/AppLibraryShelfHost').then(module => ({ default: module.AppLibraryShelfHost })))
   : null
 const ProvisionalLibraryEntryBar = historicalLibraryEnabled
   ? lazy(() => import('./appIntegration/ProvisionalLibraryEntryBar').then(module => ({ default: module.ProvisionalLibraryEntryBar })))
@@ -729,10 +732,10 @@ function parseInternalReaderDestination(hash: string) {
   })
 }
 
-function readHistoryMonthReturnTo(): 'library' | 'news' | undefined {
+function readHistoryMonthReturnTo(): 'shelf' | 'library' | 'news' | undefined {
   if (typeof window === 'undefined') return undefined
   const value = window.history.state?.monthReturnTo
-  if (value === 'library' && historicalLibraryEnabled) return 'library'
+  if ((value === 'shelf' || value === 'library') && historicalLibraryEnabled) return value
   if (value === 'news' && newsReaderEnabled) return 'news'
   return undefined
 }
@@ -835,13 +838,13 @@ function parseInitialRoute(): {
       savedScriptureEnabled: false,
       historicalLibraryEnabled,
     })
-    if (parsedAppRoute === 'library') {
+    if (parsedAppRoute === 'library' || parsedAppRoute === 'shelf') {
       const originView = typeof window !== 'undefined' && isPrimaryView(window.history.state?.originView)
         ? window.history.state.originView
         : 'archive'
       return {
         view: originView,
-        detail: { type: 'library' },
+        detail: { type: 'library', surface: parsedAppRoute === 'shelf' ? 'shelf' : 'library' },
         developmentCollection: 'ordinary',
         previewDate: '',
       }
@@ -1009,7 +1012,10 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
       || (monthScreenEnabled && (window.location.hash === '#/month' || window.location.hash.startsWith('#/month/')))
       || (fieldNotebookEnabled && NOTEBOOK_ROUTE_ALIASES.some(alias => window.location.hash.startsWith(alias)))
       || (savedScriptureEnabled && SAVED_SCRIPTURE_ROUTE_ALIASES.some(alias => window.location.hash.startsWith(alias)))
-      || (historicalLibraryEnabled && LIBRARY_ROUTE_ALIASES.some(alias => window.location.hash.startsWith(alias)))
+      || (historicalLibraryEnabled && (
+        LIBRARY_ROUTE_ALIASES.some(alias => window.location.hash.startsWith(alias))
+        || SHELF_ROUTE_ALIASES.some(alias => window.location.hash.startsWith(alias))
+      ))
       || (newsReaderEnabled && NEWS_ROUTE_ALIASES.some(alias => window.location.hash.startsWith(alias)))
     ) {
       window.history.pushState({ bibleberryView: destination }, '', window.location.pathname)
@@ -1097,12 +1103,12 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
           savedScriptureEnabled: false,
           historicalLibraryEnabled,
         })
-        if (parsedRoute === 'library') {
+        if (parsedRoute === 'library' || parsedRoute === 'shelf') {
           const originView = isPrimaryView(window.history.state?.originView)
             ? window.history.state.originView
             : undefined
           if (originView) setView(originView)
-          setDetail({ type: 'library' })
+          setDetail({ type: 'library', surface: parsedRoute === 'shelf' ? 'shelf' : 'library' })
           scrollTop()
           return
         }
@@ -1270,7 +1276,10 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
       setDetail({ type: 'savedScripture' })
     } else if (historicalLibraryEnabled && LIBRARY_ROUTE_ALIASES.some(alias => hash.startsWith(alias))) {
       window.history.replaceState({ originView: destination }, '', LIBRARY_ROUTE_HASH)
-      setDetail({ type: 'library' })
+      setDetail({ type: 'library', surface: 'library' })
+    } else if (historicalLibraryEnabled && SHELF_ROUTE_ALIASES.some(alias => hash.startsWith(alias))) {
+      window.history.replaceState({ originView: destination }, '', SHELF_ROUTE_HASH)
+      setDetail({ type: 'library', surface: 'shelf' })
     } else if (newsReaderEnabled && NEWS_ROUTE_ALIASES.some(alias => hash.startsWith(alias))) {
       const initialCategory = parseNewsCategoryQuery(hash)
       window.history.replaceState({ originView: destination }, '', buildNewsRoute(initialCategory))
@@ -1323,6 +1332,16 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
         monthIntroCleared = false
       }
     }
+    let shelfCleared = true
+    if (historicalLibraryEnabled) {
+      try {
+        const shelfStoreModule = await import('./shelfPersistence/defaultGuestShelfStore')
+        await shelfStoreModule.defaultGuestShelfStore.clearLocalData()
+        shelfCleared = shelfStoreModule.defaultGuestShelfStore.getSnapshot().health === 'ok'
+      } catch {
+        shelfCleared = false
+      }
+    }
     setState({ ...initialState })
     setDetail(null)
     setPreviewDate('')
@@ -1336,9 +1355,13 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
     window.history.replaceState(null, '', window.location.pathname)
     scrollTop()
     notify(
-      monthIntroCleared
-        ? 'Local app data cleared. Welcome restored.'
-        : 'App and participation data cleared, but monthly introduction storage could not be cleared (storage unavailable).',
+      !monthIntroCleared && !shelfCleared
+        ? 'App and participation data cleared, but monthly introduction storage and Shelf storage could not be cleared (storage unavailable).'
+        : !monthIntroCleared
+          ? 'App and participation data cleared, but monthly introduction storage could not be cleared (storage unavailable).'
+          : !shelfCleared
+            ? 'App and participation data cleared, but Shelf storage could not be cleared (storage unavailable).'
+            : 'Local app data cleared. Welcome restored.',
     )
   }
 
@@ -1521,16 +1544,21 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
     }
     scrollTop()
   }
-  const openMonthScreen = (yearMonth: string) => {
+  const openMonthScreen = (yearMonth: string, explicitOrigin?: OpenMonthContext['origin']) => {
     if (!monthScreenEnabled) return
-    const returnTo: 'library' | 'news' | undefined =
-      historicalLibraryEnabled &&
-      (detail?.type === 'library' || (detail?.type === 'month' && detail.returnTo === 'library'))
-        ? 'library'
-        : newsReaderEnabled &&
-          (detail?.type === 'news' || (detail?.type === 'month' && detail.returnTo === 'news'))
-          ? 'news'
-          : undefined
+    const returnTo: 'shelf' | 'library' | 'news' | undefined =
+      historicalLibraryEnabled && explicitOrigin
+        ? explicitOrigin
+        : historicalLibraryEnabled && detail?.type === 'library'
+          ? (detail.surface === 'shelf' ? 'shelf' : 'library')
+          : historicalLibraryEnabled &&
+            detail?.type === 'month' &&
+            (detail.returnTo === 'shelf' || detail.returnTo === 'library')
+            ? detail.returnTo
+            : newsReaderEnabled &&
+              (detail?.type === 'news' || (detail?.type === 'month' && detail.returnTo === 'news'))
+              ? 'news'
+              : undefined
     const newsCategory: NewsFilterCategory | undefined =
       returnTo === 'news'
         ? detail?.type === 'news'
@@ -1562,9 +1590,10 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
   const openMonthChallenge = (slug: string, yearMonth: string) => {
     if (!monthScreenEnabled) return
     const origin: ChallengeOrigin = { kind: 'month', yearMonth }
-    const monthReturnTo: 'library' | 'news' | undefined =
+    const monthReturnTo: 'shelf' | 'library' | 'news' | undefined =
       detail?.type === 'month' &&
-      ((historicalLibraryEnabled && detail.returnTo === 'library') ||
+      ((historicalLibraryEnabled &&
+        (detail.returnTo === 'shelf' || detail.returnTo === 'library')) ||
         (newsReaderEnabled && detail.returnTo === 'news'))
         ? detail.returnTo
         : undefined
@@ -1592,9 +1621,18 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
   }
   const exitMonthScreen = () => {
     if (!monthScreenEnabled) return
-    if (historicalLibraryEnabled && detail?.type === 'month' && detail.returnTo === 'library') {
-      setDetail({ type: 'library' })
-      window.history.pushState({ originView: view }, '', LIBRARY_ROUTE_HASH)
+    if (
+      historicalLibraryEnabled &&
+      detail?.type === 'month' &&
+      (detail.returnTo === 'shelf' || detail.returnTo === 'library')
+    ) {
+      const targetSurface: LibraryShelfSurface = detail.returnTo
+      setDetail({ type: 'library', surface: targetSurface })
+      window.history.pushState(
+        { originView: view },
+        '',
+        targetSurface === 'shelf' ? SHELF_ROUTE_HASH : LIBRARY_ROUTE_HASH,
+      )
       scrollTop()
       return
     }
@@ -1619,9 +1657,10 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
     const normalizedOrigin = parseChallengeOrigin(returnedOrigin)
     if (monthScreenEnabled && normalizedOrigin.kind === 'month') {
       const targetYearMonth = normalizedOrigin.yearMonth
-      const returnTo: 'library' | 'news' | undefined =
+      const returnTo: 'shelf' | 'library' | 'news' | undefined =
         detail?.type === 'releasedChallenge' &&
-        ((historicalLibraryEnabled && detail.monthReturnTo === 'library') ||
+        ((historicalLibraryEnabled &&
+          (detail.monthReturnTo === 'shelf' || detail.monthReturnTo === 'library')) ||
           (newsReaderEnabled && detail.monthReturnTo === 'news'))
           ? detail.monthReturnTo
           : undefined
@@ -1664,14 +1703,33 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
     if (!historicalLibraryEnabled) return
     window.history.replaceState({ ...(window.history.state ?? {}), bibleberryView: view }, '', window.location.href)
     window.history.pushState({ originView: view }, '', LIBRARY_ROUTE_HASH)
-    setDetail({ type: 'library' })
+    setDetail({ type: 'library', surface: 'library' })
+    scrollTop()
+  }
+
+  const openShelf = () => {
+    if (!historicalLibraryEnabled) return
+    window.history.replaceState({ ...(window.history.state ?? {}), bibleberryView: view }, '', window.location.href)
+    window.history.pushState({ originView: view }, '', SHELF_ROUTE_HASH)
+    setDetail({ type: 'library', surface: 'shelf' })
+    scrollTop()
+  }
+
+  const handleLibraryShelfSurfaceChange = (surface: LibraryShelfSurface) => {
+    if (!historicalLibraryEnabled) return
+    const targetHash = surface === 'shelf' ? SHELF_ROUTE_HASH : LIBRARY_ROUTE_HASH
+    window.history.pushState({ originView: view }, '', targetHash)
+    setDetail({ type: 'library', surface })
     scrollTop()
   }
 
   const exitHistoricalLibrary = () => {
     if (!historicalLibraryEnabled) return
     setDetail(null)
-    if (LIBRARY_ROUTE_ALIASES.some(alias => window.location.hash.startsWith(alias))) {
+    if (
+      LIBRARY_ROUTE_ALIASES.some(alias => window.location.hash.startsWith(alias)) ||
+      SHELF_ROUTE_ALIASES.some(alias => window.location.hash.startsWith(alias))
+    ) {
       window.history.pushState({ bibleberryView: view }, '', window.location.pathname)
     }
     scrollTop()
@@ -1826,19 +1884,21 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
         onSelectYearMonth={openMonthScreen}
         onExit={exitMonthScreen}
         exitLabel={
-          detail.returnTo === 'library' && historicalLibraryEnabled
-            ? formatChallengeOriginLabel({ kind: 'library' })
+          (detail.returnTo === 'shelf' || detail.returnTo === 'library') && historicalLibraryEnabled
+            ? formatChallengeOriginLabel({ kind: detail.returnTo })
             : detail.returnTo === 'news' && newsReaderEnabled
               ? 'Return to Ministry News'
               : `Return to ${primaryViewLabel(view)}`
         }
       />
     </Suspense>
-  } else if (detail?.type === 'library' && historicalLibraryEnabled && HistoricalLibraryHost) {
+  } else if (detail?.type === 'library' && historicalLibraryEnabled && AppLibraryShelfHost) {
     content = (
-      <Suspense fallback={<div className="standard-page library-page"><p role="status" aria-live="polite">Loading Historical Library…</p></div>}>
-        <HistoricalLibraryHost
-          onOpenMonth={openMonthScreen}
+      <Suspense fallback={<div className="standard-page library-page"><p role="status" aria-live="polite">Loading Shelf and Library…</p></div>}>
+        <AppLibraryShelfHost
+          surface={detail.surface ?? 'library'}
+          onSurfaceChange={handleLibraryShelfSurfaceChange}
+          onOpenMonth={(yearMonth, context) => openMonthScreen(yearMonth, context.origin)}
           onExit={exitHistoricalLibrary}
           exitLabel={`Return to ${primaryViewLabel(view)}`}
         />
@@ -1960,7 +2020,10 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
         )}
         {historicalLibraryEnabled && !detail && view === 'archive' && ProvisionalLibraryEntryBar && (
           <Suspense fallback={null}>
-            <ProvisionalLibraryEntryBar onOpenLibrary={openHistoricalLibrary} />
+            <ProvisionalLibraryEntryBar
+              onOpenLibrary={openHistoricalLibrary}
+              onOpenShelf={openShelf}
+            />
           </Suspense>
         )}
         {newsReaderEnabled && !detail && (view === 'today' || view === 'more') && ProvisionalNewsEntryBar && (

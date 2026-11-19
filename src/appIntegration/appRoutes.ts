@@ -17,6 +17,9 @@ export const SAVED_SCRIPTURE_ROUTE_ALIASES = Object.freeze(['#/saved-scripture',
 export const LIBRARY_ROUTE_HASH = '#/library'
 export const LIBRARY_ROUTE_ALIASES = Object.freeze(['#/library'] as const)
 
+export const SHELF_ROUTE_HASH = '#/shelf'
+export const SHELF_ROUTE_ALIASES = Object.freeze(['#/shelf'] as const)
+
 export const NEWS_ROUTE_HASH = '#/news'
 export const NEWS_ROUTE_ALIASES = Object.freeze(['#/news', '#/ministry-news'] as const)
 
@@ -27,7 +30,7 @@ const VALID_NEWS_CATEGORIES: readonly NewsFilterCategory[] = [
   'monthlyPreview',
 ]
 
-export type AppIntegrationRoute = 'notebook' | 'savedScripture' | 'library' | 'news'
+export type AppIntegrationRoute = 'notebook' | 'savedScripture' | 'library' | 'shelf' | 'news'
 
 export interface AppIntegrationRouteOptions {
   readonly fieldNotebookEnabled: boolean
@@ -118,6 +121,9 @@ export function parseAppIntegrationRoute(
     if (LIBRARY_ROUTE_ALIASES.includes(normalized as (typeof LIBRARY_ROUTE_ALIASES)[number])) {
       return 'library'
     }
+    if (SHELF_ROUTE_ALIASES.includes(normalized as (typeof SHELF_ROUTE_ALIASES)[number])) {
+      return 'shelf'
+    }
   }
 
   if (options.newsReaderEnabled) {
@@ -155,6 +161,10 @@ export function buildSavedScriptureRoute(): string {
 
 export function buildLibraryRoute(): string {
   return LIBRARY_ROUTE_HASH
+}
+
+export function buildShelfRoute(): string {
+  return SHELF_ROUTE_HASH
 }
 
 export function buildNewsRoute(category?: NewsFilterCategory): string {
