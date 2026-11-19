@@ -17,7 +17,10 @@ set -euo pipefail
 #      pre-unblocks: this script has no superuser access path at all (no `docker exec`).
 #   5. Fails on ANY WARNING/ERROR from the migration session, then runs the D1-D4 catalog and
 #      runtime checks (tests/accountSupabase/sb2RemediationChecks.sql) as postgres, rolled back.
-#   6. Runs suites A, B and C over real GoTrue/PostgREST and a dedicated verifier login.
+#   6. Runs suites A, B and C over real GoTrue/PostgREST and a dedicated verifier login, and
+#      suite D (R13-VERIFY2, Issue #230): the private verifier runtime (production pg executor,
+#      database port, run-once orchestration and CLI) against a synthetic published-Sanity
+#      fixture; no real Sanity request is made.
 #   7. Tears down only what this run created (SB1_KEEP_STACK=1 keeps it for inspection).
 #
 #   SB2_MUTATION_DEMOS=1 replaces steps 4-6 with mutation/regression demonstrations on the fresh
@@ -137,6 +140,9 @@ echo "No pre-existing resources; this run owns everything it creates (owner labe
 # ---------------------------------------------------------------------------
 # 3. Fresh disposable stack, loopback-only
 # ---------------------------------------------------------------------------
+# Suite D (R13-VERIFY2) runs the production verifier executor, which needs the pinned `pg` driver.
+[[ -f "${ROOT_DIR}/node_modules/pg/package.json" ]] || die "node_modules/pg is missing; run 'npm ci' first"
+
 step "Starting a fresh disposable local stack (${PROJECT_ID})"
 docker network create --label bibleberry.sb1=local --label "${OWNER_LABEL}=${RUN_ID}" \
   -o com.docker.network.bridge.host_binding_ipv4=127.0.0.1 "$NETWORK" >/dev/null
@@ -432,13 +438,14 @@ run_checks | grep -E '^ok - |SB2 remediation|ERROR' | sed 's/^/    /' || die "D1
 # ---------------------------------------------------------------------------
 # 6. Acceptance suites
 # ---------------------------------------------------------------------------
-SUITE_PASS_EXPECTED=29
-step "Running suites A (GoTrue + PostgREST), B (verifier login + issuance), C (R13-SB2 D1-D4)"
+SUITE_PASS_EXPECTED=43
+step "Running suites A (GoTrue + PostgREST), B (verifier login + issuance), C (R13-SB2 D1-D4), D (R13-VERIFY2 verifier runtime)"
 set +e
 out="$(cd "$ROOT_DIR" && node --experimental-strip-types --test --test-concurrency=1 \
   tests/accountSupabase/authPostgrestBoundary.supabase.test.ts \
   tests/accountSupabase/verifierRoleIssuance.supabase.test.ts \
-  tests/accountSupabase/migrationRemediation.supabase.test.ts 2>&1)"
+  tests/accountSupabase/migrationRemediation.supabase.test.ts \
+  tests/accountSupabase/verifierRuntime.supabase.test.ts 2>&1)"
 suite_status=$?
 set -e
 echo "$out" | redact | grep -E '^\s*(not )?ok [0-9]+ - |^# (pass|fail|skipped)'
