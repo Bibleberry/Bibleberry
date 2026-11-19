@@ -77,12 +77,14 @@ test.describe('Save Scripture in ordinary teaching', () => {
       localStorage.getItem('bibleberry-reader-participation-v1'),
     )
     expect(stored).toBeTruthy()
-    expect(JSON.parse(stored!).data.savedScriptures).toEqual([
+    const savedScriptures = JSON.parse(stored!).data.savedScriptures
+    expect(savedScriptures).toEqual([
       expect.objectContaining({
         reference: '1 Thessalonians 5:16–18',
         translation: 'NIV',
       }),
     ])
+    expect(savedScriptures[0].sourceChallengeId).toBeUndefined()
     expect(stored).not.toContain('Rejoice always, pray continually')
 
     await page.reload()
