@@ -10,6 +10,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TEST_DIR="${ROOT_DIR}/tests/accountDatabase"
 MIGRATIONS=(
   "${ROOT_DIR}/supabase/migrations/20261116000001_r13_3_account_schema_and_rls.sql"
+  "${ROOT_DIR}/supabase/migrations/20261118000000_r13_sb1_supabase_owner_role_prerequisite.sql"
   "${ROOT_DIR}/supabase/migrations/20261118000001_r13_tx1_account_reconciliation_transaction.sql"
 )
 

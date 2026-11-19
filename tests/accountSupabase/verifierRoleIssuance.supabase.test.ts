@@ -30,6 +30,8 @@ import {
 } from './lib/localStack.ts'
 import type { HttpResult, LocalStack, TestUser } from './lib/localStack.ts'
 
+// Responses are dynamic JSON from the real API under test; fields are asserted individually.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Json = Record<string, any>
 
 const run = uniqueSuffix()

@@ -55,10 +55,6 @@ sb() { (cd "$ROOT_DIR" && "$SUPABASE_CLI" "$@"); }
 # ---------------------------------------------------------------------------
 step "Preflight"
 [[ "$PROJECT_ID" == "bibleberry-sb1-local" ]] || die "unexpected project_id '$PROJECT_ID' in supabase/config.toml"
-for tool in docker psql node "$SUPABASE_CLI"; do
-  command -v "$tool" >/dev/null 2>&1 || die "'$tool' is not installed or not on PATH"
-done
-docker info >/dev/null 2>&1 || die "Docker daemon is not reachable"
 # A linked project leaves a ref under supabase/.temp; never run anywhere near one.
 [[ ! -s "${ROOT_DIR}/supabase/.temp/project-ref" ]] || die "supabase/.temp/project-ref exists: this checkout is linked to a hosted project"
 for var in SUPABASE_ACCESS_TOKEN SUPABASE_DB_URL SUPABASE_DB_PASSWORD SUPABASE_PROJECT_ID DATABASE_URL \
@@ -67,6 +63,10 @@ for var in SUPABASE_ACCESS_TOKEN SUPABASE_DB_URL SUPABASE_DB_PASSWORD SUPABASE_P
 done
 grep -qE '^\s*schemas = \["public", "graphql_public"\]' "${ROOT_DIR}/supabase/config.toml" \
   || die "config.toml must expose only public/graphql_public through the Data API"
+for tool in docker psql node "$SUPABASE_CLI"; do
+  command -v "$tool" >/dev/null 2>&1 || die "'$tool' is not installed or not on PATH"
+done
+docker info >/dev/null 2>&1 || die "Docker daemon is not reachable"
 echo "Supabase CLI $("$SUPABASE_CLI" --version 2>/dev/null) | $(docker version --format 'Docker {{.Server.Version}} ({{.Server.Os}}/{{.Server.Arch}})') | node $(node --version) | $(psql --version)"
 
 if [[ -n "${SB1_IMAGE_REGISTRY:-}" ]]; then
@@ -196,7 +196,9 @@ out="$(cd "$ROOT_DIR" && node --experimental-strip-types --test --test-concurren
 suite_status=$?
 set -e
 echo "$out" | redact | grep -E '^\s*(not )?ok [0-9]+ - |^# (pass|fail|skipped)'
-if [[ $suite_status -ne 0 ]] || ! grep -qx '# fail 0' <<<"$out" || ! grep -qx '# skipped 0' <<<"$out"; then
+# A skipped suite reports "# pass 0", so require the exact number of executed passes as well.
+if [[ $suite_status -ne 0 ]] || ! grep -qx '# pass 21' <<<"$out" \
+   || ! grep -qx '# fail 0' <<<"$out" || ! grep -qx '# skipped 0' <<<"$out"; then
   echo "$out" | redact | grep -E 'error:|^\s{8}' | head -60 >&2
   die "R13-SB1 suites failed or were skipped"
 fi

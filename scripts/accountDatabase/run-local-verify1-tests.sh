@@ -11,8 +11,10 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TEST_DIR="${ROOT_DIR}/tests/accountDatabase"
 MIGRATIONS=(
   "${ROOT_DIR}/supabase/migrations/20261116000001_r13_3_account_schema_and_rls.sql"
+  "${ROOT_DIR}/supabase/migrations/20261118000000_r13_sb1_supabase_owner_role_prerequisite.sql"
   "${ROOT_DIR}/supabase/migrations/20261118000001_r13_tx1_account_reconciliation_transaction.sql"
   "${ROOT_DIR}/supabase/migrations/20261118000002_r13_verify1_trusted_card_admission.sql"
+  "${ROOT_DIR}/supabase/migrations/20261118000003_r13_sb1_supabase_owner_role_cleanup.sql"
 )
 
 # shellcheck source=lib/local-target-guard.sh
