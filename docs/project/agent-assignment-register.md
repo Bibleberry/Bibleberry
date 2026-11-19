@@ -1,13 +1,12 @@
 # Agent Assignment Register
 
-Start from the GitHub Issue, not a chat title or this index:
+The permanent two-word codename is the primary human-facing name for a new assignment; its originating GitHub Issue remains the authoritative record and technical anchor. This page is only a finding aid. **Live GitHub Issue/PR status overrides this dated index.**
 
-1. Open the Issue and verify its number, title, assignee, approved scope, acceptance criteria, and latest handoff.
-2. Follow its linked PR and check the target branch, head branch/SHA, draft state, review and CI evidence. Verify the agent's current branch before any work.
-3. If the assignment, owner, branch, PR, or scope does not match, stop and ask Aaron to resolve the mismatch. Do not infer reassignment.
-4. Record the active implementer, next action, and verified pushed SHA on the Issue. Keep this page as a compact link index only; **live GitHub Issue/PR status overrides this dated snapshot**.
+For a **new** development Issue, its creator must first search the entire Bibleberry development Issue history, including closed work, for an existing codename. Compare case-insensitively and treat spaces, capitalization, and hyphens as equivalent. Assign a unique, permanent two-word codename before handing the Issue to a coding agent, and put it in the Issue title (for example, `[Blue Fox] Preserve Shelf Protection`). Use the same codename through every PR, transfer, review, correction, and replacement PR. A codename does not replace the Issue number or direct link.
 
-Update the index at meaningful assignment, review, or delivery checkpoints, not after every commit. Unknown session links stay “not available”; do not fabricate them.
+At assignment or handoff, start from the Issue: verify its number/title/codename, assignee, scope, acceptance criteria, latest ownership record, linked PR(s), their base/head/SHA and checks, and any conflicting work. Confirm the current branch before editing. If identity or ownership does not match, stop and ask Aaron; never guess or switch assignments. Keep one active implementing owner per Issue. Record assignment, PR transitions, current evidence, and next action on that Issue.
+
+Existing work without a codename remains uncodenamed unless Aaron authorizes its creator to add one at a later handoff. Do not retroactively rename Issues, PRs, branches, or conversations, and do not invent names to fill this index. The entries below retain their original Issue identifiers as a **historical snapshot**, not as the naming convention for new assignments. Update this index at meaningful handoffs/checkpoints, not after every commit. Unknown session links stay “not available”; never fabricate them.
 
 ## Active-work index — checked 2026-11-19
 
@@ -26,28 +25,62 @@ This is a dated snapshot, not an authority for current ownership or status. Rech
 Keep the canonical record on the originating Issue:
 
 ```text
-I-N | <task name>
-Assigned agent: <one active implementer>
-Agent chat/session: <direct link or not available>
-PR: <direct PR link or unknown>
-Branch: <branch or unknown>
-Pushed HEAD SHA: <full SHA or unknown>
-Status: <evidence-backed state>
-Next responsible party/action: <name and concrete action>
+<Codename> | Issue #<N> | <short task description>
+Originating Issue: <direct URL>
+Assigned coding agent: <one active implementer>
+Agent session: <direct URL or not available>
+Development branch: <branch or not assigned>
+Associated PRs: <# and direct URL for each, or none yet>
+Latest pushed HEAD SHA: <full SHA or not available>
+Verified status: <state, evidence, and date>
+Next responsible agent/person: <name or role>
+Next required action: <concrete action>
 Last verified: <YYYY-MM-DD>
 ```
 
-Before accepting the assignment, verify the Issue, assignee/owner, branch, PR head/base, approved scope, and competing assignments. A mismatch means stop and escalate to Aaron; do not switch branches or Issues by inference.
+For an existing Issue with no codename, write `Codename: not assigned (existing work; do not invent)` and continue to identify it by its Issue number/link. New Issues must not be assigned to an agent until a unique codename is recorded.
 
-## Copy/paste handoff
+## Copy/paste implementation handoff
 
 ```text
-I-N | <task> | PR #N | SHA <pushed SHA> | Agent <name> | Verdict/next action: <specific action>
-Issue: <direct Issue link>
-Branch/base: <head branch> → <base branch>
-Status: <implementation/review/checks state>
-Checks run: <commands and actual results; mark anything not run or unverified>
-Next responsible party: <name>
+<Codename> | Issue #<N> | PR #<N> | SHA <pushed SHA> | <agent> | Implementation/next action: <action>
+Issue: <direct Issue URL>
+PR: <direct PR URL>; branch/base: <branch> → <base>
+Status: <what changed and evidence-backed state>
+Checks run: <commands and actual results>
+Not run/unverified: <missing evidence>
+Next responsible person: <name or role>
 ```
 
-An implementer reports implementation and verification evidence; an independent reviewer gives a separate verdict; Checks/Merge reports actual CI/check state and does not approve code; Aaron alone authorizes merge. Record a transfer on the Issue, including the outgoing and incoming owner and prior session links when available, before the next agent resumes.
+## Copy/paste independent review handoff
+
+```text
+<Codename> | Issue #<N> | PR #<N> | SHA <reviewed SHA> | Review
+Issue: <direct Issue URL>
+PR: <direct PR URL>
+Verdict: <approved for stated scope / changes requested / hold>
+Findings: <specific findings or none>
+Evidence inspected: <files, tests, and checks actually inspected or run>
+Not run/unverified: <missing evidence>
+Next responsible person: <implementer or Checks and Merge>
+Next action: <specific action>
+```
+
+## Copy/paste Checks and Merge handoff
+
+```text
+<Codename> | PR #<N> | Checks and Merge
+Issue: <direct Issue URL>
+PR: <direct PR URL> | SHA <checked SHA> | base <base branch>
+Review disposition: <independent review state>
+CI/checks: <actual state and links; distinguish skipped/pending/failing/passing>
+Merge readiness: <evidence-backed state>
+Next action: <specific action>
+Authorization: Aaron alone authorizes merge/deployment; do not merge without it.
+```
+
+Implementation, independent review, CI/checks, and human acceptance are separate. A reviewer gives a scoped verdict, Checks and Merge reports actual check state and readiness, and Aaron alone authorizes merge. Record ownership transfers on the Issue before the incoming agent resumes, including outgoing/incoming owners and prior session links when available.
+
+## Current uncodenamed assignment: Issue #222
+
+Issue #222 predates this convention and has no assigned codename. Its current title, `[I-222 | Agent Identity & Work Register]`, and existing PR/session/branch identifiers are retained; do not invent a codename or rename them. The original Issue body requires `I-N` as the primary human-facing designator and examples that put the Issue ID first; those requirements are superseded by the new prospective codename-first decision. The Issue body should be updated by Aaron to record that supersession and, if desired, to assign a codename at a later handoff. Until then, this PR and the existing assignment remain findable by Issue #222 and its direct link.
