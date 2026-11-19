@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type Ref } from 'react'
 import {
   ArrowLeft, ArrowRight, BookOpen, Check, ChevronRight, Clock3, ExternalLink,
   Headphones, Leaf, Library, MoreHorizontal, Play, RotateCcw, Settings2,
@@ -11,6 +11,7 @@ import { announcements } from './data/announcements'
 import { allFormationEntries, disciplineResources, onePhraseMemorizationEntry, weeklyPilotEntries } from './data/formationFixtures'
 import { entryTypeLabel, WEEKLY_PILOT_CHALLENGE_ID, type ChallengeEntry, type TeachingEntry } from './data/formation'
 import { DeveloperStudio } from './components/DeveloperStudio'
+import { ReplayableOnboarding } from './components/onboardingReplay/ReplayableOnboarding'
 import type { OrdinaryChallengeSessionState } from './components/challenge/ordinaryChallengeHostModel'
 import {
   formatChallengeOriginLabel,
@@ -605,11 +606,12 @@ const moreLinks: { section: MoreSection; title: string; description: string; ico
   { section: 'privacy', title: 'Privacy & local data', description: 'Storage, reset, and local data', icon: ShieldCheck },
 ]
 
-function MoreView({ openSection, reminderEnabled, showDeveloperStudio, openDeveloperStudio }: { openSection: (section: MoreSection) => void; reminderEnabled: boolean; showDeveloperStudio: boolean; openDeveloperStudio: () => void }) {
+function MoreView({ openSection, reminderEnabled, showDeveloperStudio, openDeveloperStudio, onReviewIntroduction, reviewIntroductionRef }: { openSection: (section: MoreSection) => void; reminderEnabled: boolean; showDeveloperStudio: boolean; openDeveloperStudio: () => void; onReviewIntroduction: () => void; reviewIntroductionRef: Ref<HTMLButtonElement> }) {
   return (
     <div className="standard-page more-page">
       <PageIntro eyebrow="MORE" title="Make the space your own." body="Adjust your reading experience, revisit your Journey, or learn more about the app and its related ministry resources." />
       <div className="more-list">
+        <button ref={reviewIntroductionRef} type="button" aria-label="Review Introduction" onClick={onReviewIntroduction}><BookOpen size={20} strokeWidth={1.6} /><span><strong>Review Introduction</strong><small>Revisit the welcome introduction</small></span><ChevronRight size={19} /></button>
         {moreLinks.map(item => <button key={item.section} onClick={() => openSection(item.section)}><item.icon size={20} strokeWidth={1.6} /><span><strong>{item.title}</strong><small>{item.section === 'reminder' && reminderEnabled ? 'Preference saved on this browser' : item.description}</small></span><ChevronRight size={19} /></button>)}
         {showDeveloperStudio && <button className="developer-studio-entry" onClick={openDeveloperStudio}><Wrench size={20} strokeWidth={1.6} /><span><strong>Developer Studio</strong><small>Date, component, and reader simulations</small></span><ChevronRight size={19} /></button>}
       </div>
@@ -939,6 +941,7 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
   const [state, setState] = useState<PrototypeState>(loadState)
   const [view, setView] = useState<PrimaryView>(() => (loadState().onboarded ? parseInitialRoute().view : 'today'))
   const [detail, setDetail] = useState<Detail>(() => (loadState().onboarded ? parseInitialRoute().detail : null))
+  const [isReviewingIntroduction, setIsReviewingIntroduction] = useState(false)
   const [previewDate, setPreviewDate] = useState(() => (loadState().onboarded ? parseInitialRoute().previewDate : ''))
   const [developmentCollection, setDevelopmentCollection] = useState<'ordinary' | 'pilot'>(() => (loadState().onboarded ? parseInitialRoute().developmentCollection : 'ordinary'))
   const [simulatedDate, setSimulatedDate] = useState('')
@@ -951,6 +954,8 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
   const participationSnapshot = useReaderParticipation(defaultGuestParticipationStore)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const recordedOpening = useRef('')
+  const reviewIntroductionRef = useRef<HTMLButtonElement>(null)
+  const wasReviewingIntroduction = useRef(false)
 
   const hasNewDiscoveries = Object.entries(participationSnapshot.data?.earnedAwards ?? {}).some(
     ([id, award]) => !award.cardViewed && !clearedAwardIds.has(id),
@@ -962,6 +967,13 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
   }
 
   useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)) }, [state])
+
+  useEffect(() => {
+    if (wasReviewingIntroduction.current && !isReviewingIntroduction) {
+      reviewIntroductionRef.current?.focus()
+    }
+    wasReviewingIntroduction.current = isReviewingIntroduction
+  }, [isReviewingIntroduction])
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
@@ -1353,6 +1365,26 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
         <Onboarding state={state} update={update} finish={finishOnboarding} />
         {toastBanner}
       </>
+    )
+  }
+
+  if (isReviewingIntroduction) {
+    return (
+      <div className={`reading-${state.textSize}`}>
+        <ReplayableOnboarding
+          mode="replay"
+          origin={{
+            label: 'More',
+            routeHash: window.location.hash,
+            view,
+            detail,
+          }}
+          initialReminderTime={state.reminderTime}
+          onReminderPreferenceChange={patch => update(patch)}
+          onReturnToOrigin={() => setIsReviewingIntroduction(false)}
+        />
+        {toastBanner}
+      </div>
     )
   }
 
@@ -1901,7 +1933,7 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
     </>
   } else if (view === 'foundations') content = <FoundationsView explored={state.explored} openFoundation={openFoundation} openDisciplineLibrary={openDisciplineLibrary} />
   else if (view === 'archive') content = <ArchiveView entries={developmentCollection === 'pilot' ? [...weeklyPilotEntries].reverse() : ordinaryEntries} pilotActive={developmentCollection === 'pilot'} openEntry={openEntry} />
-  else content = <MoreView openSection={section => { setDetail({ type: 'more', section }); scrollTop() }} reminderEnabled={state.reminderEnabled} showDeveloperStudio={developerStudioEnabled} openDeveloperStudio={openDeveloperStudio} />
+  else content = <MoreView openSection={section => { setDetail({ type: 'more', section }); scrollTop() }} reminderEnabled={state.reminderEnabled} showDeveloperStudio={developerStudioEnabled} openDeveloperStudio={openDeveloperStudio} onReviewIntroduction={() => setIsReviewingIntroduction(true)} reviewIntroductionRef={reviewIntroductionRef} />
 
   return (
     <div className={`reading-${state.textSize}`}>
