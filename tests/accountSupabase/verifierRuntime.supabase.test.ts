@@ -704,7 +704,7 @@ suite('R13-VERIFY2 D: private verifier runtime on real local Supabase', { skip: 
     }
   })
 
-  test('D12 client, session and Data API paths cannot reach the verifier or grant awards; service_role residual (finding F1)', async () => {
+  test('D12 client, session, Data API and service_role paths cannot reach the verifier or grant awards (finding F1 fixed by R13-SB3)', async () => {
     const userQ = await newUser('q')
     // Client roles: no issuance RPC and no direct award write over the Data API.
     for (const fn of ['list_pending_award_claims', 'admit_verified_award', 'record_verification_deferral', 'get_claim_verification_context']) {
@@ -723,14 +723,21 @@ suite('R13-VERIFY2 D: private verifier runtime on real local Supabase', { skip: 
     assert.ok([401, 403].includes(asAnon.status), 'anon self-grant denied')
     assert.equal(admin(`SELECT count(*) FROM public.account_earned_awards WHERE account_id = :'a'::uuid;`, { a: userQ.id }), 0)
 
-    // FINDING F1 (pre-existing R13-3 grant, NOT changed here; owner decision required): the
-    // service_role secret key can write account_earned_awards directly, bypassing verification.
-    // The verifier runtime never holds or accepts that key (config + preflight, D2).
-    const asService = await http(stack, 'POST', '/rest/v1/account_earned_awards', {
-      headers: { ...bearer(stack.serviceRoleJwtKey), Prefer: 'return=minimal' }, body: row, apikey: stack.secretKey,
-    })
-    assert.equal(asService.status, 201, `F1 observed behaviour changed (update the evidence doc): ${describe(asService)}`)
-    psqlOk(stack.adminDbUrl, `DELETE FROM public.account_earned_awards WHERE account_id = :'a'::uuid;`, { a: userQ.id })
+    // FINDING F1 — FIXED by R13-SB3 (Issue #236, migration 20261119000001): the service_role secret
+    // key used to create this row directly (HTTP 201). It is now denied for both service
+    // credentials, and nothing is written. Full coverage: serviceRoleAwardGrant.supabase.test.ts.
+    for (const [who, headers, apikey] of [
+      ['legacy service_role JWT', bearer(stack.serviceRoleJwtKey), stack.serviceRoleJwtKey],
+      ['sb_secret API key', {}, stack.secretKey],
+    ] as Array<[string, Record<string, string>, string]>) {
+      const asService = await http(stack, 'POST', '/rest/v1/account_earned_awards', {
+        headers: { ...headers, Prefer: 'return=minimal' }, body: row, apikey,
+      })
+      assert.equal(asService.status, 403, `F1 regression: ${who} must not write earned awards: ${describe(asService)}`)
+      assert.equal((asService.body as Json).code, '42501', `${who}: ${describe(asService)}`)
+    }
+    assert.equal(admin(`SELECT count(*) FROM public.account_earned_awards WHERE account_id = :'a'::uuid;`, { a: userQ.id }), 0,
+      'no earned award was created by any service credential')
   })
 
   test('D13 every runtime output across this suite is counts-only and credential-free', () => {

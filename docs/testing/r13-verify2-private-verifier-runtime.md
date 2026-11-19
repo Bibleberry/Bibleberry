@@ -149,7 +149,7 @@ Real here: GoTrue A/B/… identities, PostgREST reconciliation (claims are nomin
 | D9 | DB port **refused**: `transientFailure` with exactly 2 retries. DB **black hole**: connect timeout, bounded. **Deadline** during a hung fetch: `aborted`/exit 4 within the bound, and **zero** writes (attempt table byte-identical). Deterministic restart with the same `RUN_ID` completes | pass |
 | D10 | Hard cap: 2 × 2 claims per run. Paging over all pending claims (including other suites' leftovers) reaches every claim (no starvation). Deferred claims are never discarded | pass |
 | D11 | **Real CLI process**, with secrets from 0600 files and a minimal environment. Config refusal (exit 2, names `AWARD_VERIFIER_DB_USER` or `PGHOST`). A real run with denied network: private deferral, nothing granted, exit 3, **one** stdout line, **empty** stderr. Wrong password: exit 6. **SIGTERM** while blocked on a database lock: exit 4 within 5 s, and no verifier session survives | pass |
-| D12 | Issuance functions are `404` on `/rest/v1/rpc` for a user. `Content-Profile: account_issuance` is `406` even for service_role. Reader and anon direct INSERT into `account_earned_awards` is denied. **Finding F1** (§7) | pass (F1 recorded) |
+| D12 | Issuance functions are `404` on `/rest/v1/rpc` for a user. `Content-Profile: account_issuance` is `406` even for service_role. Reader and anon direct INSERT into `account_earned_awards` is denied. **Finding F1** (§7). *Since R13-SB3:* the service-role JWT and `sb_secret_` key are denied too (`403 42501`, no row) | pass (F1 fixed by R13-SB3) |
 | D14 | **Membership allowlist** (review of PR #234). Each of these is refused with `LOGIN_PREFLIGHT`, exit 6, 0 retries, 0 claims examined, and the attempts and earned-award tables unchanged:<br>• verifier plus a newly created, otherwise harmless custom NOLOGIN group;<br>• nested: the only direct grant is a wrapper carrying the verifier and the custom group;<br>• nested verifier-only wrapper (not the exact direct grant);<br>• verifier plus each built-in group the Supabase `postgres` identity can grant: `pg_read_all_data`, `pg_monitor`, `pg_signal_backend` (`pg_write_all_data` is not grantable by `postgres` and was not exercised).<br>Positive control: the exact-membership LOGIN still completes. The extra roles are dropped afterwards | pass |
 | D13 | Every runtime output of the suite (in-process lines plus child stdout/stderr, ≥ 30 outputs) is scanned: no account ID, credential, award ID, Card URL, `trusted-` asset, internal label, DB URL, loopback host or login name | pass |
 
@@ -186,6 +186,8 @@ Real here: GoTrue A/B/… identities, PostgREST reconciliation (claims are nomin
 
 ## 7. Finding F1 — `service_role` can mint earned awards directly (pre-existing; owner decision)
 
+> **Resolved by R13-SB3 (Granite Sparrow, [#236](https://github.com/Bibleberry/Bibleberry/issues/236)), migration `20261119000001`.** The text below is the original VERIFY2 record. D12 now asserts denial. Evidence: [`r13-sb3-service-role-award-grant-remediation.md`](r13-sb3-service-role-award-grant-remediation.md).
+
 **Observed on the real local stack (D12, reproducible).** `POST /rest/v1/account_earned_awards` with the service-role secret key returns **HTTP 201** and creates an earned award with no claim, attestation or eligibility check. The cause is the accepted R13-3 grants: `service_role` keeps INSERT/UPDATE on the 10 client-visible account tables (SB1 §8.3 noted the grant but did not exercise it), and Supabase gives `service_role` BYPASSRLS.
 
 **Impact.** Any holder of the project's service-role key can bypass R13-VERIFY1/2 issuance entirely. That key is a separate, platform-level credential; the verifier never holds, accepts or needs it (config and preflight refuse it).
@@ -202,7 +204,7 @@ This branch shares **no file** with either PR. Neither assignment may change dep
 
 ## 9. Owner decisions for Aaron
 
-1. **F1** (§7): approve a scoped `service_role` revoke migration, or accept and document the platform-key bypass.
+1. **F1** (§7): approve a scoped `service_role` revoke migration, or accept and document the platform-key bypass. *Addressed by R13-SB3 (#236), pending its review/merge.*
 2. **Hosting:** choose where the run-once process runs, e.g. a container job or VM cron with Node ≥ 22.6. It needs outbound access only to Postgres (direct connection or pooler) and `<project>.api.sanity.io`. A browser, edge-public or Worker route is **not** suitable.
 3. **Credentials:**
    - Provision the dedicated LOGIN (`CREATE ROLE … LOGIN NOSUPERUSER NOBYPASSRLS …; GRANT account_award_verifier TO …`) on the hosted project.
@@ -233,5 +235,5 @@ The adapter needs real extended-protocol parameter binding, explicit TLS options
 | Finding | Resolution |
 | --- | --- |
 | **Required correction 1.** The preflight only denylisted known role names, so a LOGIN with `account_award_verifier` **plus** an arbitrary other group (custom, or built-in such as `pg_read_all_data`) passed. A holder of that credential could connect without the runtime's `SET ROLE` and use the extra membership. | `PREFLIGHT_SQL` is now an **allowlist**. The run fails closed unless all three hold:<br>• the login has exactly one direct membership, and it is `account_award_verifier`;<br>• no other role is reachable via `pg_has_role(session_user, r, 'MEMBER')` (covers nested grants; the verifier group itself must belong to nothing);<br>• the existing superuser, BYPASSRLS, active-role, port and session checks still pass.<br>No SQL migration or grant changed. Real-stack regression **D14** covers custom-group, nested-wrapper, verifier-only-wrapper and 3 built-in-group logins, with no claim reads or writes and no retry; a positive control and cleanup are included. **Mutation check:** with the allowlist disabled (old behaviour), D14 fails: the extra-group login runs as `completed`. Restored, D14 passes. |
-| **F1** (service_role direct award writes) | Unchanged: an owner decision (§7). D12 stays a tripwire. |
+| **F1** (service_role direct award writes) | Fixed by R13-SB3 (#236): award/evidence writes revoked from service_role; D12 asserts denial. |
 | **CI integration** | Unchanged: an owner-controlled gate (§9.7). No workflow was edited. |

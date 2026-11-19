@@ -172,7 +172,7 @@ The plain-PG harness's superuser runner and simulated `auth` **masked D1–D4**.
 
 1. **GraphQL not proven.** The local image has no `pg_graphql`. Hosted projects commonly enable it, and it would expose the account tables and RPCs that `authenticated` can reach, still RLS-bound. Re-test there.
 2. **Supabase default privileges in `public` grant ALL** on new tables and functions to anon, authenticated and service_role. The accepted explicit REVOKEs hold (B8). Every future migration must revoke explicitly; the runner's warning scan catches silent no-op grants.
-3. **service_role table access** to the 10 client-visible account tables is by R13-3 design. It was confirmed from the migrations but not exercised over HTTP.
+3. **service_role table access** to the 10 client-visible account tables is by R13-3 design. It was confirmed from the migrations but not exercised over HTTP. *Superseded:* R13-VERIFY2 exercised it (finding F1) and R13-SB3 ([#236](https://github.com/Bibleberry/Bibleberry/issues/236)) removed the award/evidence write paths; see [`r13-sb3-service-role-award-grant-remediation.md`](r13-sb3-service-role-award-grant-remediation.md).
 4. **Per-commit `unresolvedPersistedOnServer`.** A payload that omits a still-pending server claim receives `true`. This is consistent with TX1 §6 and V3b, but the adapter must never send partial envelopes.
 5. **Legacy HS256 secret.** Its holder can mint any identity, so it must stay server-only. A8 used only the local default secret, and only to mint an expired token.
 6. **Not tested here:** Docker Desktop (macOS), the default ECR image path, hosted Supabase (forbidden), and the verifier runtime and adapter (out of scope).
