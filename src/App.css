@@ -86,6 +86,8 @@ h3 { line-height: 1.4; }
 .resume-card > p:not(.eyebrow) { margin-bottom: 8px; color: var(--muted); font-size: 12px; }
 .resume-card h2 { margin-bottom: 20px; font-size: 26px; }
 .resume-card__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.today-hub-continue { box-sizing: border-box; width: min(calc(100% - 48px), 940px); max-width: 100%; margin: 20px auto 0; }
+.today-hub-continue .hub-continue__btn { max-width: 100%; white-space: normal; text-align: center; }
 .fixture-preview-tool { width: min(calc(100% - 48px), 940px); margin: 28px auto 0; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
 .fixture-preview-tool summary { display: flex; min-height: 68px; align-items: center; justify-content: space-between; gap: 20px; padding: 14px 4px; cursor: pointer; list-style: none; }
 .fixture-preview-tool summary::-webkit-details-marker { display: none; }
@@ -357,6 +359,7 @@ h3 { line-height: 1.4; }
   .announcement-bar__links { align-items: flex-start; flex-direction: column; justify-content: flex-start; }
   .resume-card { width: calc(100% - 44px); padding: 22px; }
   .resume-card__actions { align-items: flex-start; flex-direction: column; }
+  .today-hub-continue { width: calc(100% - 44px); }
   .fixture-preview-tool { width: calc(100% - 44px); margin-top: 22px; }
   .fixture-preview-tool form { align-items: stretch; flex-direction: column; gap: 14px; }
   .fixture-preview-tool label { min-width: 0; }
@@ -422,6 +425,7 @@ h3 { line-height: 1.4; }
   .onboarding__content h1, .teaching__body h1, .foundation-reading h1 { font-size: 33px; }
   .page-intro h1 { font-size: 32px; }
   .mobile-header { padding-inline: 16px; }
+  .today-hub-continue { width: calc(100% - 36px); }
   .standard-page, .teaching__grid, .media-fixtures { padding-inline: 18px; }
   .archive-row { grid-template-columns: 48px minmax(0, 1fr) 16px; gap: 12px; }
   .archive-row__title > span { font-size: 9px; }
