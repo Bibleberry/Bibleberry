@@ -13,7 +13,7 @@
 | --- | --- |
 | Do R13-3, R13-TX1 and R13-VERIFY1 apply, in order, under the real Supabase CLI runner (`postgres`, non-superuser)? | **Yes.** Zero pre-unblocks, no superuser access path, no synthetic `auth` bootstrap, **zero WARNINGs** (§5). |
 | Is the security model preserved on real GoTrue/PostgREST? | **Yes.** 21/21 existing real-stack tests pass, plus 8 new D1–D4 tests (29/29). |
-| Is every correction protected against regression? | **Yes.** 13 mutation demonstrations on a real stack: every restored defect is caught, and every failed migration strands nothing (§6). |
+| Is every correction protected against regression? | **Yes.** 12 mutation demonstrations plus a positive control on a real stack: every restored defect is caught, and every failed migration strands nothing (§6). |
 | Plain PostgreSQL regression? | Pass: TX1 263 assertions (was 250), VERIFY1 364 (was 334) plus E2E 1/1, R13-3 RLS (§7). |
 
 ## 2. One-time in-place amendment (migration policy exception)
