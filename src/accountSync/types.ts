@@ -46,6 +46,7 @@ export type ProposedAccountShelfAdmissionKind = 'readerSelected' | 'autoAdmitted
 export interface ProposedAccountShelfEntry {
   readonly yearMonth: PublicationYearMonth
   readonly admissionKind: ProposedAccountShelfAdmissionKind
+  readonly isProtected?: boolean
   readonly admittedOn?: LocalCalendarDate
 }
 
