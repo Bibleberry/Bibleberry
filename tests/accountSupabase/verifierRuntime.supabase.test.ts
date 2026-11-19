@@ -436,7 +436,7 @@ suite('R13-VERIFY2 D: private verifier runtime on real local Supabase', { skip: 
     assert.deepEqual(earnedRows(userC), before)
   })
 
-  test('D6 concurrent runs (two processes worth of connections) never double-admit', async () => {
+  test('D6 three concurrent runs (three connections) never double-admit', async () => {
     const userD = await newUser('d')
     const userE = await newUser('e')
     await nominate(userD, { completedChallenges: completions([canonical(YM, 1), canonical(YM, 3)], '2026-09-03'),
