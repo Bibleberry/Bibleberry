@@ -37,7 +37,7 @@ All 8 tables enable Row-Level Security (`ALTER TABLE ... ENABLE ROW LEVEL SECURI
 | `PUBLIC` | None (`REVOKE ALL`) | Default deny | Prevents accidental public schema exposure. |
 | `anon` | None (`REVOKE ALL`) | Default deny | Unauthenticated clients have zero access to private account records. |
 | `authenticated` | `SELECT` only | `USING (account_id = auth.uid())` | Readers may inspect only their own rows. Direct `INSERT`/`UPDATE`/`DELETE` is **denied** at both the SQL privilege layer and RLS policy layer so untrusted clients cannot forge `account_id`, bump `revision`, fabricate `serverVerified` dates, forge receipts, or bypass the 3-month Shelf policy. |
-| `service_role` | `ALL` | `BYPASSRLS` | Reserved for future server-side compare-and-commit RPCs / Edge Functions. |
+| `service_role` | ~~`ALL`~~ — narrowed by R13-SB3 ([#236](https://github.com/Bibleberry/Bibleberry/issues/236)): `SELECT` only on `account_earned_awards`, `account_completed_challenges` (and the TX1 claim/receipt/unresolved tables); `SELECT, INSERT, UPDATE, DELETE` on the other five; no `TRUNCATE`/`REFERENCES`/`TRIGGER` | `BYPASSRLS` | Originally reserved for future server-side RPCs; no such caller exists. Awards are admitted only through the R13-VERIFY1 issuer. See [`r13-sb3-service-role-award-grant-remediation.md`](../testing/r13-sb3-service-role-award-grant-remediation.md). |
 
 ### Required Future Server Authorization (Deferred to Follow-On Issues)
 

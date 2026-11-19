@@ -23,6 +23,13 @@ set -euo pipefail
 #      fixture; no real Sanity request is made.
 #   7. Tears down only what this run created (SB1_KEEP_STACK=1 keeps it for inspection).
 #
+#   R13-SB3 (Issue #236, Granite Sparrow) by default applies in TWO stages to prove the local
+#   upgrade path: the three accepted migrations first, then suite U phase "pre" reproduces finding
+#   F1 (service_role direct award/evidence writes) and seeds legitimately earned history, then the
+#   CLI applies 20261119000001 on top, then phase "post" proves denial + byte-identical history.
+#   Suite E (serviceRoleAwardGrant) and the SB3 privilege checks then run with A-D.
+#   SB3_FRESH_APPLY=1 instead applies all four migrations in ONE CLI run on the fresh stack.
+#
 #   SB2_MUTATION_DEMOS=1 replaces steps 4-6 with mutation/regression demonstrations on the fresh
 #   stack: each restores one D1-D4 defect in a throw-away copy of supabase/ (never the checkout)
 #   and must be caught by the CLI runner (with the failed migration proven to strand nothing) or by
@@ -35,6 +42,7 @@ set -euo pipefail
 #         (defaults to `supabase` on PATH; tested with Supabase CLI 3.2.0)
 # Env:    SB1_IMAGE_REGISTRY   optional image registry override (e.g. ghcr.io)
 #         SB2_MUTATION_DEMOS=1 run the mutation demonstrations instead of the acceptance suites
+#         SB3_FRESH_APPLY=1    apply every migration in one CLI run (fresh path; no upgrade phases)
 #         SB1_KEEP_STACK=1     leave the stack running afterwards
 #         SB1_DISPOSE_PREVIOUS_RUNNER_STACK=1  dispose a stack left by an earlier run of THIS
 #                              runner from THIS checkout (e.g. after SB1_KEEP_STACK=1), only if
@@ -50,6 +58,7 @@ PROJECT_LABEL="com.supabase.cli.project=${PROJECT_ID}"
 DB_CONTAINER="supabase_db_${PROJECT_ID}"
 TX1="20261118000001"
 VERIFY1="20261118000002"
+SB3="20261119000001"
 R13_3="20261116000001"
 
 redact() {
@@ -285,6 +294,24 @@ run_checks() {
   return "${PIPESTATUS[1]}"
 }
 
+# R13-SB3 effective service_role privilege checks, also always rolled back. Optional SQL in $1 runs
+# first inside the same transaction (mutation demos restore a dangerous GRANT there).
+SB3_CHECKS_SQL="${ROOT_DIR}/tests/accountSupabase/sb3ServiceRoleChecks.sql"
+[[ -f "$SB3_CHECKS_SQL" ]] || die "missing $SB3_CHECKS_SQL"
+run_sb3_checks() {
+  { echo 'BEGIN;'; echo "${1:-}"; cat "$SB3_CHECKS_SQL"; echo 'ROLLBACK;'; } | admin_sql 2>&1 | sed -E 's/^psql:[^ ]+ //; s/^NOTICE:  //'
+  return "${PIPESTATUS[1]}"
+}
+
+# A throw-away workdir holding only the given migration versions (never the checkout).
+partial_workdir() { # dir version...
+  local dir="$1" v; shift
+  mkdir -p "$dir/supabase/migrations"
+  cp "${ROOT_DIR}/supabase/config.toml" "$dir/supabase/"
+  for v in "$@"; do cp "${ROOT_DIR}"/supabase/migrations/"$v"_*.sql "$dir/supabase/migrations/"; done
+  echo "$dir"
+}
+
 step "Baseline (fresh stack, before any account migration)"
 assert_no_owner_create "baseline"
 [[ -z "$(admin_sql -c "select string_agg(rolname, ',') from pg_roles where rolname like 'account\_%'")" ]] \
@@ -395,29 +422,102 @@ if [[ "${SB2_MUTATION_DEMOS:-0}" == "1" ]]; then
     'R13-SB2 D2: owner role retains schema CREATE' "$R13_3 $TX1"
   [[ -z "$(verify1_residue | tr -d ' ')" ]] || die "M-D2c: failed R13-VERIFY1 left residue: $(verify1_residue)"
 
-  step "Unmutated R13-VERIFY1 still applies after the failed attempts"
-  sb migration up --local 2>&1 | redact | grep -E '^Applying|Error' | sed 's/^/    /' || true
+  step "Unmutated R13-VERIFY1 still applies after the failed attempts (R13-SB3 not yet)"
+  "$SUPABASE_CLI" --workdir "$(partial_workdir "$MUT_ROOT/verify1" "$R13_3" "$TX1" "$VERIFY1")" migration up --local 2>&1 \
+    | redact | grep -E '^Applying|Error' | sed 's/^/    /' || true
   [[ "$(applied_set)" == "$R13_3 $TX1 $VERIFY1" ]] || die "remaining migration did not apply: $(applied_set)"
   assert_no_owner_create "after mutation demos"
   run_checks | grep -E '^ok - |SB2 remediation|ERROR' | sed 's/^/    /' || die "D1-D4 checks failed after the demos"
+
+  step "R13-SB3 mutations: a migration that leaves a service_role write grant must not apply"
+  account_table_acls() {
+    admin_sql -c "SELECT string_agg(c.relname || '=' || coalesce(c.relacl::text, ''), ';' ORDER BY c.relname) FROM pg_class c
+                   JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname LIKE 'account\_%' AND c.relkind = 'r'"
+  }
+  sb3_mutant() { # name perl-substitution
+    local dir="$MUT_ROOT/$1" target
+    partial_workdir "$dir" "$R13_3" "$TX1" "$VERIFY1" "$SB3" >/dev/null
+    target="$(ls "$dir"/supabase/migrations/"$SB3"_*.sql)"
+    cp "$target" "$target.orig"; perl -0pi -e "$2" "$target"
+    ! cmp -s "$target" "$target.orig" || die "SB3 mutation $1 did not change the migration"
+    rm -f "$target.orig"; echo "$dir"
+  }
+  acl_before="$(account_table_acls)"
+  expect_migration_failure "M-SB3a drop the award/evidence REVOKE" \
+    "$(sb3_mutant sb3a 's/REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON TABLE\n      public\.account_earned_awards,/REVOKE TRUNCATE ON TABLE\n      public.account_earned_awards,/')" \
+    'R13-SB3: service_role still holds award/evidence write privileges' "$R13_3 $TX1 $VERIFY1"
+  expect_migration_failure "M-SB3b keep TRIGGER on reader-state tables" \
+    "$(sb3_mutant sb3b 's/REVOKE TRUNCATE, REFERENCES, TRIGGER ON TABLE\n      public\.account_participation_profiles/REVOKE TRUNCATE, REFERENCES ON TABLE\n      public.account_participation_profiles/')" \
+    'R13-SB3: service_role still holds TRUNCATE/REFERENCES/TRIGGER' "$R13_3 $TX1 $VERIFY1"
+  [[ "$(account_table_acls)" == "$acl_before" ]] || die "a failed R13-SB3 mutant changed account table ACLs"
+  echo "ok - failed R13-SB3 mutants left every account table ACL exactly as before"
+
+  step "Unmutated R13-SB3 applies; restoring any dangerous grant afterwards is caught (rolled back)"
+  sb migration up --local 2>&1 | redact | grep -E '^Applying|Error' | sed 's/^/    /' || true
+  [[ "$(applied_set)" == "$R13_3 $TX1 $VERIFY1 $SB3" ]] || die "R13-SB3 did not apply: $(applied_set)"
+  run_sb3_checks | grep -E '^ok - |SB3 service_role checks|ERROR' | sed 's/^/    /' || die "SB3 checks failed (positive control)"
+  for grant in \
+    'GRANT ALL ON TABLE public.account_earned_awards TO service_role;' \
+    'GRANT INSERT ON TABLE public.account_completed_challenges TO service_role;' \
+    'GRANT INSERT (claimed_earned_on) ON TABLE public.account_provisional_award_claims TO service_role;' \
+    'GRANT UPDATE ON TABLE public.account_reconciliation_receipts TO PUBLIC;' \
+    'GRANT TRIGGER ON TABLE public.account_participation_profiles TO service_role;' \
+    'GRANT SELECT ON TABLE public.account_award_admission_attestations TO service_role;'; do
+    set +e; out="$(run_sb3_checks "$grant")"; status=$?; set -e
+    [[ $status -ne 0 ]] && grep -q 'SB3-CHECK' <<<"$out" || die "restored grant NOT detected: $grant"
+    echo "ok - M-SB3 restored '$grant' detected ($(grep -m1 -oE 'SB3-CHECK S[0-9]+' <<<"$out"))"
+  done
+  run_sb3_checks >/dev/null || die "SB3 checks no longer pass after the rolled-back demos"
   echo
-  echo "R13-SB2 mutation demonstrations passed: every restored defect was caught; nothing was stranded."
+  echo "R13-SB2/R13-SB3 mutation demonstrations passed: every restored defect was caught; nothing was stranded."
   exit 0
 fi
 
 # ---------------------------------------------------------------------------
 # 5. The accepted migrations through the real CLI runner: zero unblocks, zero warnings
 # ---------------------------------------------------------------------------
-step "Applying R13-3, R13-TX1, R13-VERIFY1 with 'supabase migration up --local' (identity postgres, no pre-unblock)"
+STAGE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/bibleberry-sb3-stage.XXXXXX")"
+trap 'rm -rf "$STAGE_ROOT"; cleanup' EXIT
+SB3_STATE_FILE="${STAGE_ROOT}/sb3-upgrade-state.json"  # synthetic ids + digests only
+apply_cli() { # label [workdir]; applies everything pending in the (default: checkout) workdir
+  local out status
+  set +e
+  if [[ -n "${2:-}" ]]; then out="$("$SUPABASE_CLI" --workdir "$2" migration up --local 2>&1)"; else out="$(sb migration up --local 2>&1)"; fi
+  status=$?
+  set -e
+  echo "$out" | redact | grep -E '^Applying|Error' | sed 's/^/    /' || true
+  [[ $status -eq 0 ]] || { echo "$out" | redact | tail -5 >&2; die "$1 did not apply under the real Supabase runner"; }
+}
+run_upgrade_phase() { # pre|post
+  local out status
+  set +e
+  out="$(cd "$ROOT_DIR" && SB3_PHASE="$1" SB3_STATE_FILE="$SB3_STATE_FILE" node --experimental-strip-types --test \
+    tests/accountSupabase/sb3UpgradePath.supabase.test.ts 2>&1)"
+  status=$?
+  set -e
+  echo "$out" | redact | grep -E '^\s*(not )?ok [0-9]+ - |^\s*# F1-|^# (pass|fail|skipped)' | sed 's/^/    /'
+  [[ $status -eq 0 ]] && grep -qx '# fail 0' <<<"$out" && grep -qx '# skipped 0' <<<"$out" \
+    || { echo "$out" | redact | grep -E 'error:|^\s{8}' | head -40 >&2; die "R13-SB3 upgrade phase '$1' failed"; }
+}
+
 apply_started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-set +e
-out="$(sb migration up --local 2>&1)"
-status=$?
-set -e
-echo "$out" | redact | grep -E '^Applying|Error' | sed 's/^/    /' || true
-[[ $status -eq 0 ]] || { echo "$out" | redact | tail -5 >&2; die "the migrations did not apply under the real Supabase runner"; }
-[[ "$(applied_set)" == "$R13_3 $TX1 $VERIFY1" ]] || die "unexpected applied set: $(applied_set)"
-echo "ok - all 3 migrations applied, in order, by the CLI runner: $(applied_set)"
+if [[ "${SB3_FRESH_APPLY:-0}" == "1" ]]; then
+  step "Fresh path: applying all migrations (R13-3, TX1, VERIFY1, SB3) in ONE 'supabase migration up --local' (identity postgres, no pre-unblock)"
+  apply_cli "the migrations"
+  [[ "$(applied_set)" == "$R13_3 $TX1 $VERIFY1 $SB3" ]] || die "unexpected applied set: $(applied_set)"
+  echo "ok - all 4 migrations applied, in order, by the CLI runner in one run: $(applied_set)"
+else
+  step "Upgrade path 1/3: applying the accepted R13-3, R13-TX1, R13-VERIFY1 only (identity postgres, no pre-unblock)"
+  apply_cli "the accepted migrations" "$(partial_workdir "$STAGE_ROOT/accepted" "$R13_3" "$TX1" "$VERIFY1")"
+  [[ "$(applied_set)" == "$R13_3 $TX1 $VERIFY1" ]] || die "unexpected applied set: $(applied_set)"
+  echo "ok - the 3 accepted migrations applied, in order, by the CLI runner: $(applied_set)"
+  step "Upgrade path 2/3: suite U phase 'pre' (reproduce F1 on the accepted schema; seed earned history)"
+  run_upgrade_phase pre
+  step "Upgrade path 3/3: applying R13-SB3 on top of the populated database"
+  apply_cli "R13-SB3"
+  [[ "$(applied_set)" == "$R13_3 $TX1 $VERIFY1 $SB3" ]] || die "unexpected applied set: $(applied_set)"
+  echo "ok - R13-SB3 applied by the CLI runner on top: $(applied_set)"
+fi
 
 step "Migration WARNING scan (database log, runner session, this apply only)"
 # Capture first: `grep -q` closing the pipe early would SIGPIPE `docker logs` under pipefail.
@@ -431,21 +531,28 @@ warnings="$(grep -E 'postgres@postgres (WARNING|ERROR):' <<<"$db_log" | sed -E '
 [[ -z "$warnings" ]] || { echo "$warnings" | sed 's/^/  /' >&2; grep -E -A2 'postgres@postgres (WARNING|ERROR):' <<<"$db_log" | redact | head -20 >&2; die "the migration session logged warnings/errors"; }
 echo "ok - zero WARNING and zero ERROR lines from the migration session (besides the CLI's own history-table probe)"
 
-step "Post-apply catalog: no owner-role CREATE; D1-D4 checks as postgres (rolled back)"
+step "Post-apply catalog: no owner-role CREATE; D1-D4 and SB3 checks as postgres (rolled back)"
 assert_no_owner_create "after apply"
 run_checks | grep -E '^ok - |SB2 remediation|ERROR' | sed 's/^/    /' || die "D1-D4 checks failed"
+run_sb3_checks | grep -E '^ok - |SB3 service_role checks|ERROR' | sed 's/^/    /' || die "SB3 service_role checks failed"
+
+if [[ "${SB3_FRESH_APPLY:-0}" != "1" ]]; then
+  step "Upgrade path: suite U phase 'post' (F1 denied, history byte-identical, pending claim still admissible)"
+  run_upgrade_phase post
+fi
 
 # ---------------------------------------------------------------------------
 # 6. Acceptance suites
 # ---------------------------------------------------------------------------
-SUITE_PASS_EXPECTED=43
-step "Running suites A (GoTrue + PostgREST), B (verifier login + issuance), C (R13-SB2 D1-D4), D (R13-VERIFY2 verifier runtime)"
+SUITE_PASS_EXPECTED=50
+step "Running suites A (GoTrue + PostgREST), B (verifier login + issuance), C (R13-SB2 D1-D4), D (R13-VERIFY2 verifier runtime), E (R13-SB3 service_role)"
 set +e
 out="$(cd "$ROOT_DIR" && node --experimental-strip-types --test --test-concurrency=1 \
   tests/accountSupabase/authPostgrestBoundary.supabase.test.ts \
   tests/accountSupabase/verifierRoleIssuance.supabase.test.ts \
   tests/accountSupabase/migrationRemediation.supabase.test.ts \
-  tests/accountSupabase/verifierRuntime.supabase.test.ts 2>&1)"
+  tests/accountSupabase/verifierRuntime.supabase.test.ts \
+  tests/accountSupabase/serviceRoleAwardGrant.supabase.test.ts 2>&1)"
 suite_status=$?
 set -e
 echo "$out" | redact | grep -E '^\s*(not )?ok [0-9]+ - |^# (pass|fail|skipped)'
@@ -457,4 +564,4 @@ if [[ $suite_status -ne 0 ]] || ! grep -qx "# pass ${SUITE_PASS_EXPECTED}" <<<"$
 fi
 
 echo
-echo "R13-SB2 local Supabase acceptance passed: corrected migrations apply with ZERO unblocks and ZERO warnings (local stack only; NOT hosted deployability proof)."
+echo "R13-SB2/R13-SB3 local Supabase acceptance passed ($([[ "${SB3_FRESH_APPLY:-0}" == "1" ]] && echo 'fresh path' || echo 'upgrade path')): migrations apply with ZERO unblocks and ZERO warnings; service_role cannot mint awards or forge evidence (local stack only; NOT hosted deployability proof)."
