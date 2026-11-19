@@ -152,7 +152,7 @@ Real here: GoTrue A/B/… identities, PostgREST reconciliation (claims are nomin
 | D12 | Issuance functions are `404` on `/rest/v1/rpc` for a user. `Content-Profile: account_issuance` is `406` even for service_role. Reader and anon direct INSERT into `account_earned_awards` is denied. **Finding F1** (§7) | pass (F1 recorded) |
 | D13 | Every runtime output of the suite (in-process lines plus child stdout/stderr, ≥ 30 outputs) is scanned: no account ID, credential, award ID, Card URL, `trusted-` asset, internal label, DB URL, loopback host or login name | pass |
 
-**Full guarded runner result (fresh stack, this branch):** see the PR body for the exact final line. Expected and required: `# pass 42`, `# fail 0`, `# skipped 0`.
+**Full guarded runner result** (fresh stack, code at `7566f4a`): exit 0. 3 migrations applied with zero warnings, SB2 checks passed, `# pass 42`, `# fail 0`, `# skipped 0` (A 13 + B 8 + C 8 + D 13). `SB2_MUTATION_DEMOS=1` on its own fresh stack: exit 0, all 13 mutation demonstrations caught. A grep of both complete logs for JWT, API-key and DB-URL credential patterns found 0 matches.
 
 ### 6.2 Plain unit / boundary tests (no database)
 
@@ -193,11 +193,11 @@ Real here: GoTrue A/B/… identities, PostgREST reconciliation (claims are nomin
 
 ## 8. Cross-agent conflict check
 
-At implementation time:
-- **Maple Lantern [#226](https://github.com/Bibleberry/Bibleberry/issues/226)** (Codex, PR #229) writes `tests/challengeLifecycle/**` and one doc.
-- **Velvet Badger [#227](https://github.com/Bibleberry/Bibleberry/issues/227)** (Antigravity) writes `src/App.tsx`, `src/appIntegration/**`, `tests/libraryShelf/**` and `tests/shelfPersistence/**`, and lists `src/accountVerification/**` and `supabase/**` as read-only.
+Verified against the live GitHub file lists on 2026-11-19:
+- **Maple Lantern [#226](https://github.com/Bibleberry/Bibleberry/issues/226)**, [PR #229](https://github.com/Bibleberry/Bibleberry/pull/229) (merged to `main` as `fd81415`), changed `docs/testing/r04-r10-finish-resume-matrix.md` and `tests/participation/challengeLifecycle.test.ts`.
+- **Velvet Badger [#227](https://github.com/Bibleberry/Bibleberry/issues/227)**, Draft [PR #231](https://github.com/Bibleberry/Bibleberry/pull/231), changes `src/App.tsx`, `src/appIntegration/**`, `tests/appIntegration/**`, `tests/libraryShelf/**`, `tests/sanity/appIntegrationRoutes.test.ts` and its own doc. Its issue lists `src/accountVerification/**` and `supabase/**` as read-only.
 
-This branch touches none of their files. The only shared file is `package.json`/`package-lock.json` (one added dependency each side would merge textually), and neither issue may change dependencies.
+This branch shares **no file** with either PR. Neither assignment may change dependencies, so `package.json`/`package-lock.json` (changed only here) cannot conflict. The new boundary test scans all of `src/`, so any future browser file that imports the verifier fails it; that includes PR #231's new `src/appIntegration/**`, which does not import it. Only the pre-existing guard in `tests/gateway/gatewayHandler.test.ts` runs in CI today (see §9.7).
 
 ## 9. Owner decisions for Aaron
 
@@ -212,6 +212,7 @@ This branch touches none of their files. The only shared file is `package.json`/
 4. **Cadence and alerting:** accept or adjust §5. Decide whether a reader sync should ever trigger a run (not implemented; it would need a new private trigger).
 5. **Hosted acceptance:** authorize a staging-project run of suite-D-equivalent checks (custom LOGIN over the hosted connection path, TLS verify-full) before any production use.
 6. **Dependency:** accept `pg@8.23.1` (§11).
+7. **CI wiring:** CI (`.github/workflows/ci.yml`) runs `tests/ci/*` and `npm run test:gateway` only. CI configuration was excluded from this issue, so `tests/accountVerification/*.test.ts` (including the new bundle-isolation and TLS tests, ~10 s, no services needed) is **not yet run in CI**. Recommended: add `node --experimental-strip-types --test tests/accountVerification/*.test.ts` to the existing CI job. The real-Supabase runner needs Docker and stays a manual/local gate.
 
 ## 10. Deviations and notes
 
