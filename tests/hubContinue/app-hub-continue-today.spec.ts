@@ -1121,4 +1121,86 @@ test.describe('Phase 05 / R06: Hub Continue on ordinary Today (Issue #233)', () 
     await expect(continueCard).toHaveAttribute('data-year-month', '2026-09')
     await expect(continueCard.getByRole('heading', { name: 'Quiet Trust Day 1' })).toBeVisible()
   })
+
+  test('fails closed on direct Hub-origin Challenge navigation without trusted history identity and never falls back to direct Sanity catalog', async ({
+    page,
+  }) => {
+    const unexpectedChallengeOrSanityRequests: string[] = []
+
+    await mockDefaultGatewayRoutes(page, {
+      onRequest: pathname => {
+        if (pathname.startsWith('/api/challenges/')) {
+          unexpectedChallengeOrSanityRequests.push(pathname)
+        }
+      },
+    })
+    // Guard against any direct Sanity/published-catalog fallback when VITE_ENABLE_RELEASE_GATEWAY_SOURCE is off
+    await page.route('**/*sanity.io/**', async route => {
+      unexpectedChallengeOrSanityRequests.push(route.request().url())
+      await route.abort()
+    })
+
+    await page.addInitScript(
+      ({ prototypeKey, prototypeState }) => {
+        if (!window.localStorage.getItem(prototypeKey)) {
+          window.localStorage.setItem(prototypeKey, JSON.stringify(prototypeState))
+        }
+      },
+      {
+        prototypeKey: PROTOTYPE_STORAGE_KEY,
+        prototypeState: makeOnboardedState(),
+      },
+    )
+
+    // 1. Fresh direct entry to #/challenge/<slug>?origin=hub with empty history.state
+    await page.goto(`${enabledBaseUrl}#/challenge/2026-10-day-01?origin=hub`, {
+      waitUntil: 'domcontentloaded',
+    })
+    await expect(page.getByRole('heading', { name: 'Challenge unavailable' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Finish' })).toHaveCount(0)
+    await page.waitForTimeout(250)
+    expect(unexpectedChallengeOrSanityRequests).toEqual([])
+    const participationAfterDirect = await page.evaluate(
+      key => window.localStorage.getItem(key),
+      PARTICIPATION_STORAGE_KEY,
+    )
+    expect(participationAfterDirect).toBeNull()
+
+    // Safe return navigation back to Today
+    await page.getByRole('button', { name: 'Return to Today' }).click()
+    await expect(page).not.toHaveURL(/#\/challenge\//)
+    await expect(page.locator('#daily-teaching')).toBeVisible()
+
+    // 2. Missing/cleared and malformed hubContinueDocumentId values in history.state on reload
+    for (const invalidDocId of [null, '', '   ', 'drafts.2026-10-day-01-doc', 'pilot-fake']) {
+      await page.evaluate(
+        docId => {
+          window.history.replaceState(
+            {
+              originView: 'today',
+              challengeOrigin: { kind: 'hub' },
+              hubContinueDocumentId: docId,
+            },
+            '',
+            '#/challenge/2026-10-day-01?origin=hub',
+          )
+        },
+        invalidDocId,
+      )
+      await page.reload({ waitUntil: 'domcontentloaded' })
+      await expect(page.getByRole('heading', { name: 'Challenge unavailable' })).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Finish' })).toHaveCount(0)
+      await page.waitForTimeout(150)
+      expect(unexpectedChallengeOrSanityRequests).toEqual([])
+      const storedParticipation = await page.evaluate(
+        key => window.localStorage.getItem(key),
+        PARTICIPATION_STORAGE_KEY,
+      )
+      expect(storedParticipation).toBeNull()
+
+      await page.getByRole('button', { name: 'Return to Today' }).click()
+      await expect(page).not.toHaveURL(/#\/challenge\//)
+      await expect(page.locator('#daily-teaching')).toBeVisible()
+    }
+  })
 })

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { ArrowLeft } from 'lucide-react'
 import {
   defaultGatewayChallengeProvider,
   type ChallengeDetailProvider,
@@ -20,6 +21,7 @@ import { ReleasedChallengeHost } from '../cms/reader/ReleasedChallengeHost.tsx'
 import { HubContinueBoundary } from '../components/hubContinue/HubContinueBoundary.tsx'
 import { deriveHubContinueSuggestion } from '../hubContinue/engine.ts'
 import type { HubContinueSuggestion } from '../hubContinue/types.ts'
+import { formatCanonicalChallengeId } from '../participation/identity.ts'
 import type { ReaderParticipationSnapshot } from '../participation/store.ts'
 import type { PublicationYearMonth } from '../participation/types.ts'
 import { MAX_SHELF_CAPACITY } from '../shelf/types.ts'
@@ -239,7 +241,7 @@ export function AppHubContinueHost({
 
 export interface HubContinueChallengeHostProps {
   readonly slug: string
-  readonly expectedDocumentId: string
+  readonly expectedDocumentId?: string
   readonly origin: ChallengeOrigin
   readonly returnLabel?: string
   readonly onReturn: (origin: ChallengeOrigin) => void
@@ -247,8 +249,9 @@ export interface HubContinueChallengeHostProps {
 
 /**
  * Gateway-verified Challenge host for Hub Continue recommendations.
- * Ensures the opened released Challenge always loads from the release gateway
- * and strictly matches the recommended canonical Sanity document ID.
+ * Ensures Hub-origin released Challenges require a trusted canonical document ID,
+ * always load from the release gateway (never falling back to direct Sanity/catalog reads),
+ * and fail closed with a safe return path when identity context is missing or invalid.
  */
 export function HubContinueChallengeHost({
   slug,
@@ -257,18 +260,47 @@ export function HubContinueChallengeHost({
   returnLabel,
   onReturn,
 }: HubContinueChallengeHostProps) {
-  const challengeProvider = useMemo<ChallengeDetailProvider>(
-    () => ({
-      loadChallenge(requestedSlug, options) {
-        return loadChallengeDetailForSummary(
-          { slug: requestedSlug, documentId: expectedDocumentId },
-          defaultGatewayChallengeProvider,
-          options,
-        )
-      },
-    }),
-    [expectedDocumentId],
+  const verifiedDocumentId =
+    typeof expectedDocumentId === 'string' && formatCanonicalChallengeId('cms', expectedDocumentId)
+      ? expectedDocumentId
+      : null
+
+  const challengeProvider = useMemo<ChallengeDetailProvider | null>(
+    () =>
+      verifiedDocumentId
+        ? {
+            loadChallenge(requestedSlug, options) {
+              return loadChallengeDetailForSummary(
+                { slug: requestedSlug, documentId: verifiedDocumentId },
+                defaultGatewayChallengeProvider,
+                options,
+              )
+            },
+          }
+        : null,
+    [verifiedDocumentId],
   )
+
+  if (!challengeProvider) {
+    return (
+      <div className="standard-page challenge-reader-page">
+        <button
+          type="button"
+          className="back-link challenge-player__exit"
+          onClick={() => onReturn(origin)}
+        >
+          <ArrowLeft size={17} aria-hidden="true" /> {returnLabel ?? 'Return to Today'}
+        </button>
+        <div className="empty-state" role="status" aria-live="polite">
+          <h2>Challenge unavailable</h2>
+          <p>
+            This Challenge could not be verified from Today. Return to Today to open an available
+            study suggestion.
+          </p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <ReleasedChallengeHost

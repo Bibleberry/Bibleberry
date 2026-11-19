@@ -19,6 +19,7 @@ import {
   type ChallengeOrigin,
 } from './cms/reader/challengeOrigin'
 import { defaultGuestParticipationStore } from './participation/defaultGuestStore'
+import { formatCanonicalChallengeId } from './participation/identity'
 import { useReaderParticipation } from './participation/useReaderParticipation'
 import { SaveScriptureControl } from './components/scriptureCapture/SaveScriptureControl'
 import { getTeachingScriptureCapture } from './appIntegration/teachingScripture'
@@ -762,9 +763,7 @@ function readHistoryHubContinueDocumentId(): string | undefined {
   if (typeof window === 'undefined' || !hubContinueEnabled) return undefined
   const value = window.history.state?.hubContinueDocumentId
   if (typeof value !== 'string') return undefined
-  const trimmed = value.trim()
-  if (!trimmed || trimmed.startsWith('drafts.')) return undefined
-  return trimmed
+  return formatCanonicalChallengeId('cms', value) ? value : undefined
 }
 
 function parseMonthHash(hash: string): { yearMonth: string } | null {
@@ -1112,6 +1111,7 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
           const monthReturnTo = readHistoryMonthReturnTo()
           const monthNewsCategory = monthReturnTo === 'news' ? readHistoryMonthNewsCategory() : undefined
           if (originView) setView(originView)
+          else if (hubContinueEnabled && parsedChallenge.origin.kind === 'hub') setView('today')
           setDetail({
             type: 'releasedChallenge',
             slug: parsedChallenge.slug,
@@ -1625,8 +1625,8 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
   const openHubContinueChallenge = (suggestion: HubContinueSuggestion) => {
     if (!hubContinueEnabled) return
     const slug = suggestion.challengeSlug.trim()
-    const expectedDocumentId = suggestion.challengeDocumentId.trim()
-    if (!slug || !expectedDocumentId || expectedDocumentId.startsWith('drafts.')) return
+    const expectedDocumentId = suggestion.challengeDocumentId
+    if (!slug || !formatCanonicalChallengeId('cms', expectedDocumentId)) return
     const origin: ChallengeOrigin = { kind: 'hub' }
     const targetHash = `#/challenge/${encodeURIComponent(slug)}?origin=hub`
     window.history.replaceState({ ...(window.history.state ?? {}), bibleberryView: view }, '', window.location.href)
@@ -1970,7 +1970,7 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
       ? `Return to ${primaryViewLabel(view)}`
       : formatChallengeOriginLabel(detail.origin)
     content = <Suspense fallback={<div className="standard-page"><p role="status" aria-live="polite">Loading Challenge…</p></div>}>
-      {hubContinueEnabled && detail.expectedDocumentId && HubContinueChallengeHost ? (
+      {hubContinueEnabled && detail.origin.kind === 'hub' && HubContinueChallengeHost ? (
         <HubContinueChallengeHost
           slug={detail.slug}
           expectedDocumentId={detail.expectedDocumentId}
