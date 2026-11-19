@@ -4,6 +4,8 @@
 **Project owner:** Aaron Waid  
 **Editorial and theological authority:** Alexis Waid
 
+**Owner policy update (November 19, 2026):** Submit reviewable pull requests as **Ready for review**, not Draft, now that Bibleberry uses public-repository hosted CI. This authorizes automated checks and independent review only; Aaron alone authorizes merge or deployment. Earlier mandatory-Draft instructions in historical Issues are superseded prospectively. A Draft PR requires Aaron's specific exception.
+
 ## 0. Project Context and Continuity Between AI Sessions
 
 Bibleberry uses multiple AI coding/research/review assistants. **GitHub is the durable shared record**; no single model's chat history, private sandbox or session notes are the sole project handoff.
@@ -47,7 +49,7 @@ A planning document alone does not authorize implementation.
 - Create a separate branch for each appropriately scoped assignment.
 - Never commit or push directly to `main`.
 - Make descriptive, logically organized commits.
-- Open a pull request targeting `main`.
+- Open a pull request targeting `main` as **Ready for review (non-Draft)** once a coherent change is available for automated checks and independent review. Checks may still be running or failing when the PR opens; report their actual results. Do not use Draft by default.
 - Complete the repository's pull request template.
 - Do not merge the pull request or delete its development branch without Aaron's authorization.
 
@@ -56,7 +58,7 @@ A planning document alone does not authorize implementation.
 AI engineering assignments must be designed for reliable delivery as well as correct implementation. These requirements apply to Kimi and any other coding agent working in this repository.
 
 1. **Scope the assignment to an independently reviewable result.** Prefer one bounded capability per PR. Divide larger milestones into sequential PRs with explicit dependencies and acceptance criteria; do not combine an adapter, UI, integration, and release work into one large PR merely because one agent can implement them.
-2. **Establish the delivery branch first.** Start from the current accepted base, create one intended feature branch, and verify that the agent can push to it before undertaking extensive implementation. Open a draft PR early when useful, but do not mark it ready or imply acceptance prematurely.
+2. **Establish the delivery branch first.** Start from the current accepted base, create one intended feature branch, and verify that the agent can push to it before undertaking extensive implementation. Push recoverable checkpoints to the branch while work is in progress. Once a coherent change is ready for checks/review, open a **Ready for review (non-Draft)** PR; do not wait for green hosted CI to open it. Use Draft only if Aaron explicitly authorizes an exception. **Ready means checkable and reviewable, not approved for merge.**
 3. **Commit and push recovery checkpoints throughout implementation.** After the first coherent, testable increment, run focused checks, commit, and push. Repeat after each meaningful implementation stage. Do not wait until all coding, full regression tests, browser verification, and documentation are finished before the first code push. Keep checkpoints coherent and disclose any known failures.
 4. **Use one authorized branch per assignment.** Do not create placeholder, auxiliary, fallback, or duplicate branches to work around GitHub tool failures. If the designated branch cannot be updated, stop further GitHub mutations and report the exact blocker and the last confirmed remote commit.
 5. **Design for agent interruptions.** When tool reliability, session limits, context, or remaining execution capacity becomes uncertain, prioritize preserving finished work in the remote branch over starting more features. Keep handoff notes concise enough that another session can resume from the confirmed commit.
@@ -71,7 +73,7 @@ These rules are mandatory for every model, coding agent, reviewer and Checks/Mer
 
 - **Assign a permanent codename when creating each new development Issue.** The creator chooses exactly two ordinary, memorable words before assigning a coding agent, in title case (for example, `Blue Fox`). Check the complete Bibleberry development Issue history, including closed Issues, first. Treat capitalization, spaces, and hyphens as equivalent when checking uniqueness; do not reuse a codename. Avoid confusing, offensive, unwieldy, or hard-to-pronounce names. Once recorded, the codename never changes, including across agent transfers, corrections, or replacement PRs. Distinct Issues need distinct codenames; multiple PRs for one Issue share its codename. Do not create a second task ID or tracking system.
 - **Lead new assignment names with the codename.** Use Issue title `[Blue Fox] Preserve Shelf Protection`; PR title `[Blue Fox] Implement Shelf Protection Fix`; branch `fix/issue-224-blue-fox` (use an existing appropriate prefix and retain the Issue number); and single-Issue session title `Blue Fox | Shelf Protection | Copilot`. Keep the originating Issue number and direct link in formal records, PR descriptions, and handoffs. Multi-Issue coordinating sessions need not use one codename; identify each assignment separately.
-- **Keep PR references accurate.** The PR body explicitly links the originating Issue. Use `Refs #224` for partial work; use `Fixes #224` only when all acceptance criteria are met and the PR is intended to close the Issue. A Draft or placeholder PR must not claim completion. If one Issue has multiple or replacement PRs, record all their numbers, links, branches and relevant SHAs on the Issue, keeping the same codename throughout.
+- **Keep PR references accurate.** The PR body explicitly links the originating Issue. Use `Refs #224` for partial work; use `Fixes #224` only when all acceptance criteria are met and the PR is intended to close the Issue. An incomplete or placeholder PR must not claim completion, regardless of PR review status. If one Issue has multiple or replacement PRs, record all their numbers, links, branches and relevant SHAs on the Issue, keeping the same codename throughout.
 - **Keep the assignment record on its Issue.** Store or update a concise structured block (or one handoff comment when body editing is inappropriate) with codename; Issue number and link; short task; assigned agent; session link or `not available`; branch; all associated PR numbers/links; latest pushed HEAD SHA; verified status; next responsible person/agent; next action; and last-verified date. Mark unknown information unknown; never invent links or evidence. There is one active implementing owner per Issue; other agents may review independently.
 - **Perform preflight before changing branches or files.** Verify the Issue number/title and codename, assignee/ownership, branch, all relevant PR heads/bases and pushed SHAs, approved scope, and conflicting active assignments. Confirm a new codename is unique before creating its Issue. If identity or scope conflicts, stop and report the exact mismatch to Aaron; do not guess, silently switch Issues, or edit the wrong branch. A message naming a different codename or Issue requires explicit reassignment and branch verification before work resumes.
 - **Use explicit, codename-first handoffs.** Start an implementation summary with `Blue Fox | Issue #224 | PR #229 | SHA <pushed SHA> | Copilot | Implementation/next action: <action>`. Start a review with `Blue Fox | Issue #224 | PR #229 | Review`; start a checks/merge handoff with `Blue Fox | PR #229 | Checks and Merge`. Link the Issue and PR, name the next responsible person, and list commands actually run and results; identify missing or unverified evidence. Coding, independent review, CI/checks, and Aaron's final authorization are separate stages: review is not a CI pass, CI is not code approval, and no agent merges or deploys without Aaron's authorization.
@@ -115,13 +117,13 @@ Do not claim tests were performed unless they were actually executed.
 
 When implementation is finished:
 
-1. Open the pull request.
+1. Open or update a **Ready for review (non-Draft)** pull request for a coherent, checkable change. Tests and hosted CI need not already be green; report their actual status and limitations. Do not create Draft PRs by default.
 2. Explain what changed and why.
 3. Identify anything that deviates from the approved requirements.
 4. Report verification results and unresolved issues.
 5. Leave the pull request open for human review.
 
-**Only Aaron authorizes technical acceptance and merging.** Changes affecting Alexis's theological, editorial, or visual decisions require her appropriate review.
+**Ready for review does not mean code approved, checks passed, or permission to merge.** Agents may open Ready PRs without a separate promotion authorization; **only Aaron authorizes technical acceptance, merging and deployment.** Changes affecting Alexis's theological, editorial, or visual decisions require her appropriate review.
 
 Implementation, verification, acceptance, and production release are distinct stages.
 
