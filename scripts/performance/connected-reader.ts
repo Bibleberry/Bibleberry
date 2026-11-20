@@ -169,7 +169,7 @@ export async function measureConnectedReader(
     await page.addInitScript(fixedTime => {
       const NativeDate = Date;
       const timestamp = NativeDate.parse(fixedTime);
-      Date = new Proxy(NativeDate, {
+      const FixtureDate = new Proxy(NativeDate, {
         construct(target, args, newTarget) {
           return Reflect.construct(target, args.length ? args : [timestamp], newTarget);
         },
@@ -178,6 +178,7 @@ export async function measureConnectedReader(
           return property === 'now' ? () => timestamp : Reflect.get(target, property, receiver);
         },
       });
+      Object.defineProperty(globalThis, 'Date', { value: FixtureDate });
     }, FIXTURE_TIME);
     await preparePage(context, page);
     const isolation = await isolateBrowser(context, page, origin, assets);
