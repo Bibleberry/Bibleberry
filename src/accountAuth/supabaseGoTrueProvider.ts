@@ -8,7 +8,6 @@ import type {
   AuthProviderSignInResult,
   AuthProviderSignOutResult,
   AuthSignInRequest,
-  AuthUnauthorizedReason,
   EmailOtpChallenge,
   VerifiedAuthSession,
   VerifyEmailOtpRequest,
