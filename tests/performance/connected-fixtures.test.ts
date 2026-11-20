@@ -39,3 +39,32 @@ test('connected traffic can only reach known build artifacts and exact synthetic
   assert.throws(() => request(BLOCKED_STYLESHEET), /Unexpected external request/);
   assert.throws(() => request('/api/months/2026-10/progress', 'POST', 'fetch', '{}'), /empty completed/);
 });
+
+test('fixture payloads pass the real gateway readers and malformed content is rejected', async () => {
+  const { createGatewayMonthProvider } = await import('../../src/cms/reader/monthProvider.ts');
+  const { createGatewayLibraryMonthIndexProvider } = await import('../../src/cms/reader/libraryMonthIndexProvider.ts');
+  const { createGatewayChallengeProvider } = await import('../../src/cms/reader/challengeDetailProvider.ts');
+  const { createGatewayCatalogProvider } = await import('../../src/cms/reader/releasedCatalogProvider.ts');
+  const { CHALLENGE_SLUG, FOCUS_MONTH, HISTORICAL_MONTH } = await import('../../scripts/performance/connected-fixtures.ts');
+  const fetchImpl: typeof fetch = async (input, init) => {
+    const fixture = request(String(input), init?.method, 'fetch', (init?.body as string | undefined) ?? null);
+    assert.equal(fixture.kind, 'fixture');
+    return Response.json(fixture.payload);
+  };
+  const config = { fetchImpl };
+  const months = createGatewayMonthProvider(config);
+  const library = createGatewayLibraryMonthIndexProvider(config);
+  const catalog = createGatewayCatalogProvider(config);
+  const details = createGatewayChallengeProvider(config);
+  for (const month of [FOCUS_MONTH, HISTORICAL_MONTH]) {
+    assert.equal((await months.loadMonth(month)).status, 'ready');
+    assert.equal((await months.loadMonthProgress(month, [])).status, 'ready');
+  }
+  assert.equal((await months.loadNews({ category: 'monthlyPreview' })).status, 'ready');
+  assert.equal((await library.loadHistoricalMonths({ limit: 12 })).status, 'ready');
+  assert.equal((await catalog.loadReleasedCatalog()).status, 'ready');
+  assert.equal((await details.loadChallenge(CHALLENGE_SLUG)).status, 'ready');
+  assert.equal((await details.loadChallenge(CHALLENGE_SLUG, {
+    fetchImpl: async () => Response.json({ ok: true, challenge: { _id: 'invalid' } }),
+  })).status, 'validationError');
+});
