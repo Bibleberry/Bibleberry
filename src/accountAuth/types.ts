@@ -88,6 +88,8 @@ export type AuthUnauthorizedReason =
   | 'invalidToken'
   | 'revoked'
   | 'rateLimited'
+  /** The requested method is approved for the future but not implemented by this provider (R13-2B: Google/Apple). */
+  | 'unsupportedMethod'
 
 export type AuthProviderRestoreResult =
   | { readonly status: 'guest' }

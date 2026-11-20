@@ -1,10 +1,15 @@
-import { chromium, type Browser, type Page } from '@playwright/test';
+import { chromium, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { addTopFrameInitScript } from '../tests/smoke/helpers/frameSafeTest.ts';
 import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { gzipSync } from 'node:zlib';
+import { parseBaselineOptions } from './performance/baseline-options.ts';
+import { buildConnectedReader, CONNECTED_FLAGS } from './performance/connected-build.ts';
+import { FIXTURE_TIME, FIXTURE_TIME_ZONE } from './performance/connected-fixtures.ts';
+import { measureConnectedReader } from './performance/connected-reader.ts';
+import { parseConnectedReport, renderConnectedMarkdown } from './performance/connected-report.ts';
 import { startPreviewServer, stopPreviewServer } from './performance/previewServer.ts';
 import { renderR21BaselineMarkdown } from './performance/render-r21-markdown.ts';
 import type {
@@ -13,13 +18,13 @@ import type {
   ProductionBuildSummary,
   R21BaselineReport,
   R21EnvironmentResult,
+  R21EnvironmentSpec,
   R21HostInfo,
   RunResult,
   SummaryMetric,
 } from './performance/types.ts';
 
 const PREFERRED_PORT = 4174;
-const RUNS = Number(process.env.PERF_RUNS ?? 3);
 const STORAGE_KEY = 'bibleberry-prototype-v1';
 
 type Environment = {
@@ -36,33 +41,6 @@ const environments: Environment[] = [
     network: { latency: 150, download: 200 * 1024, upload: 96 * 1024 },
   },
 ];
-
-type CliOptions = {
-  jsonOut?: string;
-  mdOut?: string;
-  quiet: boolean;
-};
-
-function parseCliArgs(argv: string[]): CliOptions {
-  const options: CliOptions = {
-    jsonOut: process.env.PERF_JSON_OUT || undefined,
-    mdOut: process.env.PERF_MD_OUT || undefined,
-    quiet: false,
-  };
-  for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
-    if (arg === '--json-out' && i + 1 < argv.length) {
-      options.jsonOut = argv[i + 1];
-      i += 1;
-    } else if (arg === '--md-out' && i + 1 < argv.length) {
-      options.mdOut = argv[i + 1];
-      i += 1;
-    } else if (arg === '--quiet') {
-      options.quiet = true;
-    }
-  }
-  return options;
-}
 
 function readGitMetadata(): { sha: string; branch: string; dirty: boolean } {
   try {
@@ -100,8 +78,7 @@ function toPosixRelative(rootDir: string, filePath: string): string {
   return path.relative(rootDir, filePath).split(path.sep).join('/');
 }
 
-async function inspectBuild(): Promise<ProductionBuildSummary> {
-  const outputDirectory = path.resolve('dist');
+async function inspectBuild(outputDirectory: string, mode: string): Promise<ProductionBuildSummary> {
   const files = (await listFiles(outputDirectory)).sort();
   const index = await fs.readFile(path.join(outputDirectory, 'index.html'), 'utf8');
   const entryPaths = [
@@ -131,7 +108,7 @@ async function inspectBuild(): Promise<ProductionBuildSummary> {
   const cssEntries = entryFiles.filter(f => f.file.endsWith('.css'));
 
   return {
-    mode: 'production-public',
+    mode,
     totalDistBytes: allFiles.reduce((sum, file) => sum + file.bytes, 0),
     totalDistGzipBytes: allFiles.reduce((sum, file) => sum + file.gzipBytes, 0),
     fileCount: allFiles.length,
@@ -266,6 +243,37 @@ async function seedOnboardedState(page: Page): Promise<void> {
   }, STORAGE_KEY);
 }
 
+async function preparePage(context: BrowserContext, page: Page, environment: Environment) {
+  const session = await context.newCDPSession(page);
+  await session.send('Emulation.setCPUThrottlingRate', { rate: environment.cpuRate });
+  if (environment.network) {
+    await session.send('Network.enable');
+    await session.send('Network.emulateNetworkConditions', {
+      offline: false,
+      latency: environment.network.latency,
+      downloadThroughput: environment.network.download,
+      uploadThroughput: environment.network.upload,
+      connectionType: 'cellular3g',
+    });
+  }
+  await installBrowserObservers(page);
+}
+
+function reportEnvironment(environment: Environment): R21EnvironmentSpec {
+  return {
+    name: environment.name,
+    viewport: '390x844 CSS px, touch enabled, device scale factor 1',
+    cpuThrottlingRate: environment.cpuRate,
+    network: environment.network
+      ? {
+          latencyMs: environment.network.latency,
+          downloadKbps: Math.round(environment.network.download * 8 / 1000),
+          uploadKbps: Math.round(environment.network.upload * 8 / 1000),
+        }
+      : 'No explicit CPU/network throttling',
+  };
+}
+
 async function runOnce(browser: Browser, baseUrl: string, environment: Environment): Promise<RunResult> {
   const context = await browser.newContext({
     viewport: { width: 390, height: 844 },
@@ -275,19 +283,7 @@ async function runOnce(browser: Browser, baseUrl: string, environment: Environme
   });
   try {
     const page = await context.newPage();
-    const session = await context.newCDPSession(page);
-    await session.send('Emulation.setCPUThrottlingRate', { rate: environment.cpuRate });
-    if (environment.network) {
-      await session.send('Network.enable');
-      await session.send('Network.emulateNetworkConditions', {
-        offline: false,
-        latency: environment.network.latency,
-        downloadThroughput: environment.network.download,
-        uploadThroughput: environment.network.upload,
-        connectionType: 'cellular3g',
-      });
-    }
-    await installBrowserObservers(page);
+    await preparePage(context, page, environment);
 
     const consoleErrors: string[] = [];
     const pageErrors: string[] = [];
@@ -491,15 +487,29 @@ async function writeFileEnsuringDir(targetPath: string, content: string): Promis
 }
 
 async function main() {
-  if (!Number.isInteger(RUNS) || RUNS < 1) {
-    throw new Error(`PERF_RUNS must be a positive integer; received "${process.env.PERF_RUNS}"`);
+  const cli = parseBaselineOptions(process.argv.slice(2));
+  if (cli.scenario === 'prototype') {
+    await runBaseline(cli, path.resolve('dist'));
+    return;
   }
-  const cli = parseCliArgs(process.argv.slice(2));
-  const build = await inspectBuild().catch(() => {
+  const outDir = await fs.mkdtemp(path.join(os.tmpdir(), 'r21-connected-'));
+  try {
+    await buildConnectedReader(outDir);
+    await runBaseline(cli, outDir);
+  } finally {
+    await fs.rm(outDir, { recursive: true, force: true });
+  }
+}
+
+async function runBaseline(cli: ReturnType<typeof parseBaselineOptions>, outDir: string) {
+  const connected = cli.scenario === 'connected';
+  const build = await inspectBuild(outDir, connected ? 'production-connected' : 'production-public').catch(error => {
+    if (connected) throw error;
     throw new Error('No usable dist/index.html found. Run "npm run build" first.');
   });
 
-  const started = await startPreviewServer({ port: PREFERRED_PORT }).catch(() => startPreviewServer());
+  const started = await startPreviewServer({ port: PREFERRED_PORT, outDir })
+    .catch(() => startPreviewServer({ outDir }));
   let browser: Browser | undefined;
 
   const cleanupSignal = async () => {
@@ -508,69 +518,82 @@ async function main() {
     } finally {
       await stopPreviewServer(started.server);
     }
-    process.exit(130);
+    process.exitCode = 130;
   };
   process.once('SIGINT', cleanupSignal);
   process.once('SIGTERM', cleanupSignal);
 
   try {
     browser = await chromium.launch({ headless: true });
-    const results: R21EnvironmentResult[] = [];
-    for (const environment of environments) {
-      const runs: RunResult[] = [];
-      for (let run = 0; run < RUNS; run += 1) {
-        runs.push(await runOnce(browser, started.baseUrl, environment));
-      }
-      results.push({
-        environment: {
-          name: environment.name,
-          viewport: '390x844 CSS px, touch enabled, device scale factor 1',
-          cpuThrottlingRate: environment.cpuRate,
-          network: environment.network
-            ? {
-                latencyMs: environment.network.latency,
-                downloadKbps: Math.round(environment.network.download * 8 / 1000),
-                uploadKbps: Math.round(environment.network.upload * 8 / 1000),
-              }
-            : 'No explicit CPU/network throttling',
+    const browserVersion = browser.version();
+    const metadata = () => {
+      const git = readGitMetadata();
+      return {
+        measuredAt: new Date().toISOString(),
+        gitCommitSha: git.sha,
+        gitBranch: git.branch,
+        gitDirty: git.dirty,
+        runtime: {
+          nodeVersion: process.version,
+          browserName: 'chromium',
+          browserVersion,
         },
-        summary: summarize(runs),
-        runs,
-      });
-    }
-
-    const networkInterruptionCheck = await runNetworkInterruptionCheck(browser, started.baseUrl);
-    const git = readGitMetadata();
-    const report: R21BaselineReport = {
-      schemaVersion: 'r21-baseline-v1',
-      measuredAt: new Date().toISOString(),
-      gitCommitSha: git.sha,
-      gitBranch: git.branch,
-      gitDirty: git.dirty,
-      note: 'Desktop Chromium mobile-viewport emulation only; not Android hardware or Capacitor WebView evidence.',
-      browserVersion: browser.version(),
-      runtime: {
-        nodeVersion: process.version,
-        browserName: 'chromium',
-        browserVersion: browser.version(),
-      },
-      host: readUnprivilegedHostInfo(),
-      runCountPerEnvironment: RUNS,
-      productionBuild: build,
-      results,
-      networkInterruptionCheck,
+        host: readUnprivilegedHostInfo(),
+        runCountPerEnvironment: cli.runs,
+        productionBuild: build,
+      };
     };
 
-    const jsonOutput = `${JSON.stringify(report, null, 2)}\n`;
-    if (cli.jsonOut) {
-      await writeFileEnsuringDir(cli.jsonOut, jsonOutput);
-    }
-    if (cli.mdOut) {
-      const markdown = renderR21BaselineMarkdown(report);
-      await writeFileEnsuringDir(cli.mdOut, markdown);
-    }
-    if (!cli.quiet) {
-      process.stdout.write(jsonOutput);
+    if (connected) {
+      const assets = new Set(build.allFiles.map(file => '/' + encodeURI(file.file)));
+      const measurements = [];
+      for (const environment of environments) {
+        const runs = [];
+        for (let run = 0; run < cli.runs; run += 1) {
+          try {
+            runs.push(await measureConnectedReader(
+              browser,
+              started.baseUrl,
+              assets,
+              (context, page) => preparePage(context, page, environment),
+            ));
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            throw new Error(`${environment.name} connected sample ${run + 1}: ${message}`, { cause: error });
+          }
+        }
+        measurements.push({ environment: reportEnvironment(environment), runs });
+      }
+      const report = parseConnectedReport({
+        ...metadata(),
+        schemaVersion: 'r21-connected-v1',
+        scenario: 'connected',
+        buildFlags: CONNECTED_FLAGS,
+        fixtureDate: FIXTURE_TIME,
+        timeZone: FIXTURE_TIME_ZONE,
+        cacheDisabledByRouting: true,
+        environments: measurements,
+      });
+      await writeReport(cli, report, () => renderConnectedMarkdown(report));
+    } else {
+      const results: R21EnvironmentResult[] = [];
+      for (const environment of environments) {
+        const runs: RunResult[] = [];
+        for (let run = 0; run < cli.runs; run += 1) {
+          runs.push(await runOnce(browser, started.baseUrl, environment));
+        }
+        results.push({ environment: reportEnvironment(environment), summary: summarize(runs), runs });
+      }
+      const networkInterruptionCheck = await runNetworkInterruptionCheck(browser, started.baseUrl);
+      const report: R21BaselineReport = {
+        schemaVersion: 'r21-baseline-v1',
+        ...metadata(),
+        note: 'Desktop Chromium mobile-viewport emulation only; not Android hardware or Capacitor WebView evidence.',
+        browserVersion,
+        results,
+        networkInterruptionCheck,
+      };
+      await writeReport(cli, report, () => renderR21BaselineMarkdown(report));
     }
   } finally {
     process.off('SIGINT', cleanupSignal);
@@ -583,7 +606,14 @@ async function main() {
   }
 }
 
+async function writeReport(cli: ReturnType<typeof parseBaselineOptions>, report: object, markdown: () => string) {
+  const jsonOutput = `${JSON.stringify(report, null, 2)}\n`;
+  if (cli.jsonOut) await writeFileEnsuringDir(cli.jsonOut, jsonOutput);
+  if (cli.mdOut) await writeFileEnsuringDir(cli.mdOut, markdown());
+  if (!cli.quiet) process.stdout.write(jsonOutput);
+}
+
 main().catch(error => {
   console.error(`Performance baseline failed: ${error instanceof Error ? error.message : String(error)}`);
-  process.exitCode = 1;
+  process.exitCode ||= 1;
 });

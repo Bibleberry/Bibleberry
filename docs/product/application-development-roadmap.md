@@ -1,5 +1,20 @@
 # Bibleberry — Product & Application Development Roadmap
 
+> **Roosting Falcon current-state reconciliation — November 19, 2026:** The owner-approved **six-phase sequencing and product boundaries remain authoritative**, but the historical November 9 `R08A-1 is next` handoff, November 8 SHA, and Phase 02–05 not-yet-demonstrated descriptions below **are no longer a current implementation inventory**. R08A-1 through R08A-6 have since landed in code (see [#68](https://github.com/Bibleberry/Bibleberry/pull/68), [#73](https://github.com/Bibleberry/Bibleberry/pull/73), [#81](https://github.com/Bibleberry/Bibleberry/pull/81), [#84](https://github.com/Bibleberry/Bibleberry/pull/84), [#90](https://github.com/Bibleberry/Bibleberry/pull/90), [#92](https://github.com/Bibleberry/Bibleberry/pull/92)). Also see the later [Library/Shelf #231](https://github.com/Bibleberry/Bibleberry/pull/231), [Hub Continue #237](https://github.com/Bibleberry/Bibleberry/pull/237), [real-local account acceptance #249](https://github.com/Bibleberry/Bibleberry/pull/249), and [email OTP provider #255](https://github.com/Bibleberry/Bibleberry/pull/255). The **current status** is tracked in [Current Project Status](../project/current-status.md), [Roosting Falcon #260](https://github.com/Bibleberry/Bibleberry/issues/260), and the [Internal Alpha Readiness register](../project/internal-alpha-readiness.md). No implementation, external service mutation, or launch claim follows from this reconciliation.
+
+### Current six-phase implementation orientation (not a replacement sequence)
+
+| Phase | November 19 evidence status | Next acceptance focus |
+| --- | --- | --- |
+| **01 — Shared contracts** | Reviewed R08A contracts and consumer compatibility implemented | Maintain cross-system identity/release correctness |
+| **02 — Monthly publishing** | Studio month schemas, workspaces and readiness inspector merged | One **real private-staging monthly** editorial rehearsal |
+| **03 — Secure month/reader** | Gateway monthly APIs, preview and feature-gated Month Screen merged | One complete connected Month → Challenge → Finish journey against private staging |
+| **04 — Discoveries/Cards** | Guest awards, collection, viewers/share and local private verifier merged | Complete editorial Card proof and hosted trusted verifier if accounts in scope |
+| **05 — Navigation/accounts** | Many shell integrations and **real-local** Supabase continuity merged | One deliberate alpha build/IA; hosted auth and device recovery boundary |
+| **06 — Release/operations** | News/resources foundation, native CI and regression infrastructure exist | Device/beta, privacy, real-service operations, rollback and launch qualification |
+
+The six phases below remain the **dependency framework**. Their original acceptance criteria have **not** been silently waived. See the alpha checklist for which integrated/hosted claims remain **NOT VERIFIED** or need an **OWNER DECISION**.
+
 > **ONE CANONICAL IMPLEMENTATION ROADMAP — owner-approved direction, November 9, 2026**  
 > **Last planning reconciliation:** November 9, 2026; engineering verification checkpoint: November 8 R05 Stage 3C accepted  
 > **Status:** Prioritized cross-system build order and dependency plan; **not** a blanket authorization to implement, deploy, publish, change accounts, or merge a PR  
