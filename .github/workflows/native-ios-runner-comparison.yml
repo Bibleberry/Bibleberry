@@ -1,0 +1,201 @@
+name: Native iOS runner comparison (diagnostic)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/native-ios-runner-comparison.yml
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: 'Standard GitHub-hosted macOS 26 runner label to compare'
+        type: choice
+        default: macos-26-intel
+        options:
+          - macos-26-intel
+          - macos-26
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  ios-simulator-diagnostic:
+    name: Diagnostic iOS Simulator (${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'macos-26-intel' }})
+    runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'macos-26-intel' }}
+    env:
+      DIAGNOSTIC_RUNNER: ${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'macos-26-intel' }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Capture runner hardware and image metadata
+        run: |
+          {
+            echo "DIAGNOSTIC_RUNNER=$DIAGNOSTIC_RUNNER"
+            echo "RUNNER_NAME=${RUNNER_NAME:-unknown}"
+            echo "RUNNER_OS=${RUNNER_OS:-unknown}"
+            echo "RUNNER_ARCH=${RUNNER_ARCH:-unknown}"
+            echo "ImageOS=${ImageOS:-unknown}"
+            echo "ImageVersion=${ImageVersion:-unknown}"
+            echo "uname_m=$(uname -m)"
+            echo "uname_a=$(uname -a)"
+            echo "sw_vers=$(sw_vers -productVersion) ($(sw_vers -buildVersion))"
+            echo "cpu_brand=$(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo unavailable)"
+            echo "hw_ncpu=$(sysctl -n hw.ncpu 2>/dev/null || echo unavailable)"
+            echo "hw_memsize_bytes=$(sysctl -n hw.memsize 2>/dev/null || echo unavailable)"
+          } | tee "$RUNNER_TEMP/runner-hardware.txt"
+
+      - name: Select documented Xcode 26.4.1
+        run: |
+          sudo xcode-select --switch /Applications/Xcode_26.4.1.app/Contents/Developer
+          xcodebuild -version | tee "$RUNNER_TEMP/xcode-version.txt"
+          grep -Fxq 'Xcode 26.4.1' "$RUNNER_TEMP/xcode-version.txt"
+          grep -Fxq 'Build version 17E202' "$RUNNER_TEMP/xcode-version.txt"
+          xcodebuild -showsdks | tee "$RUNNER_TEMP/xcode-sdks.txt"
+          grep -Fq 'iphonesimulator26.4' "$RUNNER_TEMP/xcode-sdks.txt"
+          xcrun simctl list runtimes | tee "$RUNNER_TEMP/simulator-runtimes-before.txt"
+
+      - name: Provision iOS 26.4 Simulator runtime when missing
+        run: |
+          has_ios_26_4_runtime() {
+            xcrun simctl list runtimes -j \
+              | python3 -c 'import json,sys; runtimes=json.load(sys.stdin)["runtimes"]; sys.exit(0 if any(r["name"] == "iOS 26.4" and r["isAvailable"] for r in runtimes) else 1)'
+          }
+
+          if ! has_ios_26_4_runtime; then
+            echo "IOS_RUNTIME_PROVISIONED=true" >> "$GITHUB_ENV"
+            echo "iOS Simulator SDK 26.4 is present, but its runtime is missing; downloading the Xcode 26.4 runtime."
+            RUNTIME_DIR="$RUNNER_TEMP/ios-simulator-runtime"
+            mkdir -p "$RUNTIME_DIR"
+            xcodebuild -downloadPlatform iOS \
+              -buildVersion 26.4 \
+              -exportPath "$RUNTIME_DIR"
+            RUNTIME_DMG="$(find "$RUNTIME_DIR" -maxdepth 1 -type f -name '*.dmg' -print -quit)"
+            if [ -z "$RUNTIME_DMG" ]; then
+              echo "::error::Xcode did not export an iOS 26.4 Simulator runtime disk image."
+              ls -la "$RUNTIME_DIR"
+              exit 1
+            fi
+            xcodebuild -importPlatform "$RUNTIME_DMG"
+          else
+            echo "IOS_RUNTIME_PROVISIONED=false" >> "$GITHUB_ENV"
+          fi
+
+          xcrun simctl list runtimes | tee "$RUNNER_TEMP/simulator-runtimes.txt"
+          if ! has_ios_26_4_runtime; then
+            echo "::error::The iOS 26.4 Simulator runtime is still unavailable after provisioning."
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web application
+        run: npm run build
+
+      - name: Sync Capacitor iOS project
+        run: |
+          npx cap sync ios
+          grep -Fq 'CapacitorApp' ios/App/CapApp-SPM/Package.swift
+          grep -Fq 'CapacitorPreferences' ios/App/CapApp-SPM/Package.swift
+
+      - name: Inspect iOS Simulator destinations
+        run: |
+          if ! xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -showdestinations \
+            > "$RUNNER_TEMP/ios-destinations-before-build.txt" 2>&1; then
+            cat "$RUNNER_TEMP/ios-destinations-before-build.txt"
+            echo "::error::Xcode could not enumerate destinations after the iOS Simulator runtime check."
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/ios-destinations-before-build.txt"
+
+      - name: Build unsigned iOS Simulator app
+        run: |
+          xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/BibleberryDerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY='' \
+            build
+
+      - name: Verify simulator app identity and web assets
+        id: verify-app
+        env:
+          APP: ${{ runner.temp }}/BibleberryDerivedData/Build/Products/Debug-iphonesimulator/App.app
+        run: |
+          test -d "$APP"
+          test -s "$APP/Info.plist"
+          BUNDLE_ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist")
+          test "$BUNDLE_ID" = 'com.example.bibleberry.r20poc'
+          test -s "$APP/public/index.html"
+          test -n "$(find "$APP/public/assets" -type f -name '*.js' -size +0c -print -quit)"
+          echo "Bundle ID: $BUNDLE_ID"
+          echo "PR head SHA (or push SHA): ${{ github.event.pull_request.head.sha || github.sha }}"
+          echo "Build SHA (GITHUB_SHA): $GITHUB_SHA"
+          echo "App size: $(du -sh "$APP" | cut -f1)"
+          {
+            echo "HEAD=$(git rev-parse HEAD)"
+            for path in src ios public index.html package.json package-lock.json capacitor.config.ts vite.config.ts scripts/ios-simulator-smoke.py scripts/ios-simulator-snapshot.py tests/ci/test_ios_simulator_smoke.py; do
+              echo "${path}=$(git rev-parse "HEAD:${path}")"
+            done
+          } | tee "$RUNNER_TEMP/app-parity.txt"
+
+      - name: Run iOS simulator smoke unit tests
+        run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v tests/ci/test_ios_simulator_smoke.py
+
+      - name: Run iOS Simulator runtime smoke (install, launch, restart, UI lifecycle)
+        run: |
+          mkdir -p "$RUNNER_TEMP/ios-simulator-evidence/env"
+          uname -m > "$RUNNER_TEMP/ios-simulator-evidence/env/uname-m.txt"
+          sw_vers > "$RUNNER_TEMP/ios-simulator-evidence/env/sw-vers.txt" || true
+          cp -f "$RUNNER_TEMP"/runner-hardware.txt "$RUNNER_TEMP"/app-parity.txt "$RUNNER_TEMP"/xcode-*.txt "$RUNNER_TEMP"/simulator-runtimes*.txt "$RUNNER_TEMP"/ios-destinations-before-build.txt "$RUNNER_TEMP/ios-simulator-evidence/env/" 2>/dev/null || true
+          python3 scripts/ios-simulator-snapshot.py "$RUNNER_TEMP/ios-simulator-evidence/env/simctl-devices-before.json"
+          python3 scripts/ios-simulator-smoke.py \
+            --app-path "$RUNNER_TEMP/BibleberryDerivedData/Build/Products/Debug-iphonesimulator/App.app" \
+            --derived-data "$RUNNER_TEMP/BibleberryDerivedData" \
+            --evidence-dir "$RUNNER_TEMP/ios-simulator-evidence"
+
+      - name: Collect fallback CI diagnostics on failure
+        if: failure()
+        run: |
+          mkdir -p "$RUNNER_TEMP/ios-simulator-evidence/env"
+          uname -m > "$RUNNER_TEMP/ios-simulator-evidence/env/uname-m.txt" || true
+          sw_vers > "$RUNNER_TEMP/ios-simulator-evidence/env/sw-vers.txt" || true
+          cp -f "$RUNNER_TEMP"/runner-hardware.txt "$RUNNER_TEMP"/app-parity.txt "$RUNNER_TEMP"/xcode-*.txt "$RUNNER_TEMP"/simulator-runtimes*.txt "$RUNNER_TEMP"/ios-destinations-before-build.txt "$RUNNER_TEMP/ios-simulator-evidence/env/" 2>/dev/null || true
+          python3 scripts/ios-simulator-snapshot.py "$RUNNER_TEMP/ios-simulator-evidence/env/simctl-devices-after-failure.json"
+
+      - name: Upload iOS Simulator runtime smoke evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: granite-lantern-ios-evidence-${{ env.DIAGNOSTIC_RUNNER }}-probe
+          path: ${{ runner.temp }}/ios-simulator-evidence
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Upload development simulator app
+        if: ${{ !cancelled() && steps.verify-app.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: granite-lantern-ios-app-${{ env.DIAGNOSTIC_RUNNER }}-probe
+          path: ${{ runner.temp }}/BibleberryDerivedData/Build/Products/Debug-iphonesimulator/App.app
+          if-no-files-found: error
+          retention-days: 7
