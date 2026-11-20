@@ -5,6 +5,7 @@ import {
   createInMemoryAuthTokenStore,
   createSupabaseGoTrueAuthProvider,
   isPrivilegedSupabaseKey,
+  isPublishableSupabaseKey,
   toAuthorizedAccountSession,
 } from '../../src/accountAuth/index.ts'
 import type {
@@ -252,6 +253,38 @@ describe('R13-2B Supabase GoTrue email-OTP AuthProvider', () => {
       assert.doesNotThrow(() => createSupabaseGoTrueAuthProvider({ ...base, apiKey: fakeJwt({ role: 'anon' }) }))
     })
 
+    test('accepts only publishable keys and anon-role JWT project keys (allowlist)', () => {
+      const base = { url: URL_BASE, tokenStore: createInMemoryAuthTokenStore(), fetch: new FakeGoTrue().fetch }
+      const refused = [
+        'not-a-key',
+        'anon',
+        'sb_publishable_',
+        'sb_publishable_short',
+        'sb_publishable_has spaces_in_it',
+        'sb_secret_abcdefghijklmnop',
+        fakeJwt({ role: 'authenticated' }),
+        fakeJwt({ role: 'service_role' }),
+        fakeJwt({ role: 'supabase_admin' }),
+        fakeJwt({ iss: 'supabase' }),
+        `${b64url({ alg: 'HS256' })}.${Buffer.from('not json').toString('base64url')}.sig`,
+        `${b64url({ typ: 'JWT' })}.${b64url({ role: 'anon' })}.sig`,
+        `${b64url({ alg: 'HS256' })}.${b64url({ role: 'anon' })}`,
+        `${b64url({ alg: 'HS256' })}.${b64url({ role: 'anon' })}.`,
+        `${b64url({ alg: 'HS256' })}.${b64url({ role: 'anon' })}.sig.extra`,
+        `${b64url({ alg: 'HS256' })}.${b64url({ role: 'anon' })}.si+g`,
+        `${b64url({ alg: 'HS256' })}.${b64url(['role', 'anon'])}.sig`,
+        42 as unknown as string,
+      ]
+      for (const apiKey of refused) {
+        assert.equal(isPublishableSupabaseKey(apiKey), false, String(apiKey))
+        assert.throws(() => createSupabaseGoTrueAuthProvider({ ...base, apiKey }), /publishable\/anon/, String(apiKey))
+      }
+      for (const apiKey of [PUBLISHABLE_KEY, fakeJwt({ role: 'anon', iss: 'supabase' })]) {
+        assert.equal(isPublishableSupabaseKey(apiKey), true)
+        assert.doesNotThrow(() => createSupabaseGoTrueAuthProvider({ ...base, apiKey }))
+      }
+    })
+
     test('refuses insecure or credential-bearing endpoints and a missing token store', () => {
       const base = { apiKey: PUBLISHABLE_KEY, tokenStore: createInMemoryAuthTokenStore(), fetch: new FakeGoTrue().fetch }
       assert.throws(() => createSupabaseGoTrueAuthProvider({ ...base, url: 'http://project.example.test' }), /HTTPS/)
@@ -421,6 +454,42 @@ describe('R13-2B Supabase GoTrue email-OTP AuthProvider', () => {
       assert.equal(ctx.gotrue.count('/auth/v1/verify'), 0)
       const ok = await ctx.provider.verifyEmailOtp({ challengeId: second, code: GOOD_CODE })
       assert.equal(ok.status === 'authenticated' && ok.session.accountId, ACCT_B)
+    })
+
+    test('out-of-order parallel OTP requests: the older response never replaces the newest challenge', async () => {
+      const ctx = setup()
+      const gateA = deferred<void>()
+      const gateB = deferred<void>()
+      const handle = (req: RecordedRequest) => (ctx.gotrue as unknown as { handle(r: RecordedRequest): Response }).handle(req)
+      ctx.gotrue.override('/auth/v1/otp', async (req) => { await gateA.promise; return handle(req) })
+      ctx.gotrue.override('/auth/v1/otp', async (req) => { await gateB.promise; return handle(req) })
+      const pendingA = ctx.provider.signIn({ method: 'emailOtp', email: EMAIL_A })
+      const pendingB = ctx.provider.signIn({ method: 'emailOtp', email: EMAIL_B })
+      gateB.resolve()
+      const b = await pendingB
+      gateA.resolve()
+      const a = await pendingA
+      assert.equal(b.status, 'challengeRequired')
+      assert.equal(a.status, 'cancelled', 'the older request is discarded once a newer one began')
+      if (b.status !== 'challengeRequired') return
+      assert.equal(b.challenge.maskedDestination, 'r***@example.test')
+      const verified = await ctx.provider.verifyEmailOtp({ challengeId: b.challenge.challengeId, code: GOOD_CODE })
+      assert.equal(verified.status === 'authenticated' && verified.session.accountId, ACCT_B)
+      assert.deepEqual(ctx.gotrue.requests.find((r) => r.path === '/auth/v1/verify')?.body, { type: 'email', email: EMAIL_B, token: GOOD_CODE })
+    })
+
+    test('out-of-order parallel OTP requests: in-order completion also leaves only the newest live', async () => {
+      const ctx = setup()
+      const gateA = deferred<void>()
+      const handle = (req: RecordedRequest) => (ctx.gotrue as unknown as { handle(r: RecordedRequest): Response }).handle(req)
+      ctx.gotrue.override('/auth/v1/otp', async (req) => { await gateA.promise; return handle(req) })
+      const pendingA = ctx.provider.signIn({ method: 'emailOtp', email: EMAIL_A })
+      const b = await ctx.provider.signIn({ method: 'emailOtp', email: EMAIL_B })
+      gateA.resolve()
+      assert.equal((await pendingA).status, 'cancelled')
+      assert.equal(b.status, 'challengeRequired')
+      if (b.status !== 'challengeRequired') return
+      assert.equal((await ctx.provider.verifyEmailOtp({ challengeId: b.challenge.challengeId, code: GOOD_CODE })).status, 'authenticated')
     })
 
     test('a concurrent verify for the same challenge does not issue a second request', async () => {
@@ -697,6 +766,92 @@ describe('R13-2B Supabase GoTrue email-OTP AuthProvider', () => {
       const switched = await ctx.provider.recoverSession()
       assert.equal(switched.status === 'unauthorized' && switched.reason, 'invalidToken')
       assert.equal(ctx.store.record, null)
+    })
+
+    test('transient /user failure after a successful rotation keeps the session recoverable', async () => {
+      for (const transient of [
+        () => { throw new TypeError('offline') },
+        () => json(503, {}),
+        () => json(429, { error_code: 'over_request_rate_limit' }),
+      ] as Override[]) {
+        const ctx = setup()
+        await signedIn(ctx)
+        const before = ctx.store.record as StoredAuthTokens
+        ctx.gotrue.override('/auth/v1/user', transient)
+        const failed = await ctx.provider.recoverSession()
+        assert.notEqual(failed.status, 'authenticated', 'nothing unverified reaches the controller')
+        assert.ok(failed.status === 'networkError' || (failed.status === 'unauthorized' && failed.reason === 'rateLimited'))
+        if (failed.status === 'networkError') assert.equal(failed.retryable, true)
+        const held = ctx.store.record as StoredAuthTokens
+        assert.equal(held.accountId, ACCT_A, 'the previously verified binding is preserved')
+        assert.notEqual(held.refreshToken, before.refreshToken, 'the rotated refresh token replaced the consumed one')
+        assert.equal(ctx.gotrue.refreshTokens.get(before.refreshToken)!.used, true)
+
+        const retried = await ctx.provider.recoverSession()
+        assert.equal(retried.status === 'authenticated' && retried.session.accountId, ACCT_A)
+      }
+    })
+
+    test('held rotated tokens are re-verified by restore and never silently switch accounts', async () => {
+      const ctx = setup()
+      await signedIn(ctx)
+      ctx.gotrue.override('/auth/v1/user', () => json(502, {}))
+      assert.equal((await ctx.provider.recoverSession()).status, 'networkError')
+      const userCalls = ctx.gotrue.count('/auth/v1/user')
+      ctx.gotrue.override('/auth/v1/user', () => json(200, { id: ACCT_B, email: EMAIL_B, aud: 'authenticated', role: 'authenticated' }))
+      const restored = await ctx.provider.restoreSession()
+      assert.equal(ctx.gotrue.count('/auth/v1/user'), userCalls + 1)
+      assert.equal(restored.status === 'unauthorized' && restored.reason, 'invalidToken')
+      assert.equal(ctx.store.record, null)
+    })
+
+    test('held rotated tokens restore normally once /user recovers', async () => {
+      const ctx = setup()
+      await signedIn(ctx)
+      ctx.gotrue.override('/auth/v1/user', () => { throw new TypeError('offline') })
+      assert.equal((await ctx.provider.recoverSession()).status, 'networkError')
+      const restored = await ctx.provider.restoreSession()
+      assert.equal(restored.status === 'authenticated' && restored.session.accountId, ACCT_A)
+      assert.equal(ctx.gotrue.count('/auth/v1/token'), 1, 'restore did not need another rotation')
+    })
+
+    test('conclusive post-rotation failures are terminal and clear the session', async () => {
+      const cases: { name: string; arrange: (ctx: ReturnType<typeof setup>) => void; status: string; retryable?: boolean }[] = [
+        { name: 'rejected', arrange: (ctx) => ctx.gotrue.override('/auth/v1/user', () => json(401, { error_code: 'bad_jwt' })), status: 'expired' },
+        { name: 'malformed', arrange: (ctx) => ctx.gotrue.override('/auth/v1/user', () => json(200, { id: 'nope' })), status: 'networkError', retryable: false },
+        {
+          name: 'store cannot save',
+          arrange: (ctx) => { ctx.gotrue.override('/auth/v1/user', () => json(503, {})); ctx.store.failSave = true },
+          status: 'networkError',
+          retryable: false,
+        },
+      ]
+      for (const c of cases) {
+        const ctx = setup()
+        await signedIn(ctx)
+        c.arrange(ctx)
+        const result = await ctx.provider.recoverSession()
+        assert.equal(result.status, c.status, c.name)
+        if (result.status === 'networkError') assert.equal(result.retryable, c.retryable, c.name)
+        assert.equal(ctx.store.record, null, c.name)
+        await new Promise((r) => setImmediate(r))
+        assert.equal([...ctx.gotrue.sessions.values()].every((s) => s.revoked), true, `${c.name}: rotated session revoked`)
+      }
+    })
+
+    test('sign-out during a post-rotation /user failure does not resurrect the session', async () => {
+      const ctx = setup()
+      await signedIn(ctx)
+      const gate = deferred<void>()
+      ctx.gotrue.override('/auth/v1/user', async () => { await gate.promise; return json(503, {}) })
+      const pending = ctx.provider.recoverSession()
+      await new Promise((r) => setTimeout(r, 5))
+      await ctx.provider.signOut()
+      gate.resolve()
+      assert.notEqual((await pending).status, 'authenticated')
+      await new Promise((r) => setTimeout(r, 5))
+      assert.equal(ctx.store.record, null)
+      assert.deepEqual(await ctx.provider.restoreSession(), { status: 'guest' })
     })
 
     test('concurrent recoveries share a single refresh-token use', async () => {

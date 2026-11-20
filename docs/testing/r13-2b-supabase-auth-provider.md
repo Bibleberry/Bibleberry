@@ -22,8 +22,12 @@ Every request sends only the publishable key as `apikey`. `Authorization: Bearer
 ## 2. Security invariants
 
 1. **Server-verified identity only.** A session is promoted only after `GET /auth/v1/user` with the new access token returns a canonical UUID. The adapter never decodes the access token. Tests deliberately mint access tokens whose unverified `sub` names a *different* account and prove the trusted `/user` identity wins. The user ID echoed by the token response is cross-checked, never trusted on its own. Users that are anonymous, not in the `authenticated` aud or role, or malformed are refused.
-2. **Challenge binding.** A challenge ID maps to exactly one pending `{ email, expiresAt, attempts }`. Only the most recent challenge is live, and a new `signIn` or `signOut` invalidates earlier ones. Unknown, superseded, expired (client TTL, default 10 min), exhausted (default 5 wrong attempts) and already-consumed challenges return `challengeExpired` without touching the network. Malformed codes count as attempts but are never sent. A concurrent second verify of the same challenge is refused. On OTP verification, the email returned by `/user` must equal the challenge email.
-3. **No client secrets.** The constructor refuses `sb_secret_…` keys, service-role JWT keys, empty keys, non-HTTPS non-loopback URLs and URLs that contain credentials or query parameters. The project-key check reads only the configured key, never a user token.
+2. **Challenge binding.** A challenge ID maps to exactly one pending `{ email, expiresAt, attempts }`. Only the most recent challenge is live, and a new `signIn` or `signOut` invalidates earlier ones. Each OTP request takes a monotonic sequence number, separate from the sign-out generation. An older `/otp` response that arrives after a newer request began is discarded as `cancelled` and can never overwrite the newest challenge, whatever order the responses arrive in. Unknown, superseded, expired (client TTL, default 10 min), exhausted (default 5 wrong attempts) and already-consumed challenges return `challengeExpired` without touching the network. Malformed codes count as attempts but are never sent. A concurrent second verify of the same challenge is refused. On OTP verification, the email returned by `/user` must equal the challenge email.
+3. **No client secrets (allowlist).** The constructor accepts only two key forms:
+   - a `sb_publishable_…` key;
+   - a legacy JWT project key with a JSON header and `role` exactly `anon`.
+
+   Everything else is refused, including arbitrary strings, malformed JWTs, missing roles, `authenticated`, `service_role` and `sb_secret_…` keys. It also refuses non-HTTPS non-loopback URLs and URLs that contain credentials or query parameters. This is a format check on the configured key only; the adapter never decodes user tokens for identity.
 4. **Injected persistence only.** The `AuthTokenStore` (`load/save/clear`) is required, and there is no browser-storage default. `createInMemoryAuthTokenStore()` keeps the session in memory only and must be chosen explicitly. Stored records are versioned and validated as untrusted input; malformed records are cleared.
 5. **Fail closed:**
    - **Discards the session (store cleared):** a rejected refresh token (expired, revoked or reused), a mismatched verified identity, or a malformed stored record.
@@ -35,6 +39,10 @@ Every request sends only the publishable key as `apikey`. `Authorization: Bearer
      - an identity mismatch
    - **Reported as failure:** a store that cannot be read or cleared.
 6. **Refresh-token rotation safety.** Refresh is single-flight per refresh token. It is *not* cancelled by the caller's signal, because abandoning it could strand a consumed rotating token. The caller still gets `aborted` immediately, and the rotated tokens are saved unless a sign-out happened meanwhile.
+
+   After GoTrue rotates the tokens, the `/user` identity check can still fail. Nothing is promoted in that case, and what happens next depends on the failure:
+   - **Transient failure** (network, timeout, 429 or 5xx): the rotated pair replaces the consumed pair in the store, under the account that was *already verified*. The caller gets a retryable error. Every later promotion re-checks `/user` against that account first, so the session stays recoverable and an account switch is refused.
+   - **Conclusive failure** (rejected token, malformed user) or a store that can't save: the session is terminal. The store is cleared, the rotated tokens are revoked best-effort, and the result is `expired` or a non-retryable error.
 7. **No silent cross-account switch.** Restore and recover require the GoTrue identity to equal the stored account. The controller's existing `alreadyAuthenticated` guard is unchanged.
 8. **Redaction.** Results and log lines are fixed strings. A test asserts that no access token, refresh token, code, email, project key or account ID appears in any non-session result or log line. The only place the token appears is `VerifiedAuthSession.token`, because the transport needs it.
 9. **Guest-first.** The provider never touches guest storage. Guest data is cleared only by the accepted coordinator after a durable receipt. Integration tests show that guest data is preserved after a wrong code, unsupported Google sign-in and a revoked restore.
@@ -58,7 +66,7 @@ A hosted project needs the same template and length settings, plus a real SMTP p
 ## 4. Verification actually executed (this PR)
 
 ```sh
-node --experimental-strip-types --test tests/accountAuth/*.test.ts      # 67 pass, 0 fail (50 new + 17 R13-2A)
+node --experimental-strip-types --test tests/accountAuth/*.test.ts      # 75 pass, 0 fail (58 R13-2B + 17 R13-2A)
 node --experimental-strip-types --test tests/accountSync/*.test.ts      # 32 pass, 0 fail, 2 skipped (pre-existing opt-in local tests)
 npm run lint                                                            # clean
 npm run build                                                           # tsc -b + vite build succeed
@@ -66,7 +74,7 @@ npm run build                                                           # tsc -b
 
 The new test file also type-checks cleanly under `tsc --strict --noEmit` (tests are outside `tsconfig.app.json`).
 
-- **Fake GoTrue coverage:** request shapes and headers; sign-in for new and existing users; wrong, expired, exhausted, replayed, superseded, malformed and concurrent codes; identity mismatches; anonymous, wrong-role and malformed users; malformed and non-JSON bodies; store save, load and clear failures; network errors, 5xx, 429, timeouts and aborts before and after token issue; restore, refresh, rotation and single-flight; revoked sessions; sign-out revoke and failure; sign-out racing late verify, `/user` and refresh; redaction.
+- **Fake GoTrue coverage:** request shapes and headers; the project-key allowlist; parallel OTP requests completing out of order; transient and conclusive `/user` failures after rotation, plus a sign-out racing them; sign-in for new and existing users; wrong, expired, exhausted, replayed, superseded, malformed and concurrent codes; identity mismatches; anonymous, wrong-role and malformed users; malformed and non-JSON bodies; store save, load and clear failures; network errors, 5xx, 429, timeouts and aborts before and after token issue; restore, refresh, rotation and single-flight; revoked sessions; sign-out revoke and failure; sign-out racing late verify, `/user` and refresh; redaction.
 - **Controller and transport coverage:** `AccountSessionController` OTP sign-in → guest sync → sign-out; unsupported Google; revoked restore → `expired`; `SupabasePostgrestTransport` sending the provider's access token as its Bearer credential.
 
 **Real GoTrue OTP was not tested.** This container had no running Docker daemon or Supabase CLI. Fetching the CLI binary was not permitted in this session, and the local config has no mail sink anyway (§3), so an honest real-stack OTP test is gated on the config step above. A passing fake is **not** production or email-delivery proof.

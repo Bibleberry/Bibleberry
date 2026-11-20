@@ -143,10 +143,32 @@ function decodeBase64UrlJson(segment: string): unknown {
   return JSON.parse(atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=')))
 }
 
+const PUBLISHABLE_KEY_PATTERN = /^sb_publishable_[A-Za-z0-9_-]{8,}$/
+const JWT_SEGMENT_PATTERN = /^[A-Za-z0-9_-]+$/
+
 /**
- * Refuses keys that would grant privileged access. This inspects only the *project key* the caller
- * configured (never a user token) and is a safety refusal, not an authorization decision.
+ * Allowlist for the configured *project key*: only a `sb_publishable_…` key or a legacy JWT
+ * project key whose role is exactly `anon` is accepted. Unknown formats, malformed JWTs, missing
+ * roles and every other role (`authenticated`, `service_role`, …) are refused.
+ *
+ * This is a format classification of the caller's configuration, never cryptographic verification
+ * of a user token (the adapter never decodes user tokens for identity).
  */
+export function isPublishableSupabaseKey(key: unknown): boolean {
+  if (typeof key !== 'string') return false
+  if (PUBLISHABLE_KEY_PATTERN.test(key)) return true
+  const parts = key.split('.')
+  if (parts.length !== 3 || !parts.every((part) => part.length > 0 && JWT_SEGMENT_PATTERN.test(part))) return false
+  try {
+    const header = decodeBase64UrlJson(parts[0])
+    const claims = decodeBase64UrlJson(parts[1])
+    return isObject(header) && typeof header.alg === 'string' && isObject(claims) && claims.role === 'anon'
+  } catch {
+    return false
+  }
+}
+
+/** Detects keys that would grant privileged access (used for diagnostics and tests). */
 export function isPrivilegedSupabaseKey(key: string): boolean {
   if (key.startsWith('sb_secret_')) return true
   const parts = key.split('.')
@@ -280,6 +302,7 @@ const MSG = {
   verifyInFlight: 'A verification for this code is already in progress.',
   identityMismatch: 'The verified account did not match this sign-in.',
   supersededBySignOut: 'Sign-in was cancelled because the session was signed out.',
+  supersededByNewerRequest: 'A newer verification code was requested.',
   storeRead: 'The saved session could not be read.',
   storeWrite: 'The session could not be saved securely.',
   storeClear: 'The saved session could not be cleared on this device.',
@@ -308,11 +331,13 @@ export class SupabaseGoTrueAuthProvider implements AuthProvider {
 
   /** Incremented by `signOut()`; late async completions from an older generation are discarded. */
   private generation = 0
+  /** Incremented by every OTP request; only the newest request may install a challenge. */
+  private otpSequence = 0
   private pending: PendingChallenge | null = null
   private refreshInFlight: { refreshToken: string; generation: number; promise: Promise<RefreshOutcome> } | null = null
 
   constructor(options: SupabaseGoTrueAuthProviderOptions) {
-    if (!options || typeof options.apiKey !== 'string' || options.apiKey.length === 0 || isPrivilegedSupabaseKey(options.apiKey)) {
+    if (!options || !isPublishableSupabaseKey(options.apiKey)) {
       throw new TypeError('A Supabase publishable/anon project key is required')
     }
     if (!options.tokenStore || typeof options.tokenStore.load !== 'function' ||
@@ -356,6 +381,7 @@ export class SupabaseGoTrueAuthProvider implements AuthProvider {
 
     const email = normalizeEmail(request.email)
     const generation = this.generation
+    const sequence = ++this.otpSequence
     // A new request always invalidates any earlier pending challenge.
     this.pending = null
 
@@ -366,6 +392,10 @@ export class SupabaseGoTrueAuthProvider implements AuthProvider {
 
     if (generation !== this.generation) {
       return { status: 'cancelled', message: MSG.supersededBySignOut }
+    }
+    if (sequence !== this.otpSequence) {
+      // A newer OTP request began while this one was in flight; it alone owns the live challenge.
+      return { status: 'cancelled', message: MSG.supersededByNewerRequest }
     }
     switch (result.kind) {
       case 'aborted':
@@ -719,7 +749,7 @@ export class SupabaseGoTrueAuthProvider implements AuthProvider {
     if (!tokens) {
       return { kind: 'result', result: { status: 'networkError', retryable: false, message: MSG.malformed } }
     }
-    return this.promote(tokens, { expectedAccountId: stored.accountId, generation })
+    return this.promote(tokens, { expectedAccountId: stored.accountId, generation, rotated: true })
   }
 
   /**
@@ -729,7 +759,17 @@ export class SupabaseGoTrueAuthProvider implements AuthProvider {
    */
   private async promote(
     tokens: ParsedTokenResponse,
-    expect: { expectedAccountId?: AccountId; expectedEmail?: string; generation: number; signal?: AbortSignal },
+    expect: {
+      expectedAccountId?: AccountId
+      expectedEmail?: string
+      generation: number
+      signal?: AbortSignal
+      /**
+       * True when `tokens` came from a refresh-token rotation. GoTrue has then already consumed the
+       * stored refresh token, so the rotated pair is the only way back into this session.
+       */
+      rotated?: boolean
+    },
   ): Promise<RefreshOutcome> {
     const fail = (result: AuthProviderRestoreResult, revoke = true): RefreshOutcome => {
       if (revoke) this.revokeQuietly(tokens.accessToken)
@@ -739,6 +779,9 @@ export class SupabaseGoTrueAuthProvider implements AuthProvider {
     const verified = await this.fetchVerifiedUser(tokens.accessToken, expect.signal)
     if (expect.generation !== this.generation) return fail({ status: 'guest' })
     if (!verified.ok) {
+      if (expect.rotated && expect.expectedAccountId !== undefined) {
+        return this.holdRotatedTokens(tokens, expect.expectedAccountId, expect.generation, verified.failure)
+      }
       switch (verified.failure) {
         case 'aborted':
           return fail({ status: 'aborted', message: MSG.aborted })
@@ -780,6 +823,66 @@ export class SupabaseGoTrueAuthProvider implements AuthProvider {
       return fail({ status: 'guest' })
     }
     return { kind: 'session', session: this.toSession(record) }
+  }
+
+  /**
+   * Post-rotation, pre-verification state: GoTrue rotated the refresh token but identity
+   * confirmation via `/user` did not succeed. Nothing is promoted.
+   *
+   * - Transient failure (network, timeout, 429, 5xx): the rotated pair replaces the consumed pair in
+   *   the store under the *previously verified* account binding, and a retryable error is returned.
+   *   Every later promotion path (`restoreSession` → `/user`, `recoverSession` → refresh → `/user`)
+   *   re-verifies identity against that binding before anything reaches the controller.
+   * - Conclusive failure (rejected token, malformed user) or a store that cannot save: the session
+   *   cannot be recovered, so the store is cleared, the rotated tokens are revoked best-effort and a
+   *   terminal, non-retryable result is returned.
+   */
+  private async holdRotatedTokens(
+    tokens: ParsedTokenResponse,
+    accountId: AccountId,
+    generation: number,
+    failure: 'unauthorized' | 'rateLimited' | 'network' | 'malformed' | 'aborted',
+  ): Promise<RefreshOutcome> {
+    const terminal = async (result: AuthProviderRestoreResult): Promise<RefreshOutcome> => {
+      await this.clearStoreQuietly()
+      this.revokeQuietly(tokens.accessToken)
+      this.log('GoTrue rotated session could not be verified; session discarded.')
+      return { kind: 'result', result }
+    }
+    if (failure === 'unauthorized') {
+      return terminal({ status: 'expired', reason: 'refreshFailed', method: 'emailOtp', message: MSG.refreshFailed })
+    }
+    if (failure === 'malformed') {
+      return terminal({ status: 'networkError', retryable: false, message: MSG.malformed })
+    }
+    if (tokens.echoedUserId !== undefined && tokens.echoedUserId !== accountId) {
+      return terminal({ status: 'unauthorized', reason: 'invalidToken', message: MSG.identityMismatch })
+    }
+    try {
+      await this.tokenStore.save({
+        version: 1,
+        accountId,
+        method: 'emailOtp',
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        expiresAt: tokens.expiresAt,
+      })
+    } catch {
+      return terminal({ status: 'networkError', retryable: false, message: MSG.storeWrite })
+    }
+    if (generation !== this.generation) {
+      await this.clearStoreQuietly()
+      this.revokeQuietly(tokens.accessToken)
+      return { kind: 'result', result: { status: 'guest' } }
+    }
+    this.log('GoTrue session rotated; identity confirmation deferred to the next restore.')
+    if (failure === 'rateLimited') {
+      return { kind: 'result', result: { status: 'unauthorized', reason: 'rateLimited', message: MSG.rateLimited } }
+    }
+    if (failure === 'aborted') {
+      return { kind: 'result', result: { status: 'aborted', message: MSG.aborted } }
+    }
+    return { kind: 'result', result: { status: 'networkError', retryable: true, message: MSG.network } }
   }
 
   private async fetchVerifiedUser(accessToken: string, signal?: AbortSignal): Promise<VerifiedUserResult> {
