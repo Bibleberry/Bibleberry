@@ -1,6 +1,7 @@
 # Collections Browser Suite Coverage (Willow Lantern)
 
 **Related Issue:** [#252](https://github.com/Bibleberry/Bibleberry/issues/252) (`Willow Lantern`)  
+**Pull Request:** [#254](https://github.com/Bibleberry/Bibleberry/pull/254) (`issue252_collections_coverage`)  
 **Runner:** [`scripts/testing/run-collections-browser-tests.mjs`](../../scripts/testing/run-collections-browser-tests.mjs) (`npm run test:collections`)  
 **Workflow (read-only):** [`.github/workflows/collections-browser.yml`](../../.github/workflows/collections-browser.yml)  
 **Scope detector (read-only):** [`scripts/ci/check-scope.mjs`](../../scripts/ci/check-scope.mjs) (`TARGET_PATTERNS['collections-browser']`)  
@@ -79,6 +80,22 @@ All four test families' local `playwright.config.ts`, `*.spec.ts`, and `harness/
 
 ### Hosted GitHub Actions Evidence
 
-- **Baseline before Willow Lantern (2 suites, 5 tests):** [Run 44643275531](https://github.com/Bibleberry/Bibleberry/actions/runs/44643275531/job/135979429962) (`ubuntu-24.04`) — `Run collection browser suites` step took **15s** (`79s` total job).
-- **After Willow Lantern (4 suites, 10 tests):** _Pending hosted PR run measurement — will be recorded at the final pushed SHA before review handoff._
-- **Cost impact:** Standard GitHub-hosted `ubuntu-24.04` runners incur **$0 direct minute charges** on this public repository (1x Linux billing multiplier if ever made private).
+Verified on standard GitHub-hosted `ubuntu-24.04` (Node 22) at commit `e666c67d138569fff9ebcd5cff0a72bfbaf2d7b5` ([PR #254](https://github.com/Bibleberry/Bibleberry/pull/254)):
+
+- **Collections Browser Tests ([Run 44649512567](https://github.com/Bibleberry/Bibleberry/actions/runs/44649512567) / [Job 136000569019](https://github.com/Bibleberry/Bibleberry/actions/runs/44649512567/job/136000569019)):**
+  - Change-scope decision: `should_run=true` (`pull_request`, 3 changed files evaluated).
+  - **`Run collection browser suites` step:** **4/4 suites passed — 10 passed, 0 failed, 0 skipped, 0 flaky** (`wall=32128ms`, step duration **32s**, total job **1m 42s**):
+    - Saved Scripture Collection (`tests/savedScripture/saved-scripture-collection.spec.ts`): **3 passed, 0 failed, 0 skipped** (`9.0s`)
+    - Field Notebook (`tests/notebook/field-notebook.spec.ts`): **2 passed, 0 failed, 0 skipped** (`7.4s`)
+    - Earned Scripture Card Viewer (`tests/cardViewer/earned-scripture-card-viewer.spec.ts`): **2 passed, 0 failed, 0 skipped** (`5.1s`)
+    - Hub Card Announcements (`tests/announcements/hub-card-announcements.spec.ts`): **3 passed, 0 failed, 0 skipped** (`7.9s`)
+- **Bibleberry CI ([Run 44649512465](https://github.com/Bibleberry/Bibleberry/actions/runs/44649512465)):**
+  - [`Build reader application`](https://github.com/Bibleberry/Bibleberry/actions/runs/44649512465/job/136000568514) (`6m 41s`): **PASS** — `Run CI workflow and scope tests` passed **64/64** (`0 failed, 0 skipped`, including all 6 new contract tests in `tests/ci/collections-browser-coverage.test.ts`), along with Shelf persistence, Library-to-Shelf, ESLint, Vite build, staging Worker dry-run, and 7-pass reader smoke suite.
+  - [`Verify CMS adapters and BerryMark preview`](https://github.com/Bibleberry/Bibleberry/actions/runs/44649512465/job/136000568919) (`1m 15s`): **PASS**
+  - [`Verify Release Gateway core`](https://github.com/Bibleberry/Bibleberry/actions/runs/44649512465/job/136000568945) (`54s`): **PASS**
+  - [`Verify Sanity Studio`](https://github.com/Bibleberry/Bibleberry/actions/runs/44649512465/job/136000568967) (`57s`): **PASS**
+- **Native workflows:** Neither `Native Android debug build` nor `Native iOS simulator build` triggered (no shipped web-bundle or native files changed).
+- **Duration and cost impact:**
+  - **Baseline before Willow Lantern (2 suites, 5 tests):** [Run 44643275531](https://github.com/Bibleberry/Bibleberry/actions/runs/44643275531/job/135979429962) (`ubuntu-24.04`) — `Run collection browser suites` step took **15s** (`79s` total job).
+  - **After Willow Lantern (4 suites, 10 tests):** `Run collection browser suites` step took **32s** (`+17s` test execution time: `5.1s` Card Viewer + `7.9s` Hub Card Announcements + subprocess startup; total job `1m 42s`, with `npm ci` accounting for normal runner variance).
+  - **Direct Actions cost:** **$0** on standard GitHub-hosted `ubuntu-24.04` runners while Bibleberry remains a public repository (1x Linux billing multiplier if ever made private; `+17s` step delta adds `<0.3` runner-minutes per triggered PR or `merge_group`).
