@@ -1436,6 +1436,118 @@ class TestIosSimulatorSmoke(unittest.TestCase):
             summary_reused = json.loads((ev_reused / "summary.json").read_text(encoding="utf-8"))
             self.assertIn("reused already-running PID 5432", summary_reused["error"])
             self.assertTrue(summary_reused["simctlPhase"]["ptyCapture"]["reusedRunningProcess"])
+            self.assertTrue((ev_reused / "attempt-1" / "02b-simctl-console-pty-logs.txt").is_file())
+
+    def test_valid_preferences_marker_without_fresh_numeric_pty_pid_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            app_path = self._make_fake_app(tmpdir)
+            derived_data = tmpdir / "dd"
+
+            # Subcases exercising the real capture_console_pty_launch() parser + full smoke.main()
+            # with a valid Preferences.get marker but absent, non-numeric, or zero launch PID.
+            payloads = [
+                (
+                    "missing-pid",
+                    (
+                        b"\xe2\x9a\xa1\xef\xb8\x8f  Loading app at capacitor://localhost...\n"
+                        b"\xe2\x9a\xa1\xef\xb8\x8f  To Native ->  Preferences get 91791470\n"
+                        b'\xe2\x9a\xa1\xef\xb8\x8f  TO JS {"value":null}\n'
+                        b"\xe2\x9a\xa1\xef\xb8\x8f  WebView loaded\n"
+                    ),
+                ),
+                (
+                    "non-numeric-pid",
+                    (
+                        b"com.example.bibleberry.r20poc: not-a-pid\n"
+                        b"\xe2\x9a\xa1\xef\xb8\x8f  To Native ->  Preferences get 91791471\n"
+                        b'\xe2\x9a\xa1\xef\xb8\x8f  TO JS {"value":null}\n'
+                        b"\xe2\x9a\xa1\xef\xb8\x8f  WebView loaded\n"
+                    ),
+                ),
+                (
+                    "zero-pid",
+                    (
+                        b"com.example.bibleberry.r20poc: 0\n"
+                        b"\xe2\x9a\xa1\xef\xb8\x8f  To Native ->  Preferences get 91791472\n"
+                        b'\xe2\x9a\xa1\xef\xb8\x8f  TO JS {"value":null}\n'
+                        b"\xe2\x9a\xa1\xef\xb8\x8f  WebView loaded\n"
+                    ),
+                ),
+            ]
+
+            for label, payload in payloads:
+                with self.subTest(case=label):
+                    ev_dir = tmpdir / f"ev-{label}"
+                    env = FakeSimulatorEnv(root_dir=tmpdir / f"sim-{label}")
+                    clock = {"now": 0.0}
+                    chunks = iter([payload])
+
+                    def fake_select(
+                        read_fds: list[int],
+                        _write_fds: object,
+                        _error_fds: object,
+                        _timeout: float,
+                        clock_ref: dict[str, float] = clock,
+                    ) -> tuple[list[int], list[int], list[int]]:
+                        clock_ref["now"] += 0.5
+                        return (read_fds if clock_ref["now"] == 0.5 else [], [], [])
+
+                    def fake_read(_fd: int, _n: int, chunk_iter: object = chunks) -> bytes:
+                        return next(chunk_iter, b"")  # type: ignore[arg-type]
+
+                    proc = mock.Mock()
+                    proc.poll.return_value = 0
+
+                    with (
+                        mock.patch.object(sys, "argv", self._full_run_argv(app_path, ev_dir, derived_data, max_device_resets=1)),
+                        mock.patch.object(smoke.subprocess, "run", side_effect=env),
+                        mock.patch.object(smoke.subprocess, "Popen", return_value=proc),
+                        mock.patch.object(smoke.select, "select", side_effect=fake_select),
+                        mock.patch.object(smoke.os, "read", side_effect=fake_read),
+                        mock.patch.object(smoke.time, "monotonic", side_effect=lambda c=clock: c["now"]),
+                        mock.patch.object(smoke.time, "sleep"),
+                        mock.patch.object(smoke, "find_new_app_crashes", return_value=[]),
+                    ):
+                        rc = smoke.main()
+
+                    self.assertEqual(rc, 1)
+                    self.assertEqual(env.create_count, 1)
+                    summary = json.loads((ev_dir / "summary.json").read_text(encoding="utf-8"))
+                    self.assertEqual(summary["status"], "failed")
+                    self.assertEqual(summary["infrastructureRetries"], [])
+                    self.assertIsNone(summary["simctlPhase"]["ptyLaunchPid"])
+                    self.assertFalse(summary["simctlPhase"]["ptyCapture"]["freshProcessLaunched"])
+                    self.assertFalse(summary["simctlPhase"]["ptyCapture"]["reusedRunningProcess"])
+                    self.assertNotIn("nativePreferencesGetObserved", summary["simctlPhase"])
+                    self.assertIn("did not report a valid fresh numeric PID", summary["error"])
+                    self.assertNotIn("reused already-running PID", summary["error"])
+                    self.assertTrue((ev_dir / "attempt-1" / "02b-simctl-console-pty.log").is_file())
+                    self.assertTrue((ev_dir / "attempt-1" / "02b-simctl-console-pty-logs.txt").is_file())
+                    xcuitest_calls = [c for c in env.calls if c[0] == "xcodebuild" and "test" in c]
+                    self.assertEqual(xcuitest_calls, [])
+
+            # Subcase 4: valid Preferences marker with stale initial launch PID (pid1 = 4321) fails explicitly
+            ev_stale_pid1 = tmpdir / "ev-stale-pid1"
+            env_stale_pid1 = FakeSimulatorEnv(root_dir=tmpdir / "sim-stale-pid1")
+            with (
+                mock.patch.object(sys, "argv", self._full_run_argv(app_path, ev_stale_pid1, derived_data, max_device_resets=1)),
+                mock.patch.object(smoke.subprocess, "run", side_effect=env_stale_pid1),
+                mock.patch.object(
+                    smoke,
+                    "capture_console_pty_launch",
+                    side_effect=self._healthy_pty_capture(pty_pid=4321),
+                ),
+                mock.patch.object(smoke.time, "sleep"),
+                mock.patch.object(smoke, "find_new_app_crashes", return_value=[]),
+            ):
+                rc_stale = smoke.main()
+
+            self.assertEqual(rc_stale, 1)
+            self.assertEqual(env_stale_pid1.create_count, 1)
+            summary_stale = json.loads((ev_stale_pid1 / "summary.json").read_text(encoding="utf-8"))
+            self.assertIn("stale initial PID 4321", summary_stale["error"])
+            self.assertTrue((ev_stale_pid1 / "attempt-1" / "02b-simctl-console-pty-logs.txt").is_file())
 
     # (i) crash evidence blocks both terminate postcondition recovery and launchctl fallback
     def test_crash_evidence_blocks_terminate_and_launchctl_recovery(self) -> None:

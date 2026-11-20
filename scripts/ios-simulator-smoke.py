@@ -483,11 +483,13 @@ def select_iphone_devicetype(runtime: dict[str, str]) -> dict[str, str]:
 
 
 def try_parse_simctl_launch_pid(output: str, bundle_id: str) -> int | None:
+    pattern = re.compile(rf"^{re.escape(bundle_id)}:\s*(\d+)$")
     for line in output.splitlines():
-        if bundle_id in line:
-            match = re.search(r":\s*(\d+)\s*$", line.strip())
-            if match:
-                return int(match.group(1))
+        match = pattern.match(line.strip())
+        if match:
+            pid = int(match.group(1))
+            if pid > 0:
+                return pid
     return None
 
 
@@ -1564,12 +1566,17 @@ def capture_console_pty_launch(
         launched_pid = try_parse_simctl_launch_pid(text, bundle_id)
         if previous_pid is not None and launched_pid == previous_pid:
             reused_running_process = True
+    is_valid_pid = (
+        isinstance(launched_pid, int)
+        and not isinstance(launched_pid, bool)
+        and launched_pid > 0
+    )
     if metadata is not None:
         metadata.update(
             {
                 "previousPid": previous_pid,
-                "launchedPid": launched_pid,
-                "freshProcessLaunched": launched_pid is not None
+                "launchedPid": launched_pid if is_valid_pid else None,
+                "freshProcessLaunched": is_valid_pid
                 and (previous_pid is None or launched_pid != previous_pid),
                 "reusedRunningProcess": reused_running_process,
                 "captureDurationSeconds": round(time.monotonic() - capture_started, 2),
@@ -1912,8 +1919,17 @@ def _run_smoke_attempt(
         previous_pid=pid2,
         metadata=pty_meta,
     )
+    pty_launched_pid = pty_meta.get("launchedPid")
+    pty_fresh_launched = pty_meta.get("freshProcessLaunched") is True
+    pty_has_valid_numeric_pid = (
+        isinstance(pty_launched_pid, int)
+        and not isinstance(pty_launched_pid, bool)
+        and pty_launched_pid > 0
+    )
     summary["simctlPhase"]["terminateBeforePtyMethod"] = term_before_pty_res["method"]
-    summary["simctlPhase"]["ptyLaunchPid"] = pty_meta.get("launchedPid")
+    summary["simctlPhase"]["ptyLaunchPid"] = (
+        pty_launched_pid if pty_has_valid_numeric_pid else None
+    )
     summary["simctlPhase"]["ptyCapture"] = {
         **pty_meta,
         "readinessAfterSeconds": pty_observed,
@@ -1922,13 +1938,34 @@ def _run_smoke_attempt(
     }
     if "Preferences.then" in pty_log:
         raise RuntimeError("Detected Capacitor Preferences.then() Proxy trap in simulator PTY log.")
-    if pty_meta.get("reusedRunningProcess"):
+    if pty_meta.get("reusedRunningProcess") or (
+        pty_has_valid_numeric_pid and pty_launched_pid == pid2
+    ):
         capture_scoped_logs(udid, pty_started_at, evidence_dir / "02b-simctl-console-pty-logs.txt")
         crashes = find_new_app_crashes(run_start_epoch)
         summary["newAppCrashReports"] = crashes
+        crash_suffix = f" New crash reports: {crashes}" if crashes else ""
         raise RuntimeError(
             f"PTY launch reused already-running PID {pid2} instead of starting a fresh process "
             "for native Capacitor Preferences.get verification."
+            + crash_suffix
+        )
+    if not pty_fresh_launched or not pty_has_valid_numeric_pid or pty_launched_pid == pid1:
+        capture_scoped_logs(udid, pty_started_at, evidence_dir / "02b-simctl-console-pty-logs.txt")
+        crashes = find_new_app_crashes(run_start_epoch)
+        summary["newAppCrashReports"] = crashes
+        crash_suffix = f" New crash reports: {crashes}" if crashes else ""
+        if pty_has_valid_numeric_pid and pty_launched_pid == pid1:
+            raise RuntimeError(
+                f"PTY launch reported stale initial PID {pid1} instead of a fresh process "
+                "for native Capacitor Preferences.get verification."
+                + crash_suffix
+            )
+        raise RuntimeError(
+            f"PTY launch did not report a valid fresh numeric PID for {args.bundle_id} "
+            f"(launchedPid={pty_launched_pid!r}, freshProcessLaunched={pty_meta.get('freshProcessLaunched')!r}); "
+            "cannot accept native Capacitor Preferences.get marker without fresh-process proof."
+            + crash_suffix
         )
     if not re.search(r"To Native ->\s+Preferences\s+get\b", pty_log):
         capture_scoped_logs(udid, pty_started_at, evidence_dir / "02b-simctl-console-pty-logs.txt")
