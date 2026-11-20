@@ -14,13 +14,16 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
+import plistlib
 import pty
 import re
 import select
 import shutil
+import struct
 import subprocess
 import sys
 import time
@@ -479,13 +482,630 @@ def select_iphone_devicetype(runtime: dict[str, str]) -> dict[str, str]:
     }
 
 
-def parse_simctl_launch_pid(output: str, bundle_id: str) -> int:
+def try_parse_simctl_launch_pid(output: str, bundle_id: str) -> int | None:
     for line in output.splitlines():
         if bundle_id in line:
             match = re.search(r":\s*(\d+)\s*$", line.strip())
             if match:
                 return int(match.group(1))
+    return None
+
+
+def parse_simctl_launch_pid(output: str, bundle_id: str) -> int:
+    pid = try_parse_simctl_launch_pid(output, bundle_id)
+    if pid is not None:
+        return pid
     raise RuntimeError(f"Could not parse launched PID for {bundle_id} from: {output!r}")
+
+
+def _normalize_exec_path(path_str: str) -> str:
+    cleaned = path_str.strip()
+    if not cleaned:
+        return ""
+    try:
+        if os.path.exists(cleaned):
+            return os.path.realpath(cleaned)
+    except OSError:
+        pass
+    return os.path.normpath(cleaned)
+
+
+def parse_ps_line(line: str) -> dict[str, Any] | None:
+    """Parse one row from `ps -o pid=,ppid=,stat=,etime=,comm=`."""
+    parts = line.strip().split(None, 4)
+    if len(parts) < 5:
+        return None
+    pid_str, ppid_str, stat, etime, comm = parts
+    if not pid_str.isdigit() or not ppid_str.isdigit():
+        return None
+    comm_clean = comm.strip()
+    if not comm_clean:
+        return None
+    return {
+        "pid": int(pid_str),
+        "ppid": int(ppid_str),
+        "stat": stat,
+        "etime": etime,
+        "comm": comm_clean,
+    }
+
+
+def inspect_host_process(pid: int) -> dict[str, Any]:
+    """Inspect a host PID via `ps`, distinguishing absent, alive, zombie, and unavailable."""
+    try:
+        proc = run_cmd(
+            ["ps", "-p", str(pid), "-o", "pid=,ppid=,stat=,etime=,comm="],
+            timeout=15,
+            check=False,
+        )
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        return {
+            "status": "unavailable",
+            "returncode": None,
+            "raw": "",
+            "error": str(exc),
+        }
+
+    raw_out = proc.stdout.strip()
+    if proc.returncode == 1 and not raw_out:
+        return {
+            "status": "absent",
+            "returncode": 1,
+            "raw": "",
+        }
+    if proc.returncode != 0:
+        return {
+            "status": "unavailable",
+            "returncode": proc.returncode,
+            "raw": raw_out,
+            "error": f"ps exited {proc.returncode}: {(proc.stderr or '').strip()}",
+        }
+
+    lines = [line for line in proc.stdout.splitlines() if line.strip()]
+    if not lines:
+        return {
+            "status": "unavailable",
+            "returncode": 0,
+            "raw": raw_out,
+            "error": "ps returned exit 0 with empty stdout",
+        }
+    parsed = parse_ps_line(lines[0])
+    if parsed is None or parsed["pid"] != pid:
+        return {
+            "status": "unavailable",
+            "returncode": 0,
+            "raw": raw_out,
+            "error": f"unparseable or mismatched ps output: {raw_out!r}",
+        }
+    is_zombie = "Z" in parsed["stat"].upper()
+    return {
+        "status": "zombie" if is_zombie else "alive",
+        "returncode": 0,
+        "raw": raw_out,
+        **parsed,
+    }
+
+
+def read_bundle_identifier(app_bundle_dir: Path) -> str | None:
+    """Read CFBundleIdentifier from an .app bundle's Info.plist."""
+    plist_path = app_bundle_dir / "Info.plist"
+    if not plist_path.is_file():
+        return None
+    try:
+        data = plistlib.loads(plist_path.read_bytes())
+    except (OSError, plistlib.InvalidFileException, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    bundle_id = data.get("CFBundleIdentifier")
+    if isinstance(bundle_id, str) and bundle_id.strip():
+        return bundle_id.strip()
+    return None
+
+
+def classify_process_identity(
+    proc_info: dict[str, Any],
+    *,
+    udid: str,
+    bundle_id: str,
+    expected_binary_path: str,
+    expected_ppid: int | None = None,
+) -> dict[str, Any]:
+    """Verify host process identity against expected simulator container binary and Info.plist."""
+    status = proc_info.get("status")
+    if status == "absent":
+        return {
+            "match": False,
+            "classification": "absent",
+            "reason": "PID is not present in host process table",
+        }
+    if status == "unavailable":
+        return {
+            "match": False,
+            "classification": "identity_unavailable",
+            "reason": str(proc_info.get("error") or "host process identity unavailable"),
+        }
+    if status == "zombie":
+        return {
+            "match": False,
+            "classification": "zombie",
+            "reason": f"PID {proc_info.get('pid')} is in zombie state ({proc_info.get('stat')})",
+        }
+
+    if expected_ppid is not None and proc_info.get("ppid") != expected_ppid:
+        return {
+            "match": False,
+            "classification": "pid_reused_or_wrong_identity",
+            "reason": (
+                f"PID {proc_info.get('pid')} parent PID {proc_info.get('ppid')} "
+                f"does not match expected parent PID {expected_ppid}"
+            ),
+        }
+
+    comm = str(proc_info.get("comm") or "")
+    comm_norm = _normalize_exec_path(comm)
+    expected_norm = _normalize_exec_path(expected_binary_path)
+    if not comm_norm or comm_norm != expected_norm:
+        return {
+            "match": False,
+            "classification": "pid_reused_or_wrong_identity",
+            "reason": (
+                f"PID {proc_info.get('pid')} executable {comm!r} does not match "
+                f"expected simulator app binary {expected_binary_path!r}"
+            ),
+        }
+
+    if udid and udid in expected_norm and udid not in comm_norm:
+        return {
+            "match": False,
+            "classification": "pid_reused_or_wrong_identity",
+            "reason": f"PID {proc_info.get('pid')} executable does not belong to simulator {udid}",
+        }
+
+    bundle_dir = Path(comm_norm).parent
+    observed_bundle_id = read_bundle_identifier(bundle_dir)
+    if observed_bundle_id is None:
+        return {
+            "match": False,
+            "classification": "identity_unavailable",
+            "reason": f"Could not read CFBundleIdentifier from {bundle_dir / 'Info.plist'}",
+        }
+    if observed_bundle_id != bundle_id:
+        return {
+            "match": False,
+            "classification": "wrong_bundle_id",
+            "reason": (
+                f"Running app bundle {bundle_dir} declares CFBundleIdentifier "
+                f"{observed_bundle_id!r}, expected {bundle_id!r}"
+            ),
+            "observedBundleId": observed_bundle_id,
+        }
+
+    return {
+        "match": True,
+        "classification": "matched_app",
+        "reason": "Host PID executable path and Info.plist CFBundleIdentifier match expected simulator app",
+        "observedBundleId": observed_bundle_id,
+    }
+
+
+def find_matching_simulator_app_processes(
+    expected_binary_path: str,
+    udid: str,
+) -> dict[str, Any]:
+    """Scan host process table for any process running this simulator's installed app binary."""
+    try:
+        proc = run_cmd(
+            ["ps", "-axo", "pid=,ppid=,stat=,etime=,comm="],
+            timeout=15,
+            check=False,
+        )
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        return {
+            "status": "unavailable",
+            "error": str(exc),
+            "matches": [],
+        }
+
+    if proc.returncode != 0:
+        return {
+            "status": "unavailable",
+            "error": f"ps -axo exited {proc.returncode}: {(proc.stderr or '').strip()}",
+            "matches": [],
+        }
+
+    expected_norm = _normalize_exec_path(expected_binary_path)
+    matches: list[dict[str, Any]] = []
+    for line in proc.stdout.splitlines():
+        parsed = parse_ps_line(line)
+        if parsed is None:
+            continue
+        comm_norm = _normalize_exec_path(parsed["comm"])
+        if comm_norm == expected_norm or (
+            udid and udid in comm_norm and comm_norm.endswith("/App.app/App")
+        ):
+            matches.append(parsed)
+    return {
+        "status": "ok",
+        "matches": matches,
+    }
+
+
+def validate_screenshot_file(
+    shot_path: Path,
+    *,
+    min_mtime: float,
+    min_bytes: int = 1024,
+) -> dict[str, Any]:
+    """Validate that a screenshot file exists, is freshly written, non-trivial, and a valid PNG."""
+    if not shot_path.is_file():
+        raise RuntimeError(f"Screenshot missing after capture: {shot_path}")
+    st = shot_path.stat()
+    if st.st_size < min_bytes:
+        raise RuntimeError(
+            f"Screenshot unexpectedly small ({st.st_size} bytes < {min_bytes}): {shot_path}"
+        )
+    if st.st_mtime < min_mtime - 1.0:
+        raise RuntimeError(
+            f"Screenshot appears stale (mtime {st.st_mtime:.3f} predates capture start "
+            f"{min_mtime:.3f}): {shot_path}"
+        )
+    raw = shot_path.read_bytes()
+    if len(raw) < 24 or raw[:8] != b"\x89PNG\r\n\x1a\n" or raw[12:16] != b"IHDR":
+        raise RuntimeError(f"Screenshot does not contain a valid PNG header: {shot_path}")
+    width, height = struct.unpack(">II", raw[16:24])
+    if width == 0 or height == 0:
+        raise RuntimeError(f"Screenshot PNG has zero dimensions ({width}x{height}): {shot_path}")
+    return {
+        "path": str(shot_path),
+        "bytes": st.st_size,
+        "mtime": st.st_mtime,
+        "width": width,
+        "height": height,
+        "sha256": hashlib.sha256(raw).hexdigest(),
+    }
+
+
+def capture_fresh_screenshot(
+    udid: str,
+    shot_path: Path,
+    *,
+    step_timings: list[dict[str, Any]] | None = None,
+    step_name: str = "simctl_screenshot",
+    timeout: int = 30,
+    retries: int = 1,
+) -> dict[str, Any]:
+    """Remove any stale file, capture a fresh simulator screenshot, and validate PNG/freshness."""
+    if shot_path.exists():
+        shot_path.unlink()
+    capture_started_epoch = time.time()
+    run_simctl_with_retry(
+        ["xcrun", "simctl", "io", udid, "screenshot", str(shot_path)],
+        timeout=timeout,
+        retries=retries,
+        step_timings=step_timings,
+        step_name=step_name,
+    )
+    return validate_screenshot_file(shot_path, min_mtime=capture_started_epoch)
+
+
+def _is_no_such_process_error(exc: subprocess.CalledProcessError) -> bool:
+    combined = f"{exc.stderr or ''}\n{exc.stdout or ''}".lower()
+    return exc.returncode == 3 or "no such process" in combined
+
+
+def verify_termination_postconditions(
+    *,
+    udid: str,
+    bundle_id: str,
+    expected_pid: int,
+    expected_binary_path: str,
+    run_start_epoch: float,
+    expected_ppid: int | None = None,
+    poll_window_s: float = 3.0,
+    poll_interval_s: float = 0.5,
+) -> dict[str, Any]:
+    """
+    Evaluate affirmative postconditions after `simctl terminate`:
+    - zero new matching app crash reports
+    - expected PID absent (distinguished from PID reuse / wrong identity / unavailable ps)
+    - zero remaining host processes matching this simulator's installed app binary
+    - simulator device still confirmed 'Booted'
+    """
+    deadline = time.monotonic() + max(0.0, poll_window_s)
+    max_polls = max(1, int(poll_window_s / poll_interval_s) + 1) if poll_interval_s > 0 else 1
+    poll_count = 0
+    last_result: dict[str, Any] = {
+        "conclusive": False,
+        "verdict": "identity_unavailable",
+        "expectedPid": expected_pid,
+        "reason": "postcondition check did not run",
+    }
+
+    while True:
+        poll_count += 1
+        crashes = find_new_app_crashes(run_start_epoch)
+        if crashes:
+            return {
+                "conclusive": False,
+                "verdict": "app_crashed",
+                "expectedPid": expected_pid,
+                "crashes": crashes,
+                "reason": f"Detected new app crash reports during termination: {crashes}",
+            }
+
+        proc_info = inspect_host_process(expected_pid)
+        status = proc_info["status"]
+        if status == "unavailable":
+            return {
+                "conclusive": False,
+                "verdict": "identity_unavailable",
+                "expectedPid": expected_pid,
+                "psInfo": proc_info,
+                "reason": str(proc_info.get("error") or "host ps unavailable"),
+            }
+
+        if status in {"alive", "zombie"}:
+            identity = classify_process_identity(
+                proc_info,
+                udid=udid,
+                bundle_id=bundle_id,
+                expected_binary_path=expected_binary_path,
+                expected_ppid=expected_ppid,
+            )
+            if identity["classification"] in {"pid_reused_or_wrong_identity", "wrong_bundle_id"}:
+                return {
+                    "conclusive": False,
+                    "verdict": "pid_reused_or_wrong_identity",
+                    "expectedPid": expected_pid,
+                    "psInfo": proc_info,
+                    "identity": identity,
+                    "reason": identity["reason"],
+                }
+            if identity["classification"] == "identity_unavailable":
+                return {
+                    "conclusive": False,
+                    "verdict": "identity_unavailable",
+                    "expectedPid": expected_pid,
+                    "psInfo": proc_info,
+                    "identity": identity,
+                    "reason": identity["reason"],
+                }
+            last_result = {
+                "conclusive": False,
+                "verdict": "app_still_running",
+                "expectedPid": expected_pid,
+                "psInfo": proc_info,
+                "identity": identity,
+                "reason": f"Expected app PID {expected_pid} is still {status}",
+            }
+            if poll_count < max_polls and time.monotonic() < deadline:
+                time.sleep(poll_interval_s)
+                continue
+            return last_result
+
+        # Expected PID is absent on host; confirm no other instance of this simulator's app exists.
+        scan = find_matching_simulator_app_processes(expected_binary_path, udid)
+        if scan["status"] != "ok":
+            return {
+                "conclusive": False,
+                "verdict": "identity_unavailable",
+                "expectedPid": expected_pid,
+                "pidStatus": "absent",
+                "scanError": scan.get("error"),
+                "reason": f"Could not scan host process table for remaining app processes: {scan.get('error')}",
+            }
+        if scan["matches"]:
+            remaining_pids = [m["pid"] for m in scan["matches"]]
+            last_result = {
+                "conclusive": False,
+                "verdict": "app_still_running",
+                "expectedPid": expected_pid,
+                "pidStatus": "absent",
+                "remainingMatchingPids": remaining_pids,
+                "reason": f"Another process for {expected_binary_path} is still running: {remaining_pids}",
+            }
+            if poll_count < max_polls and time.monotonic() < deadline:
+                time.sleep(poll_interval_s)
+                continue
+            return last_result
+
+        sim_state = get_simulator_state(udid)
+        if sim_state != "Booted":
+            return {
+                "conclusive": False,
+                "verdict": "simulator_state_unavailable_or_not_booted",
+                "expectedPid": expected_pid,
+                "pidStatus": "absent",
+                "remainingMatchingPids": [],
+                "simulatorState": sim_state,
+                "reason": f"Simulator {udid} state is {sim_state!r}, expected 'Booted'",
+            }
+
+        crashes_after = find_new_app_crashes(run_start_epoch)
+        if crashes_after:
+            return {
+                "conclusive": False,
+                "verdict": "app_crashed",
+                "expectedPid": expected_pid,
+                "crashes": crashes_after,
+                "reason": f"Detected new app crash reports during termination: {crashes_after}",
+            }
+
+        return {
+            "conclusive": True,
+            "verdict": "conclusively_stopped",
+            "expectedPid": expected_pid,
+            "pidStatus": "absent",
+            "remainingMatchingPids": [],
+            "simulatorState": sim_state,
+            "newAppCrashReports": [],
+            "reason": "Expected PID absent, zero matching simulator app processes running, simulator Booted, no crashes",
+        }
+
+
+def terminate_app_with_postconditions(
+    *,
+    udid: str,
+    bundle_id: str,
+    expected_pid: int,
+    expected_binary_path: str,
+    run_start_epoch: float,
+    expected_ppid: int | None = None,
+    timeout: int = 30,
+    retries: int = 1,
+    retry_delay_s: float = 3.0,
+    step_timings: list[dict[str, Any]] | None = None,
+    step_name: str = "simctl_terminate",
+    postcondition_resolutions: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """
+    Terminate the running app with bounded retries and affirmative postcondition checks.
+
+    Never classifies a live, crashed, PID-reused, or identity-unavailable state as success.
+    """
+    last_exc: Exception | None = None
+    last_post: dict[str, Any] | None = None
+    had_ambiguous_attempt = False
+
+    for attempt in range(1 + retries):
+        try:
+            run_cmd(
+                ["xcrun", "simctl", "terminate", udid, bundle_id],
+                timeout=timeout,
+                check=True,
+                step_timings=step_timings,
+                step_name=step_name,
+            )
+        except subprocess.TimeoutExpired as exc:
+            last_exc = exc
+            had_ambiguous_attempt = True
+            post = verify_termination_postconditions(
+                udid=udid,
+                bundle_id=bundle_id,
+                expected_pid=expected_pid,
+                expected_binary_path=expected_binary_path,
+                expected_ppid=expected_ppid,
+                run_start_epoch=run_start_epoch,
+            )
+            last_post = post
+            if post["verdict"] == "app_crashed":
+                raise RuntimeError(post["reason"]) from exc
+            if post["conclusive"]:
+                resolution = {
+                    "step": step_name,
+                    "attempt": attempt + 1,
+                    "originalError": str(exc),
+                    "verdict": post["verdict"],
+                    "postcondition": post,
+                }
+                if postcondition_resolutions is not None:
+                    postcondition_resolutions.append(resolution)
+                print(
+                    f"Postcondition verified {step_name} after timeout on attempt {attempt + 1}/{1 + retries}: "
+                    f"PID {expected_pid} conclusively stopped with simulator Booted and no crashes.",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                return {
+                    "method": "postcondition_verified_after_ambiguous_terminate",
+                    "attempt": attempt + 1,
+                    "originalError": str(exc),
+                    "postcondition": post,
+                }
+            if attempt < retries:
+                print(
+                    f"Ambiguous {step_name} timeout on attempt {attempt + 1}/{1 + retries} "
+                    f"(postcondition={post['verdict']}: {post.get('reason', '')}); "
+                    f"retrying in {retry_delay_s}s...",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                time.sleep(retry_delay_s)
+            continue
+        except subprocess.CalledProcessError as exc:
+            is_retry_esrch = had_ambiguous_attempt and _is_no_such_process_error(exc)
+            if not is_retry_esrch and not is_transient_simctl_error(exc):
+                raise
+            last_exc = exc
+            had_ambiguous_attempt = True
+            post = verify_termination_postconditions(
+                udid=udid,
+                bundle_id=bundle_id,
+                expected_pid=expected_pid,
+                expected_binary_path=expected_binary_path,
+                expected_ppid=expected_ppid,
+                run_start_epoch=run_start_epoch,
+            )
+            last_post = post
+            if post["verdict"] == "app_crashed":
+                raise RuntimeError(post["reason"]) from exc
+            if post["conclusive"]:
+                resolution = {
+                    "step": step_name,
+                    "attempt": attempt + 1,
+                    "originalError": str(exc),
+                    "verdict": post["verdict"],
+                    "postcondition": post,
+                }
+                if postcondition_resolutions is not None:
+                    postcondition_resolutions.append(resolution)
+                print(
+                    f"Postcondition verified {step_name} after ambiguous exit on attempt {attempt + 1}/{1 + retries}: "
+                    f"PID {expected_pid} conclusively stopped with simulator Booted and no crashes.",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                return {
+                    "method": "postcondition_verified_after_ambiguous_terminate",
+                    "attempt": attempt + 1,
+                    "originalError": str(exc),
+                    "postcondition": post,
+                }
+            if attempt < retries:
+                print(
+                    f"Ambiguous {step_name} failure on attempt {attempt + 1}/{1 + retries} "
+                    f"(postcondition={post['verdict']}: {post.get('reason', '')}); "
+                    f"retrying in {retry_delay_s}s...",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                time.sleep(retry_delay_s)
+            continue
+
+        # simctl terminate exited 0; still verify postconditions (stopped, not crashed, not reused/ambiguous).
+        time.sleep(1)
+        post = verify_termination_postconditions(
+            udid=udid,
+            bundle_id=bundle_id,
+            expected_pid=expected_pid,
+            expected_binary_path=expected_binary_path,
+            expected_ppid=expected_ppid,
+            run_start_epoch=run_start_epoch,
+        )
+        if post["verdict"] == "app_crashed":
+            raise RuntimeError(post["reason"])
+        if post["conclusive"]:
+            return {
+                "method": "simctl_terminate_ok",
+                "attempt": attempt + 1,
+                "postcondition": post,
+            }
+        if post["verdict"] == "app_still_running":
+            raise RuntimeError(
+                f"Process {expected_pid} still running after {step_name}: {post.get('reason', '')}"
+            )
+        raise RuntimeError(
+            f"Could not verify process {expected_pid} stopped cleanly after {step_name} "
+            f"({post['verdict']}): {post.get('reason', '')}"
+        )
+
+    verdict = last_post["verdict"] if last_post else "unknown"
+    reason = last_post.get("reason", "") if last_post else ""
+    raise SimulatorInfrastructureError(
+        f"{step_name} failed after {1 + retries} attempt(s) "
+        f"(postcondition={verdict}; {reason}): {last_exc}"
+    ) from last_exc
 
 
 def verify_pid_alive(
@@ -495,20 +1115,73 @@ def verify_pid_alive(
     evidence_file: Path,
     *,
     step_timings: list[dict[str, Any]] | None = None,
-) -> None:
-    ps_proc = run_cmd(
-        ["ps", "-p", str(pid), "-o", "pid=,ppid=,stat=,etime=,comm="],
-        timeout=15,
-        check=False,
-    )
-    if ps_proc.returncode != 0 or not ps_proc.stdout.strip():
+    expected_binary_path: str | None = None,
+    screenshot_path: Path | None = None,
+    screenshot_step_name: str = "simctl_screenshot",
+    run_start_epoch: float | None = None,
+    postcondition_resolutions: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    initial_ps = inspect_host_process(pid)
+    if initial_ps["status"] == "absent":
         evidence_file.write_text(
-            f"ps_exit={ps_proc.returncode}\n"
-            f"ps_output={ps_proc.stdout.strip()}\n"
+            f"ps_exit={initial_ps['returncode']}\n"
+            f"ps_output={initial_ps['raw']}\n"
             "launchctl_matches:\n(skipped because host ps reported process absent)\n",
             encoding="utf-8",
         )
         raise RuntimeError(f"App process PID {pid} did not remain alive.")
+    if initial_ps["status"] == "unavailable":
+        evidence_file.write_text(
+            f"ps_exit={initial_ps['returncode']}\n"
+            f"ps_output={initial_ps['raw']}\n"
+            f"ps_error={initial_ps.get('error', '')}\n"
+            "launchctl_matches:\n(skipped because host ps identity was unavailable)\n",
+            encoding="utf-8",
+        )
+        raise RuntimeError(
+            f"Host process identity unavailable for PID {pid}: {initial_ps.get('error', '')}"
+        )
+    if initial_ps["status"] == "zombie":
+        evidence_file.write_text(
+            f"ps_exit={initial_ps['returncode']}\n"
+            f"ps_output={initial_ps['raw']}\n"
+            "launchctl_matches:\n(skipped because host process is zombie)\n",
+            encoding="utf-8",
+        )
+        raise RuntimeError(f"App process PID {pid} is in zombie state ({initial_ps['stat']}).")
+
+    initial_identity: dict[str, Any] | None = None
+    if expected_binary_path is not None:
+        initial_identity = classify_process_identity(
+            initial_ps,
+            udid=udid,
+            bundle_id=bundle_id,
+            expected_binary_path=expected_binary_path,
+        )
+        if not initial_identity["match"]:
+            evidence_file.write_text(
+                f"ps_exit={initial_ps['returncode']}\n"
+                f"ps_output={initial_ps['raw']}\n"
+                f"identity_classification={initial_identity['classification']}\n"
+                f"identity_reason={initial_identity['reason']}\n"
+                "launchctl_matches:\n(skipped because host process identity check failed)\n",
+                encoding="utf-8",
+            )
+            raise RuntimeError(
+                f"Host process identity verification failed for PID {pid} "
+                f"({initial_identity['classification']}): {initial_identity['reason']}"
+            )
+
+    if run_start_epoch is not None:
+        crashes = find_new_app_crashes(run_start_epoch)
+        if crashes:
+            evidence_file.write_text(
+                f"ps_exit={initial_ps['returncode']}\n"
+                f"ps_output={initial_ps['raw']}\n"
+                f"new_app_crashes={crashes}\n",
+                encoding="utf-8",
+            )
+            raise RuntimeError(f"Detected new app crash reports while verifying PID {pid}: {crashes}")
 
     try:
         launchctl_proc = run_simctl_with_retry(
@@ -519,45 +1192,231 @@ def verify_pid_alive(
             step_name="simctl_verify_pid_launchctl",
         )
     except SimulatorInfrastructureError as exc:
-        try:
-            ps_after = run_cmd(
-                ["ps", "-p", str(pid), "-o", "pid=,ppid=,stat=,etime=,comm="],
-                timeout=15,
-                check=False,
-            )
-        except subprocess.TimeoutExpired as ps_exc:
+        if run_start_epoch is not None:
+            crashes_during_stall = find_new_app_crashes(run_start_epoch)
+            if crashes_during_stall:
+                evidence_file.write_text(
+                    f"ps_exit={initial_ps['returncode']}\n"
+                    f"ps_output={initial_ps['raw']}\n"
+                    "launchctl_matches:\n(unavailable: simulator query timed out)\n"
+                    f"new_app_crashes={crashes_during_stall}\n",
+                    encoding="utf-8",
+                )
+                raise RuntimeError(
+                    f"Detected new app crash reports during launchctl stall for PID {pid}: "
+                    f"{crashes_during_stall}"
+                ) from exc
+
+        recheck_ps = inspect_host_process(pid)
+        if recheck_ps["status"] == "unavailable":
             evidence_file.write_text(
-                f"ps_exit={ps_proc.returncode}\n"
-                f"ps_output={ps_proc.stdout.strip()}\n"
+                f"ps_exit={initial_ps['returncode']}\n"
+                f"ps_output={initial_ps['raw']}\n"
                 "launchctl_matches:\n(unavailable: simulator query timed out)\n"
-                f"ps_recheck_error={ps_exc}\n",
+                f"ps_recheck_error={recheck_ps.get('error', '')}\n",
                 encoding="utf-8",
             )
             raise RuntimeError(
                 f"Could not revalidate app process PID {pid} after simulator launchctl failure: {exc}"
-            ) from ps_exc
+            ) from exc
 
-        if ps_after.returncode != 0 or not ps_after.stdout.strip():
+        if recheck_ps["status"] == "absent":
             evidence_file.write_text(
-                f"ps_exit={ps_proc.returncode}\n"
-                f"ps_output={ps_proc.stdout.strip()}\n"
+                f"ps_exit={initial_ps['returncode']}\n"
+                f"ps_output={initial_ps['raw']}\n"
                 "launchctl_matches:\n(unavailable: simulator query timed out)\n"
-                f"ps_recheck_exit={ps_after.returncode}\n"
-                f"ps_recheck_output={ps_after.stdout.strip()}\n",
+                f"ps_recheck_exit={recheck_ps['returncode']}\n"
+                f"ps_recheck_output={recheck_ps['raw']}\n",
                 encoding="utf-8",
             )
             raise RuntimeError(
                 f"App process PID {pid} exited while simulator launchctl verification was unavailable."
             ) from exc
-        raise
+
+        if recheck_ps["status"] == "zombie":
+            evidence_file.write_text(
+                f"ps_exit={initial_ps['returncode']}\n"
+                f"ps_output={initial_ps['raw']}\n"
+                "launchctl_matches:\n(unavailable: simulator query timed out)\n"
+                f"ps_recheck_exit={recheck_ps['returncode']}\n"
+                f"ps_recheck_output={recheck_ps['raw']}\n",
+                encoding="utf-8",
+            )
+            raise RuntimeError(
+                f"App process PID {pid} became zombie while simulator launchctl verification was unavailable."
+            ) from exc
+
+        if recheck_ps["ppid"] != initial_ps["ppid"]:
+            evidence_file.write_text(
+                f"ps_exit={initial_ps['returncode']}\n"
+                f"ps_output={initial_ps['raw']}\n"
+                "launchctl_matches:\n(unavailable: simulator query timed out)\n"
+                f"ps_recheck_output={recheck_ps['raw']}\n"
+                f"identity_reason=ppid changed from {initial_ps['ppid']} to {recheck_ps['ppid']}\n",
+                encoding="utf-8",
+            )
+            raise RuntimeError(
+                f"App process PID {pid} parent PID changed during launchctl stall "
+                f"({initial_ps['ppid']} -> {recheck_ps['ppid']})."
+            ) from exc
+
+        # Fallback requires full independent positive proof: verified container binary + Info.plist
+        # bundle ID, Booted simulator state, fresh current-launch screenshot, post-screenshot PID
+        # continuity, and crash absence. Without all inputs, fail closed as infrastructure error.
+        if expected_binary_path is None or screenshot_path is None or run_start_epoch is None:
+            raise
+
+        recheck_identity = classify_process_identity(
+            recheck_ps,
+            udid=udid,
+            bundle_id=bundle_id,
+            expected_binary_path=expected_binary_path,
+            expected_ppid=initial_ps["ppid"],
+        )
+        if not recheck_identity["match"]:
+            evidence_file.write_text(
+                f"ps_exit={initial_ps['returncode']}\n"
+                f"ps_output={initial_ps['raw']}\n"
+                "launchctl_matches:\n(unavailable: simulator query timed out)\n"
+                f"ps_recheck_output={recheck_ps['raw']}\n"
+                f"identity_classification={recheck_identity['classification']}\n"
+                f"identity_reason={recheck_identity['reason']}\n",
+                encoding="utf-8",
+            )
+            raise RuntimeError(
+                f"Post-stall host process identity verification failed for PID {pid} "
+                f"({recheck_identity['classification']}): {recheck_identity['reason']}"
+            ) from exc
+
+        sim_state = get_simulator_state(udid)
+        if sim_state != "Booted":
+            evidence_file.write_text(
+                f"ps_exit={initial_ps['returncode']}\n"
+                f"ps_output={initial_ps['raw']}\n"
+                "launchctl_matches:\n(unavailable: simulator query timed out)\n"
+                f"ps_recheck_output={recheck_ps['raw']}\n"
+                f"simulator_state={sim_state!r}\n",
+                encoding="utf-8",
+            )
+            raise SimulatorInfrastructureError(
+                f"Simulator launchctl query stalled and device {udid} state is {sim_state!r} "
+                f"(expected 'Booted'): {exc}"
+            ) from exc
+
+        # Capture fresh current-launch render evidence; stalls or stale screenshots raise and fail.
+        shot_meta = capture_fresh_screenshot(
+            udid,
+            screenshot_path,
+            step_timings=step_timings,
+            step_name=screenshot_step_name,
+        )
+
+        # Bracket recheck: confirm exact same app process is still alive after screenshot capture
+        # and no app crash reports appeared.
+        post_shot_ps = inspect_host_process(pid)
+        if post_shot_ps["status"] != "alive":
+            evidence_file.write_text(
+                f"ps_exit={initial_ps['returncode']}\n"
+                f"ps_output={initial_ps['raw']}\n"
+                "launchctl_matches:\n(unavailable: simulator query timed out)\n"
+                f"ps_recheck_output={recheck_ps['raw']}\n"
+                f"ps_post_screenshot_status={post_shot_ps['status']}\n"
+                f"ps_post_screenshot_output={post_shot_ps['raw']}\n",
+                encoding="utf-8",
+            )
+            raise RuntimeError(
+                f"App process PID {pid} did not remain alive after fallback screenshot capture "
+                f"(status={post_shot_ps['status']})."
+            ) from exc
+
+        post_shot_identity = classify_process_identity(
+            post_shot_ps,
+            udid=udid,
+            bundle_id=bundle_id,
+            expected_binary_path=expected_binary_path,
+            expected_ppid=initial_ps["ppid"],
+        )
+        if not post_shot_identity["match"]:
+            evidence_file.write_text(
+                f"ps_exit={initial_ps['returncode']}\n"
+                f"ps_output={initial_ps['raw']}\n"
+                "launchctl_matches:\n(unavailable: simulator query timed out)\n"
+                f"ps_post_screenshot_output={post_shot_ps['raw']}\n"
+                f"identity_classification={post_shot_identity['classification']}\n"
+                f"identity_reason={post_shot_identity['reason']}\n",
+                encoding="utf-8",
+            )
+            raise RuntimeError(
+                f"Post-screenshot host process identity failed for PID {pid} "
+                f"({post_shot_identity['classification']}): {post_shot_identity['reason']}"
+            ) from exc
+
+        post_shot_crashes = find_new_app_crashes(run_start_epoch)
+        if post_shot_crashes:
+            evidence_file.write_text(
+                f"ps_exit={initial_ps['returncode']}\n"
+                f"ps_output={initial_ps['raw']}\n"
+                "launchctl_matches:\n(unavailable: simulator query timed out)\n"
+                f"new_app_crashes={post_shot_crashes}\n",
+                encoding="utf-8",
+            )
+            raise RuntimeError(
+                f"Detected new app crash reports after fallback screenshot for PID {pid}: "
+                f"{post_shot_crashes}"
+            ) from exc
+
+        evidence_file.write_text(
+            f"verification_mode=launchctl_stall_independent_fallback\n"
+            f"ps_exit={initial_ps['returncode']}\n"
+            f"ps_output={initial_ps['raw']}\n"
+            f"ps_recheck_output={recheck_ps['raw']}\n"
+            f"ps_post_screenshot_output={post_shot_ps['raw']}\n"
+            f"bundle_id_verified={recheck_identity['observedBundleId']}\n"
+            f"simulator_state={sim_state}\n"
+            f"screenshot_bytes={shot_meta['bytes']}\n"
+            f"screenshot_dimensions={shot_meta['width']}x{shot_meta['height']}\n"
+            f"screenshot_sha256={shot_meta['sha256']}\n"
+            f"new_app_crashes=[]\n"
+            f"launchctl_error={exc}\n"
+            "launchctl_matches:\n(unavailable: verified via independent fallback)\n",
+            encoding="utf-8",
+        )
+        resolution = {
+            "step": "verify_pid_alive",
+            "originalError": str(exc),
+            "verdict": "independent_fallback_verified",
+            "pid": pid,
+            "ppid": initial_ps["ppid"],
+            "bundleIdVerified": recheck_identity["observedBundleId"],
+            "simulatorState": sim_state,
+            "screenshot": shot_meta,
+            "newAppCrashReports": [],
+        }
+        if postcondition_resolutions is not None:
+            postcondition_resolutions.append(resolution)
+        print(
+            f"Verified PID {pid} ({bundle_id}) via independent fallback after launchctl stall: "
+            f"identity={recheck_identity['observedBundleId']}, state={sim_state}, "
+            f"screenshot={shot_meta['width']}x{shot_meta['height']} ({shot_meta['bytes']}B), crashes=0.",
+            file=sys.stderr,
+            flush=True,
+        )
+        return {
+            "mode": "launchctl_stall_independent_fallback",
+            "pid": pid,
+            "ppid": initial_ps["ppid"],
+            "screenshot": shot_meta,
+        }
+
     matching_launchctl = [
         line
         for line in launchctl_proc.stdout.splitlines()
         if bundle_id in line or str(pid) in line.split()[:1]
     ]
     evidence_file.write_text(
-        f"ps_exit={ps_proc.returncode}\n"
-        f"ps_output={ps_proc.stdout.strip()}\n"
+        f"verification_mode=launchctl_primary\n"
+        f"ps_exit={initial_ps['returncode']}\n"
+        f"ps_output={initial_ps['raw']}\n"
         f"launchctl_matches:\n" + "\n".join(matching_launchctl) + "\n",
         encoding="utf-8",
     )
@@ -565,6 +1424,20 @@ def verify_pid_alive(
         raise RuntimeError(
             f"Simulator launchctl does not show PID {pid} active for {bundle_id}: {matching_launchctl}"
         )
+
+    result: dict[str, Any] = {
+        "mode": "launchctl_primary",
+        "pid": pid,
+        "ppid": initial_ps["ppid"],
+    }
+    if screenshot_path is not None:
+        result["screenshot"] = capture_fresh_screenshot(
+            udid,
+            screenshot_path,
+            step_timings=step_timings,
+            step_name=screenshot_step_name,
+        )
+    return result
 
 
 def capture_scoped_logs(udid: str, start_time: str, out_file: Path) -> str:
@@ -616,6 +1489,8 @@ def capture_console_pty_launch(
     duration_s: float = 60.0,
     ready_patterns: tuple[str, ...] = (r"To Native ->\s+Preferences\s+get\b",),
     observed_patterns: dict[str, float] | None = None,
+    previous_pid: int | None = None,
+    metadata: dict[str, Any] | None = None,
 ) -> str:
     master_fd, slave_fd = pty.openpty()
     chunks: list[bytes] = []
@@ -630,6 +1505,8 @@ def capture_console_pty_launch(
     capture_started = time.monotonic()
     deadline = capture_started + duration_s
     seen_ready_deadline: float | None = None
+    launched_pid: int | None = None
+    reused_running_process = False
     try:
         while time.monotonic() < deadline:
             if seen_ready_deadline is not None and time.monotonic() >= seen_ready_deadline:
@@ -646,6 +1523,11 @@ def capture_console_pty_launch(
                     continue
                 chunks.append(data)
                 current_text = b"".join(chunks).decode("utf-8", errors="replace")
+                if launched_pid is None:
+                    launched_pid = try_parse_simctl_launch_pid(current_text, bundle_id)
+                    if previous_pid is not None and launched_pid == previous_pid:
+                        reused_running_process = True
+                        seen_ready_deadline = min(deadline, time.monotonic() + 1.0)
                 if observed_patterns is not None:
                     elapsed = round(time.monotonic() - capture_started, 2)
                     for pattern in ready_patterns:
@@ -678,6 +1560,22 @@ def capture_console_pty_launch(
                 proc.kill()
         os.close(master_fd)
     text = b"".join(chunks).decode("utf-8", errors="replace")
+    if launched_pid is None:
+        launched_pid = try_parse_simctl_launch_pid(text, bundle_id)
+        if previous_pid is not None and launched_pid == previous_pid:
+            reused_running_process = True
+    if metadata is not None:
+        metadata.update(
+            {
+                "previousPid": previous_pid,
+                "launchedPid": launched_pid,
+                "freshProcessLaunched": launched_pid is not None
+                and (previous_pid is None or launched_pid != previous_pid),
+                "reusedRunningProcess": reused_running_process,
+                "captureDurationSeconds": round(time.monotonic() - capture_started, 2),
+                "processExitCode": proc.poll(),
+            }
+        )
     out_file.write_text(text, encoding="utf-8")
     return text
 
@@ -843,6 +1741,9 @@ def _run_smoke_attempt(
     # ------------------------------------------------------------------
     # Phase 1: Deliverable A — simctl install, launch, terminate, relaunch
     # ------------------------------------------------------------------
+    postcondition_resolutions: list[dict[str, Any]] = summary.setdefault(
+        "postconditionResolutions", []
+    )
     run_simctl_with_retry(
         ["xcrun", "simctl", "install", udid, str(app_path)],
         timeout=120,
@@ -857,7 +1758,10 @@ def _run_smoke_attempt(
         step_timings=step_timings,
         step_name="simctl_get_app_container_1",
     ).stdout.strip()
+    if not container1:
+        raise RuntimeError(f"simctl get_app_container returned an empty path for {args.bundle_id}.")
     summary["installedContainer"] = container1
+    expected_binary_path_1 = str(Path(container1) / "App")
 
     launch1_stdout = evidence_dir / "01-simctl-launch-stdout.log"
     launch1_stderr = evidence_dir / "01-simctl-launch-stderr.log"
@@ -879,49 +1783,51 @@ def _run_smoke_attempt(
     )
     pid1 = parse_simctl_launch_pid(launch1.stdout, args.bundle_id)
     time.sleep(8)
-    verify_pid_alive(
-        udid,
-        args.bundle_id,
-        pid1,
-        evidence_dir / "01-launch-process.txt",
-        step_timings=step_timings,
-    )
     shot1 = evidence_dir / "01-simctl-launch.png"
-    run_simctl_with_retry(
-        ["xcrun", "simctl", "io", udid, "screenshot", str(shot1)],
-        timeout=30,
-        retries=1,
-        step_timings=step_timings,
-        step_name="simctl_screenshot_1",
+    verify1 = (
+        verify_pid_alive(
+            udid,
+            args.bundle_id,
+            pid1,
+            evidence_dir / "01-launch-process.txt",
+            step_timings=step_timings,
+            expected_binary_path=expected_binary_path_1,
+            screenshot_path=shot1,
+            screenshot_step_name="simctl_screenshot_1",
+            run_start_epoch=run_start_epoch,
+            postcondition_resolutions=postcondition_resolutions,
+        )
+        or {}
     )
-    if not shot1.is_file() or shot1.stat().st_size < 1024:
-        raise RuntimeError(f"Initial launch screenshot missing or unexpectedly small: {shot1}")
     capture_scoped_logs(udid, t0, evidence_dir / "01-simctl-launch-logs.txt")
 
-    # Terminate without uninstalling
-    run_simctl_with_retry(
-        ["xcrun", "simctl", "terminate", udid, args.bundle_id],
+    # Terminate without uninstalling, using postcondition-verified handling for ambiguous outcomes.
+    term1_res = terminate_app_with_postconditions(
+        udid=udid,
+        bundle_id=args.bundle_id,
+        expected_pid=pid1,
+        expected_binary_path=expected_binary_path_1,
+        expected_ppid=verify1.get("ppid"),
+        run_start_epoch=run_start_epoch,
         timeout=30,
         retries=1,
         step_timings=step_timings,
         step_name="simctl_terminate_1",
+        postcondition_resolutions=postcondition_resolutions,
     )
-    time.sleep(1)
-    ps_after_term = run_cmd(
-        ["ps", "-p", str(pid1)],
-        timeout=10,
-        check=False,
-    )
-    if ps_after_term.returncode == 0:
-        raise RuntimeError(f"Process {pid1} still running after simctl terminate.")
     # Prove app remains installed without uninstall/reinstall
-    run_simctl_with_retry(
+    container2 = run_simctl_with_retry(
         ["xcrun", "simctl", "get_app_container", udid, args.bundle_id, "app"],
         timeout=45,
         retries=1,
         step_timings=step_timings,
         step_name="simctl_get_app_container_2",
-    )
+    ).stdout.strip()
+    if not container2:
+        raise RuntimeError(
+            f"simctl get_app_container returned an empty path after terminate for {args.bundle_id}."
+        )
+    expected_binary_path_2 = str(Path(container2) / "App")
 
     # Relaunch without reinstalling
     launch2_stdout = evidence_dir / "02-simctl-relaunch-stdout.log"
@@ -946,28 +1852,30 @@ def _run_smoke_attempt(
     if pid2 == pid1:
         raise RuntimeError(f"Relaunch returned identical PID {pid2}; expected fresh process.")
     time.sleep(5)
-    verify_pid_alive(
-        udid,
-        args.bundle_id,
-        pid2,
-        evidence_dir / "02-relaunch-process.txt",
-        step_timings=step_timings,
-    )
     shot2 = evidence_dir / "02-simctl-relaunch.png"
-    run_simctl_with_retry(
-        ["xcrun", "simctl", "io", udid, "screenshot", str(shot2)],
-        timeout=30,
-        retries=1,
-        step_timings=step_timings,
-        step_name="simctl_screenshot_2",
+    verify2 = (
+        verify_pid_alive(
+            udid,
+            args.bundle_id,
+            pid2,
+            evidence_dir / "02-relaunch-process.txt",
+            step_timings=step_timings,
+            expected_binary_path=expected_binary_path_2,
+            screenshot_path=shot2,
+            screenshot_step_name="simctl_screenshot_2",
+            run_start_epoch=run_start_epoch,
+            postcondition_resolutions=postcondition_resolutions,
+        )
+        or {}
     )
-    if not shot2.is_file() or shot2.stat().st_size < 1024:
-        raise RuntimeError(f"Relaunch screenshot missing or unexpectedly small: {shot2}")
     capture_scoped_logs(udid, t1, evidence_dir / "02-simctl-relaunch-logs.txt")
 
     summary["simctlPhase"] = {
         "initialPid": pid1,
         "relaunchPid": pid2,
+        "initialVerificationMode": verify1.get("mode", "launchctl_primary"),
+        "relaunchVerificationMode": verify2.get("mode", "launchctl_primary"),
+        "terminate1Method": term1_res["method"],
         "initialScreenshotBytes": shot1.stat().st_size,
         "relaunchScreenshotBytes": shot2.stat().st_size,
     }
@@ -979,21 +1887,57 @@ def _run_smoke_attempt(
             raise RuntimeError(f"Detected new crash reports during simctl-only run: {crashes}")
         return
 
-    # Capture line-buffered Capacitor stdout/CAPLog via PTY before clean uninstall.
-    run_cmd_best_effort(
-        ["xcrun", "simctl", "terminate", udid, args.bundle_id],
+    # Ensure pid2 is conclusively stopped before PTY capture so --console-pty launches a fresh process.
+    term_before_pty_res = terminate_app_with_postconditions(
+        udid=udid,
+        bundle_id=args.bundle_id,
+        expected_pid=pid2,
+        expected_binary_path=expected_binary_path_2,
+        expected_ppid=verify2.get("ppid"),
+        run_start_epoch=run_start_epoch,
         timeout=30,
+        retries=1,
         step_timings=step_timings,
         step_name="simctl_terminate_before_pty",
+        postcondition_resolutions=postcondition_resolutions,
     )
+    pty_started_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    pty_meta: dict[str, Any] = {}
+    pty_observed: dict[str, float] = {}
     pty_log = capture_console_pty_launch(
-        udid, args.bundle_id, evidence_dir / "02b-simctl-console-pty.log"
+        udid,
+        args.bundle_id,
+        evidence_dir / "02b-simctl-console-pty.log",
+        observed_patterns=pty_observed,
+        previous_pid=pid2,
+        metadata=pty_meta,
     )
+    summary["simctlPhase"]["terminateBeforePtyMethod"] = term_before_pty_res["method"]
+    summary["simctlPhase"]["ptyLaunchPid"] = pty_meta.get("launchedPid")
+    summary["simctlPhase"]["ptyCapture"] = {
+        **pty_meta,
+        "readinessAfterSeconds": pty_observed,
+        "nativePreferencesToJsObserved": bool(re.search(r"TO JS\s+\{", pty_log)),
+        "webViewLoadedObserved": bool(re.search(r"WebView loaded", pty_log)),
+    }
     if "Preferences.then" in pty_log:
         raise RuntimeError("Detected Capacitor Preferences.then() Proxy trap in simulator PTY log.")
+    if pty_meta.get("reusedRunningProcess"):
+        capture_scoped_logs(udid, pty_started_at, evidence_dir / "02b-simctl-console-pty-logs.txt")
+        crashes = find_new_app_crashes(run_start_epoch)
+        summary["newAppCrashReports"] = crashes
+        raise RuntimeError(
+            f"PTY launch reused already-running PID {pid2} instead of starting a fresh process "
+            "for native Capacitor Preferences.get verification."
+        )
     if not re.search(r"To Native ->\s+Preferences\s+get\b", pty_log):
+        capture_scoped_logs(udid, pty_started_at, evidence_dir / "02b-simctl-console-pty-logs.txt")
+        crashes = find_new_app_crashes(run_start_epoch)
+        summary["newAppCrashReports"] = crashes
+        crash_suffix = f" New crash reports: {crashes}" if crashes else ""
         raise RuntimeError(
             "Expected native Capacitor Preferences.get bridge call in 02b-simctl-console-pty.log."
+            + crash_suffix
         )
     summary["simctlPhase"]["nativePreferencesGetObserved"] = True
 
@@ -1162,6 +2106,7 @@ def main() -> int:
         "bundleId": args.bundle_id,
         "stepTimings": step_timings,
         "infrastructureRetries": [],
+        "postconditionResolutions": [],
         "cleanup": [],
     }
 
