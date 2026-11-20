@@ -73,46 +73,17 @@ The key false-green gap is that target scope and invoked test command are differ
 
 Fixture policy for the current automated tests: use checked-in synthetic fixtures and local harnesses; do not include account credentials, private service tokens, live reader identities or non-public editorial exports. The account DB/Supabase suites intentionally require isolated local services and their own setup. Do not run them against shared or production endpoints. Workflow permissions declare `contents: read`; write-capable merge coordinator workflows are separate from test workflows.
 
-## Bounded follow-up proposal for Jasper Turtle (#241)
+## Jasper Turtle (#241) hosted reader coverage
 
-After this matrix is reviewed and the Silver Badger Draft-CI policy is settled, consider adding one explicit hermetic test command to the existing `reader-app` job in `.github/workflows/ci.yml`, after dependency install and before browser provisioning. Keep its command an explicit list (no wildcard across mixed directories) and use the already universal `tests/**` reader trigger. A safe first candidate set is:
+This section records the #241 update to Amber Compass’s audit snapshot. The existing `reader-app` job runs one `node --experimental-strip-types --test` command after `npm ci` and before Playwright/Chromium provisioning. Its explicit allowlist covers 28 files spanning account auth and sync, verifier models and boundaries, Saved Scripture, Deep Link Ingress, Hub Continue, onboarding replay, Scripture Capture, card sharing, Shelf, News, and Historical Library. The verifier boundary tests include a local Vite bundle check. [Reader workflow](../../.github/workflows/ci.yml) · [CI policy guard](../../tests/ci/hermetic-regressions.test.ts)
 
-```sh
-node --experimental-strip-types --test \
-  tests/accountAuth/accountAuthSession.test.ts \
-  tests/accountSync/accountSyncCoordinator.test.ts \
-  tests/accountSync/supabasePostgrestTransport.test.ts \
-  tests/savedScripture/savedScriptureCollectionModel.test.ts \
-  tests/accountVerification/databaseIssuancePort.test.ts \
-  tests/accountVerification/eligibility.test.ts \
-  tests/accountVerification/pgExecutorTls.test.ts \
-  tests/accountVerification/providerAndBoundary.test.ts \
-  tests/accountVerification/runOnce.test.ts \
-  tests/accountVerification/runtimeBoundary.test.ts \
-  tests/accountVerification/runtimeConfig.test.ts \
-  tests/accountVerification/verifierOrchestration.test.ts \
-  tests/deepLinkIngress/authorizer.test.ts \
-  tests/deepLinkIngress/controller.test.ts \
-  tests/deepLinkIngress/parser.test.ts \
-  tests/hubContinue/hubContinueAppInput.test.ts \
-  tests/hubContinue/hubContinueEngine.test.ts \
-  tests/onboardingReplay/onboardingReplayModel.test.ts \
-  tests/scriptureCapture/scriptureCapture.test.ts \
-  tests/cardSharing/cardSharingService.test.ts \
-  tests/shelf/shelfAccountPrecedence.test.ts \
-  tests/shelf/shelfActiveFocusAndSeparation.test.ts \
-  tests/shelf/shelfProtectionAndRollover.test.ts \
-  tests/shelf/shelfSelectionAndPutAway.test.ts \
-  tests/shelf/shelfValidation.test.ts \
-  tests/news/newsModel.test.ts \
-  tests/news/newsProvider.test.ts \
-  tests/library/historicalLibraryHost.test.ts \
-  tests/library/historicalLibraryModel.test.ts
-```
+The first hosted run on PR #253 at head `be7c2427211031556531e3a2ab730a03a28e6b53` executed **237 tests across 28 files** with **237 passing, 0 failing, and 0 skipped**. The added step took **9 seconds** in GitHub Actions (8.69 seconds reported by the Node runner). [PR #253](https://github.com/Bibleberry/Bibleberry/pull/253) · [Hosted reader job](https://github.com/Bibleberry/Bibleberry/actions/runs/44642178976/job/135975739489#step:8:1)
 
-Before wiring, check each selected test for network/service access and exclude all `*.integration.*`, `*.supabase.*`, Playwright specs, and local-service shell runners. The expected impact is one additional Node process over a bounded set of unit tests; exact wall-clock cost is **unknown until measured on the first PR run**, so capture duration and test count rather than estimate. The job already runs for test-file changes and every main push/merge group, so no scope expansion is proposed here. This proposal intentionally does not edit workflows or add jobs in this matrix task.
+A test-only Git diff for `tests/savedScripture/savedScriptureCollectionModel.test.ts` activated reader scope. An unresolved base selected reader verification, and a simulated `merge_group` selected all CI and Collections targets. The added command also passed in a clean checkout with IP sockets disabled.
 
-Keep Docker/Supabase acceptance in a separately gated job with disposable local services, no secrets and a hard prohibition on shared endpoints; retain it out of normal required checks until startup, cleanup, cost and privacy are validated. Keep broad Playwright suites as a separate browser gate: first repair the Collections command/scope mismatch, then decide whether each browser suite is safe/reliable enough for Ready PR and merge-group enforcement. Physical-device and release qualification remain manual acceptance with their own evidence.
+- `pgExecutorTls.test.ts` uses a loopback PostgreSQL protocol fixture and OpenSSL. It remains separate local transport verification.
+- `*.integration.*`, `*.supabase.*`, and the local database shell runners stay in disposable Docker/Supabase/Postgres acceptance.
+- Additional Playwright coverage, including Card Viewer and Announcements, remains a separate browser gate. Performance baseline measurements and physical-device qualification retain their environment-specific gates. `test:performance` remains outside the reviewed command.
 
 ## Executive change list
 
