@@ -106,6 +106,58 @@ describe('Shelf Protection and Monthly Rollover Policy', () => {
     )
   })
 
+  it('skips the oldest auto-admitted month while it is Active Focus', () => {
+    const focusedEntry = { yearMonth: ym07, admissionKind: 'autoAdmitted' as const, isProtected: false }
+    const eligibleEntry = { yearMonth: ym08, admissionKind: 'autoAdmitted' as const, isProtected: false }
+    const keptEntry = { yearMonth: ym09, admissionKind: 'readerSelected' as const, isProtected: true }
+    const state: ShelfState = {
+      months: [focusedEntry, eligibleEntry, keptEntry],
+      activeFocusMonth: ym07,
+    }
+    const rollover = {
+      newCurrentYearMonth: ym11,
+      completedChallengeIdsInEndingMonth: ['cms:challenge-2026-10-01'],
+      rolloverDate: dNov01,
+    }
+
+    const result = applyMonthlyRollover(state, rollover)
+
+    assert.equal(result.disposition, 'replacedOldestAutoAdmitted')
+    assert.equal(result.evictedEntry?.yearMonth, ym08)
+    assert.deepEqual(result.state.months, [focusedEntry, result.admittedEntry, keptEntry])
+    assert.equal(result.state.activeFocusMonth, ym07)
+    assert.equal(result.admittedEntry?.yearMonth, ym10)
+
+    for (const activeFocusMonth of [null, ym08]) {
+      const released = applyMonthlyRollover({ ...state, activeFocusMonth }, rollover)
+      assert.equal(released.evictedEntry?.yearMonth, ym07)
+      assert.equal(released.state.activeFocusMonth, activeFocusMonth)
+    }
+  })
+
+  it('retains the ending month in Library when all three slots are Kept or Active Focus', () => {
+    const state: ShelfState = {
+      months: [
+        { yearMonth: ym07, admissionKind: 'autoAdmitted', isProtected: false },
+        { yearMonth: ym08, admissionKind: 'autoAdmitted', isProtected: true },
+        { yearMonth: ym09, admissionKind: 'readerSelected', isProtected: true },
+      ],
+      activeFocusMonth: ym07,
+    }
+
+    const result = applyMonthlyRollover(state, {
+      newCurrentYearMonth: ym11,
+      completedChallengeIdsInEndingMonth: ['cms:challenge-2026-10-01'],
+      rolloverDate: dNov01,
+    })
+
+    assert.equal(result.ok, true)
+    assert.equal(result.disposition, 'retainedInLibraryAllProtected')
+    assert.equal(result.admittedEntry, null)
+    assert.equal(result.evictedEntry, null)
+    assert.deepEqual(result.state, state)
+  })
+
   it('supports "protect then rollover": protected auto-admitted month survives rollover', () => {
     let state: ShelfState = {
       months: [
