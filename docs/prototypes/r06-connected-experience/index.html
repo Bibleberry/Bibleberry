@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Bibleberry — R06 Connected Reader Experience Prototype (Glass Atlas)</title>
+  <link rel="stylesheet" href="css/tokens.css" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <a href="#main-content" class="skip-link">Skip to main content</a>
+
+  <!-- Reviewer Workbench (Explicitly outside simulated consumer UI) -->
+  <section id="workbench-root" class="reviewer-chrome" aria-label="Prototype reviewer controls"></section>
+
+  <!-- Simulated Consumer Reader Shell -->
+  <div class="app-viewport">
+    <div id="app-shell" class="app-shell">
+      <nav id="global-nav-root" class="global-nav" aria-label="Primary navigation"></nav>
+      <main id="main-content" class="app-main" tabindex="-1"></main>
+    </div>
+  </div>
+
+  <!-- Overlays: Guided App Tutorial & Interactive Modals -->
+  <div id="overlay-extras-root"></div>
+
+  <!-- Accessible Live Region for Screen-Reader Status Announcements -->
+  <div id="sr-announcer" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+
+  <!-- Classic defer scripts so the prototype works identically via file:// and local HTTP -->
+  <script defer src="js/art.js"></script>
+  <script defer src="js/fixtures.js"></script>
+  <script defer src="js/state.js"></script>
+  <script defer src="js/views-today.js"></script>
+  <script defer src="js/views-month.js"></script>
+  <script defer src="js/views-library.js"></script>
+  <script defer src="js/views-collections.js"></script>
+  <script defer src="js/views-more.js"></script>
+  <script defer src="js/views-overlays.js"></script>
+  <script defer src="js/app.js"></script>
+</body>
+</html>

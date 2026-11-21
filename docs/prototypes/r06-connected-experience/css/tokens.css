@@ -1,0 +1,346 @@
+/*
+ * Bibleberry R06 Connected Experience Prototype — Semantic Design Tokens
+ *
+ * Directional visual language: contemporary, restrained, editorial, wellness-inspired.
+ * Palette-independent UX contract (§1.2, §8.3):
+ * - All UI surfaces consume semantic tokens; seasonal/manual palettes are presentation-only.
+ * - Contrast modes (light / dark / system) remain separate from seasonal/manual palette selection.
+ * - Source Scripture Card illustrations use fixed artwork colors and are NEVER recolored by chrome palettes.
+ * - Candidate visual direction only — not approved final brand colors or typography.
+ */
+
+:root {
+  color-scheme: light;
+
+  /* Typography */
+  --font-serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Type scale (rem-based for clean 200% zoom and large-text reflow) */
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.375rem;
+  --text-2xl: 1.75rem;
+  --leading-tight: 1.24;
+  --leading-normal: 1.52;
+  --leading-relaxed: 1.68;
+
+  /* Spacing & Layout */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+
+  --radius-sm: 0.5rem;
+  --radius-md: 0.875rem;
+  --radius-lg: 1.25rem;
+  --radius-pill: 999px;
+
+  --nav-bottom-height: 4.25rem;
+  --nav-rail-width: 13.5rem;
+  --content-max-width: 41rem;
+  --tap-min: 2.75rem; /* 44px accessible touch target */
+
+  /* Motion */
+  --motion-fast: 140ms;
+  --motion-base: 220ms;
+  --ease-calm: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* Default Seasonal Palette: Autumn Sage & Warm Oat (Presentation-only) */
+  --bg-canvas: #f4f1ea;
+  --bg-surface: #fcfbf8;
+  --bg-surface-elevated: #ffffff;
+  --bg-subtle: #ede8dc;
+  --bg-hover: #e5dfd1;
+
+  --ink-primary: #1f2b24;
+  --ink-secondary: #435249;
+  --ink-muted: #5d6a62;
+
+  --accent-primary: #2d5540;
+  --accent-primary-hover: #234433;
+  --accent-primary-ink: #ffffff;
+  --accent-soft: #e3ece5;
+  --accent-soft-ink: #224432;
+
+  --secondary-soft: #f1e9db;
+  --secondary-ink: #5a462b;
+
+  --border-subtle: #ded8ca;
+  --border-strong: #beb6a4;
+
+  /* Semantic status tokens (always paired with text/icons, never color alone) */
+  --status-done-bg: #e2efe4;
+  --status-done-border: #9bc0a2;
+  --status-done-ink: #1e5630;
+
+  --status-avail-bg: #eef3f7;
+  --status-avail-border: #b8cbdc;
+  --status-avail-ink: #244b6d;
+
+  --status-progress-bg: #f8eed9;
+  --status-progress-border: #cca25a;
+  --status-progress-ink: #6a450f;
+
+  --status-locked-bg: #f0efe9;
+  --status-locked-border: #dedcd4;
+  --status-locked-ink: #5f6660;
+
+  --status-warn-bg: #fbf0e8;
+  --status-warn-border: #d59d7a;
+  --status-warn-ink: #7c3814;
+
+  --status-error-bg: #f9eae9;
+  --status-error-border: #d49692;
+  --status-error-ink: #7d2420;
+
+  --focus-ring: #1d5ca8;
+  --shadow-soft: 0 1px 2px rgba(24, 34, 28, 0.05), 0 8px 24px rgba(24, 34, 28, 0.05);
+  --shadow-elevated: 0 8px 30px rgba(20, 30, 24, 0.14);
+}
+
+/* Seasonal Palette: Winter Stillness (December / Advent) */
+[data-resolved-palette="season-winter"] {
+  --bg-canvas: #eef1f3;
+  --bg-surface: #fafbfc;
+  --bg-surface-elevated: #ffffff;
+  --bg-subtle: #e3e8ec;
+  --bg-hover: #d8dfe5;
+
+  --ink-primary: #1c262e;
+  --ink-secondary: #3f4e59;
+  --ink-muted: #596873;
+
+  --accent-primary: #29495c;
+  --accent-primary-hover: #1f3948;
+  --accent-primary-ink: #ffffff;
+  --accent-soft: #dfe9ef;
+  --accent-soft-ink: #1f3c4e;
+
+  --secondary-soft: #eae7e0;
+  --secondary-ink: #51483b;
+
+  --border-subtle: #d3dce2;
+  --border-strong: #aebbc4;
+}
+
+/* Seasonal Palette: Spring Renewal (February/March preview) */
+[data-resolved-palette="season-spring"] {
+  --bg-canvas: #f2f4ee;
+  --bg-surface: #fbfcf9;
+  --bg-surface-elevated: #ffffff;
+  --bg-subtle: #e6ebe0;
+  --bg-hover: #dce3d4;
+
+  --ink-primary: #1e2c22;
+  --ink-secondary: #415546;
+  --ink-muted: #5a6d5e;
+
+  --accent-primary: #346042;
+  --accent-primary-hover: #284c33;
+  --accent-primary-ink: #ffffff;
+  --accent-soft: #e2eee5;
+  --accent-soft-ink: #244a30;
+
+  --secondary-soft: #f2ece0;
+  --secondary-ink: #5b4b31;
+
+  --border-subtle: #d6dfd0;
+  --border-strong: #b4c2ab;
+}
+
+/* Manual Palette: Warm Linen */
+[data-resolved-palette="palette-linen"] {
+  --bg-canvas: #f5f0e8;
+  --bg-surface: #fdfbf7;
+  --bg-surface-elevated: #ffffff;
+  --bg-subtle: #ece4d8;
+  --bg-hover: #e3d9c9;
+
+  --ink-primary: #2b241d;
+  --ink-secondary: #54493d;
+  --ink-muted: #6c6052;
+
+  --accent-primary: #6c4a30;
+  --accent-primary-hover: #563a24;
+  --accent-primary-ink: #ffffff;
+  --accent-soft: #efe3d6;
+  --accent-soft-ink: #543721;
+
+  --secondary-soft: #e9e4da;
+  --secondary-ink: #4f463a;
+
+  --border-subtle: #dfd5c5;
+  --border-strong: #c0b19c;
+}
+
+/* Manual Palette: Quiet Slate */
+[data-resolved-palette="palette-coastal"] {
+  --bg-canvas: #eff2f5;
+  --bg-surface: #fbfcfd;
+  --bg-surface-elevated: #ffffff;
+  --bg-subtle: #e4e9ee;
+  --bg-hover: #d8e0e8;
+
+  --ink-primary: #1b2530;
+  --ink-secondary: #3e4d5e;
+  --ink-muted: #586778;
+
+  --accent-primary: #334e68;
+  --accent-primary-hover: #243b53;
+  --accent-primary-ink: #ffffff;
+  --accent-soft: #e1eaf2;
+  --accent-soft-ink: #233c54;
+
+  --secondary-soft: #ecebe7;
+  --secondary-ink: #4f4b42;
+
+  --border-subtle: #d3dce4;
+  --border-strong: #adbbc8;
+}
+
+/* Manual Palette: Cedar & Clay */
+[data-resolved-palette="palette-cedar"] {
+  --bg-canvas: #f4efec;
+  --bg-surface: #fcfaf8;
+  --bg-surface-elevated: #ffffff;
+  --bg-subtle: #ebe2dc;
+  --bg-hover: #e1d5cd;
+
+  --ink-primary: #2a2122;
+  --ink-secondary: #534446;
+  --ink-muted: #6b5b5d;
+
+  --accent-primary: #6e3f46;
+  --accent-primary-hover: #573036;
+  --accent-primary-ink: #ffffff;
+  --accent-soft: #f1e3e5;
+  --accent-soft-ink: #572e34;
+
+  --secondary-soft: #efe6dc;
+  --secondary-ink: #594431;
+
+  --border-subtle: #dfd3cd;
+  --border-strong: #bfaead;
+}
+
+/* Dark Contrast Mode (Separate from palette selection per §8.3) */
+[data-resolved-contrast="dark"] {
+  color-scheme: dark;
+  --bg-canvas: #141916;
+  --bg-surface: #1b221e;
+  --bg-surface-elevated: #232c27;
+  --bg-subtle: #252f29;
+  --bg-hover: #2e3a33;
+
+  --ink-primary: #eef2ee;
+  --ink-secondary: #c4cfc6;
+  --ink-muted: #9aa99e;
+
+  --accent-primary: #7db491;
+  --accent-primary-hover: #94c7a6;
+  --accent-primary-ink: #0f1b14;
+  --accent-soft: #22352a;
+  --accent-soft-ink: #b8dfc4;
+
+  --secondary-soft: #2e2920;
+  --secondary-ink: #e2cfa9;
+
+  --border-subtle: #313d35;
+  --border-strong: #4a5a50;
+
+  --status-done-bg: #1d3224;
+  --status-done-border: #3d6b4c;
+  --status-done-ink: #a6e0b7;
+
+  --status-avail-bg: #1d2a36;
+  --status-avail-border: #3b5873;
+  --status-avail-ink: #a8cde8;
+
+  --status-progress-bg: #352a19;
+  --status-progress-border: #876632;
+  --status-progress-ink: #f3ce8a;
+
+  --status-locked-bg: #202522;
+  --status-locked-border: #343d38;
+  --status-locked-ink: #97a39b;
+
+  --status-warn-bg: #38251b;
+  --status-warn-border: #8a5438;
+  --status-warn-ink: #f3bda0;
+
+  --status-error-bg: #381e1e;
+  --status-error-border: #8c4844;
+  --status-error-ink: #f4b2ae;
+
+  --focus-ring: #8dc2ff;
+  --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.28), 0 8px 24px rgba(0, 0, 0, 0.25);
+  --shadow-elevated: 0 12px 34px rgba(0, 0, 0, 0.48);
+}
+
+[data-resolved-contrast="dark"][data-resolved-palette="season-winter"],
+[data-resolved-contrast="dark"][data-resolved-palette="palette-coastal"] {
+  --bg-canvas: #13181d;
+  --bg-surface: #1a2128;
+  --bg-surface-elevated: #222b34;
+  --bg-subtle: #242e38;
+  --accent-primary: #84b3d4;
+  --accent-primary-hover: #9bc4e0;
+  --accent-primary-ink: #0f1922;
+  --accent-soft: #1f3140;
+  --accent-soft-ink: #b9d9ef;
+}
+
+[data-resolved-contrast="dark"][data-resolved-palette="palette-linen"] {
+  --bg-canvas: #1a1612;
+  --bg-surface: #231e19;
+  --bg-surface-elevated: #2c261f;
+  --bg-subtle: #2f2821;
+  --accent-primary: #d1a780;
+  --accent-primary-hover: #dfba97;
+  --accent-primary-ink: #1e150e;
+  --accent-soft: #36291e;
+  --accent-soft-ink: #ebd0b5;
+}
+
+[data-resolved-contrast="dark"][data-resolved-palette="palette-cedar"] {
+  --bg-canvas: #1a1516;
+  --bg-surface: #241d1e;
+  --bg-surface-elevated: #2d2526;
+  --bg-subtle: #312729;
+  --accent-primary: #d4969e;
+  --accent-primary-hover: #e2aeb5;
+  --accent-primary-ink: #221114;
+  --accent-soft: #3a2327;
+  --accent-soft-ink: #f0c9ce;
+}
+
+/* Text scale accessibility preview */
+html[data-text-scale="large"] {
+  font-size: 120%;
+}
+html[data-text-scale="xlarge"] {
+  font-size: 150%;
+}
+html[data-text-scale="200"] {
+  font-size: 200%;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-fast: 0ms;
+    --motion-base: 0ms;
+  }
+}
+
+html[data-reduced-motion="true"] {
+  --motion-fast: 0ms;
+  --motion-base: 0ms;
+}
