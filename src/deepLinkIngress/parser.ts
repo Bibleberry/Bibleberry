@@ -1,7 +1,6 @@
 import {
   DEFAULT_CHALLENGE_ORIGIN,
   isValidChallengeYearMonth,
-  parseChallengeOriginFromSearchParams,
 } from '../cms/reader/challengeOrigin.ts'
 import {
   buildInternalDestination,
@@ -330,26 +329,29 @@ export function parseExternalDeepLink(
       return reject(rawUrl, 'featureDisabled')
     }
 
+    // Legacy `origin` / `yearMonth` parameters are validated so malformed links still fail
+    // closed, but an external link never chooses its return origin (G04-A): it is always an
+    // external entry with the default origin, and Exit/Finish return to Today.
     const queryFailure = validateChallengeQueryParams(parsedUrl.searchParams)
     if (queryFailure !== null) {
       return reject(rawUrl, queryFailure)
     }
 
-    const origin = parsedUrl.searchParams.has('origin')
-      ? parseChallengeOriginFromSearchParams(parsedUrl.searchParams)
-      : DEFAULT_CHALLENGE_ORIGIN
-
     const candidateHash = buildInternalDestination({
       type: 'releasedChallenge',
       slug,
-      origin,
+      origin: DEFAULT_CHALLENGE_ORIGIN,
     })
     if (!candidateHash) {
       return reject(rawUrl, 'invalidChallengeSlug')
     }
 
     const destination = parseInternalDestination(candidateHash, getDestinationOptions(options))
-    if (!destination || destination.type !== 'releasedChallenge') {
+    if (
+      !destination ||
+      destination.type !== 'releasedChallenge' ||
+      destination.entry !== 'external'
+    ) {
       return reject(rawUrl, 'featureDisabled')
     }
 
@@ -360,7 +362,7 @@ export function parseExternalDeepLink(
       scheme,
       destination,
       internalHash: candidateHash,
-      origin: destination.origin,
+      origin: null,
     }
   }
 

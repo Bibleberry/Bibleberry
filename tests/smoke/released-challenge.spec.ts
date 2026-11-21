@@ -102,46 +102,79 @@ const makeSingleScreenChallenge = (overrides = {}) => ({
   ...overrides,
 })
 
-test.describe('Controlled Released CMS Challenge Integration (A4.1)', () => {
+type GatewayReply = { status: number; body: unknown }
+
+const ready = (challenge: unknown): GatewayReply => ({ status: 200, body: { ok: true, challenge } })
+const NOT_FOUND: GatewayReply = {
+  status: 404,
+  body: { ok: false, error: { kind: 'notFound', message: 'Challenge not found' } },
+}
+
+const ONBOARDED_STATE = {
+  onboarded: true,
+  appearance: 'system',
+  textSize: 'default',
+  reminderEnabled: false,
+  reminderTime: '08:00',
+  explored: [],
+  journey: [],
+  lastOpened: null,
+  resumeDismissedDate: '',
+}
+
+/**
+ * Released-route-only bundle (VITE_ENABLE_RELEASED_CHALLENGE_ROUTE=true; Month Screen, Hub Continue
+ * and VITE_ENABLE_RELEASE_GATEWAY_SOURCE all off). Every Challenge in this build is opened by a
+ * direct link, i.e. an external entry (Harbor Signal, #270), so it must be authorized by the
+ * release gateway only and never fall back to direct published-Sanity catalog reads.
+ */
+test.describe('Controlled Released CMS Challenge Integration (A4.1, external entries via gateway)', () => {
   let uncaughtErrors: Error[] = []
+  let sanityRequests: string[] = []
+  let gatewayRequests: string[] = []
+
+  async function serveGateway(
+    page: import('@playwright/test').Page,
+    reply: (slug: string, call: number) => GatewayReply,
+  ) {
+    await page.route('**/api/challenges/**', async route => {
+      const slug = decodeURIComponent(new URL(route.request().url()).pathname.split('/').pop() ?? '')
+      gatewayRequests.push(slug)
+      const { status, body } = reply(slug, gatewayRequests.length)
+      await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
+    })
+  }
 
   test.beforeEach(async ({ page }) => {
     uncaughtErrors = []
+    sanityRequests = []
+    gatewayRequests = []
     page.on('pageerror', err => uncaughtErrors.push(err))
     await page.clock.setFixedTime(new Date('2026-11-06T12:00:00Z'))
+    // Any direct Sanity read would bypass server-clock release authorization.
+    await page.route('https://*.api.sanity.io/**', async route => {
+      sanityRequests.push(route.request().url())
+      await route.abort('failed')
+    })
+    await page.route('https://*.apicdn.sanity.io/**', async route => {
+      sanityRequests.push(route.request().url())
+      await route.abort('failed')
+    })
+    await page.addInitScript(
+      ({ key, state }) => localStorage.setItem(key, JSON.stringify(state)),
+      { key: PROTOTYPE_STORAGE_KEY, state: ONBOARDED_STATE },
+    )
   })
 
   test.afterEach(async () => {
     expect(uncaughtErrors).toEqual([])
+    expect(sanityRequests).toEqual([])
   })
 
-  test('loads eligible Challenge, navigates screens, bookmarks, reloads to resume, and completes into guest participation store', async ({
+  test('loads eligible Challenge from the gateway, navigates screens, bookmarks, reloads to resume, and completes into guest participation store', async ({
     page,
   }) => {
-    await page.route('https://*.api.sanity.io/**', async route => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ result: [makeMockChallenge()] }),
-      })
-    })
-
-    await page.addInitScript(storageKey => {
-      localStorage.setItem(
-        storageKey,
-        JSON.stringify({
-          onboarded: true,
-          appearance: 'system',
-          textSize: 'default',
-          reminderEnabled: false,
-          reminderTime: '08:00',
-          explored: [],
-          journey: [],
-          lastOpened: null,
-          resumeDismissedDate: '',
-        }),
-      )
-    }, PROTOTYPE_STORAGE_KEY)
+    await serveGateway(page, () => ready(makeMockChallenge()))
 
     // Deep-link to the released Challenge
     await page.goto('/#/challenge/mock-released-challenge')
@@ -153,6 +186,7 @@ test.describe('Controlled Released CMS Challenge Integration (A4.1)', () => {
     await expect(page.locator('.lab-statement p')).toContainText(
       'This is the first step of the released challenge.',
     )
+    expect(gatewayRequests).toContain('mock-released-challenge')
 
     // Progress record after open
     let stored = await page.evaluate(key => {
@@ -164,9 +198,7 @@ test.describe('Controlled Released CMS Challenge Integration (A4.1)', () => {
     expect(stored.data.lastOpenedChallenge?.openedOn).toBe('2026-11-06')
 
     // Bookmark/Save the Challenge
-    const bookmarkBtn = page.locator('.lab-save-challenge')
-    await bookmarkBtn.click()
-
+    await page.locator('.lab-save-challenge').click()
     stored = await page.evaluate(key => JSON.parse(localStorage.getItem(key) || '{}'), PARTICIPATION_STORAGE_KEY)
     expect(stored.data.savedChallenges['cms:mock-released-challenge-doc-1']).toBeDefined()
 
@@ -201,33 +233,33 @@ test.describe('Controlled Released CMS Challenge Integration (A4.1)', () => {
     expect(stored.data.inProgressChallenges['cms:mock-released-challenge-doc-1']).toBeUndefined()
   })
 
+  test('forged ?origin=month link is an external entry: gateway-only, Return to Today, Finish to Today', async ({
+    page,
+  }) => {
+    await serveGateway(page, () => ready(makeMockChallenge()))
+
+    await page.goto('/#/challenge/mock-released-challenge?origin=month&yearMonth=2026-10')
+    await expect(page.locator('.lab-challenge-header h1')).toHaveText('Mock Released Challenge')
+    await expect(page.locator('.challenge-player__exit')).toHaveText('Return to Today')
+    expect(new Set(gatewayRequests)).toEqual(new Set(['mock-released-challenge']))
+
+    await page.locator('.lab-screen-nav button:has-text("Continue")').click()
+    await page.locator('.lab-screen-nav button:has-text("Finish")').click()
+    await expect(page.locator('#daily-teaching')).toBeVisible()
+    expect(page.url()).not.toContain('#/challenge/')
+    expect(await page.evaluate(() => window.history.state?.returnedChallengeOrigin)).toEqual({ kind: 'hub' })
+
+    // Exit (without Finish) from a forged Shelf origin also returns to Today
+    await page.goto('/#/challenge/mock-released-challenge?origin=shelf&yearMonth=2026-10')
+    await expect(page.locator('.challenge-player__exit')).toHaveText('Return to Today')
+    await page.locator('.challenge-player__exit').click()
+    await expect(page.locator('#daily-teaching')).toBeVisible()
+  })
+
   test('single-screen Challenge supports Start Challenge button lifecycle and completion', async ({
     page,
   }) => {
-    await page.route('https://*.api.sanity.io/**', async route => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ result: [makeSingleScreenChallenge()] }),
-      })
-    })
-
-    await page.addInitScript(storageKey => {
-      localStorage.setItem(
-        storageKey,
-        JSON.stringify({
-          onboarded: true,
-          appearance: 'system',
-          textSize: 'default',
-          reminderEnabled: false,
-          reminderTime: '08:00',
-          explored: [],
-          journey: [],
-          lastOpened: null,
-          resumeDismissedDate: '',
-        }),
-      )
-    }, PROTOTYPE_STORAGE_KEY)
+    await serveGateway(page, () => ready(makeSingleScreenChallenge()))
 
     await page.goto('/#/challenge/mock-single-screen')
     await expect(page.locator('.lab-challenge-header h1')).toHaveText('Mock Single Screen Challenge')
@@ -247,7 +279,7 @@ test.describe('Controlled Released CMS Challenge Integration (A4.1)', () => {
       'screen-single',
     )
 
-    // Finish the challenge and return directly to origin
+    // Finish the challenge and return to Today
     const completeBtn = page.locator('.lab-screen-nav button:has-text("Finish")')
     await expect(completeBtn).toBeVisible()
     await completeBtn.click()
@@ -259,181 +291,63 @@ test.describe('Controlled Released CMS Challenge Integration (A4.1)', () => {
     expect(stored.data.inProgressChallenges['cms:mock-single-screen-doc-1']).toBeUndefined()
   })
 
-  test('displays not found empty state when slug is not in the catalog', async ({ page }) => {
-    await page.route('https://*.api.sanity.io/**', async route => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ result: [makeMockChallenge()] }),
-      })
-    })
-
-    await page.addInitScript(storageKey => {
-      localStorage.setItem(
-        storageKey,
-        JSON.stringify({
-          onboarded: true,
-          appearance: 'system',
-          textSize: 'default',
-          reminderEnabled: false,
-          reminderTime: '08:00',
-          explored: [],
-          journey: [],
-          lastOpened: null,
-          resumeDismissedDate: '',
-        }),
-      )
-    }, PROTOTYPE_STORAGE_KEY)
-
-    await page.goto('/#/challenge/non-existent-challenge')
-    await expect(page.locator('.empty-state h2')).toHaveText('Challenge not found')
-    await expect(page.locator('.empty-state p')).toContainText('non-existent-challenge')
-
-    // Return button returns to Today
-    const returnBtn = page.locator('.challenge-player__exit')
-    await expect(returnBtn).toHaveText(/Return to Today/)
-    await returnBtn.click()
-
-    await expect(page.locator('#daily-teaching')).toBeVisible()
-    expect(page.url()).not.toContain('#/challenge/')
-  })
-
-  test('displays embargoed empty state with scheduled date for future-released Challenges without rendering player or screen content', async ({
+  test('nonexistent, embargoed, or withdrawn Challenges (gateway 404) fail closed with no manuscript, title, or date leakage', async ({
     page,
   }) => {
-    const futureChallenge = makeMockChallenge({
-      title: 'Scheduled Future Challenge',
-      slug: 'scheduled-future-challenge',
-      releaseAt: '2099-01-01T09:00:00-05:00',
-    })
+    await serveGateway(page, () => NOT_FOUND)
 
-    await page.route('https://*.api.sanity.io/**', async route => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ result: [futureChallenge] }),
-      })
-    })
+    for (const link of [
+      '/#/challenge/non-existent-challenge',
+      '/#/challenge/scheduled-future-challenge?origin=month&yearMonth=2099-01',
+      '/#/challenge/withdrawn-challenge?origin=library',
+    ]) {
+      await page.goto(link)
+      await expect(page.locator('.empty-state h2')).toHaveText('Challenge not found')
+      await expect(page.locator('.challenge-player__exit')).toHaveText('Return to Today')
+      await expect(page.getByText('Not yet released')).toHaveCount(0)
+      await expect(page.getByText('Scheduled Future Challenge')).toHaveCount(0)
+      await expect(page.getByText(/2099/)).toHaveCount(0)
+      await expect(page.locator('.lab-challenge-header')).toHaveCount(0)
+      await expect(page.locator('.lab-screen')).toHaveCount(0)
+      await expect(page.locator('.lab-statement')).toHaveCount(0)
+      await expect(page.locator('.lab-screen-nav button:has-text("Finish")')).toHaveCount(0)
 
-    await page.addInitScript(storageKey => {
-      localStorage.setItem(
-        storageKey,
-        JSON.stringify({
-          onboarded: true,
-          appearance: 'system',
-          textSize: 'default',
-          reminderEnabled: false,
-          reminderTime: '08:00',
-          explored: [],
-          journey: [],
-          lastOpened: null,
-          resumeDismissedDate: '',
-        }),
-      )
-    }, PROTOTYPE_STORAGE_KEY)
-
-    await page.goto('/#/challenge/scheduled-future-challenge')
-
-    await expect(page.locator('.empty-state h2')).toHaveText('Not yet released')
-    await expect(page.locator('.empty-state p')).toContainText('Scheduled Future Challenge')
-    await expect(page.locator('.empty-state p')).toContainText('January 1, 2099')
-
-    // In A4.1 client-side gating, ChallengePlayer, screens, and blocks are not rendered.
-    // (Note: Source-level content withholding / server-side confidentiality requires R05.)
-    await expect(page.locator('.lab-challenge-header')).toHaveCount(0)
-    await expect(page.locator('.lab-screen')).toHaveCount(0)
-    await expect(page.locator('.lab-statement')).toHaveCount(0)
-
-    // Return button works
-    await page.locator('.challenge-player__exit').click()
-    await expect(page.locator('#daily-teaching')).toBeVisible()
+      await page.locator('.challenge-player__exit').click()
+      await expect(page.locator('#daily-teaching')).toBeVisible()
+      expect(page.url()).not.toContain('#/challenge/')
+    }
   })
 
-  test('displays validation error notice when catalog payload fails schema validation', async ({
+  test('displays validation error notice when gateway payload fails schema validation', async ({
     page,
   }) => {
-    // Missing screens array violates schema
-    const invalidChallenge = {
+    // Missing screens and primaryScripture violates schema
+    await serveGateway(page, () => ready({
       _id: 'bad-doc-id',
       _type: 'challenge',
       title: 'Broken Challenge',
       slug: 'broken-challenge',
       screens: [],
-    }
-
-    await page.route('https://*.api.sanity.io/**', async route => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ result: [invalidChallenge] }),
-      })
-    })
-
-    await page.addInitScript(storageKey => {
-      localStorage.setItem(
-        storageKey,
-        JSON.stringify({
-          onboarded: true,
-          appearance: 'system',
-          textSize: 'default',
-          reminderEnabled: false,
-          reminderTime: '08:00',
-          explored: [],
-          journey: [],
-          lastOpened: null,
-          resumeDismissedDate: '',
-        }),
-      )
-    }, PROTOTYPE_STORAGE_KEY)
+    }))
 
     await page.goto('/#/challenge/broken-challenge')
     await expect(page.locator('.error-panel h2')).toHaveText('Challenge content unavailable')
+    await expect(page.locator('.lab-screen')).toHaveCount(0)
 
     await page.locator('.challenge-player__exit').click()
     await expect(page.locator('#daily-teaching')).toBeVisible()
   })
 
-  test('displays error panel on network failure and recovers upon clicking Retry', async ({ page }) => {
-    let callCount = 0
-
-    await page.route('https://*.api.sanity.io/**', async route => {
-      callCount++
-      if (callCount === 1) {
-        await route.fulfill({
-          status: 503,
-          contentType: 'application/json',
-          body: JSON.stringify({ message: 'Service temporarily unavailable' }),
-        })
-      } else {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ result: [makeMockChallenge()] }),
-        })
-      }
-    })
-
-    await page.addInitScript(storageKey => {
-      localStorage.setItem(
-        storageKey,
-        JSON.stringify({
-          onboarded: true,
-          appearance: 'system',
-          textSize: 'default',
-          reminderEnabled: false,
-          reminderTime: '08:00',
-          explored: [],
-          journey: [],
-          lastOpened: null,
-          resumeDismissedDate: '',
-        }),
-      )
-    }, PROTOTYPE_STORAGE_KEY)
+  test('gateway errors show a recoverable error panel without Sanity fallback and recover on Retry', async ({ page }) => {
+    await serveGateway(page, (_slug, call) => call === 1
+      ? { status: 503, body: { ok: false, error: { kind: 'upstreamError', message: 'Service temporarily unavailable' } } }
+      : ready(makeMockChallenge()))
 
     await page.goto('/#/challenge/mock-released-challenge')
 
-    // First request failed: error panel appears with Retry button
+    // First request failed: error panel appears with Retry button, no content
     await expect(page.locator('.error-panel h2')).toHaveText('Unable to load Challenge')
+    await expect(page.locator('.lab-screen')).toHaveCount(0)
     const retryBtn = page.locator('.error-panel button:has-text("Retry")')
     await expect(retryBtn).toBeVisible()
 
@@ -448,30 +362,7 @@ test.describe('Controlled Released CMS Challenge Integration (A4.1)', () => {
   test('bottom navigation bar clicks navigate cleanly away from released Challenge', async ({
     page,
   }) => {
-    await page.route('https://*.api.sanity.io/**', async route => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ result: [makeMockChallenge()] }),
-      })
-    })
-
-    await page.addInitScript(storageKey => {
-      localStorage.setItem(
-        storageKey,
-        JSON.stringify({
-          onboarded: true,
-          appearance: 'system',
-          textSize: 'default',
-          reminderEnabled: false,
-          reminderTime: '08:00',
-          explored: [],
-          journey: [],
-          lastOpened: null,
-          resumeDismissedDate: '',
-        }),
-      )
-    }, PROTOTYPE_STORAGE_KEY)
+    await serveGateway(page, () => ready(makeMockChallenge()))
 
     await page.goto('/#/challenge/mock-released-challenge')
     await expect(page.locator('.lab-challenge-header h1')).toHaveText('Mock Released Challenge')

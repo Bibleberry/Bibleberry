@@ -505,7 +505,7 @@ test.describe('Phase 05 / R06: Hub Continue on ordinary Today (Issue #233)', () 
     expect(uncaughtErrors).toEqual([])
   })
 
-  test('resumes in-progress focus Challenge from Today, completes via Finish without double completion, preserves Shelf focus, and advances cleanly', async ({
+  test('resumes in-progress focus Challenge from Today, completes via Finish without double completion, preserves Shelf focus, and offers its Month Screen', async ({
     page,
   }) => {
     const requestedPaths: string[] = []
@@ -555,7 +555,7 @@ test.describe('Phase 05 / R06: Hub Continue on ordinary Today (Issue #233)', () 
     await expect(continueCard).toHaveAttribute('data-year-month', '2026-10')
     await expect(continueCard).toHaveAttribute('data-challenge-id', 'cms:2026-10-day-02-doc')
     await expect(continueCard).toHaveAttribute('data-preserves-formal-focus', 'true')
-    await expect(continueCard.getByText('Continue Historical Study')).toBeVisible()
+    await expect(continueCard.getByText('Active Focus')).toBeVisible()
     await expect(continueCard.getByRole('heading', { name: 'Steadfast Hope in Every Season' })).toBeVisible()
 
     // No streaks, missed-day backlog, or guilt copy
@@ -572,13 +572,12 @@ test.describe('Phase 05 / R06: Hub Continue on ordinary Today (Issue #233)', () 
     expect(requestedPaths.filter(p => p === '/api/challenges').length).toBeLessThanOrEqual(2)
     expect(requestedPaths.filter(p => p === '/api/months/2026-10').length).toBeGreaterThanOrEqual(1)
     expect(requestedPaths.filter(p => p === '/api/months/2026-10').length).toBeLessThanOrEqual(2)
-    expect(requestedPaths.filter(p => p === '/api/months/2026-09').length).toBeGreaterThanOrEqual(1)
-    expect(requestedPaths.filter(p => p === '/api/months/2026-09').length).toBeLessThanOrEqual(2)
+    expect(requestedPaths).not.toContain('/api/months/2026-09')
     await page.waitForTimeout(350)
     expect(requestedPaths.length).toBe(countAfterLoad)
 
     // Activate Resume -> opens canonical released Challenge with explicit Hub origin
-    await continueCard.getByRole('button', { name: /Resume Steadfast Hope in Every Season/i }).click()
+    await continueCard.getByRole('button', { name: /Continue Your Study: Steadfast Hope in Every Season/i }).click()
     await expect(page).toHaveURL(/#\/challenge\/2026-10-day-02\?origin=hub$/)
     await expect(page.getByRole('button', { name: 'Return to Today' })).toBeVisible()
     // Resumed directly on saved Part 2 screen
@@ -606,17 +605,28 @@ test.describe('Phase 05 / R06: Hub Continue on ordinary Today (Issue #233)', () 
     )
     expect(rawShelf.state.activeFocusMonth).toBe('2026-10')
 
-    // Today now suggests next unfinished Day 1 in the same active focus month
-    await expect(continueCard).toHaveAttribute('data-continue-kind', 'continueNextInFocus')
+    await expect(continueCard).toHaveAttribute('data-continue-kind', 'openFocusMonth')
     await expect(continueCard).toHaveAttribute('data-year-month', '2026-10')
-    await expect(continueCard).toHaveAttribute('data-challenge-id', 'cms:2026-10-day-01-doc')
-    await expect(continueCard.getByRole('heading', { name: 'Walking in Wisdom Day 1' })).toBeVisible()
+    await expect(continueCard).not.toHaveAttribute('data-challenge-id')
+    await continueCard.getByRole('button', { name: 'Continue Your Study: October 2026' }).click()
+    await expect(page).toHaveURL(/#\/month\/2026-10$/)
+    expect(requestedPaths).not.toContain('/api/challenges/2026-10-day-01')
   })
 
-  test('falls through to next eligible historical Shelf month when focus month is complete without mutating activeFocusMonth', async ({
+  test('reviews the completed Active Focus even when another Shelf month has saved progress', async ({
     page,
   }) => {
-    await mockDefaultGatewayRoutes(page)
+    const requestedPaths: string[] = []
+    await mockDefaultGatewayRoutes(page, {
+      onRequest: path => requestedPaths.push(path),
+      monthPayloads: {
+        '2026-10': buildMonthDetailPayload({
+          yearMonth: '2026-10',
+          title: 'Walking in Wisdom',
+          availableDays: [1, 2],
+        }),
+      },
+    })
 
     await page.addInitScript(
       ({ prototypeKey, shelfKey, participationKey, prototypeState, shelfEnvelope, participationEnvelope }) => {
@@ -641,6 +651,9 @@ test.describe('Phase 05 / R06: Hub Continue on ordinary Today (Issue #233)', () 
         }),
         participationEnvelope: makeParticipationEnvelope({
           completedIds: ['cms:2026-10-day-01-doc', 'cms:2026-10-day-02-doc'],
+          inProgress: {
+            'cms:2026-09-day-01-doc': { updatedOn: '2026-11-14', screenId: '2026-09-day-01-doc-s2' },
+          },
         }),
       },
     )
@@ -649,24 +662,19 @@ test.describe('Phase 05 / R06: Hub Continue on ordinary Today (Issue #233)', () 
 
     const continueCard = page.locator('.hub-continue')
     await expect(continueCard).toBeVisible()
-    await expect(continueCard).toHaveAttribute('data-continue-kind', 'continueOtherHistoricalMonth')
-    await expect(continueCard).toHaveAttribute('data-year-month', '2026-09')
+    await expect(continueCard).toHaveCount(1)
+    await expect(continueCard).toHaveAttribute('data-continue-kind', 'reviewFocusMonth')
+    await expect(continueCard).toHaveAttribute('data-year-month', '2026-10')
     await expect(continueCard).toHaveAttribute('data-preserves-formal-focus', 'true')
-    await expect(continueCard.getByText('Continue From Your Shelf')).toBeVisible()
-    await expect(continueCard.getByRole('heading', { name: 'Quiet Trust Day 1' })).toBeVisible()
-
-    // Open and finish September Day 1
-    await continueCard.getByRole('button', { name: /Continue Quiet Trust Day 1/i }).click()
-    await expect(page).toHaveURL(/#\/challenge\/2026-09-day-01\?origin=hub$/)
-    await page
-      .getByRole('navigation', { name: 'Challenge screen navigation' })
-      .getByRole('button', { name: 'Continue' })
-      .click()
-    await page.getByRole('button', { name: 'Finish' }).click()
-
-    // Returns to Today; all eligible Shelf months are now complete so Continue disappears
-    await expect(page.locator('#daily-teaching')).toBeVisible()
-    await expect(page.locator('.hub-continue')).toHaveCount(0)
+    await expect(continueCard.getByRole('heading', { name: 'Walking in Wisdom' })).toBeVisible()
+    await continueCard.getByRole('button', { name: 'Review This Month: October 2026' }).click()
+    await expect(page).toHaveURL(/#\/month\/2026-10$/)
+    await page.getByRole('button', { name: 'Continue' }).click()
+    await page.getByRole('button', { name: 'Begin the Month' }).click()
+    await page.getByRole('button', { name: 'Return to Today' }).click()
+    await expect(continueCard).toHaveAttribute('data-continue-kind', 'reviewFocusMonth')
+    expect(requestedPaths).not.toContain('/api/months/2026-09')
+    expect(requestedPaths).not.toContain('/api/challenges/2026-09-day-01')
 
     // Formal activeFocusMonth remains 2026-10
     const rawShelf = JSON.parse(
@@ -746,7 +754,7 @@ test.describe('Phase 05 / R06: Hub Continue on ordinary Today (Issue #233)', () 
     expect(disabledRequests).toEqual([])
   })
 
-  test('fails closed on missing focus, corrupt Shelf storage, mismatched serverContext, current/embargoed months, and document ID mismatch', async ({
+  test('fails closed on missing focus, corrupt Shelf storage, unavailable focus, current months, and document ID mismatch', async ({
     page,
   }) => {
     // 1. Missing activeFocusMonth with incidental Library activity -> 0 requests, 0 cards
@@ -797,18 +805,12 @@ test.describe('Phase 05 / R06: Hub Continue on ordinary Today (Issue #233)', () 
     const preservedRaw = await page.evaluate(key => window.localStorage.getItem(key), SHELF_STORAGE_KEY)
     expect(preservedRaw).toBe(corruptRaw)
 
-    // 3. Mismatched serverContext dates across Shelf months -> fails closed
+    // 3. Unavailable focus with another valid Shelf month -> fails closed
     await page.unrouteAll({ behavior: 'ignoreErrors' })
-    await mockDefaultGatewayRoutes(page, {
-      monthPayloads: {
-        '2026-09': buildMonthDetailPayload({
-          yearMonth: '2026-09',
-          title: 'Quiet Trust',
-          availableDays: [1],
-          authorizedLocalDate: '2026-11-14', // mismatch vs 2026-10's 2026-11-15
-        }),
-      },
-    })
+    await mockDefaultGatewayRoutes(page)
+    await page.route('**/api/months/2026-10', route =>
+      route.fulfill({ status: 404, json: { ok: false, error: 'Not found' } }),
+    )
     await page.evaluate(
       ({ shelfKey, shelfEnvelope }) => window.localStorage.setItem(shelfKey, JSON.stringify(shelfEnvelope)),
       {
@@ -824,7 +826,7 @@ test.describe('Phase 05 / R06: Hub Continue on ordinary Today (Issue #233)', () 
     await page.waitForTimeout(250)
     await expect(page.locator('.hub-continue')).toHaveCount(0)
 
-    // 4. Active current month (2026-11) or embargoed-only month -> fails closed
+    // 4. Active current month (2026-11) is ineligible for historical Continue
     await page.unrouteAll({ behavior: 'ignoreErrors' })
     await mockDefaultGatewayRoutes(page, {
       monthPayloads: {
@@ -868,10 +870,21 @@ test.describe('Phase 05 / R06: Hub Continue on ordinary Today (Issue #233)', () 
         }),
       },
     )
+    await page.addInitScript(
+      ({ key, envelope }) => window.localStorage.setItem(key, JSON.stringify(envelope)),
+      {
+        key: PARTICIPATION_STORAGE_KEY,
+        envelope: makeParticipationEnvelope({
+          inProgress: {
+            'cms:2026-10-day-01-doc': { updatedOn: '2026-11-14', screenId: '2026-10-day-01-doc-s1' },
+          },
+        }),
+      },
+    )
     await page.reload({ waitUntil: 'domcontentloaded' })
     const continueCard = page.locator('.hub-continue')
     await expect(continueCard).toBeVisible()
-    await continueCard.getByRole('button', { name: /Continue Walking in Wisdom Day 1/i }).click()
+    await continueCard.getByRole('button', { name: /Continue Your Study: Walking in Wisdom Day 1/i }).click()
     await expect(page.getByRole('heading', { name: 'Challenge content unavailable' })).toBeVisible()
   })
 
@@ -899,6 +912,18 @@ test.describe('Phase 05 / R06: Hub Continue on ordinary Today (Issue #233)', () 
       },
     )
 
+    await page.addInitScript(
+      ({ key, envelope }) => window.localStorage.setItem(key, JSON.stringify(envelope)),
+      {
+        key: PARTICIPATION_STORAGE_KEY,
+        envelope: makeParticipationEnvelope({
+          inProgress: {
+            'cms:2026-10-day-01-doc': { updatedOn: '2026-11-14', screenId: '2026-10-day-01-doc-s1' },
+          },
+        }),
+      },
+    )
+
     // 1. Month Screen enabled: View Month works and returns to Today
     await page.goto(enabledBaseUrl, { waitUntil: 'domcontentloaded' })
     const continueCard = page.locator('.hub-continue')
@@ -914,7 +939,7 @@ test.describe('Phase 05 / R06: Hub Continue on ordinary Today (Issue #233)', () 
     await expect(continueCard).toBeVisible()
 
     // 2. Open Challenge -> hard reload -> Back -> Forward -> Return to Today
-    await continueCard.getByRole('button', { name: /Continue Walking in Wisdom Day 1/i }).click()
+    await continueCard.getByRole('button', { name: /Continue Your Study: Walking in Wisdom Day 1/i }).click()
     await expect(page).toHaveURL(/#\/challenge\/2026-10-day-01\?origin=hub$/)
     await expect(page.getByRole('heading', { name: /Walking in Wisdom Day 1 — Opening/i })).toBeVisible()
 
@@ -936,8 +961,19 @@ test.describe('Phase 05 / R06: Hub Continue on ordinary Today (Issue #233)', () 
     // 3. Challenge-only build (Month Screen disabled): Continue works, View Month button is omitted
     await page.goto(challengeOnlyBaseUrl, { waitUntil: 'domcontentloaded' })
     await expect(continueCard).toBeVisible()
-    await expect(continueCard.getByRole('button', { name: /Continue Walking in Wisdom Day 1/i })).toBeVisible()
+    await expect(continueCard.getByRole('button', { name: /Continue Your Study: Walking in Wisdom Day 1/i })).toBeVisible()
     await expect(continueCard.getByRole('button', { name: 'View October 2026' })).toHaveCount(0)
+
+    // The init script seeds the saved Challenge on reload, so replace the stored record
+    // and notify the mounted store as another tab would.
+    await page.evaluate(({ key, envelope }) => {
+      const serialized = JSON.stringify(envelope)
+      window.localStorage.setItem(key, serialized)
+      window.dispatchEvent(
+        new StorageEvent('storage', { key, newValue: serialized, storageArea: window.localStorage }),
+      )
+    }, { key: PARTICIPATION_STORAGE_KEY, envelope: makeParticipationEnvelope({}) })
+    await expect(continueCard).toHaveCount(0)
   })
 
   test('supports keyboard navigation, 320px/375px mobile reflow, touch targets, and 200% text scaling', async ({
@@ -960,6 +996,18 @@ test.describe('Phase 05 / R06: Hub Continue on ordinary Today (Issue #233)', () 
       },
     )
 
+    await page.addInitScript(
+      ({ key, envelope }) => window.localStorage.setItem(key, JSON.stringify(envelope)),
+      {
+        key: PARTICIPATION_STORAGE_KEY,
+        envelope: makeParticipationEnvelope({
+          inProgress: {
+            'cms:2026-10-day-01-doc': { updatedOn: '2026-11-14', screenId: '2026-10-day-01-doc-s1' },
+          },
+        }),
+      },
+    )
+
     for (const width of [320, 375]) {
       await page.setViewportSize({ width, height: 720 })
       await page.goto(enabledBaseUrl, { waitUntil: 'domcontentloaded' })
@@ -972,7 +1020,7 @@ test.describe('Phase 05 / R06: Hub Continue on ordinary Today (Issue #233)', () 
       const continueCard = page.locator('.hub-continue')
       await expect(continueCard).toBeVisible()
 
-      const primaryBtn = continueCard.getByRole('button', { name: /Continue Walking in Wisdom Day 1/i })
+      const primaryBtn = continueCard.getByRole('button', { name: /Continue Your Study: Walking in Wisdom Day 1/i })
       const viewMonthBtn = continueCard.getByRole('button', { name: 'View October 2026' })
       const primaryBox = await primaryBtn.boundingBox()
       const monthBox = await viewMonthBtn.boundingBox()
@@ -992,7 +1040,7 @@ test.describe('Phase 05 / R06: Hub Continue on ordinary Today (Issue #233)', () 
 
     // Keyboard focus & Enter activation -> Challenge -> Finish -> Return to Today
     const primaryBtn = page.locator('.hub-continue').getByRole('button', {
-      name: /Continue Walking in Wisdom Day 1/i,
+      name: /Continue Your Study: Walking in Wisdom Day 1/i,
     })
     await primaryBtn.focus()
     await expect(primaryBtn).toBeFocused()
@@ -1079,7 +1127,7 @@ test.describe('Phase 05 / R06: Hub Continue on ordinary Today (Issue #233)', () 
         prototypeState: makeOnboardedState(),
         shelfEnvelope: makeShelfEnvelope({
           activeFocusMonth: '2026-10',
-          months: [{ yearMonth: '2026-10' }],
+          months: [{ yearMonth: '2026-10' }, { yearMonth: '2026-09' }],
         }),
       },
     )
@@ -1105,7 +1153,7 @@ test.describe('Phase 05 / R06: Hub Continue on ordinary Today (Issue #233)', () 
         shelfKey: SHELF_STORAGE_KEY,
         nextEnvelope: makeShelfEnvelope({
           activeFocusMonth: '2026-09',
-          months: [{ yearMonth: '2026-09' }],
+          months: [{ yearMonth: '2026-10' }, { yearMonth: '2026-09' }],
         }),
       },
     )
@@ -1114,18 +1162,118 @@ test.describe('Phase 05 / R06: Hub Continue on ordinary Today (Issue #233)', () 
     const continueCard = page.locator('.hub-continue')
     await expect(continueCard).toBeVisible()
     await expect(continueCard).toHaveAttribute('data-year-month', '2026-09')
-    await expect(continueCard.getByRole('heading', { name: 'Quiet Trust Day 1' })).toBeVisible()
+    await expect(continueCard.getByRole('heading', { name: 'Quiet Trust' })).toBeVisible()
 
     releaseStaleOctober()
     await page.waitForTimeout(250)
     await expect(continueCard).toHaveAttribute('data-year-month', '2026-09')
-    await expect(continueCard.getByRole('heading', { name: 'Quiet Trust Day 1' })).toBeVisible()
+    await expect(continueCard.getByRole('heading', { name: 'Quiet Trust' })).toBeVisible()
   })
 
-  test('fails closed on direct Hub-origin Challenge navigation without trusted history identity and never falls back to direct Sanity catalog', async ({
+  test('Harbor Signal G04-A: forged URL origins never choose the return destination; in-app Month origins survive reload', async ({
+    page,
+  }) => {
+    const sanityRequests: string[] = []
+    await mockDefaultGatewayRoutes(page)
+    await page.route('**/*sanity.io/**', async route => {
+      sanityRequests.push(route.request().url())
+      await route.abort()
+    })
+    await page.addInitScript(
+      ({ prototypeKey, shelfKey, prototypeState, shelfEnvelope }) => {
+        if (!window.localStorage.getItem(prototypeKey)) {
+          window.localStorage.setItem(prototypeKey, JSON.stringify(prototypeState))
+        }
+        if (!window.localStorage.getItem(shelfKey)) {
+          window.localStorage.setItem(shelfKey, JSON.stringify(shelfEnvelope))
+        }
+      },
+      {
+        prototypeKey: PROTOTYPE_STORAGE_KEY,
+        shelfKey: SHELF_STORAGE_KEY,
+        prototypeState: makeOnboardedState(),
+        shelfEnvelope: makeShelfEnvelope({
+          activeFocusMonth: '2026-10',
+          months: [{ yearMonth: '2026-10' }],
+        }),
+      },
+    )
+    const opening = page.getByRole('heading', { name: /Walking in Wisdom Day 1 — Opening/i })
+    const forgedMonthReturn = page.getByRole('button', { name: 'Return to October 2026' })
+    const returnToToday = page.getByRole('button', { name: 'Return to Today' })
+
+    // 1. Cold external link forging a Month origin opens the authorized Challenge, but Exit goes to Today.
+    await page.goto(`${enabledBaseUrl}#/challenge/2026-10-day-01?origin=month&yearMonth=2026-10`, {
+      waitUntil: 'domcontentloaded',
+    })
+    await expect(opening).toBeVisible()
+    await expect(returnToToday).toBeVisible()
+    await expect(forgedMonthReturn).toHaveCount(0)
+    await returnToToday.click()
+    await expect(page.locator('#daily-teaching')).toBeVisible()
+    await expect(page).not.toHaveURL(/#\/month\//)
+
+    // 2. Forged Shelf origin stays untrusted across a hard reload.
+    await page.goto(`${enabledBaseUrl}#/challenge/2026-10-day-01?origin=shelf&yearMonth=2026-10`, {
+      waitUntil: 'domcontentloaded',
+    })
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await expect(opening).toBeVisible()
+    await expect(returnToToday).toBeVisible()
+    await expect(page.getByRole('button', { name: /Return to Shelf/ })).toHaveCount(0)
+
+    // 3. Warm link (hash change while the app is running) forging a Month origin: Finish goes to Today.
+    await returnToToday.click()
+    await expect(page.locator('#daily-teaching')).toBeVisible()
+    await page.evaluate(() => {
+      window.location.hash = '#/challenge/2026-10-day-01?origin=month&yearMonth=2026-10'
+    })
+    await expect(opening).toBeVisible()
+    await expect(forgedMonthReturn).toHaveCount(0)
+    const screenNav = page.getByRole('navigation', { name: 'Challenge screen navigation' })
+    const finish = page.getByRole('button', { name: 'Finish' })
+    for (let step = 0; step < 10 && !(await finish.isVisible()); step += 1) {
+      await screenNav.getByRole('button', { name: 'Continue' }).click()
+    }
+    await finish.click()
+    await expect(page.locator('#daily-teaching')).toBeVisible()
+    await expect(page).not.toHaveURL(/#\/(month|challenge)\//)
+    expect(await page.evaluate(() => window.history.state?.returnedChallengeOrigin)).toEqual({ kind: 'hub' })
+
+    // 4. Genuine in-app Month Screen navigation keeps its origin, including after reload.
+    await page.goto(enabledBaseUrl, { waitUntil: 'domcontentloaded' })
+    await page.locator('.hub-continue').getByRole('button', { name: 'View October 2026' }).click()
+    await expect(page).toHaveURL(/#\/month\/2026-10$/)
+    // Advance through first-time historical month introduction
+    await page.getByRole('button', { name: 'Continue' }).click()
+    await page.getByRole('button', { name: 'Begin the Month' }).click()
+    await expect(page.getByRole('heading', { level: 1, name: 'Walking in Wisdom' })).toBeVisible()
+    await page.getByRole('button', { name: /Steadfast Hope in Every Season/ }).click()
+    await expect(page).toHaveURL(/#\/challenge\/2026-10-day-02\?origin=month&yearMonth=2026-10$/)
+    await expect(forgedMonthReturn).toBeVisible()
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await expect(forgedMonthReturn).toBeVisible()
+    await forgedMonthReturn.click()
+    await expect(page).toHaveURL(/#\/month\/2026-10$/)
+    await expect(page.getByRole('heading', { level: 1, name: 'Walking in Wisdom' })).toBeVisible()
+
+    // 5. Embargoed / not-released target with a forged origin fails closed: no content, no forged label.
+    await page.goto(`${enabledBaseUrl}#/challenge/2026-10-day-03?origin=month&yearMonth=2026-10`, {
+      waitUntil: 'domcontentloaded',
+    })
+    await expect(returnToToday).toBeVisible()
+    await expect(forgedMonthReturn).toHaveCount(0)
+    await expect(page.getByText('Embargoed Future Day 3')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Finish' })).toHaveCount(0)
+    await expect(page.locator('.lab-screen')).toHaveCount(0)
+    expect(sanityRequests).toEqual([])
+  })
+
+  test('treats direct Challenge links as external entries (gateway only, Return to Today) and fails closed on in-session Hub origins without trusted identity', async ({
     page,
   }) => {
     const unexpectedChallengeOrSanityRequests: string[] = []
+    const sanityRequests: string[] = []
 
     await mockDefaultGatewayRoutes(page, {
       onRequest: pathname => {
@@ -1137,6 +1285,7 @@ test.describe('Phase 05 / R06: Hub Continue on ordinary Today (Issue #233)', () 
     // Guard against any direct Sanity/published-catalog fallback when VITE_ENABLE_RELEASE_GATEWAY_SOURCE is off
     await page.route('**/*sanity.io/**', async route => {
       unexpectedChallengeOrSanityRequests.push(route.request().url())
+      sanityRequests.push(route.request().url())
       await route.abort()
     })
 
@@ -1152,24 +1301,30 @@ test.describe('Phase 05 / R06: Hub Continue on ordinary Today (Issue #233)', () 
       },
     )
 
-    // 1. Fresh direct entry to #/challenge/<slug>?origin=hub with empty history.state
+    // 1. Fresh direct entry to #/challenge/<slug>?origin=hub with empty history.state is an
+    //    external entry (G04-A): the URL origin is ignored, Hub Continue identity is not used,
+    //    the Challenge is authorized by the gateway only, and Exit returns to Today.
     await page.goto(`${enabledBaseUrl}#/challenge/2026-10-day-01?origin=hub`, {
       waitUntil: 'domcontentloaded',
     })
-    await expect(page.getByRole('heading', { name: 'Challenge unavailable' })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Finish' })).toHaveCount(0)
-    await page.waitForTimeout(250)
-    expect(unexpectedChallengeOrSanityRequests).toEqual([])
-    const participationAfterDirect = await page.evaluate(
-      key => window.localStorage.getItem(key),
-      PARTICIPATION_STORAGE_KEY,
-    )
-    expect(participationAfterDirect).toBeNull()
+    await expect(page.getByRole('button', { name: 'Return to Today' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Challenge unavailable' })).toHaveCount(0)
+    // Only gateway requests for the linked slug (dev StrictMode may issue the effect twice).
+    expect(unexpectedChallengeOrSanityRequests.length).toBeGreaterThan(0)
+    expect(new Set(unexpectedChallengeOrSanityRequests)).toEqual(new Set(['/api/challenges/2026-10-day-01']))
+    expect(sanityRequests).toEqual([])
+    const directState = await page.evaluate(() => window.history.state)
+    expect(directState?.challengeOrigin).toBeUndefined()
+    expect(directState?.hubContinueDocumentId).toBeUndefined()
 
     // Safe return navigation back to Today
     await page.getByRole('button', { name: 'Return to Today' }).click()
     await expect(page).not.toHaveURL(/#\/challenge\//)
     await expect(page.locator('#daily-teaching')).toBeVisible()
+    expect(await page.evaluate(() => window.history.state?.returnedChallengeOrigin)).toEqual({ kind: 'hub' })
+    unexpectedChallengeOrSanityRequests.length = 0
+    // Part 1 legitimately recorded lastOpenedChallenge; start part 2 from a clean store.
+    await page.evaluate(key => window.localStorage.removeItem(key), PARTICIPATION_STORAGE_KEY)
 
     // 2. Missing/cleared and malformed hubContinueDocumentId values in history.state on reload
     for (const invalidDocId of [null, '', '   ', 'drafts.2026-10-day-01-doc', 'pilot-fake']) {

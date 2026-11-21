@@ -44,7 +44,7 @@ function makeMonthDetail(
     daysInMonth: 30,
     phase: 'historical',
     rosterVersion: 1,
-    totalChallenges: slots.length,
+    totalChallenges: slots.filter(slot => slot.availability !== 'unavailable').length,
     title: `Theme for ${yearMonth}`,
     introduction: {
       version: '1',
@@ -156,7 +156,7 @@ describe('deriveHubContinueSuggestion', () => {
     assert.deepEqual(result.suggestion.origin, { kind: 'hub' })
   })
 
-  it('picks the next unfinished available Challenge in active focus when none are in progress', () => {
+  it('opens the focused Month Screen when there is no unfinished saved Challenge', () => {
     const shelfState: ShelfState = {
       months: [],
       activeFocusMonth: ym('2026-10'), // Library focus without Shelf membership
@@ -182,14 +182,12 @@ describe('deriveHubContinueSuggestion', () => {
     })
 
     assert.equal(result.status, 'suggestion')
-    assert.equal(result.reason, 'nextUnfinishedInActiveFocus')
-    assert.equal(result.suggestion.kind, 'continueNextInFocus')
-    assert.equal(result.suggestion.challengeId, cmsId('oct-4'))
-    assert.equal(result.suggestion.dayOfMonth, 4)
-    assert.equal(result.suggestion.isInProgress, false)
+    assert.equal(result.suggestion.kind, 'openFocusMonth')
+    assert.equal(result.suggestion.yearMonth, ym('2026-10'))
+    assert.equal('challengeId' in result.suggestion, false)
   })
 
-  it('falls back to next eligible unfinished Shelf month when focused month is complete without changing formal focus', () => {
+  it('offers Review for the completed focus even when another Shelf month has saved progress', () => {
     const shelfState: ShelfState = {
       months: [
         { yearMonth: ym('2026-08'), admissionKind: 'autoAdmitted', isProtected: false },
@@ -229,17 +227,16 @@ describe('deriveHubContinueSuggestion', () => {
     })
 
     assert.equal(result.status, 'suggestion')
-    assert.equal(result.reason, 'nextEligibleMonthAfterCompletedFocus')
-    assert.equal(result.suggestion.kind, 'continueOtherHistoricalMonth')
-    assert.equal(result.suggestion.yearMonth, ym('2026-09'))
-    assert.equal(result.suggestion.challengeId, cmsId('sep-2'))
+    assert.equal(result.suggestion.kind, 'reviewFocusMonth')
+    assert.equal(result.suggestion.yearMonth, ym('2026-10'))
+    assert.equal('challengeId' in result.suggestion, false)
     assert.equal(result.suggestion.formalFocusMonth, ym('2026-10'))
     assert.equal(result.suggestion.preservesFormalFocus, true)
     // Original ShelfState object remains untouched
     assert.equal(shelfState.activeFocusMonth, ym('2026-10'))
   })
 
-  it('returns allEligibleMonthsComplete when active focus and all Shelf months are complete', () => {
+  it('still offers Review when all Shelf months are complete', () => {
     const shelfState: ShelfState = {
       months: [
         { yearMonth: ym('2026-09'), admissionKind: 'readerSelected', isProtected: true },
@@ -265,9 +262,10 @@ describe('deriveHubContinueSuggestion', () => {
       referenceCurrentYearMonth: ym('2026-11'),
     })
 
-    assert.equal(result.status, 'none')
-    assert.equal(result.suggestion, null)
-    assert.equal(result.reason, 'allEligibleMonthsComplete')
+    assert.equal(result.status, 'suggestion')
+    assert.equal(result.suggestion.kind, 'reviewFocusMonth')
+    assert.equal(result.suggestion.yearMonth, ym('2026-10'))
+    assert.equal(result.reason, 'activeFocusComplete')
   })
 
   it('keeps incidental Library browsing (lastOpenedChallenge) separate from active focus', () => {
@@ -295,7 +293,7 @@ describe('deriveHubContinueSuggestion', () => {
 
     assert.equal(result.status, 'suggestion')
     assert.equal(result.suggestion.yearMonth, ym('2026-10'))
-    assert.equal(result.suggestion.challengeId, cmsId('oct-1'))
+    assert.equal(result.suggestion.kind, 'openFocusMonth')
   })
 
   it('rejects current/future activeFocusMonth and non-historical month phase', () => {
@@ -350,15 +348,75 @@ describe('deriveHubContinueSuggestion', () => {
 
     const result = deriveHubContinueSuggestion({
       shelfState,
-      participationData: emptyReaderParticipationData(),
+      participationData: {
+        ...emptyReaderParticipationData(),
+        inProgressChallenges: {
+          [cmsId('oct-unlisted')]: { screenId: 'screen-3', updatedOn: calDate('2026-11-10') },
+          [cmsId('oct-3')]: { screenId: 'screen-2', updatedOn: calDate('2026-11-09') },
+        },
+      },
       monthDetailsByYearMonth: { '2026-10': oct },
       releasedCatalog: [makeCatalogItem('2026-10', 3, 'oct-3')],
       referenceCurrentYearMonth: ym('2026-11'),
     })
 
     assert.equal(result.status, 'suggestion')
+    assert.equal(result.suggestion.kind, 'resumeInProgress')
     assert.equal(result.suggestion.challengeId, cmsId('oct-3'))
     assert.equal(result.suggestion.dayOfMonth, 3)
+  })
+
+  it('opens the focus month for missing, malformed, withdrawn, or mismatched saved progress', () => {
+    const oct = makeMonthDetail('2026-10', [
+      makeAvailableSlot(1, '2026-10', 'oct-1'),
+      makeAvailableSlot(2, '2026-10', 'oct-2'),
+      makeAvailableSlot(3, '2026-10', 'oct-3'),
+      makeAvailableSlot(4, '2026-10', 'oct-4'),
+    ])
+
+    const result = deriveHubContinueSuggestion({
+      shelfState: { months: [], activeFocusMonth: ym('2026-10') },
+      participationData: {
+        ...emptyReaderParticipationData(),
+        inProgressChallenges: {
+          [cmsId('oct-1')]: { updatedOn: calDate('2026-11-01') },
+          [cmsId('oct-2')]: { screenId: '   ', updatedOn: calDate('2026-11-01') },
+          [cmsId('oct-3')]: { screenId: 'screen-2', updatedOn: calDate('2026-11-31') },
+          [cmsId('oct-4')]: { screenId: 'screen-2', updatedOn: calDate('2026-11-01') },
+          [cmsId('withdrawn')]: { screenId: 'screen-2', updatedOn: calDate('2026-11-01') },
+        },
+      },
+      monthDetailsByYearMonth: { '2026-10': oct },
+      releasedCatalog: [
+        makeCatalogItem('2026-10', 1, 'oct-1'),
+        makeCatalogItem('2026-10', 2, 'oct-2'),
+        makeCatalogItem('2026-10', 3, 'oct-3'),
+        { ...makeCatalogItem('2026-10', 4, 'oct-4'), slug: 'changed-slug' },
+      ],
+      referenceCurrentYearMonth: ym('2026-11'),
+    })
+
+    assert.equal(result.suggestion?.kind, 'openFocusMonth')
+    assert.equal(result.suggestion?.yearMonth, ym('2026-10'))
+  })
+
+  it('does not treat a month with an unreleased Challenge as fully completed', () => {
+    const oct = makeMonthDetail('2026-10', [
+      makeAvailableSlot(1, '2026-10', 'oct-1'),
+      { dayOfMonth: 2, date: '2026-10-02', availability: 'comingSoon', title: 'Pending' },
+    ])
+    const result = deriveHubContinueSuggestion({
+      shelfState: { months: [], activeFocusMonth: ym('2026-10') },
+      participationData: {
+        ...emptyReaderParticipationData(),
+        completedChallenges: { [cmsId('oct-1')]: { completedOn: calDate('2026-10-05') } },
+        inProgressChallenges: { [cmsId('oct-1')]: { screenId: 'screen-2', updatedOn: calDate('2026-10-04') } },
+      },
+      monthDetailsByYearMonth: { '2026-10': oct },
+      referenceCurrentYearMonth: ym('2026-11'),
+    })
+
+    assert.equal(result.suggestion?.kind, 'openFocusMonth')
   })
 
   it('fails closed on missing or invalid reference month without reading device clock', () => {
