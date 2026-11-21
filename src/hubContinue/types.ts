@@ -7,7 +7,6 @@ import type {
 import type { ReleasedCatalogSummary } from '../cms/reader/releasedCatalogProvider.ts'
 import type {
   CanonicalChallengeId,
-  LocalCalendarDate,
   PublicationYearMonth,
   ReaderParticipationData,
 } from '../participation/types.ts'
@@ -18,7 +17,7 @@ import type { ShelfState } from '../shelf/types.ts'
  * (Phase 05 / R06 / Issue #177).
  *
  * Product authority:
- * - November 8, 2026 Approved Reader Experience (§2, §6, §10)
+ * - Consolidated Approved Reader Experience (§3.2, R06 G01)
  * - Canonical Roadmap Phase 05
  *
  * Invariants:
@@ -29,27 +28,31 @@ import type { ShelfState } from '../shelf/types.ts'
  * - Leaves the deferred first-post-rollover resume heuristic untouched.
  */
 
-export type HubContinueSuggestionKind =
-  | 'resumeInProgress'
-  | 'continueNextInFocus'
-  | 'continueOtherHistoricalMonth'
+export type HubContinueSuggestionKind = 'resumeInProgress'
+
+type HubContinueSuggestionReason =
+  | 'inProgressInActiveFocus'
+  | 'noSavedChallengeInActiveFocus'
+  | 'activeFocusComplete'
 
 export type HubContinueResolutionReason =
-  | 'inProgressInActiveFocus'
-  | 'nextUnfinishedInActiveFocus'
-  | 'nextEligibleMonthAfterCompletedFocus'
+  | HubContinueSuggestionReason
   | 'noActiveFocus'
   | 'activeFocusNotHistorical'
   | 'activeFocusUnavailable'
-  | 'allEligibleMonthsComplete'
   | 'invalidReferenceMonth'
   | 'malformedInput'
 
-export interface HubContinueSuggestion {
-  readonly kind: HubContinueSuggestionKind
+interface HubContinueFocus {
   readonly yearMonth: PublicationYearMonth
   readonly monthTitle: string
   readonly monthHeading: string
+  readonly formalFocusMonth: PublicationYearMonth
+  readonly preservesFormalFocus: true
+}
+
+export interface HubContinueSuggestion extends HubContinueFocus {
+  readonly kind: HubContinueSuggestionKind
   readonly challengeId: CanonicalChallengeId
   readonly challengeDocumentId: string
   readonly challengeSlug: string
@@ -57,33 +60,25 @@ export interface HubContinueSuggestion {
   readonly challengeType: MonthGatewayChallengeType
   readonly dayOfMonth: number
   readonly publicationDate: string
-  readonly isInProgress: boolean
-  readonly resumeScreenId?: string
-  readonly formalFocusMonth: PublicationYearMonth | null
-  readonly preservesFormalFocus: true
+  readonly isInProgress: true
+  readonly resumeScreenId: string
   readonly origin: ChallengeOrigin
+}
+
+export interface HubContinueMonthSuggestion extends HubContinueFocus {
+  readonly kind: 'openFocusMonth' | 'reviewFocusMonth'
 }
 
 export type HubContinueResult =
   | {
       readonly status: 'suggestion'
-      readonly suggestion: HubContinueSuggestion
-      readonly reason: Extract<
-        HubContinueResolutionReason,
-        | 'inProgressInActiveFocus'
-        | 'nextUnfinishedInActiveFocus'
-        | 'nextEligibleMonthAfterCompletedFocus'
-      >
+      readonly suggestion: HubContinueSuggestion | HubContinueMonthSuggestion
+      readonly reason: HubContinueSuggestionReason
     }
   | {
       readonly status: 'none'
       readonly suggestion: null
-      readonly reason: Exclude<
-        HubContinueResolutionReason,
-        | 'inProgressInActiveFocus'
-        | 'nextUnfinishedInActiveFocus'
-        | 'nextEligibleMonthAfterCompletedFocus'
-      >
+      readonly reason: Exclude<HubContinueResolutionReason, HubContinueSuggestionReason>
     }
 
 export interface HubContinueInput {
@@ -93,8 +88,8 @@ export interface HubContinueInput {
   readonly participationData: ReaderParticipationData
   /**
    * Gateway-authorized `MonthDetailData` records keyed by `YYYY-MM`.
-   * Only historical months (`phase === 'historical'`) with `availability === 'available'` slots
-   * are eligible for recommendation.
+   * The Active Focus month must be historical. Direct resume additionally requires an
+   * available Challenge slot.
    */
   readonly monthDetailsByYearMonth:
     | ReadonlyMap<string, MonthDetailData>
@@ -116,18 +111,4 @@ export interface HubContinueInput {
    * the engine derives it from `serverContext.authorizedLocalDate`.
    */
   readonly serverContext?: GatewayServerContext
-}
-
-export interface InternalNormalizedSlot {
-  readonly dayOfMonth: number
-  readonly publicationDate: LocalCalendarDate | string
-  readonly challengeId: CanonicalChallengeId
-  readonly challengeDocumentId: string
-  readonly slug: string
-  readonly title: string
-  readonly challengeType: MonthGatewayChallengeType
-  readonly isCompleted: boolean
-  readonly isInProgress: boolean
-  readonly resumeScreenId?: string
-  readonly inProgressUpdatedOn?: string
 }

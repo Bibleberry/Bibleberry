@@ -14,7 +14,6 @@ import type {
   PublicationYearMonth,
 } from '../participation/types.ts'
 import {
-  comparePublicationYearMonths,
   isHistoricalPublicationYearMonth,
   parseValidPublicationYearMonth,
 } from '../shelf/validation.ts'
@@ -22,7 +21,6 @@ import type {
   HubContinueInput,
   HubContinueResult,
   HubContinueSuggestion,
-  InternalNormalizedSlot,
 } from './types.ts'
 
 const MONTH_NAMES = [
@@ -78,20 +76,31 @@ function resolveReferenceCurrentYearMonth(input: HubContinueInput): PublicationY
   return parseValidPublicationYearMonth(authorizedDate.slice(0, 7))
 }
 
+interface SavedPosition {
+  readonly updatedOn: string
+  readonly screenId: string
+}
+
+interface NormalizedSlot {
+  readonly dayOfMonth: number
+  readonly publicationDate: string
+  readonly challengeId: CanonicalChallengeId
+  readonly challengeDocumentId: string
+  readonly slug: string
+  readonly title: string
+  readonly challengeType: MonthGatewayChallengeType
+  readonly isCompleted: boolean
+  readonly savedPosition?: SavedPosition
+}
+
 interface ParsedParticipation {
   readonly completedIds: ReadonlySet<CanonicalChallengeId>
-  readonly inProgressById: ReadonlyMap<
-    CanonicalChallengeId,
-    { readonly updatedOn: string; readonly screenId?: string }
-  >
+  readonly inProgressById: ReadonlyMap<CanonicalChallengeId, SavedPosition>
 }
 
 function parseParticipation(raw: unknown): ParsedParticipation {
   const completedIds = new Set<CanonicalChallengeId>()
-  const inProgressById = new Map<
-    CanonicalChallengeId,
-    { readonly updatedOn: string; readonly screenId?: string }
-  >()
+  const inProgressById = new Map<CanonicalChallengeId, SavedPosition>()
 
   if (!isPlainObject(raw)) {
     return { completedIds, inProgressById }
@@ -112,11 +121,8 @@ function parseParticipation(raw: unknown): ParsedParticipation {
       const canonicalId = parseStoredChallengeId(rawKey, 'cms')
       if (!canonicalId || completedIds.has(canonicalId) || !isPlainObject(record)) continue
       const updatedOn = parseLocalCalendarDate(record.updatedOn)
-      if (!updatedOn) continue
-      const screenId =
-        typeof record.screenId === 'string' && record.screenId.trim().length > 0
-          ? record.screenId
-          : undefined
+      const screenId = typeof record.screenId === 'string' ? record.screenId.trim() : ''
+      if (!updatedOn || !screenId) continue
       inProgressById.set(canonicalId, { updatedOn, screenId })
     }
   }
@@ -180,8 +186,11 @@ function extractNormalizedSlots(
   yearMonth: PublicationYearMonth,
   monthDetail: unknown,
   participation: ParsedParticipation,
-  catalogLookup: ReadonlyMap<string, ReleasedCatalogSummary> | null,
-): { readonly monthTitle: string; readonly slots: readonly InternalNormalizedSlot[] } | null {
+): {
+  readonly monthTitle: string
+  readonly slots: readonly NormalizedSlot[]
+  readonly totalChallenges: unknown
+} | null {
   if (!isPlainObject(monthDetail)) return null
   if (monthDetail.monthId !== yearMonth) return null
   if (monthDetail.phase !== 'historical') return null
@@ -193,7 +202,8 @@ function extractNormalizedSlots(
   if (!monthTitle || !Array.isArray(monthDetail.slots)) return null
 
   const seenDays = new Set<number>()
-  const normalized: InternalNormalizedSlot[] = []
+  const seenChallenges = new Set<CanonicalChallengeId>()
+  const normalized: NormalizedSlot[] = []
 
   for (const rawSlot of monthDetail.slots) {
     if (!isPlainObject(rawSlot)) continue
@@ -209,7 +219,7 @@ function extractNormalizedSlots(
     if (!publicationDate || !publicationDate.startsWith(`${yearMonth}-`)) continue
 
     const challengeId = toCanonicalCmsChallengeId(rawSlot.challengeId)
-    if (!challengeId) continue
+    if (!challengeId || seenChallenges.has(challengeId)) continue
     const challengeDocumentId = extractDocumentIdFromCanonical(challengeId)
 
     const slug = typeof rawSlot.slug === 'string' ? rawSlot.slug.trim() : ''
@@ -217,13 +227,9 @@ function extractNormalizedSlots(
     const challengeType = rawSlot.challengeType as MonthGatewayChallengeType
     if (!slug || !title || !VALID_CHALLENGE_TYPES.has(challengeType)) continue
 
-    if (!isCatalogAuthorized(catalogLookup, challengeDocumentId, slug, yearMonth)) {
-      continue
-    }
-
     seenDays.add(dayOfMonth)
+    seenChallenges.add(challengeId)
     const isCompleted = participation.completedIds.has(challengeId)
-    const inProgress = !isCompleted ? participation.inProgressById.get(challengeId) : undefined
 
     normalized.push({
       dayOfMonth,
@@ -234,74 +240,32 @@ function extractNormalizedSlots(
       title,
       challengeType,
       isCompleted,
-      isInProgress: Boolean(inProgress),
-      resumeScreenId: inProgress?.screenId,
-      inProgressUpdatedOn: inProgress?.updatedOn,
+      savedPosition: participation.inProgressById.get(challengeId),
     })
   }
 
-  normalized.sort((a, b) => a.dayOfMonth - b.dayOfMonth)
-  return { monthTitle, slots: normalized }
+  return { monthTitle, slots: normalized, totalChallenges: monthDetail.totalChallenges }
 }
 
-function selectChallengeFromSlots(
-  slots: readonly InternalNormalizedSlot[],
-): { readonly slot: InternalNormalizedSlot; readonly isInProgress: boolean } | null {
-  const unfinished = slots.filter(slot => !slot.isCompleted)
-  if (unfinished.length === 0) return null
-
-  const inProgress = unfinished.filter(slot => slot.isInProgress)
-  if (inProgress.length > 0) {
-    const sorted = [...inProgress].sort((a, b) => {
-      const aDate = a.inProgressUpdatedOn ?? ''
-      const bDate = b.inProgressUpdatedOn ?? ''
-      if (aDate !== bDate) return bDate.localeCompare(aDate)
-      return a.dayOfMonth - b.dayOfMonth
-    })
-    return { slot: sorted[0]!, isInProgress: true }
-  }
-
-  return { slot: unfinished[0]!, isInProgress: false }
-}
-
-function buildSuggestion(params: {
-  readonly kind: HubContinueSuggestion['kind']
-  readonly yearMonth: PublicationYearMonth
-  readonly monthTitle: string
-  readonly slot: InternalNormalizedSlot
-  readonly isInProgress: boolean
-  readonly formalFocusMonth: PublicationYearMonth | null
-}): HubContinueSuggestion {
-  const { kind, yearMonth, monthTitle, slot, isInProgress, formalFocusMonth } = params
-  return Object.freeze({
-    kind,
-    yearMonth,
-    monthTitle,
-    monthHeading: formatYearMonthHeading(yearMonth),
-    challengeId: slot.challengeId,
-    challengeDocumentId: slot.challengeDocumentId,
-    challengeSlug: slot.slug,
-    challengeTitle: slot.title,
-    challengeType: slot.challengeType,
-    dayOfMonth: slot.dayOfMonth,
-    publicationDate: slot.publicationDate,
-    isInProgress,
-    ...(slot.resumeScreenId !== undefined ? { resumeScreenId: slot.resumeScreenId } : {}),
-    formalFocusMonth,
-    preservesFormalFocus: true,
-    origin: DEFAULT_CHALLENGE_ORIGIN,
-  })
+function selectSavedChallenge(
+  slots: readonly NormalizedSlot[],
+  catalogLookup: ReadonlyMap<string, ReleasedCatalogSummary> | null,
+  yearMonth: PublicationYearMonth,
+) {
+  return slots
+    .filter((slot): slot is NormalizedSlot & { savedPosition: SavedPosition } =>
+      !slot.isCompleted &&
+      slot.savedPosition !== undefined &&
+      isCatalogAuthorized(catalogLookup, slot.challengeDocumentId, slot.slug, yearMonth),
+    )
+    .sort((a, b) =>
+      b.savedPosition.updatedOn.localeCompare(a.savedPosition.updatedOn) || a.dayOfMonth - b.dayOfMonth,
+    )[0]
 }
 
 /**
  * Derives at most one unobtrusive Hub Continue suggestion from approved reader data.
- *
- * Priority:
- * 1. Unfinished (in-progress) Challenge in explicitly active historical focus.
- * 2. Appropriate next unfinished Challenge in that same active historical focus.
- * 3. If that focused month is complete, the next eligible unfinished historical Shelf month
- *    without silently changing formal `activeFocusMonth`.
- * 4. Otherwise returns no suggestion.
+ * Active Focus is the only destination, through a saved Challenge or its Month Screen.
  */
 export function deriveHubContinueSuggestion(input: HubContinueInput): HubContinueResult {
   if (!isPlainObject(input)) {
@@ -332,108 +296,60 @@ export function deriveHubContinueSuggestion(input: HubContinueInput): HubContinu
   }
 
   const participation = parseParticipation(input.participationData)
-  const catalogLookup = buildCatalogLookup(input.releasedCatalog)
-
   const focusDetail = lookupMonthDetail(input.monthDetailsByYearMonth, activeFocus)
   const focusExtracted = extractNormalizedSlots(
     activeFocus,
     focusDetail,
     participation,
-    catalogLookup,
   )
 
-  if (!focusExtracted || focusExtracted.slots.length === 0) {
+  if (!focusExtracted) {
     return Object.freeze({ status: 'none', suggestion: null, reason: 'activeFocusUnavailable' })
   }
 
-  const focusPick = selectChallengeFromSlots(focusExtracted.slots)
-  if (focusPick) {
-    const kind = focusPick.isInProgress ? 'resumeInProgress' : 'continueNextInFocus'
-    const reason = focusPick.isInProgress ? 'inProgressInActiveFocus' : 'nextUnfinishedInActiveFocus'
+  const focus = {
+    yearMonth: activeFocus,
+    monthTitle: focusExtracted.monthTitle,
+    monthHeading: formatYearMonthHeading(activeFocus),
+    formalFocusMonth: activeFocus,
+    preservesFormalFocus: true as const,
+  }
+  const catalogLookup = buildCatalogLookup(input.releasedCatalog)
+  const slot = selectSavedChallenge(focusExtracted.slots, catalogLookup, activeFocus)
+  if (slot) {
+    const suggestion: HubContinueSuggestion = Object.freeze({
+      ...focus,
+      kind: 'resumeInProgress',
+      challengeId: slot.challengeId,
+      challengeDocumentId: slot.challengeDocumentId,
+      challengeSlug: slot.slug,
+      challengeTitle: slot.title,
+      challengeType: slot.challengeType,
+      dayOfMonth: slot.dayOfMonth,
+      publicationDate: slot.publicationDate,
+      isInProgress: true,
+      resumeScreenId: slot.savedPosition.screenId,
+      origin: DEFAULT_CHALLENGE_ORIGIN,
+    })
     return Object.freeze({
       status: 'suggestion',
-      suggestion: buildSuggestion({
-        kind,
-        yearMonth: activeFocus,
-        monthTitle: focusExtracted.monthTitle,
-        slot: focusPick.slot,
-        isInProgress: focusPick.isInProgress,
-        formalFocusMonth: activeFocus,
-      }),
-      reason,
+      suggestion,
+      reason: 'inProgressInActiveFocus',
     })
   }
 
-  // Active focus month is complete; consider other eligible unfinished historical Shelf months
-  // without silently changing formal `activeFocusMonth`.
-  const shelfMonths = Array.isArray(input.shelfState.months) ? input.shelfState.months : []
-  const seenCandidates = new Set<PublicationYearMonth>([activeFocus])
-
-  interface CandidatePick {
-    readonly yearMonth: PublicationYearMonth
-    readonly monthTitle: string
-    readonly slot: InternalNormalizedSlot
-    readonly isInProgress: boolean
-    readonly shelfIndex: number
-  }
-
-  const candidates: CandidatePick[] = []
-
-  shelfMonths.forEach((rawEntry, shelfIndex) => {
-    if (!isPlainObject(rawEntry)) return
-    const ym = parseValidPublicationYearMonth(rawEntry.yearMonth)
-    if (!ym || seenCandidates.has(ym)) return
-    seenCandidates.add(ym)
-
-    if (!isHistoricalPublicationYearMonth(ym, referenceCurrent)) return
-
-    const detail = lookupMonthDetail(input.monthDetailsByYearMonth, ym)
-    const extracted = extractNormalizedSlots(ym, detail, participation, catalogLookup)
-    if (!extracted || extracted.slots.length === 0) return
-
-    const pick = selectChallengeFromSlots(extracted.slots)
-    if (!pick) return
-
-    candidates.push({
-      yearMonth: ym,
-      monthTitle: extracted.monthTitle,
-      slot: pick.slot,
-      isInProgress: pick.isInProgress,
-      shelfIndex,
-    })
-  })
-
-  if (candidates.length === 0) {
-    return Object.freeze({
-      status: 'none',
-      suggestion: null,
-      reason: 'allEligibleMonthsComplete',
-    })
-  }
-
-  candidates.sort((a, b) => {
-    if (a.isInProgress !== b.isInProgress) return a.isInProgress ? -1 : 1
-    if (a.isInProgress && b.isInProgress) {
-      const aDate = a.slot.inProgressUpdatedOn ?? ''
-      const bDate = b.slot.inProgressUpdatedOn ?? ''
-      if (aDate !== bDate) return bDate.localeCompare(aDate)
-    }
-    const ymCmp = comparePublicationYearMonths(b.yearMonth, a.yearMonth)
-    if (ymCmp !== 0) return ymCmp
-    return a.shelfIndex - b.shelfIndex
-  })
-
-  const chosen = candidates[0]!
+  // Missing or unreleased slots cannot count as completed.
+  const { slots, totalChallenges } = focusExtracted
+  const isComplete =
+    slots.length > 0 &&
+    slots.length === totalChallenges &&
+    slots.every(candidate => candidate.isCompleted)
   return Object.freeze({
     status: 'suggestion',
-    suggestion: buildSuggestion({
-      kind: 'continueOtherHistoricalMonth',
-      yearMonth: chosen.yearMonth,
-      monthTitle: chosen.monthTitle,
-      slot: chosen.slot,
-      isInProgress: chosen.isInProgress,
-      formalFocusMonth: activeFocus,
+    suggestion: Object.freeze({
+      ...focus,
+      kind: isComplete ? 'reviewFocusMonth' : 'openFocusMonth',
     }),
-    reason: 'nextEligibleMonthAfterCompletedFocus',
+    reason: isComplete ? 'activeFocusComplete' : 'noSavedChallengeInActiveFocus',
   })
 }
