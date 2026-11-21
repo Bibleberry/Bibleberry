@@ -2011,9 +2011,9 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
           origin={detail.origin}
           returnLabel={returnLabel}
           onReturn={exitReleasedChallenge}
-          // Builds with gateway-backed reader surfaces authorize external entries through the
-          // release gateway, as forged `?origin=month` links used to; never via direct reads.
-          requireGatewayAuthorization={externalEntry && (monthScreenEnabled || hubContinueEnabled)}
+          // Every external entry is authorized by the release gateway (server clock), in every
+          // build configuration; never by direct published-Sanity catalog reads (R06 §5.3).
+          requireGatewayAuthorization={externalEntry}
         />
       )}
     </Suspense>
