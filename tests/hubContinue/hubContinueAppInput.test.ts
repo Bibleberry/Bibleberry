@@ -129,8 +129,8 @@ describe('createHubContinueAppInput', () => {
     assert.equal(input.referenceCurrentYearMonth, '2026-11')
     const result = deriveHubContinueSuggestion(input)
     assert.equal(result.status, 'suggestion')
-    assert.equal(result.suggestion.challengeId, cmsId('oct-1'))
-    assert.equal(result.suggestion.origin.kind, 'hub')
+    assert.equal(result.suggestion.kind, 'openFocusMonth')
+    assert.equal(result.suggestion.yearMonth, '2026-10')
   })
 
   it('fails closed until local stores and all authorized providers are ready', () => {
@@ -159,21 +159,22 @@ describe('createHubContinueAppInput', () => {
 
   it('requires matching month responses and consistent authoritative gateway context', () => {
     const sources = makeSources()
-    const wrongMonth = {
-      ...sources.monthDetailsByYearMonth!.get('2026-10')!,
-      month: { ...makeMonthDetail([makeSlot(1, 'oct-1')]), monthId: '2026-09' },
-    } as MonthDetailResult
-
-    assert.equal(
-      createHubContinueAppInput({
+    const focusedResult = sources.monthDetailsByYearMonth!.get('2026-10')!
+    assert.equal(focusedResult.status, 'ready')
+    const invalidResults = [
+      { ...focusedResult, month: { ...focusedResult.month, monthId: '2026-09' } },
+      { ...focusedResult, serverContext: { ...focusedResult.serverContext, authorizedLocalDate: '2026-11-31' } },
+      { ...focusedResult, serverContext: { ...focusedResult.serverContext, effectiveTimeZone: '' } },
+    ]
+    for (const result of invalidResults) {
+      assert.equal(createHubContinueAppInput({
         ...sources,
-        monthDetailsByYearMonth: new Map([['2026-10', wrongMonth]]),
-      }),
-      null,
-    )
+        monthDetailsByYearMonth: new Map([['2026-10', result]]),
+      }), null)
+    }
   })
 
-  it('requires exact authorized local date and timezone across all focused and Shelf month details', () => {
+  it('uses only the focus authorization even if another Shelf month is unavailable', () => {
     const sources = makeSources()
     const shelfState: ShelfState = {
       ...sources.shelf!.state,
@@ -204,27 +205,23 @@ describe('createHubContinueAppInput', () => {
     assert.ok(matchingContext)
     assert.equal(matchingContext.referenceCurrentYearMonth, '2026-11')
 
-    const staleSameMonthContext = createHubContinueAppInput({
+    const unrelatedFailure = createHubContinueAppInput({
       ...sources,
       shelf: { ...sources.shelf!, state: shelfState },
       monthDetailsByYearMonth: new Map([
         ['2026-10', octoberResult],
         [
           '2026-09',
-          {
-            ...septemberResult,
-            serverContext: {
-              authorizedLocalDate: '2026-11-01',
-              effectiveTimeZone: 'America/New_York',
-            },
-          },
+          { status: 'requestError', message: 'offline', source: 'gateway' },
         ],
       ]),
     })
-    assert.equal(staleSameMonthContext, null)
+    assert.ok(unrelatedFailure)
+    assert.equal(unrelatedFailure.referenceCurrentYearMonth, '2026-11')
+    assert.equal(deriveHubContinueSuggestion(unrelatedFailure).suggestion?.yearMonth, '2026-10')
   })
 
-  it('does not turn a stale or unauthorized catalog slot into a suggestion', () => {
+  it('does not turn a stale catalog slot into a Challenge suggestion', () => {
     const sources = makeSources({
       releasedCatalog: {
         status: 'ready',
@@ -236,8 +233,7 @@ describe('createHubContinueAppInput', () => {
 
     assert.ok(input)
     const result = deriveHubContinueSuggestion(input)
-    assert.equal(result.status, 'none')
-    assert.equal(result.suggestion, null)
+    assert.equal(result.suggestion?.kind, 'openFocusMonth')
   })
 
   it('preserves deliberate focus instead of using incidental Library activity', () => {
@@ -262,39 +258,9 @@ describe('createHubContinueAppInput', () => {
     assert.equal(result.suggestion.formalFocusMonth, yearMonth('2026-10'))
   })
 
-  it('rejects mismatched timezones across required months and requires non-shelf activeFocusMonth detail', () => {
+  it('requires authorized detail for an off-Shelf focus and never substitutes another month', () => {
     const sources = makeSources()
     const octoberResult = sources.monthDetailsByYearMonth!.get('2026-10')!
-    const septemberResult: MonthDetailResult = {
-      status: 'ready',
-      month: makeMonthDetail([makeSlot(1, 'sep-1', '09')], '2026-09'),
-      serverContext: {
-        authorizedLocalDate: '2026-11-18',
-        effectiveTimeZone: 'America/Los_Angeles',
-      },
-      source: 'gateway',
-    }
-
-    const shelfWithTwoMonths: ShelfState = {
-      months: [
-        { yearMonth: yearMonth('2026-10'), admissionKind: 'readerSelected', isProtected: true },
-        { yearMonth: yearMonth('2026-09'), admissionKind: 'readerSelected', isProtected: true },
-      ],
-      activeFocusMonth: yearMonth('2026-10'),
-    }
-
-    // Mismatched timezone across required months fails closed
-    assert.equal(
-      createHubContinueAppInput({
-        ...sources,
-        shelf: { ...sources.shelf!, state: shelfWithTwoMonths },
-        monthDetailsByYearMonth: new Map([
-          ['2026-10', octoberResult],
-          ['2026-09', septemberResult],
-        ]),
-      }),
-      null,
-    )
 
     // Missing detail for an activeFocusMonth outside shelf.months fails closed
     assert.equal(
@@ -314,13 +280,13 @@ describe('createHubContinueAppInput', () => {
       null,
     )
 
-    // Empty gateway catalog passes adapter cleanly but yields zero suggestions
+    // An empty released catalog permits the authorized Month Screen only.
     const emptyCatalogInput = createHubContinueAppInput({
       ...sources,
       releasedCatalog: { status: 'empty', source: 'gateway' },
     })
     assert.ok(emptyCatalogInput)
-    assert.equal(deriveHubContinueSuggestion(emptyCatalogInput).status, 'none')
+    assert.equal(deriveHubContinueSuggestion(emptyCatalogInput).suggestion?.kind, 'openFocusMonth')
 
     // Validation error catalog fails closed
     assert.equal(

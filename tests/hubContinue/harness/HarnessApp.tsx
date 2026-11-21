@@ -89,7 +89,7 @@ function buildScenarioInput(scenario: string): HubContinueInput {
       }
     }
 
-    case 'cross-month': {
+    case 'completed-focus': {
       const shelfState: ShelfState = {
         months: [
           { yearMonth: ym('2026-09'), admissionKind: 'readerSelected', isProtected: true },
