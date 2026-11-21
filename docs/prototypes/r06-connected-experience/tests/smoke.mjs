@@ -427,8 +427,158 @@ async function main() {
       assert.match(await page.getByTestId('g08-merge-confirmation').innerText(), /existing account’s Shelf stayed in place/i);
     });
 
-    // 10. Responsive Reflow (320px, 375px, 768x1024, 1024x768, 150% text) + Representative Screenshots
-    await runTest('10. Responsive reflow (320px, 375px, tablet portrait/landscape, large text) & screenshot capture', async (page) => {
+    // 10. Account Merge Shelf Precedence Regression Matrix (P1)
+    await runTest('10. Account merge Shelf precedence (guest empty, equal, conflicting, new account)', async (page) => {
+      // Case A: Guest Shelf empty + existing account Shelf nonempty -> adopts account Shelf, NO conflict sentence!
+      await page.goto(`${baseUrl}/index.html?scenario=edge-empty-guest&reset=1`);
+      await page.getByTestId('nav-tab-more').click();
+      await page.getByTestId('more-account-btn').click();
+      await page.getByTestId('more-signin-merge-btn').click();
+      await page.getByTestId('merge-mode-conflict').check();
+      await page.getByTestId('run-merge-btn').click();
+      await page.getByTestId('g08-merge-confirmation').waitFor();
+      const emptyGuestMsg = await page.getByTestId('g08-merge-confirmation').innerText();
+      assert.doesNotMatch(emptyGuestMsg, /existing account’s Shelf stayed in place/i, 'Empty guest Shelf must not trigger false conflict notice');
+      const shelfAfterEmpty = await page.evaluate(() => window.R06Proto.State.getState().shelf);
+      assert.deepEqual(
+        shelfAfterEmpty.months.map((m) => m.yearMonth).sort(),
+        ['2026-07', '2026-08'],
+        'Existing account Shelf must be adopted even when guest Shelf is empty'
+      );
+      assert.equal(shelfAfterEmpty.activeFocusMonth, '2026-08');
+
+      // Case B: Guest Shelf equal to existing account Shelf -> keeps account Shelf, NO false conflict sentence!
+      await page.goto(`${baseUrl}/index.html?scenario=edge-empty-guest&reset=1`);
+      await page.evaluate(() => {
+        const st = window.R06Proto.State.getState();
+        st.shelf = {
+          months: [
+            { yearMonth: '2026-08', admissionKind: 'readerSelected', protected: true, admittedOn: '2026-09-05' },
+            { yearMonth: '2026-07', admissionKind: 'readerSelected', protected: true, admittedOn: '2026-08-12' }
+          ],
+          activeFocusMonth: '2026-08'
+        };
+        window.R06Proto.State.notify('Seeded matching Shelf');
+      });
+      await page.getByTestId('nav-tab-more').click();
+      await page.getByTestId('more-account-btn').click();
+      await page.getByTestId('more-signin-merge-btn').click();
+      await page.getByTestId('merge-mode-conflict').check();
+      await page.getByTestId('run-merge-btn').click();
+      await page.getByTestId('g08-merge-confirmation').waitFor();
+      const equalMsg = await page.getByTestId('g08-merge-confirmation').innerText();
+      assert.doesNotMatch(equalMsg, /existing account’s Shelf stayed in place/i, 'Equal Shelves must not trigger false conflict notice');
+
+      // Case C: Guest Shelf genuinely differs ([2026-10]) -> existing account Shelf wins WITH G08 conflict sentence!
+      await page.goto(`${baseUrl}/index.html?scenario=g09-8-accounts-merge&reset=1`);
+      await page.getByTestId('nav-tab-more').click();
+      await page.getByTestId('more-account-btn').click();
+      await page.getByTestId('more-signin-merge-btn').click();
+      await page.getByTestId('merge-mode-conflict').check();
+      await page.getByTestId('run-merge-btn').click();
+      await page.getByTestId('g08-merge-confirmation').waitFor();
+      const conflictMsg = await page.getByTestId('g08-merge-confirmation').innerText();
+      assert.match(conflictMsg, /existing account’s Shelf stayed in place/i, 'Genuine Shelf conflict must show G08 explanation');
+      const shelfAfterConflict = await page.evaluate(() => window.R06Proto.State.getState().shelf);
+      assert.deepEqual(shelfAfterConflict.months.map((m) => m.yearMonth).sort(), ['2026-07', '2026-08']);
+      assert.equal(shelfAfterConflict.activeFocusMonth, '2026-08');
+
+      // Case D: New account creation remains distinct -> preserves guest Shelf ([2026-10]), NO conflict notice!
+      await page.goto(`${baseUrl}/index.html?scenario=g09-8-accounts-merge&reset=1`);
+      await page.getByTestId('nav-tab-more').click();
+      await page.getByTestId('more-account-btn').click();
+      await page.getByTestId('more-signin-merge-btn').click();
+      await page.getByTestId('merge-mode-new').check();
+      await page.getByTestId('run-merge-btn').click();
+      await page.getByTestId('g08-merge-confirmation').waitFor();
+      const newAcctMsg = await page.getByTestId('g08-merge-confirmation').innerText();
+      assert.doesNotMatch(newAcctMsg, /existing account’s Shelf stayed in place/i, 'New account must not show Shelf conflict notice');
+      const shelfAfterNew = await page.evaluate(() => window.R06Proto.State.getState().shelf);
+      assert.deepEqual(shelfAfterNew.months.map((m) => m.yearMonth), ['2026-10']);
+      assert.equal(shelfAfterNew.activeFocusMonth, '2026-10');
+    });
+
+    // 11. Keyboard-Only Navigation, Focus Preservation & Modal Containment (P1)
+    await runTest('11. Keyboard-only focus preservation, tutorial stepping & modal trap/inert/Escape restoration', async (page) => {
+      // A. Ordinary control keyboard activation keeps focus attached (never detaches to body)
+      await page.goto(`${baseUrl}/index.html?scenario=g09-5-library-shelf&reset=1`);
+      await page.getByTestId('shelf-keep-2026-10').focus();
+      await page.keyboard.press('Enter');
+      const afterKeepId = await page.evaluate(() => document.activeElement?.getAttribute('data-testid') || document.activeElement?.tagName);
+      assert.equal(afterKeepId, 'shelf-open-2026-10', 'Focus must move cleanly to card Open Month after Keep on Shelf disappears');
+
+      await page.getByTestId('shelf-focus-2026-10').focus();
+      await page.keyboard.press('Enter');
+      const afterFocusId = await page.evaluate(() => document.activeElement?.getAttribute('data-testid'));
+      assert.equal(afterFocusId, 'shelf-clear-focus-2026-10', 'Focus must follow Set as Active Focus -> Clear Focus');
+
+      // B. Modal containment: inert background, Tab/Shift+Tab focus trap, Escape + trigger focus restoration
+      await page.getByTestId('shelf-putaway-2026-10').focus();
+      await page.keyboard.press('Enter');
+      await page.getByTestId('active-modal').waitFor();
+
+      const bgInert = await page.evaluate(() => ({
+        wbInert: document.getElementById('workbench-root')?.hasAttribute('inert'),
+        vpInert: document.querySelector('.app-viewport')?.hasAttribute('inert'),
+        vpHidden: document.querySelector('.app-viewport')?.getAttribute('aria-hidden'),
+        inModal: !!document.activeElement?.closest('.modal-panel')
+      }));
+      assert.equal(bgInert.wbInert, true, 'Workbench must be inert while modal is open');
+      assert.equal(bgInert.vpInert, true, 'Background viewport must be inert while modal is open');
+      assert.equal(bgInert.vpHidden, 'true', 'Background viewport must be aria-hidden while modal is open');
+      assert.equal(bgInert.inModal, true, 'Initial modal focus must be inside .modal-panel');
+
+      // Tab across more elements than exist in modal -> must wrap and never escape .modal-panel
+      for (let i = 0; i < 8; i++) {
+        await page.keyboard.press('Tab');
+        const stillInside = await page.evaluate(() => !!document.activeElement?.closest('.modal-panel'));
+        assert.equal(stillInside, true, `Tab press ${i + 1} escaped modal container`);
+      }
+      // Shift+Tab must also stay trapped inside .modal-panel
+      for (let i = 0; i < 5; i++) {
+        await page.keyboard.press('Shift+Tab');
+        const stillInside = await page.evaluate(() => !!document.activeElement?.closest('.modal-panel'));
+        assert.equal(stillInside, true, `Shift+Tab press ${i + 1} escaped modal container`);
+      }
+
+      // Escape closes modal, clears inert, and restores focus to triggering button!
+      await page.keyboard.press('Escape');
+      assert.equal(await page.getByTestId('active-modal').count(), 0);
+      const afterEscape = await page.evaluate(() => ({
+        vpInert: document.querySelector('.app-viewport')?.hasAttribute('inert'),
+        activeTestId: document.activeElement?.getAttribute('data-testid')
+      }));
+      assert.equal(afterEscape.vpInert, false, 'Inert must be cleared when modal closes');
+      assert.equal(afterEscape.activeTestId, 'shelf-putaway-2026-10', 'Focus must restore to modal trigger on Escape');
+
+      // C. Challenge Reader keyboard stepping: Next -> Next -> Finish keeps focus cleanly attached
+      await page.goto(`${baseUrl}/index.html?scenario=g09-6-earned-collections&reset=1`);
+      await page.getByTestId('today-primary-cta').focus();
+      await page.keyboard.press('Enter');
+      await page.getByTestId('reader-next-btn').focus();
+      await page.keyboard.press('Enter');
+      assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('data-testid')), 'reader-next-btn');
+      await page.keyboard.press('Enter');
+      assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('data-testid')), 'reader-finish-btn');
+
+      // D. Guided App Tutorial keyboard Next/Back stepping & Escape restoration to More trigger
+      await page.goto(`${baseUrl}/index.html?scenario=g09-7-news-preferences&reset=1`);
+      await page.getByTestId('more-app-tutorial-btn').focus();
+      await page.keyboard.press('Enter');
+      await page.getByTestId('app-tutorial-overlay').waitFor();
+      assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('data-testid')), 'tutorial-next-btn');
+      await page.keyboard.press('Enter'); // Step 2
+      assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('data-testid')), 'tutorial-next-btn');
+      await page.getByTestId('tutorial-prev-btn').focus();
+      await page.keyboard.press('Enter'); // Back to Step 1 (prev becomes disabled -> focus moves cleanly to tutorial-next-btn!)
+      assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('data-testid')), 'tutorial-next-btn');
+      await page.keyboard.press('Escape'); // Returns to More & restores focus to more-app-tutorial-btn
+      assert.equal(await page.getByTestId('app-tutorial-overlay').count(), 0);
+      assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('data-testid')), 'more-app-tutorial-btn');
+    });
+
+    // 12. Responsive Reflow (320px, 375px, Tablet, True 200% Text/Zoom Operability & Non-Clipping) + Reviewer-Free Screenshots
+    await runTest('12. Responsive reflow (320px, 375px, tablet, 200% text & zoom operability/non-clipping) & screenshots', async (page) => {
       if (CAPTURE && !fs.existsSync(SCREENSHOT_DIR)) {
         fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
       }
@@ -441,15 +591,28 @@ async function main() {
         assert.ok(metrics.scrollW <= metrics.clientW + 2, `Horizontal overflow at ${label}: scrollWidth=${metrics.scrollW} > clientWidth=${metrics.clientW}`);
       };
 
-      // 320px narrow phone — Today
+      const checkControlUnclippedAndOperable = async (testId, label) => {
+        const loc = page.getByTestId(testId);
+        await loc.scrollIntoViewIfNeeded();
+        assert.equal(await loc.isVisible(), true, `${label} (${testId}) must be visible`);
+        const box = await loc.boundingBox();
+        const vp = page.viewportSize();
+        assert.ok(box && box.width >= 44 && box.height >= 44, `${label} (${testId}) tap target too small: ${JSON.stringify(box)}`);
+        assert.ok(box.x >= -1 && box.x + box.width <= vp.width + 2, `${label} (${testId}) clipped horizontally: box=${JSON.stringify(box)}, vp=${vp.width}`);
+        const textClipped = await loc.evaluate((el) => el.scrollWidth > el.clientWidth + 2);
+        assert.equal(textClipped, false, `${label} (${testId}) text clipped inside control`);
+      };
+
+      // 320px narrow phone — Today (reviewer-free capture)
       await page.setViewportSize({ width: 320, height: 640 });
-      await page.goto(`${baseUrl}/index.html?scenario=g09-6-earned-collections`);
+      await page.goto(`${baseUrl}/index.html?scenario=g09-6-earned-collections&reset=1&workbench=hidden`);
       await checkNoOverflow('320px Today');
+      await checkControlUnclippedAndOperable('today-primary-cta', '320px Today CTA');
       if (CAPTURE) await page.screenshot({ path: path.join(SCREENSHOT_DIR, '01-phone-320-today.png'), fullPage: false });
 
-      // 375px phone — Month Screen & Challenge Reader
+      // 375px phone — Month Screen & Challenge Reader (reviewer-free captures)
       await page.setViewportSize({ width: 375, height: 812 });
-      await page.goto(`${baseUrl}/index.html?scenario=g09-6-earned-collections`);
+      await page.goto(`${baseUrl}/index.html?scenario=g09-6-earned-collections&reset=1&workbench=hidden`);
       await page.getByTestId('today-current-month-link').click();
       await page.locator('.week-panel').first().waitFor();
       await checkNoOverflow('375px Month Screen');
@@ -462,13 +625,13 @@ async function main() {
       if (CAPTURE) await page.screenshot({ path: path.join(SCREENSHOT_DIR, '03-phone-375-challenge-reader.png'), fullPage: false });
 
       // 375px phone — Library & Shelf
-      await page.goto(`${baseUrl}/index.html?scenario=g09-5-library-shelf`);
+      await page.goto(`${baseUrl}/index.html?scenario=g09-5-library-shelf&reset=1&workbench=hidden`);
       await page.getByTestId('library-shelf-section').waitFor();
       await checkNoOverflow('375px Library Shelf');
       if (CAPTURE) await page.screenshot({ path: path.join(SCREENSHOT_DIR, '04-phone-375-library-shelf.png'), fullPage: false });
 
-      // 375px phone — Field Notebook (Collections) & Full Single-Scroll Earned Card
-      await page.goto(`${baseUrl}/index.html?scenario=g09-6-earned-collections`);
+      // 375px phone — Field Notebook & Full Single-Scroll Earned Card
+      await page.goto(`${baseUrl}/index.html?scenario=g09-6-earned-collections&reset=1&workbench=hidden`);
       await page.getByTestId('nav-tab-collections').click();
       await page.getByTestId('open-field-notebook-btn').click();
       await page.getByTestId('lifetime-status-card').waitFor();
@@ -484,24 +647,57 @@ async function main() {
 
       // 768x1024 Tablet Portrait — Today + Continue Your Study
       await page.setViewportSize({ width: 768, height: 1024 });
-      await page.goto(`${baseUrl}/index.html?scenario=g09-4-historical-continuity`);
+      await page.goto(`${baseUrl}/index.html?scenario=g09-4-historical-continuity&reset=1&workbench=hidden`);
       await page.getByTestId('today-continue-study').waitFor();
       await checkNoOverflow('768x1024 Tablet Portrait Today');
       if (CAPTURE) await page.screenshot({ path: path.join(SCREENSHOT_DIR, '06-tablet-portrait-today.png'), fullPage: false });
 
       // 1024x768 Tablet Landscape — Persistent Left Rail + Centered Vertical Composition (§1.2)
       await page.setViewportSize({ width: 1024, height: 768 });
-      await page.goto(`${baseUrl}/index.html?scenario=g09-7-news-preferences`);
+      await page.goto(`${baseUrl}/index.html?scenario=g09-7-news-preferences&reset=1&workbench=hidden`);
       await page.getByTestId('more-featured-news').waitFor();
       await checkNoOverflow('1024x768 Tablet Landscape More');
       if (CAPTURE) await page.screenshot({ path: path.join(SCREENSHOT_DIR, '07-tablet-landscape-more.png'), fullPage: false });
 
-      // 375px Large Text (150% scale) Reflow check
+      // True 200% Text Scaling (font-size: 200% / 32px root) on 375x812 phone: verify reflow, non-clipping & real operability!
       await page.setViewportSize({ width: 375, height: 812 });
-      await page.goto(`${baseUrl}/index.html?scenario=g09-6-earned-collections`);
-      await page.evaluate(() => window.R06Proto.State.setTextScale('xlarge'));
-      await checkNoOverflow('375px Large Text 150%');
+      await page.goto(`${baseUrl}/index.html?scenario=g09-6-earned-collections&reset=1&workbench=hidden`);
+      await page.evaluate(() => window.R06Proto.State.setTextScale('200'));
+      const rootPx = await page.evaluate(() => parseFloat(window.getComputedStyle(document.documentElement).fontSize));
+      assert.ok(rootPx >= 31.5, `Expected 200% root font-size (~32px), got ${rootPx}px`);
+      await checkNoOverflow('375px 200% Text Today');
+      await checkControlUnclippedAndOperable('today-primary-cta', '200% Today CTA');
+      await checkControlUnclippedAndOperable('nav-tab-today', '200% Nav Today');
+      await checkControlUnclippedAndOperable('nav-tab-library', '200% Nav Library');
+      await checkControlUnclippedAndOperable('nav-tab-collections', '200% Nav Collections');
+      await checkControlUnclippedAndOperable('nav-tab-more', '200% Nav More');
       if (CAPTURE) await page.screenshot({ path: path.join(SCREENSHOT_DIR, '08-phone-375-large-text.png'), fullPage: false });
+
+      // Verify end-to-end operability at 200% text: open Challenge -> Next -> Next -> Finish via real clicks
+      await page.getByTestId('today-primary-cta').click();
+      await checkNoOverflow('375px 200% Text Challenge Reader');
+      await checkControlUnclippedAndOperable('reader-exit-btn', '200% Reader Exit');
+      await checkControlUnclippedAndOperable('reader-next-btn', '200% Reader Next');
+      await page.getByTestId('reader-next-btn').click();
+      await page.getByTestId('reader-next-btn').click();
+      await checkControlUnclippedAndOperable('reader-finish-btn', '200% Reader Finish');
+      await page.getByTestId('reader-finish-btn').click();
+      await page.getByTestId('today-primary-cta').waitFor();
+
+      // Verify Library & Shelf + More operability at 200% text
+      await page.getByTestId('nav-tab-library').click();
+      await checkNoOverflow('375px 200% Text Library');
+      await checkControlUnclippedAndOperable('library-browse-all-btn', '200% Library Browse All');
+      await page.getByTestId('nav-tab-more').click();
+      await checkNoOverflow('375px 200% Text More');
+      await checkControlUnclippedAndOperable('more-appearance-btn', '200% More Appearance');
+
+      // 200% Browser Zoom equivalence (desktop 1280px @ 200% = 640px CSS viewport; narrow 640px @ 200% = 320px CSS viewport)
+      await page.setViewportSize({ width: 320, height: 568 });
+      await page.goto(`${baseUrl}/index.html?scenario=g09-5-library-shelf&reset=1&workbench=hidden`);
+      await checkNoOverflow('320px (200% zoomed 640px) Library Shelf');
+      await checkControlUnclippedAndOperable('shelf-open-2026-09', '320px Shelf Open Month');
+      await checkControlUnclippedAndOperable('nav-tab-collections', '320px Nav Collections');
     });
 
     console.log(`\nAll ${results.length}/${results.length} smoke checks PASSED.${CAPTURE ? ' Screenshots saved to screenshots/.' : ''}\n`);

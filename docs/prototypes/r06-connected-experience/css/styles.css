@@ -57,6 +57,14 @@ html, body {
   outline-offset: 2px;
 }
 
+#main-content:focus {
+  outline: none;
+}
+
+.modal-panel:focus {
+  outline: none;
+}
+
 button, input, select {
   font: inherit;
   color: inherit;
@@ -623,8 +631,8 @@ h1, h2, .serif-heading {
 }
 
 .btn--sm {
-  min-height: 2.45rem;
-  padding: 0.45rem 0.8rem;
+  min-height: var(--tap-min);
+  padding: 0.45rem 0.85rem;
   font-size: 0.8125rem;
 }
 
@@ -719,8 +727,8 @@ h1, h2, .serif-heading {
 }
 
 .filter-chip {
-  min-height: 2.5rem;
-  padding: 0.4rem 0.85rem;
+  min-height: var(--tap-min);
+  padding: 0.45rem 0.85rem;
   border-radius: var(--radius-pill);
   border: 1px solid var(--border-strong);
   background: var(--bg-surface);
@@ -1569,25 +1577,141 @@ h1, h2, .serif-heading {
   background: var(--bg-subtle);
 }
 
-/* Narrow phone refinements (320px) */
+/* Narrow phone refinements (320px) & 200% Large-Text / Zoom Reflow Hardening */
+.btn,
+.nav-row,
+.agenda-row,
+.filter-chip,
+.badge,
+.card-tile,
+.compact-month-link {
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+.search-row {
+  flex-wrap: wrap;
+}
+
+.search-row .text-input {
+  flex: 1 1 11rem;
+  min-width: 0;
+}
+
+.card-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 8.75rem), 1fr));
+}
+
+.month-pills-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 6rem), 1fr));
+}
+
+.agenda-date {
+  min-width: 2.5rem;
+  width: auto;
+}
+
+.reviewer-chrome[hidden] {
+  display: none;
+}
+
+@media (min-width: 840px) {
+  body[data-workbench-hidden="true"] .global-nav {
+    top: 0;
+    height: 100vh;
+  }
+}
+
 @media (max-width: 360px) {
   .app-main {
-    padding-inline: var(--space-3);
+    padding-inline: 12px;
   }
   .hero-teaching,
   .surface,
   .reader-card,
-  .intro-card {
-    padding: var(--space-4);
+  .intro-card,
+  .shelf-card,
+  .month-header-card {
+    padding: 14px;
   }
   .reader-controls {
     grid-template-columns: 1fr;
   }
   .agenda-row {
     gap: 0.6rem;
-    padding: 0.65rem 0.7rem;
+    padding: 10px 11px;
   }
   .card-grid {
-    grid-template-columns: repeat(auto-fill, minmax(7.4rem, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 7.4rem), 1fr));
+  }
+}
+
+/* 200% Text Scaling Reflow (WCAG 1.4.4 / 1.4.10) */
+html[data-text-scale="xlarge"] .reader-controls,
+html[data-text-scale="200"] .reader-controls {
+  grid-template-columns: 1fr;
+}
+
+html[data-text-scale="200"] .app-main {
+  padding: 16px 12px 156px;
+}
+
+html[data-text-scale="200"] .app-shell--focused .app-main {
+  padding-bottom: 32px;
+}
+
+html[data-text-scale="200"] .hero-teaching,
+html[data-text-scale="200"] .surface,
+html[data-text-scale="200"] .reader-card,
+html[data-text-scale="200"] .intro-card,
+html[data-text-scale="200"] .shelf-card,
+html[data-text-scale="200"] .month-header-card,
+html[data-text-scale="200"] .week-panel,
+html[data-text-scale="200"] .modal-panel,
+html[data-text-scale="200"] .tutorial-card {
+  padding: 14px;
+}
+
+html[data-text-scale="200"] .btn {
+  padding: 10px 14px;
+  min-height: 44px;
+}
+
+html[data-text-scale="200"] .btn--sm {
+  padding: 8px 12px;
+  min-height: 44px;
+}
+
+html[data-text-scale="200"] .agenda-row {
+  flex-wrap: wrap;
+  align-items: flex-start;
+  padding: 12px;
+}
+
+html[data-text-scale="200"] .tutorial-card {
+  bottom: 112px;
+  max-height: calc(100vh - 140px);
+  overflow-y: auto;
+}
+
+@media (max-width: 680px) {
+  html[data-text-scale="200"] .global-nav__list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px;
+    padding: 6px;
+  }
+  html[data-text-scale="200"] .global-nav__btn {
+    flex-direction: row;
+    justify-content: center;
+    min-height: 44px;
+    padding: 6px 8px;
+    gap: 6px;
+    font-size: 0.62rem;
+  }
+  html[data-text-scale="200"] .global-nav__icon-wrap {
+    width: auto;
+    height: auto;
+    flex-shrink: 0;
   }
 }

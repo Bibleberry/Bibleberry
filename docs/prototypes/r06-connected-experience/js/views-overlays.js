@@ -268,7 +268,7 @@ window.R06Proto.ViewsOverlays = (function () {
         '<p class="nav-row__desc">' + A.esc(step.body) + '</p>' +
         '<p class="card-tile__meta">Interface walkthrough only — never awards Scripture Cards or blocks reading. Replay anytime under More → App Tutorial.</p>' +
         '<div class="row-between">' +
-          '<button type="button" class="btn btn--secondary btn--sm" data-action="tutorial-prev"' + (isFirst ? ' disabled' : '') + '>Back</button>' +
+          '<button type="button" class="btn btn--secondary btn--sm" data-action="tutorial-prev"' + (isFirst ? ' disabled' : '') + ' data-testid="tutorial-prev-btn">Back</button>' +
           '<button type="button" class="btn btn--primary btn--sm" data-action="tutorial-next" data-testid="tutorial-next-btn">' + (isLast ? 'Finish Tour' : 'Next') + '</button>' +
         '</div>' +
       '</aside>'
@@ -380,8 +380,8 @@ window.R06Proto.ViewsOverlays = (function () {
         '<h2 id="modal-heading" class="serif-heading" style="font-size:1.35rem;">Sign in or create account (Simulated)</h2>' +
         '<p class="nav-row__desc">Demonstrates approved G08 guest-to-account merge states locally. Choose a simulated outcome below to test verified success, Shelf conflict precedence, or failure/safe retry.</p>' +
         '<div class="stack-xs">' +
-          '<label class="radio-option"><input type="radio" name="mergeMode" value="new-account"' + (mode === 'new-account' ? ' checked' : '') + (isBusy ? ' disabled' : '') + ' data-change-action="set-merge-mode" /><span><strong>New account transfer (Clean)</strong><br/><span class="card-tile__meta">Transfers guest records cleanly; G08 confirmation without Shelf conflict sentence.</span></span></label>' +
-          '<label class="radio-option"><input type="radio" name="mergeMode" value="existing-conflict"' + (mode === 'existing-conflict' ? ' checked' : '') + (isBusy ? ' disabled' : '') + ' data-change-action="set-merge-mode" data-testid="merge-mode-conflict" /><span><strong>Existing account with real Shelf conflict (G08)</strong><br/><span class="card-tile__meta">Merges completions/Cards/Saved Scripture (earliest earned date wins); existing account Shelf takes precedence with concise G08 explanation.</span></span></label>' +
+          '<label class="radio-option"><input type="radio" name="mergeMode" value="new-account"' + (mode === 'new-account' ? ' checked' : '') + (isBusy ? ' disabled' : '') + ' data-change-action="set-merge-mode" data-testid="merge-mode-new" /><span><strong>New account transfer (Clean)</strong><br/><span class="card-tile__meta">Transfers guest records and current guest Shelf into a new account; G08 confirmation without Shelf conflict sentence.</span></span></label>' +
+          '<label class="radio-option"><input type="radio" name="mergeMode" value="existing-conflict"' + (mode === 'existing-conflict' || mode === 'existing-account' || mode === 'existing-clean' ? ' checked' : '') + (isBusy ? ' disabled' : '') + ' data-change-action="set-merge-mode" data-testid="merge-mode-conflict" /><span><strong>Sign in to existing account (G08 Shelf Precedence)</strong><br/><span class="card-tile__meta">Merges completions/Cards/Saved Scripture (earliest earned date wins) and always adopts the existing account’s Shelf (Aug &amp; Jul 2026); shows G08 Shelf-conflict sentence only if differing guest Shelf selections were displaced.</span></span></label>' +
           '<label class="radio-option"><input type="radio" name="mergeMode" value="partial-failure"' + (mode === 'partial-failure' ? ' checked' : '') + (isBusy ? ' disabled' : '') + ' data-change-action="set-merge-mode" data-testid="merge-mode-failure" /><span><strong>Partial merge failure + safe retry</strong><br/><span class="card-tile__meta">Never claims success before verified persistence; keeps local guest records intact for retry without duplicates.</span></span></label>' +
         '</div>';
 
@@ -416,7 +416,7 @@ window.R06Proto.ViewsOverlays = (function () {
 
     return (
       '<div class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modal-heading" data-testid="active-modal">' +
-        '<div class="modal-panel">' + inner + '</div>' +
+        '<div class="modal-panel" tabindex="-1">' + inner + '</div>' +
       '</div>'
     );
   }
@@ -515,6 +515,7 @@ window.R06Proto.ViewsOverlays = (function () {
           '<button type="button" class="reviewer-btn' + (state.appearance.textScale === 'default' ? ' reviewer-btn--active' : '') + '" data-action="set-text-scale" data-scale="default">Text 100%</button>' +
           '<button type="button" class="reviewer-btn' + (state.appearance.textScale === 'large' ? ' reviewer-btn--active' : '') + '" data-action="set-text-scale" data-scale="large">Text 120%</button>' +
           '<button type="button" class="reviewer-btn' + (state.appearance.textScale === 'xlarge' ? ' reviewer-btn--active' : '') + '" data-action="set-text-scale" data-scale="xlarge">Text 150%</button>' +
+          '<button type="button" class="reviewer-btn' + (state.appearance.textScale === '200' ? ' reviewer-btn--active' : '') + '" data-action="set-text-scale" data-scale="200" data-testid="workbench-text-200">Text 200%</button>' +
           '<button type="button" class="reviewer-btn" aria-pressed="' + (state.appearance.reducedMotion ? 'true' : 'false') + '" data-action="toggle-reduced-motion-btn">Reduced Motion</button>' +
           '<button type="button" class="reviewer-btn" data-action="open-account-merge" data-testid="workbench-merge-btn">Simulate Account Merge (G08)</button>' +
         '</div>' +

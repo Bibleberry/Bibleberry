@@ -1292,11 +1292,15 @@ window.R06Proto.State = (function () {
     var hadGuestCompletions = getDistinctCompletedCount() > 0;
     var hadGuestCards = Object.keys(state.earnedAwards).length > 0;
     var hadGuestSaved = state.savedScriptures.length > 0;
+    var hadGuestShelf = state.shelf.months.length > 0;
     var guestShelfYms = state.shelf.months.map(function (m) { return m.yearMonth; }).sort().join(',');
     var acctShelfYms = acct.shelf.months.map(function (m) { return m.yearMonth; }).sort().join(',');
+    var guestFocus = state.shelf.activeFocusMonth || null;
+    var acctFocus = acct.shelf.activeFocusMonth || null;
     var realShelfConflict = false;
+    var isExistingAccount = mode === 'existing-account' || mode === 'existing-clean' || mode === 'existing-conflict';
 
-    if (mode === 'existing-clean' || mode === 'existing-conflict') {
+    if (isExistingAccount) {
       // Merge completions idempotently
       acct.completedChallengeIds.forEach(function (id) {
         if (!isCompleted(id)) state.completedChallengeIds.push(id);
@@ -1318,17 +1322,19 @@ window.R06Proto.State = (function () {
         }
       });
 
-      if (mode === 'existing-conflict' && guestShelfYms !== acctShelfYms && state.shelf.months.length > 0) {
-        realShelfConflict = true;
-        // Existing account's Shelf wins without deleting guest completions/Cards/Saved Scripture (§9.3)
-        state.shelf = clone(acct.shelf);
-      }
+      // Existing-account Shelf precedence ALWAYS applies on existing-account sign-in,
+      // even when the guest Shelf is empty (§9.3, G08).
+      // Show the G08 conflict sentence ONLY when actual differing guest Shelf selections were displaced.
+      var shelvesEqual = guestShelfYms === acctShelfYms && guestFocus === acctFocus;
+      realShelfConflict = hadGuestShelf && !shelvesEqual;
+      state.shelf = clone(acct.shelf);
     }
 
     var preservedCategories = [];
     if (hadGuestCompletions) preservedCategories.push('completed Challenges');
     if (hadGuestCards) preservedCategories.push('earned Scripture Cards and earned dates');
     if (hadGuestSaved) preservedCategories.push('Saved Scripture passages');
+    if (!isExistingAccount && hadGuestShelf) preservedCategories.push('Shelf selections');
     if (preservedCategories.length === 0) preservedCategories.push('preferences');
 
     state.account.signedIn = true;

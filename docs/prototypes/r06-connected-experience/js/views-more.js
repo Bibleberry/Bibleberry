@@ -306,8 +306,8 @@ window.R06Proto.ViewsMore = (function () {
           '<div class="stack-xs">' +
             '<span class="field-label">Text Size</span>' +
             '<div class="filter-bar">' +
-              [{ id: 'default', label: 'Default (100%)' }, { id: 'large', label: 'Large (120%)' }, { id: 'xlarge', label: 'Extra Large (150%)' }].map(function (t) {
-                return '<button type="button" class="filter-chip" aria-pressed="' + (ap.textScale === t.id ? 'true' : 'false') + '" data-action="set-text-scale" data-scale="' + t.id + '">' + t.label + '</button>';
+              [{ id: 'default', label: 'Default (100%)' }, { id: 'large', label: 'Large (120%)' }, { id: 'xlarge', label: 'Extra Large (150%)' }, { id: '200', label: 'Maximum (200%)' }].map(function (t) {
+                return '<button type="button" class="filter-chip" aria-pressed="' + (ap.textScale === t.id ? 'true' : 'false') + '" data-action="set-text-scale" data-scale="' + t.id + '" data-testid="appearance-text-' + t.id + '">' + t.label + '</button>';
               }).join('') +
             '</div>' +
           '</div>' +

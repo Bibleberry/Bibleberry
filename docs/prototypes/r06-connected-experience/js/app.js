@@ -16,9 +16,123 @@ window.R06Proto.App = (function () {
   var VO = window.R06Proto.ViewsOverlays;
 
   var workbenchOpen = false;
+  var workbenchHidden = false;
   var pendingScrollRestore = null;
   var pendingMonthScrollTarget = null;
-  var lastFocusedSelector = null;
+  var modalTriggerSelector = null;
+  var tutorialTriggerSelector = null;
+  var prevModalKey = '';
+  var prevTutorialActive = false;
+  var prevViewKey = '';
+
+  var FOCUSABLE_SELECTOR = [
+    'button:not([disabled])',
+    '[href]',
+    'input:not([disabled]):not([type="hidden"])',
+    'select:not([disabled])',
+    'textarea:not([disabled])',
+    '[tabindex]:not([tabindex="-1"])'
+  ].join(', ');
+
+  function cssAttrEscape(val) {
+    return String(val || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  }
+
+  function buildFocusSelector(el) {
+    if (!el || el === document.body || el === document.documentElement || !el.getAttribute) return null;
+    var testId = el.getAttribute('data-testid');
+    if (testId) return '[data-testid="' + cssAttrEscape(testId) + '"]';
+    if (el.id) return '#' + cssAttrEscape(el.id);
+    var inputAction = el.getAttribute('data-input-action');
+    if (inputAction) return '[data-input-action="' + cssAttrEscape(inputAction) + '"]';
+    if (el.tagName === 'INPUT' && (el.type === 'radio' || el.type === 'checkbox')) {
+      var name = el.getAttribute('name');
+      var val = el.getAttribute('value');
+      if (name && val) return 'input[name="' + cssAttrEscape(name) + '"][value="' + cssAttrEscape(val) + '"]';
+      var chAct = el.getAttribute('data-change-action');
+      if (chAct) return '[data-change-action="' + cssAttrEscape(chAct) + '"]';
+    }
+    var action = el.getAttribute('data-action');
+    if (action) {
+      var parts = ['[data-action="' + cssAttrEscape(action) + '"]'];
+      ['data-tab', 'data-year-month', 'data-challenge-id', 'data-foundation-id', 'data-card-id', 'data-article-id', 'data-category', 'data-sub', 'data-palette-id', 'data-contrast', 'data-scale', 'data-year', 'data-mode', 'data-book', 'data-date', 'data-link-id', 'data-load-state'].forEach(function (attr) {
+        var v = el.getAttribute(attr);
+        if (v !== null) parts.push('[' + attr + '="' + cssAttrEscape(v) + '"]');
+      });
+      return parts.join('');
+    }
+    return null;
+  }
+
+  function captureFocusDescriptor(el) {
+    if (!el || el === document.body || el === document.documentElement || !el.getAttribute) return null;
+    var inputAction = el.getAttribute('data-input-action');
+    return {
+      selector: buildFocusSelector(el),
+      inputAction: inputAction,
+      selStart: inputAction && typeof el.selectionStart === 'number' ? el.selectionStart : null,
+      selEnd: inputAction && typeof el.selectionEnd === 'number' ? el.selectionEnd : null,
+      testId: el.getAttribute('data-testid') || '',
+      action: el.getAttribute('data-action') || '',
+      yearMonth: el.getAttribute('data-year-month') || '',
+      isInsideModal: !!(el.closest && el.closest('.modal-panel')),
+      isInsideTutorial: !!(el.closest && el.closest('.tutorial-card')),
+      isNavTab: el.getAttribute('data-action') === 'select-tab'
+    };
+  }
+
+  function getFocusableElements(container) {
+    if (!container) return [];
+    var nodes = Array.prototype.slice.call(container.querySelectorAll(FOCUSABLE_SELECTOR));
+    return nodes.filter(function (el) {
+      if (el.hasAttribute('hidden') || el.closest('[hidden]')) return false;
+      var style = window.getComputedStyle ? window.getComputedStyle(el) : null;
+      if (style && (style.display === 'none' || style.visibility === 'hidden')) return false;
+      return true;
+    });
+  }
+
+  function focusElementSafely(el) {
+    if (!el || typeof el.focus !== 'function' || el.disabled) return false;
+    try {
+      el.focus({ preventScroll: true });
+    } catch (e) {
+      el.focus();
+    }
+    return document.activeElement === el;
+  }
+
+  function setBackgroundInert(isInert) {
+    var wb = document.getElementById('workbench-root');
+    var vp = document.querySelector('.app-viewport');
+    [wb, vp].forEach(function (el) {
+      if (!el) return;
+      if (isInert) {
+        el.setAttribute('inert', '');
+        el.setAttribute('aria-hidden', 'true');
+      } else {
+        el.removeAttribute('inert');
+        el.removeAttribute('aria-hidden');
+      }
+    });
+  }
+
+  function getModalKey(state) {
+    if (!state.modal) return '';
+    return state.modal.type + ':' + (state.modal.step || '');
+  }
+
+  function getViewKey(state) {
+    var view = state.tabViews[state.activeTab] || {};
+    return [
+      state.activeOverlay || '',
+      state.activeTab || '',
+      view.view || '',
+      view.yearMonth || '',
+      view.cardId || '',
+      view.articleId || ''
+    ].join('|');
+  }
 
   var NAV_ITEMS = [
     { id: 'today', label: 'Today', icon: 'today', target: 'nav-today' },
@@ -170,18 +284,157 @@ window.R06Proto.App = (function () {
     mainEl.innerHTML = html;
   }
 
+  function restoreFocusAfterRender(state, focusDesc, extrasEl, prevModal, nextModal, prevTut, nextTut, prevView, nextView) {
+    // 1. Modal open: keep background inert and focus contained inside .modal-panel
+    if (nextModal) {
+      setBackgroundInert(true);
+      var panel = extrasEl ? extrasEl.querySelector('.modal-panel') : null;
+      if (!panel) return;
+      var focusables = getFocusableElements(panel);
+      if (nextModal !== prevModal) {
+        if (!prevModal && focusDesc && !focusDesc.isInsideModal && focusDesc.selector) {
+          modalTriggerSelector = focusDesc.selector;
+        }
+        if (focusables.length > 0) {
+          focusElementSafely(focusables[0]);
+        } else {
+          focusElementSafely(panel);
+        }
+        return;
+      }
+      // Same modal step re-rendered (e.g., radio selection or simulated share confirmation)
+      if (focusDesc && focusDesc.isInsideModal && focusDesc.selector) {
+        var sameInModal = panel.querySelector(focusDesc.selector);
+        if (sameInModal && focusElementSafely(sameInModal)) return;
+      }
+      if (focusables.length > 0) {
+        focusElementSafely(focusables[0]);
+      } else {
+        focusElementSafely(panel);
+      }
+      return;
+    }
+
+    // 2. Modal just closed: remove inert and restore focus to trigger (or #main-content if route changed)
+    if (prevModal && !nextModal) {
+      setBackgroundInert(false);
+      var triggerSel = modalTriggerSelector;
+      modalTriggerSelector = null;
+      if (nextView === prevView && triggerSel) {
+        var trig = document.querySelector(triggerSel);
+        if (trig && focusElementSafely(trig)) return;
+      }
+      focusElementSafely(document.getElementById('main-content'));
+      return;
+    }
+
+    setBackgroundInert(false);
+
+    // 3. Guided App Tutorial active: preserve keyboard focus across Next/Back steps
+    if (nextTut) {
+      var tutCard = extrasEl ? extrasEl.querySelector('.tutorial-card') : null;
+      if (!prevTut) {
+        if (focusDesc && !focusDesc.isInsideTutorial && focusDesc.selector) {
+          tutorialTriggerSelector = focusDesc.selector;
+        }
+        if (tutCard) {
+          var nextBtn = tutCard.querySelector('[data-testid="tutorial-next-btn"]');
+          if (nextBtn && focusElementSafely(nextBtn)) return;
+        }
+      } else if (tutCard && focusDesc && focusDesc.isInsideTutorial) {
+        if (focusDesc.selector) {
+          var sameTutBtn = tutCard.querySelector(focusDesc.selector);
+          if (sameTutBtn && !sameTutBtn.disabled && focusElementSafely(sameTutBtn)) return;
+        }
+        var fallbackTutBtn = tutCard.querySelector('[data-testid="tutorial-next-btn"]');
+        if (fallbackTutBtn && focusElementSafely(fallbackTutBtn)) return;
+      }
+      return;
+    }
+
+    // 4. Guided App Tutorial just closed: restore focus to replay trigger or #main-content
+    if (prevTut && !nextTut) {
+      var tutTrigSel = tutorialTriggerSelector;
+      tutorialTriggerSelector = null;
+      if (tutTrigSel) {
+        var tutTrig = document.querySelector(tutTrigSel);
+        if (tutTrig && focusElementSafely(tutTrig)) return;
+      }
+      focusElementSafely(document.getElementById('main-content'));
+      return;
+    }
+
+    // 5. Search / text input focus + caret restoration
+    if (focusDesc && focusDesc.inputAction) {
+      var nextInput = document.querySelector('[data-input-action="' + cssAttrEscape(focusDesc.inputAction) + '"]');
+      if (nextInput && focusElementSafely(nextInput)) {
+        if (typeof focusDesc.selStart === 'number') {
+          try { nextInput.setSelectionRange(focusDesc.selStart, focusDesc.selEnd); } catch (e) { /* ignore */ }
+        }
+        return;
+      }
+    }
+
+    // 6. Primary navigation tab focus preservation
+    if (focusDesc && focusDesc.isNavTab) {
+      var navBtn = document.querySelector('[data-testid="nav-tab-' + cssAttrEscape(state.activeTab) + '"]');
+      if (navBtn && focusElementSafely(navBtn)) return;
+    }
+
+    // 7. Same view/overlay re-render: restore exact focused control or its semantic successor
+    if (focusDesc && nextView === prevView) {
+      if (focusDesc.selector) {
+        var exact = document.querySelector(focusDesc.selector);
+        if (exact && !exact.disabled && focusElementSafely(exact)) return;
+      }
+      // Semantic fallback when activated control transforms or disables in-place
+      if (focusDesc.testId === 'reader-next-btn') {
+        var finBtn = document.querySelector('[data-testid="reader-finish-btn"]');
+        if (finBtn && focusElementSafely(finBtn)) return;
+      }
+      if (focusDesc.testId === 'reader-prev-btn' || focusDesc.testId === 'reader-start-beginning-btn') {
+        var nxtBtn = document.querySelector('[data-testid="reader-next-btn"]');
+        if (nxtBtn && focusElementSafely(nxtBtn)) return;
+      }
+      if (focusDesc.action === 'keep-on-shelf' && focusDesc.yearMonth) {
+        var openMo = document.querySelector('[data-testid="shelf-open-' + cssAttrEscape(focusDesc.yearMonth) + '"]');
+        if (openMo && focusElementSafely(openMo)) return;
+      }
+      if (focusDesc.action === 'set-active-focus' && focusDesc.yearMonth) {
+        var clrBtn = document.querySelector('[data-testid="shelf-clear-focus-' + cssAttrEscape(focusDesc.yearMonth) + '"]');
+        if (clrBtn && focusElementSafely(clrBtn)) return;
+      }
+      if (focusDesc.action === 'clear-active-focus') {
+        var firstShelfOpen = document.querySelector('.shelf-card [data-action="open-month"]');
+        if (firstShelfOpen && focusElementSafely(firstShelfOpen)) return;
+      }
+    }
+
+    // 8. Navigated to a new view or overlay: place focus cleanly on #main-content
+    if (nextView !== prevView && prevView !== '') {
+      focusElementSafely(document.getElementById('main-content'));
+    }
+  }
+
   function renderAll(state) {
-    // Capture active text input focus so search typing stays fluid
-    var activeEl = document.activeElement;
-    var activeInputAction = activeEl && activeEl.getAttribute ? activeEl.getAttribute('data-input-action') : null;
-    var selStart = activeInputAction ? activeEl.selectionStart : null;
-    var selEnd = activeInputAction ? activeEl.selectionEnd : null;
+    var focusDesc = captureFocusDescriptor(document.activeElement);
+    var nextModal = getModalKey(state);
+    var nextTut = !!(state.onboarding.tutorialActive && !state.activeOverlay);
+    var nextView = getViewKey(state);
 
     applyDocumentTokens(state);
 
     var wbEl = document.getElementById('workbench-root');
     if (wbEl) {
-      wbEl.innerHTML = VO.renderReviewerWorkbench(state, workbenchOpen);
+      if (workbenchHidden) {
+        wbEl.setAttribute('hidden', '');
+        document.body.setAttribute('data-workbench-hidden', 'true');
+        wbEl.innerHTML = '';
+      } else {
+        wbEl.removeAttribute('hidden');
+        document.body.removeAttribute('data-workbench-hidden');
+        wbEl.innerHTML = VO.renderReviewerWorkbench(state, workbenchOpen);
+      }
     }
 
     renderGlobalNav(state);
@@ -198,19 +451,10 @@ window.R06Proto.App = (function () {
       setTimeout(function () { srEl.textContent = state.statusMessage; }, 20);
     }
 
-    // Restore search input focus seamlessly
-    if (activeInputAction) {
-      var nextInput = document.querySelector('[data-input-action="' + activeInputAction + '"]');
-      if (nextInput) {
-        nextInput.focus();
-        if (typeof selStart === 'number') {
-          try { nextInput.setSelectionRange(selStart, selEnd); } catch (e) { /* ignore */ }
-        }
-      }
-    } else if (state.modal) {
-      var firstFocusable = extrasEl.querySelector('button, input, [tabindex]');
-      if (firstFocusable) firstFocusable.focus();
-    }
+    restoreFocusAfterRender(state, focusDesc, extrasEl, prevModalKey, nextModal, prevTutorialActive, nextTut, prevViewKey, nextView);
+    prevModalKey = nextModal;
+    prevTutorialActive = nextTut;
+    prevViewKey = nextView;
 
     // Handle scroll restoration or current-week anchor positioning (§4.1)
     if (pendingMonthScrollTarget) {
@@ -245,9 +489,15 @@ window.R06Proto.App = (function () {
     var action = btn.getAttribute('data-action');
     var state = S.getState();
 
-    // Remember trigger selector for modal focus restoration
-    if (btn.getAttribute('data-testid')) {
-      lastFocusedSelector = '[data-testid="' + btn.getAttribute('data-testid') + '"]';
+    // Capture trigger selector before opening a modal or tutorial (covers pointer & keyboard clicks)
+    var sel = buildFocusSelector(btn);
+    if (sel && !btn.closest('.modal-panel')) {
+      if (action === 'add-to-shelf' || action === 'put-away' || action === 'open-share-card' || action === 'open-account-merge' || action === 'open-foundation') {
+        modalTriggerSelector = sel;
+      }
+      if (action === 'replay-app-tutorial') {
+        tutorialTriggerSelector = sel;
+      }
     }
 
     switch (action) {
@@ -589,10 +839,6 @@ window.R06Proto.App = (function () {
         break;
       case 'close-modal':
         S.closeModal();
-        if (lastFocusedSelector) {
-          var prev = document.querySelector(lastFocusedSelector);
-          if (prev) prev.focus();
-        }
         break;
 
       /* --- Reviewer Workbench Controls --- */
@@ -686,14 +932,42 @@ window.R06Proto.App = (function () {
 
   function handleKeyDown(e) {
     var state = S.getState();
+
+    // Trap Tab / Shift+Tab strictly inside active modal panel
+    if (e.key === 'Tab' && state.modal) {
+      var panel = document.querySelector('#overlay-extras-root .modal-panel');
+      if (!panel) return;
+      var focusables = getFocusableElements(panel);
+      if (focusables.length === 0) {
+        e.preventDefault();
+        focusElementSafely(panel);
+        return;
+      }
+      var first = focusables[0];
+      var last = focusables[focusables.length - 1];
+      var active = document.activeElement;
+      if (e.shiftKey) {
+        if (active === first || !panel.contains(active)) {
+          e.preventDefault();
+          focusElementSafely(last);
+        }
+      } else if (active === last || !panel.contains(active)) {
+        e.preventDefault();
+        focusElementSafely(first);
+      }
+      return;
+    }
+
     if (e.key === 'Escape') {
       if (state.modal) {
-        S.closeModal();
-        if (lastFocusedSelector) {
-          var prev = document.querySelector(lastFocusedSelector);
-          if (prev) prev.focus();
+        var isBusyMerge = state.modal.type === 'account-merge' &&
+          (state.account.mergeStatus === 'authenticating' || state.account.mergeStatus === 'reconciling');
+        if (!isBusyMerge) {
+          e.preventDefault();
+          S.closeModal();
         }
       } else if (state.onboarding.tutorialActive) {
+        e.preventDefault();
         S.finishTutorial(true);
       }
     }
@@ -739,6 +1013,8 @@ window.R06Proto.App = (function () {
       }
       if (params.get('workbench') === 'open') {
         workbenchOpen = true;
+      } else if (params.get('workbench') === 'hidden') {
+        workbenchHidden = true;
       }
     } catch (e) {
       // Ignore query parse errors

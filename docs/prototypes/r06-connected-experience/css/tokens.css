@@ -328,6 +328,9 @@ html[data-text-scale="large"] {
 html[data-text-scale="xlarge"] {
   font-size: 150%;
 }
+html[data-text-scale="200"] {
+  font-size: 200%;
+}
 
 /* Reduced motion */
 @media (prefers-reduced-motion: reduce) {

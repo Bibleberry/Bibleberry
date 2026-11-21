@@ -21,7 +21,7 @@ From the repository root:
 python3 -m http.server 4173 --directory docs/prototypes/r06-connected-experience
 ```
 
-Then visit `http://127.0.0.1:4173/` (or jump directly to any scenario via `?scenario=<id>`, e.g., `http://127.0.0.1:4173/?scenario=g09-1-normal-first-use`).
+Then visit `http://127.0.0.1:4173/` (or jump directly to any scenario via `?scenario=<id>`, e.g., `http://127.0.0.1:4173/?scenario=g09-1-normal-first-use`; add `&workbench=hidden` for a reviewer-free consumer view).
 
 ---
 
@@ -35,7 +35,7 @@ Then visit `http://127.0.0.1:4173/` (or jump directly to any scenario via `?scen
     - Simulated Date / Preview / Rollover (`Nov 18`, `Nov 28 Dec Preview`, `Feb 27 Mar Preview`, `Simulate Dec 1 Rollover (G02/G03)`, `Today Unavailable` toggle)
     - External Deep-Link Ingress (`Authorized Today`, `Authorized Historical Oct 14`, `Embargoed Nov 25`, `Withdrawn`, `Invalid`)
     - Feed & Catalogue States (`News: ready/loading/empty/error`, `Library: ready/loading/empty/error`)
-    - Accessibility & Account Merge Triggers (`Text 100%/120%/150%`, `Reduced Motion`, `Simulate Account Merge (G08)`)
+    - Accessibility & Account Merge Triggers (`Text 100%/120%/150%/200%`, `Reduced Motion`, `Simulate Account Merge (G08)`)
 
 ---
 
@@ -58,13 +58,13 @@ Then visit `http://127.0.0.1:4173/` (or jump directly to any scenario via `?scen
 
 ## 4. Automated Prototype Smoke Suite & Screenshots
 
-Run the prototype-scoped Playwright verification suite from the repository root (does not touch production test suites or CI):
+Run the standalone prototype-scoped Playwright verification suite (12 end-to-end checks covering all 8 G09 journeys, existing-account Shelf precedence matrix, keyboard-only focus restoration & modal containment, and 200% text/zoom operability & non-clipping) from the repository root. Note: this standalone suite is intentionally not added to production GitHub CI to preserve the prototype-only scope boundary.
 
 ```bash
 node docs/prototypes/r06-connected-experience/tests/smoke.mjs
 ```
 
-To regenerate the representative screenshots in [`screenshots/`](./screenshots/):
+To regenerate the clean reviewer-free representative screenshots in [`screenshots/`](./screenshots/):
 
 ```bash
 CAPTURE_SCREENSHOTS=1 node docs/prototypes/r06-connected-experience/tests/smoke.mjs
