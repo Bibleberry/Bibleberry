@@ -10,7 +10,7 @@
 | **02 — Monthly publishing** | Studio month schemas, workspaces and readiness inspector merged | One **real private-staging monthly** editorial rehearsal |
 | **03 — Secure month/reader** | Gateway monthly APIs, preview and feature-gated Month Screen merged | One complete connected Month → Challenge → Finish journey against private staging |
 | **04 — Discoveries/Cards** | Guest awards, collection, viewers/share and local private verifier merged | Complete editorial Card proof and hosted trusted verifier if accounts in scope |
-| **05 — Navigation/accounts** | Many shell integrations and **real-local** Supabase continuity merged | One deliberate alpha build/IA; hosted auth and device recovery boundary |
+| **05 — Navigation/accounts** | Many shell integrations and **real-local** Supabase continuity merged; R06 four-tab IA & G01–G09 criteria approved in [#22](https://github.com/Bibleberry/Bibleberry/issues/22); first-alpha scope decided in [#260](https://github.com/Bibleberry/Bibleberry/issues/260#issuecomment-7042529764) | Connected R06 single-artifact integration & G09 journeys (guest-only protected web first alpha); hosted auth & device recovery for beta/launch |
 | **06 — Release/operations** | News/resources foundation, native CI and regression infrastructure exist | Device/beta, privacy, real-service operations, rollback and launch qualification |
 
 The six phases below remain the **dependency framework**. Their original acceptance criteria have **not** been silently waived. See the alpha checklist for which integrated/hosted claims remain **NOT VERIFIED** or need an **OWNER DECISION**.
@@ -29,7 +29,7 @@ Different documents have different authority:
 
 | Question | Authoritative document or evidence |
 | --- | --- |
-| What reader behavior has been approved? | [November 8 approved reader experience](2026-11-08-approved-reader-experience-and-month-screen.md) and subsequent explicit Aaron decisions |
+| What reader behavior and integrated reader acceptance have been approved? | [Approved Reader Experience, Navigation & Acceptance Specification](2026-11-08-approved-reader-experience-and-month-screen.md) (November 8 + November 20–21 R06/G01–G09 consolidation) |
 | What editorial content, CMS workflows, and models are planned? | [November 9 CMS content and publishing architecture](../architecture/content-management-and-publishing.md), including its 80-decision register |
 | **Which work comes first, and what depends on what?** | **This roadmap alone** |
 | What is implemented, deployed, or independently verified? | [Current Project Status](../project/current-status.md), current GitHub commits, accepted Issue/PR evidence and relevant service checks |
@@ -107,7 +107,7 @@ The [Current Project Status](../project/current-status.md) and exact merged Issu
 
 **Objective:** Connect the author's month definitions to permanent, earned-only reader accomplishments.
 
-**Scope:** CMS `scriptureCard` graphic-first model with accessible transcription/search metadata; month-owned `monthlyDiscovery` thematic qualifying rules and finalized-roster full-month rule; server-safe hidden mappings; idempotent award identity and credible earned date; earned thumb/full-card viewer and share-image attribution; Field Notebook year/month and All Earned Cards; distinct combined **Hub-only** card announcements and New markers, with presentation opt-out semantics. Preserve cards earned from historical Library work. The CMS plan additionally defines **permanently earnable tutorial/Foundation cards**, distinct from time-limited Special Experience eligibility; reconcile the earned-only collection grouping and label before user-facing implementation.
+**Scope:** CMS `scriptureCard` graphic-first model with accessible transcription/search metadata; month-owned `monthlyDiscovery` thematic qualifying rules and finalized-roster full-month rule; server-safe hidden mappings; idempotent award identity and credible earned date; earned thumb/full-card viewer and share-image attribution; Field Notebook year/month and unified newest-earned-first All Earned Cards; distinct combined inline **Hub-only** card announcements and New markers, with presentation opt-out semantics. Preserve cards earned from historical Library work. Per [Issue #22 G06/G07](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7058548963), permanently earnable Cards from explicitly designated Foundations/ministry teaching belong in a separate earned-only **Foundations & Learning** Field Notebook collection (distinct from time-limited **Special Experiences**, with no `Special Collections` parent), and the skippable G06 interface `App Tutorial` awards no Cards.
 
 **Acceptance:** One Challenge may count toward several discoveries; completing all finalized month Challenges guarantees all thematic plus full-month card; unrewarded art and qualifying locations never leak; duplicate Finish/offline/account merges do not duplicate awards; earned date is preserved; Month Screen updates progress silently; announcements occur **on Hub arrival only**; no new card is revoked by ordinary editorial corrections.
 
@@ -190,6 +190,7 @@ The additional CMS models (monthly publication, graphic-first cards, discoveries
 
 ## 7. Change history and maintenance
 
+- **November 21, 2026:** Consolidated all November 20–21 R06 navigation/UX approvals and [G01–G09](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7058590005) into the single [Approved Reader Experience, Navigation & Acceptance Specification](2026-11-08-approved-reader-experience-and-month-screen.md), reconciled `Special Collections` and tutorial taxonomy in [CMS Architecture](../architecture/content-management-and-publishing.md), and aligned [Internal Alpha Readiness](../project/internal-alpha-readiness.md) with the November 20 [#260](https://github.com/Bibleberry/Bibleberry/issues/260#issuecomment-7042529764) first-alpha scope decisions. Six-phase sequencing unchanged.
 - **November 9–10, 2026:** R08A-0 technical architecture Revision 2 submitted and reviewed; linked contract records consumer-first migration, simplified timezone policy and six proposed implementation assignments. R08A-1 is the next **candidate** coding scope, subject to separate authorization.
 - **November 9, 2026:** Aaron selected the integrated **six-phase** reader + CMS dependency order as the project's new guidance; kept the existing roadmap path canonical, incorporated 80 CMS content decisions through a supporting specification, and identified R08A-0 contract work first. Reconciled November 8 Stage 3C staging success so already completed integration is not reissued.
 - **November 8, 2026:** The [approved reader-experience specification](2026-11-08-approved-reader-experience-and-month-screen.md) introduced the calendar Month Screen, Shelf/Library terminology, hybrid Monthly Discoveries, Hub-only earned-card announcements and monthly preview/welcome.

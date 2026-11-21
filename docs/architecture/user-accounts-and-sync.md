@@ -1,7 +1,7 @@
 # Bibleberry — User Accounts, Authentication & Cross-Device Continuity
 
 > **Working architecture decision record**  
-> **Updated:** 2026-11-08  
+> **Updated:** 2026-11-21 (reconciled with November 20–21 R06 guest-invitation, G08 merge confirmation, and #260 first-alpha guest-only scope)  
 > **Status:** Working account decisions plus the November 6 minimal-record product choice; not an implementation brief  
 > **Owners:** Aaron Waid (product/technical decisions), Alexis Waid (ministry/content authority)  
 > **Target launch:** January 1, 2027
@@ -35,15 +35,17 @@ Aaron resolved the gamification research architecture disagreement in favor of t
 
 For product decisions and unresolved achievement rules, see [Gamification, Achievements & Participation](../product/gamification-and-achievements.md) and [Biblical Discovery & Scripture](../product/biblical-discovery-and-scripture.md). This note supersedes any inference elsewhere in this record that **full event sourcing or a comprehensive append-only interaction ledger** is required.
 
-## November 8 owner-approved guest conversion and synchronization rules
+## November 8 & November 20–21 owner-approved guest conversion, invitation and merge rules
 
-The [November 8 approved reader experience](../product/2026-11-08-approved-reader-experience-and-month-screen.md) **settles the product behavior** for guest conversion and merging. Prior "guest-to-account migration undecided" language below is superseded.
+The [consolidated Approved Reader Experience & Acceptance Specification](../product/2026-11-08-approved-reader-experience-and-month-screen.md) **settles the product behavior** for guest conversion, invitations, and merging. Prior "guest-to-account migration undecided" and "guest registration prompt threshold undecided" language below is superseded.
 
 1. A guest **creating a new account** on that device automatically transfers completed Challenge records, saved Scripture, earned cards and their dates, reading positions and saved progress into the new account. Do not reset or duplicate awards.
 2. Someone browsing **as a guest on a device** who signs into an **already existing account** there automatically merges the guest records into that account. Preserve both sides' completions, saved Scripture and valid earned cards. Never require redoing Challenges.
 3. The **existing account's Shelf selections win** if guest and cloud Shelf memberships conflict; the guest's underlying reading, achievements and Scripture remain preserved in the Library and collections.
-4. Duplicate earning of the same card results in **one card**, using the **earliest credible earned date**, not an arbitrary unverified client timestamp. When two devices have conflicting partial Challenge positions, default to **furthest read position**; intentional reread cases need separate technical design.
-5. Account invitations remain optional, gentle and outside focused Challenge reading. Guest data may still be lost on device loss before registration; these merge rules do not promise cloud recovery for unsigned guests.
+4. Duplicate earning of the same card results in **one card**, using the **earliest credible earned date**, not an arbitrary unverified client timestamp. When two devices have conflicting partial Challenge positions, default to **furthest read position**; intentional reread cases and server screen-order lookup need technical reconciliation ([consolidated spec §12.1](../product/2026-11-08-approved-reader-experience-and-month-screen.md#121-genuine-residual-contradictions--contract-gaps-requiring-owner-or-cross-spec-reconciliation)).
+5. **Optional `Today` guest account invitation (Nov 20 — [#22](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057623869)):** First eligible only after **three distinct Challenges** are explicitly finished (`Finish`, any pace, historical Challenges count). Displayed as a compact dismissible entry on `Today` outside focused reading and never simultaneously with or ahead of pending earned-Card announcements. Explicit dismissal **permanently suppresses** the automatic `Today` invitation for that guest profile; `More → Account & Progress` always remains available. Guest data may still be lost on device loss before registration; never imply cloud recovery for unsigned guests.
+6. **Post-verified merge confirmation ([G08](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7058577267)):** Show **one brief, calm confirmation** only **after** durable merge/reconciliation has actually succeeded and been verified. Adapt to actual preserved/combined categories, and mention existing-account Shelf precedence (with guest history preserved in Library/Collections) **only when a real Shelf conflict occurred**. Never claim success on pending/failed/partial merges; retain local guest data until verified handoff and offer safe retry.
+7. **First internal alpha scope (Nov 20 — [#260](https://github.com/Bibleberry/Bibleberry/issues/260#issuecomment-7042529764)):** First internal alpha is **local guest-only** (explicitly labeled device/browser-local); hosted Supabase sign-in, live email OTP, cross-device merge/restore, and hosted private Card verification remain later beta/public-release gates ([Internal Alpha Readiness](../project/internal-alpha-readiness.md) A6/A7).
 
 **Still to specify:** Atomic migration steps, stable identities, idempotence, clock integrity, offline conflicts, native device persistence, row-level permissions, secure account linking and practical failure/retry UX. These are engineering design questions, not permission to reopen the product decision.
 
@@ -143,7 +145,7 @@ These are requirements for a production design, not completed implementation:
 6. **Mobile packaging:** Confirm iOS/Android deployment technology and test Google/Apple/email-code flows on actual supported platforms.
 7. **Privacy lifecycle:** Final user-data collection, deletion, retention, and whether export is provided.
 8. **Operations and costs:** Supabase plan, transactional email provider, monitoring, backups, and budgets.
-9. **Guest registration prompts:** Decide which milestones deserve a nonintrusive invitation to protect progress.
+9. **Guest registration prompts (product settled Nov 20 — [#22](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057623869)):** First eligible on `Today` after **three distinct finished Challenges**, permanently suppressed on explicit dismissal for that guest profile, subordinate to teaching and earned-Card announcements, with `More → Account & Progress` always available. Final invitation copy and storage persistence mechanics remain implementation/UX refinement work.
 
 ## Current process
 
