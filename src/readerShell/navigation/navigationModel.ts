@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { isValidChallengeYearMonth } from '../../cms/reader/challengeOrigin.ts'
 import { buildInternalDestination } from '../../native/internalDestination.ts'
 import { resolveTrustedChallengeReturn } from '../../native/trustedChallengeOrigin.ts'
 
@@ -6,8 +7,10 @@ export const READER_TABS = ['today', 'library', 'collections', 'more'] as const
 export const tabSchema = z.enum(READER_TABS)
 export type ReaderTab = z.infer<typeof tabSchema>
 
+const yearMonthSchema = z.string().refine(value => isValidChallengeYearMonth(value) && value === value.trim())
+
 export const routeSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('month'), yearMonth: z.string().regex(/^\d{4}-(?:0[1-9]|1[0-2])$/) }),
+  z.object({ kind: z.literal('month'), yearMonth: yearMonthSchema }),
   z.object({ kind: z.enum(['browseMonths', 'notebook', 'savedScripture']) }),
   z.object({
     kind: z.literal('news'),
@@ -25,8 +28,8 @@ export type RouteRestoration = Readonly<z.infer<typeof restorationSchema>>
 
 const challengeOriginSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('hub') }),
-  z.object({ kind: z.literal('month'), yearMonth: z.string() }),
-  z.object({ kind: z.enum(['shelf', 'library']), yearMonth: z.string().optional() }),
+  z.object({ kind: z.literal('month'), yearMonth: yearMonthSchema }),
+  z.object({ kind: z.enum(['shelf', 'library']), yearMonth: yearMonthSchema.optional() }),
 ])
 
 export const focusSchema = z.discriminatedUnion('kind', [
@@ -60,7 +63,9 @@ export type NavigationAction =
   | { readonly type: 'push'; readonly route: NestedRoute }
   | { readonly type: 'pop' }
   | { readonly type: 'saveRestoration'; readonly value: RouteRestoration }
+  // Trusted in-app selection. The Challenge host still owns content authorization.
   | { readonly type: 'openChallenge'; readonly slug: string; readonly expectedDocumentId?: string }
+  // Dispatch only after the gateway has authorized this browser or native destination.
   | { readonly type: 'enterExternalChallenge'; readonly slug: string }
   | { readonly type: 'exitChallenge' | 'finishChallenge' }
   | { readonly type: 'openMonthIntro' | 'openIntro' | 'openTutorial' | 'closeGuidance' }
@@ -131,6 +136,7 @@ export function navigationReducer(state: NavigationState, action: NavigationActi
     case 'push': {
       const route = routeSchema.safeParse(action.route)
       if (focused || problem || !route.success) return state
+      if (JSON.stringify(stacks[activeTab].at(-1)) === JSON.stringify(route.data)) return state
       return { ...state, stacks: { ...stacks, [activeTab]: [...stacks[activeTab], route.data] } }
     }
     case 'pop':
