@@ -300,7 +300,8 @@ test('cold native ingress takes the current entry without adding a Today visit b
 
 test('keeps native duplicate handling and rejects unavailable, mismatched, or external Month outcomes safely', () => {
   const app = browser('#/more')
-  assert.equal(app.apply(applyNativeIngress(app.navigation, { status: 'ignoredDuplicate', sourceEvent }, options)), 'none')
+  const duplicate = { status: 'ignoredDuplicate', rawUrl: sourceEvent.rawUrl, sourceEvent } as const
+  assert.equal(app.apply(applyNativeIngress(app.navigation, duplicate, options)), 'none')
   assert.equal(app.state.activeTab, 'more')
   const cases = [
     [{ status: 'unavailable', outcome: createUnavailableContentOutcome('contentNotReleased'), sourceEvent }, 'challengeUnavailable'],
