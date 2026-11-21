@@ -62,14 +62,19 @@ export function createEmptyShelfState(updatedOn?: LocalCalendarDate): ShelfState
  * 2. If dates tie or are absent, prioritize earlier `yearMonth` (older publication month).
  * 3. If still tied, prioritize earlier array slot index (stable FIFO tie-break).
  *
- * Returns null if all months on the Shelf are protected or reader-selected.
+ * Returns null when no unprotected, non-focused automatically admitted month is eligible.
  */
 export function findOldestAutoAdmittedMonth(
   months: readonly ShelfEntry[],
+  activeFocusMonth: PublicationYearMonth | null = null,
 ): ShelfEntry | null {
   const eligible = months
     .map((entry, index) => ({ entry, index }))
-    .filter(({ entry }) => entry.admissionKind === 'autoAdmitted' && !isShelfEntryProtected(entry))
+    .filter(({ entry }) =>
+      entry.admissionKind === 'autoAdmitted' &&
+      !isShelfEntryProtected(entry) &&
+      entry.yearMonth !== activeFocusMonth,
+    )
 
   if (eligible.length === 0) return null
 
@@ -473,9 +478,8 @@ export function createFirstPostRolloverResumeSeam(params: {
  *    If 0 completions, ending month is NOT admitted and remains in the Library.
  * 4. Admission with open slot: If Shelf has < 3 slots, admitted as `autoAdmitted` and unprotected.
  * 5. Replacement on full Shelf (3 slots):
- *    - Replaces the oldest unprotected `autoAdmitted` month (earliest admittedOn, then earliest yearMonth).
- *    - "All-protected no-eviction" rule: If all 3 slots are protected, NO month is evicted and the just-ended
- *      month remains in the Library.
+ *    - Replaces the oldest unprotected `autoAdmitted` month outside Active Focus.
+ *    - If every slot is protected by Keep or Active Focus, the just-ended month remains in the Library.
  * 6. Active focus is NEVER silently rewritten by rollover.
  */
 export function applyMonthlyRollover(
@@ -605,10 +609,9 @@ export function applyMonthlyRollover(
     }
   }
 
-  // 4. Shelf is full (3 slots): Find oldest unprotected auto-admitted month to replace
-  const oldestAuto = findOldestAutoAdmittedMonth(state.months)
+  // 4. Shelf is full: find the oldest unprotected auto-admitted month outside Active Focus.
+  const oldestAuto = findOldestAutoAdmittedMonth(state.months, state.activeFocusMonth)
 
-  // All-protected no-eviction rule
   if (!oldestAuto) {
     return {
       ok: true,
@@ -618,7 +621,7 @@ export function applyMonthlyRollover(
       admittedEntry: null,
       evictedEntry: null,
       resumeSuggestionSeam: resumeSeam,
-      message: `All ${MAX_SHELF_CAPACITY} Shelf slots are protected or reader-selected. Month ${endingYm} retained in Library without auto-eviction.`,
+      message: `All ${MAX_SHELF_CAPACITY} Shelf slots are protected by Keep or Active Focus. Month ${endingYm} retained in Library without auto-eviction.`,
     }
   }
 

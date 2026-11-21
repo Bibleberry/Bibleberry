@@ -61,7 +61,7 @@ test.describe('Phase 05 / R06: Standalone Hub Continue Presentation Boundary', (
     await expect(card).toHaveAttribute('data-continue-kind', 'resumeInProgress')
     await expect(card).toHaveAttribute('data-year-month', '2026-10')
     await expect(card).toHaveAttribute('data-preserves-formal-focus', 'true')
-    await expect(card.getByText('Continue Historical Study')).toBeVisible()
+    await expect(card.getByText('Active Focus')).toBeVisible()
     await expect(card.getByRole('heading', { name: 'Steadfast Hope in Every Season and Trial' })).toBeVisible()
 
     // Ensure no backlog, streak, or achievement pressure text
@@ -71,7 +71,7 @@ test.describe('Phase 05 / R06: Standalone Hub Continue Presentation Boundary', (
     expect(cardText.toLowerCase()).not.toContain('backlog')
 
     // Touch target >= 44x44
-    const resumeBtn = card.getByRole('button', { name: /Resume Steadfast Hope/i })
+    const resumeBtn = card.getByRole('button', { name: /Continue Your Study: Steadfast Hope/i })
     const viewMonthBtn = card.getByRole('button', { name: 'View October 2026' })
     const resumeBox = await resumeBtn.boundingBox()
     const viewMonthBox = await viewMonthBtn.boundingBox()
@@ -92,17 +92,16 @@ test.describe('Phase 05 / R06: Standalone Hub Continue Presentation Boundary', (
     await expect(page.getByTestId('open-month-callback')).toHaveText('2026-10')
   })
 
-  test('renders cross-month fallback suggestion and reflows cleanly on narrow mobile viewports', async ({ page }) => {
+  test('renders Review This Month for the completed focus and reflows cleanly on narrow mobile viewports', async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 640 })
-    await page.goto(`${harnessRootUrl}?scenario=cross-month`)
+    await page.goto(`${harnessRootUrl}?scenario=completed-focus`)
 
     const card = page.locator('.hub-continue')
     await expect(card).toBeVisible()
-    await expect(card).toHaveAttribute('data-continue-kind', 'continueOtherHistoricalMonth')
-    await expect(card).toHaveAttribute('data-year-month', '2026-09')
+    await expect(card).toHaveAttribute('data-continue-kind', 'reviewFocusMonth')
+    await expect(card).toHaveAttribute('data-year-month', '2026-10')
     await expect(card).toHaveAttribute('data-preserves-formal-focus', 'true')
-    await expect(card.getByText('Continue From Your Shelf')).toBeVisible()
-    await expect(card.getByRole('heading', { name: 'Quiet Trust' })).toBeVisible()
+    await expect(card.getByRole('heading', { name: 'Walk in Gratitude' })).toBeVisible()
 
     // Zero horizontal overflow at 320px width
     const overflow = await page.evaluate(() => {
@@ -110,13 +109,11 @@ test.describe('Phase 05 / R06: Standalone Hub Continue Presentation Boundary', (
     })
     expect(overflow).toBe(false)
 
-    // Buttons should stack cleanly without overlapping
-    const continueBtn = card.getByRole('button', { name: /Continue Quiet Trust/i })
-    const viewMonthBtn = card.getByRole('button', { name: 'View September 2026' })
-    const boxA = await continueBtn.boundingBox()
-    const boxB = await viewMonthBtn.boundingBox()
-    expect(boxA).not.toBeNull()
-    expect(boxB).not.toBeNull()
-    expect(boxB!.y).toBeGreaterThanOrEqual(boxA!.y + boxA!.height)
+    const review = card.getByRole('button', { name: 'Review This Month: October 2026' })
+    await expect(card.getByRole('button')).toHaveCount(1)
+    await review.focus()
+    await page.keyboard.press('Enter')
+    await expect(page.getByTestId('open-month-callback')).toHaveText('2026-10')
+    await expect(page.getByTestId('continue-callback')).toBeEmpty()
   })
 })
