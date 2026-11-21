@@ -536,7 +536,7 @@ test.describe('Gateway-Backed Released Challenge Integration (R05 Stage 2A)', ()
     expect(sanityRequestCount).toBe(0)
   })
 
-  test('preserves injected Month, Shelf, and Library origin contexts on Finish and exit without bypassing release checks', async ({
+  test('never trusts URL-forged Month, Shelf, or Library origins, keeps in-session origins, and never bypasses release checks', async ({
     page,
   }) => {
     await page.route('**/api/challenges/**', async route => {
@@ -586,9 +586,9 @@ test.describe('Gateway-Backed Released Challenge Integration (R05 Stage 2A)', ()
       )
     }, PROTOTYPE_STORAGE_KEY)
 
-    // 1. Month origin: Finish records completion and returns with Month origin metadata
+    // 1. Forged Month origin on a cold link: external entry, Finish records completion and returns to Today
     await page.goto('/#/challenge/walking-in-the-light?origin=month&yearMonth=2027-03')
-    await expect(page.locator('.challenge-player__exit')).toHaveText('Return to March 2027')
+    await expect(page.locator('.challenge-player__exit')).toHaveText('Return to Today')
     await page.locator('.lab-screen-nav button:has-text("Continue")').click()
     await page.locator('.lab-screen-nav button:has-text("Finish")').click()
 
@@ -596,12 +596,12 @@ test.describe('Gateway-Backed Released Challenge Integration (R05 Stage 2A)', ()
     await expect(page.locator('.lab-completion')).toHaveCount(0)
     await expect(page.locator('.toast.is-visible')).toHaveCount(0)
     const monthReturnedOrigin = await page.evaluate(() => window.history.state?.returnedChallengeOrigin)
-    expect(monthReturnedOrigin).toEqual({ kind: 'month', yearMonth: '2027-03' })
+    expect(monthReturnedOrigin).toEqual({ kind: 'hub' })
 
-    // 2. Shelf origin: already-completed Challenge hydrates cleanly without spurious navigation, supports reread & Finish exit
+    // 2. Forged Shelf origin: already-completed Challenge hydrates cleanly, supports reread & Finish to Today
     await page.goto('/#/challenge/walking-in-the-light?origin=shelf&yearMonth=2026-10')
     await expect(page.locator('.lab-challenge-header h1')).toHaveText('Walking in the Light')
-    await expect(page.locator('.challenge-player__exit')).toHaveText('Return to Shelf · October 2026')
+    await expect(page.locator('.challenge-player__exit')).toHaveText('Return to Today')
     await expect(page.locator('.lab-screen h2')).toHaveText('First Step Heading')
     await page.locator('.lab-screen-nav button:has-text("Continue")').click()
     await expect(page.locator('.lab-screen h2')).toHaveText('Second Step Heading')
@@ -610,7 +610,7 @@ test.describe('Gateway-Backed Released Challenge Integration (R05 Stage 2A)', ()
 
     await expect(page.locator('#daily-teaching')).toBeVisible()
     const shelfReturnedOrigin = await page.evaluate(() => window.history.state?.returnedChallengeOrigin)
-    expect(shelfReturnedOrigin).toEqual({ kind: 'shelf', yearMonth: '2026-10' })
+    expect(shelfReturnedOrigin).toEqual({ kind: 'hub' })
 
     // Verify completedOn date was NOT duplicated or altered during reread
     const storedAfterReread = await page.evaluate(
@@ -621,22 +621,36 @@ test.describe('Gateway-Backed Released Challenge Integration (R05 Stage 2A)', ()
       completedOn: '2026-11-06',
     })
 
-    // 3. Library origin: exit control uses captured origin
+    // 3. Forged Library origin: Exit goes to Today
     await page.goto('/#/challenge/walking-in-the-light?origin=library&yearMonth=2026-09')
-    await expect(page.locator('.challenge-player__exit')).toHaveText('Return to Library · September 2026')
+    await expect(page.locator('.challenge-player__exit')).toHaveText('Return to Today')
     await page.locator('.challenge-player__exit').click()
     await expect(page.locator('#daily-teaching')).toBeVisible()
     const libraryReturnedOrigin = await page.evaluate(() => window.history.state?.returnedChallengeOrigin)
-    expect(libraryReturnedOrigin).toEqual({ kind: 'library', yearMonth: '2026-09' })
+    expect(libraryReturnedOrigin).toEqual({ kind: 'hub' })
 
-    // 4. Malformed origin degrades gracefully to Hub fallback
+    // 4. Malformed origin degrades gracefully to Today
     await page.goto('/#/challenge/walking-in-the-light?origin=month&yearMonth=bad')
     await expect(page.locator('.challenge-player__exit')).toHaveText('Return to Today')
 
-    // 5. User-supplied origin never bypasses content-release checks
+    // 5. In-session origin recorded by the app (history.state) is still honored, including after reload
+    await page.evaluate(() => {
+      window.history.replaceState(
+        { originView: 'today', challengeOrigin: { kind: 'library', yearMonth: '2026-09' } },
+        '',
+        '#/challenge/walking-in-the-light?origin=library&yearMonth=2026-09',
+      )
+    })
+    await page.reload()
+    await expect(page.locator('.challenge-player__exit')).toHaveText('Return to Library · September 2026')
+    await page.locator('.challenge-player__exit').click()
+    const sessionReturnedOrigin = await page.evaluate(() => window.history.state?.returnedChallengeOrigin)
+    expect(sessionReturnedOrigin).toEqual({ kind: 'library', yearMonth: '2026-09' })
+
+    // 6. User-supplied origin never bypasses content-release checks or leaks a forged return label
     await page.goto('/#/challenge/embargoed-secret?origin=month&yearMonth=2027-03')
     await expect(page.locator('.empty-state h2')).toHaveText('Challenge not found')
-    await expect(page.locator('.challenge-player__exit')).toHaveText('Return to March 2027')
+    await expect(page.locator('.challenge-player__exit')).toHaveText('Return to Today')
     await expect(page.locator('.lab-screen')).toHaveCount(0)
   })
 })

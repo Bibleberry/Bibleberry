@@ -127,6 +127,7 @@ export async function authorizeExternalDeepLink(
           contentKind: 'releasedChallenge',
           slug: destination.slug,
           origin: destination.origin,
+          entry: 'external',
         },
       }
     }

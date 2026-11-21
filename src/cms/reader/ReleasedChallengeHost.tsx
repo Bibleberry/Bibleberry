@@ -34,6 +34,13 @@ export type ReleasedChallengeHostProps = {
   store?: ReaderParticipationStore
   getNow?: () => Date
   origin?: ChallengeOrigin
+  /**
+   * Require server-authorized delivery through the release gateway, regardless of origin or
+   * `VITE_ENABLE_RELEASE_GATEWAY_SOURCE`. Used for every external entry. When set, an injected
+   * `catalogProvider` and the build's default (possibly direct-Sanity catalog) provider are
+   * never used; only an explicitly injected `challengeProvider` or the default gateway provider.
+   */
+  requireGatewayAuthorization?: boolean
   onReturn?: (origin: ChallengeOrigin) => void
   onExit?: () => void
   exitLabel?: string
@@ -58,6 +65,7 @@ export function ReleasedChallengeHost({
   store = defaultGuestParticipationStore,
   getNow = () => new Date(),
   origin,
+  requireGatewayAuthorization = false,
   onReturn,
   onExit,
   exitLabel,
@@ -73,11 +81,13 @@ export function ReleasedChallengeHost({
     return onExit
   }, [onExit, onReturn, resolvedOrigin])
   const effectiveProvider = useMemo(() => {
+    // Checked first so no later branch can downgrade a required gateway load to a catalog read.
+    if (requireGatewayAuthorization) return challengeProvider ?? defaultGatewayChallengeProvider
     if (challengeProvider) return challengeProvider
     if (catalogProvider) return adaptCatalogProviderToDetailProvider(catalogProvider)
     if (resolvedOrigin.kind === 'month') return defaultGatewayChallengeProvider
     return resolveDefaultChallengeProvider()
-  }, [challengeProvider, catalogProvider, resolvedOrigin.kind])
+  }, [challengeProvider, catalogProvider, resolvedOrigin.kind, requireGatewayAuthorization])
 
   const [detailResult, setDetailResult] = useState<ChallengeDetailResult | null>(null)
   const [loadAttempt, setLoadAttempt] = useState<number>(0)

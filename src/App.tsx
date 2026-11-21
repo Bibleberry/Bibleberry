@@ -14,6 +14,7 @@ import { DeveloperStudio } from './components/DeveloperStudio'
 import { ReplayableOnboarding } from './components/onboardingReplay/ReplayableOnboarding'
 import type { OrdinaryChallengeSessionState } from './components/challenge/ordinaryChallengeHostModel'
 import {
+  DEFAULT_CHALLENGE_ORIGIN,
   formatChallengeOriginLabel,
   parseChallengeOrigin,
   type ChallengeOrigin,
@@ -69,7 +70,8 @@ type Detail =
   | { type: 'challengeLab' }
   | { type: 'challengePilot' }
   | { type: 'participationPilot' }
-  | { type: 'releasedChallenge'; slug: string; origin: ChallengeOrigin; expectedDocumentId?: string; monthReturnTo?: 'shelf' | 'library' | 'news'; monthNewsCategory?: NewsFilterCategory }
+  // `entry: 'external'`: opened without an in-session origin (cold/typed/external link); Exit/Finish go to Today.
+  | { type: 'releasedChallenge'; slug: string; origin: ChallengeOrigin; entry?: 'external'; expectedDocumentId?: string; monthReturnTo?: 'shelf' | 'library' | 'news'; monthNewsCategory?: NewsFilterCategory }
   | { type: 'month'; yearMonth: string; returnTo?: 'shelf' | 'library' | 'news'; newsCategory?: NewsFilterCategory }
   | { type: 'library'; surface?: LibraryShelfSurface }
   | { type: 'news'; initialCategory?: NewsFilterCategory }
@@ -738,8 +740,8 @@ function parseInternalReaderDestination(hash: string) {
     monthScreenEnabled,
     releasedChallengeRouteEnabled,
     currentYearMonth: currentCivilYearMonth(),
+    // Only app-recorded session state is trusted for the return origin; URL query metadata is not.
     challengeOrigin: typeof window !== 'undefined' ? window.history.state?.challengeOrigin : undefined,
-    search: typeof window !== 'undefined' ? window.location.search : '',
   })
 }
 
@@ -771,10 +773,10 @@ function parseMonthHash(hash: string): { yearMonth: string } | null {
   return destination?.type === 'month' ? { yearMonth: destination.yearMonth } : null
 }
 
-function parseReleasedChallengeHash(hash: string): { slug: string; origin: ChallengeOrigin } | null {
+function parseReleasedChallengeHash(hash: string): { slug: string; origin: ChallengeOrigin; external: boolean } | null {
   const destination = parseInternalReaderDestination(hash)
   return destination?.type === 'releasedChallenge'
-    ? { slug: destination.slug, origin: destination.origin }
+    ? { slug: destination.slug, origin: destination.origin, external: destination.entry !== 'inSession' }
     : null
 }
 
@@ -830,6 +832,14 @@ function parseInitialRoute(): {
   }
   if (releasedChallengeRouteEnabled || monthScreenEnabled) {
     const parsedChallenge = parseReleasedChallengeHash(hash)
+    if (parsedChallenge?.external) {
+      return {
+        view: 'today',
+        detail: { type: 'releasedChallenge', slug: parsedChallenge.slug, origin: parsedChallenge.origin, entry: 'external' },
+        developmentCollection: 'ordinary',
+        previewDate: '',
+      }
+    }
     if (parsedChallenge) {
       const originView = typeof window !== 'undefined' && isPrimaryView(window.history.state?.originView)
         ? window.history.state.originView
@@ -1101,6 +1111,12 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
       }
       if (releasedChallengeRouteEnabled || monthScreenEnabled) {
         const parsedChallenge = parseReleasedChallengeHash(currentHash)
+        if (parsedChallenge?.external) {
+          setView('today')
+          setDetail({ type: 'releasedChallenge', slug: parsedChallenge.slug, origin: parsedChallenge.origin, entry: 'external' })
+          scrollTop()
+          return
+        }
         if (parsedChallenge) {
           const originView = isPrimaryView(window.history.state?.originView)
             ? window.history.state.originView
@@ -1283,7 +1299,12 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
       }
     } else if ((releasedChallengeRouteEnabled || monthScreenEnabled) && hash.startsWith('#/challenge/')) {
       const parsedChallenge = parseReleasedChallengeHash(hash)
-      if (parsedChallenge) {
+      if (parsedChallenge?.external) {
+        // Keep it an external entry: do not record the default origin as session state.
+        window.history.replaceState({ originView: 'today' }, '', hash)
+        setView('today')
+        setDetail({ type: 'releasedChallenge', slug: parsedChallenge.slug, origin: parsedChallenge.origin, entry: 'external' })
+      } else if (parsedChallenge) {
         const expectedDocumentId = parsedChallenge.origin.kind === 'hub'
           ? readHistoryHubContinueDocumentId()
           : undefined
@@ -1715,7 +1736,10 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
   }
   const exitReleasedChallenge = (returnedOrigin: ChallengeOrigin) => {
     if (!releasedChallengeRouteEnabled && !monthScreenEnabled) return
-    const normalizedOrigin = parseChallengeOrigin(returnedOrigin)
+    const externalEntry = detail?.type === 'releasedChallenge' && detail.entry === 'external'
+    // An external entry always returns to Today, whatever origin the reader reports back (G04-A).
+    const normalizedOrigin = externalEntry ? DEFAULT_CHALLENGE_ORIGIN : parseChallengeOrigin(returnedOrigin)
+    if (externalEntry) setView('today')
     if (monthScreenEnabled && normalizedOrigin.kind === 'month') {
       const targetYearMonth = normalizedOrigin.yearMonth
       const returnTo: 'shelf' | 'library' | 'news' | undefined =
@@ -1966,11 +1990,14 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
       </Suspense>
     )
   } else if (detail?.type === 'releasedChallenge' && (releasedChallengeRouteEnabled || monthScreenEnabled) && ReleasedChallengeHost) {
-    const returnLabel = detail.origin.kind === 'hub'
-      ? `Return to ${primaryViewLabel(view)}`
-      : formatChallengeOriginLabel(detail.origin)
+    const externalEntry = detail.entry === 'external'
+    const returnLabel = externalEntry
+      ? 'Return to Today'
+      : detail.origin.kind === 'hub'
+        ? `Return to ${primaryViewLabel(view)}`
+        : formatChallengeOriginLabel(detail.origin)
     content = <Suspense fallback={<div className="standard-page"><p role="status" aria-live="polite">Loading Challenge…</p></div>}>
-      {hubContinueEnabled && detail.origin.kind === 'hub' && HubContinueChallengeHost ? (
+      {hubContinueEnabled && detail.origin.kind === 'hub' && !externalEntry && HubContinueChallengeHost ? (
         <HubContinueChallengeHost
           slug={detail.slug}
           expectedDocumentId={detail.expectedDocumentId}
@@ -1984,6 +2011,9 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
           origin={detail.origin}
           returnLabel={returnLabel}
           onReturn={exitReleasedChallenge}
+          // Every external entry is authorized by the release gateway (server clock), in every
+          // build configuration; never by direct published-Sanity catalog reads (R06 §5.3).
+          requireGatewayAuthorization={externalEntry}
         />
       )}
     </Suspense>

@@ -176,7 +176,9 @@ test('authorizes released Challenge links through injected gateway ChallengeDeta
   assert.deepEqual(result.destination, parsed.destination)
   assert.equal(result.info.contentKind, 'releasedChallenge')
   if (result.info.contentKind === 'releasedChallenge') {
-    assert.deepEqual(result.info.origin, { kind: 'month', yearMonth: '2026-11' })
+    // A URL-supplied origin never survives authorization: the link is an external entry.
+    assert.deepEqual(result.info.origin, { kind: 'hub' })
+    assert.equal(result.info.entry, 'external')
   }
 })
 

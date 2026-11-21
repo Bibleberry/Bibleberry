@@ -27,7 +27,7 @@ test('builds canonical Month hashes that round-trip without changing identity', 
   }), null)
 })
 
-test('round-trips released-Challenge identity and every supported origin context', () => {
+test('round-trips released-Challenge identity and every supported origin context via session state', () => {
   const origins = [
     { kind: 'hub' },
     { kind: 'month', yearMonth: '2027-03' },
@@ -46,7 +46,18 @@ test('round-trips released-Challenge identity and every supported origin context
     const hash = buildInternalDestination(destination)
 
     assert.ok(hash?.startsWith('#/challenge/'))
-    assert.deepEqual(parseInternalDestination(hash, enabled), destination)
+    // The origin round-trips only through app-recorded session state ...
+    assert.deepEqual(
+      parseInternalDestination(hash, { ...enabled, challengeOrigin: origin }),
+      { ...destination, entry: 'inSession' },
+    )
+    // ... while the hash's own origin parameters are never trusted on their own (G04-A).
+    assert.deepEqual(parseInternalDestination(hash, enabled), {
+      type: 'releasedChallenge',
+      slug: destination.slug,
+      origin: { kind: 'hub' },
+      entry: 'external',
+    })
     assert.deepEqual(
       [...new URLSearchParams(hash.slice(hash.indexOf('?') + 1)).keys()],
       'yearMonth' in origin && origin.yearMonth ? ['origin', 'yearMonth'] : ['origin'],
