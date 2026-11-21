@@ -1,186 +1,485 @@
-# Bibleberry — Approved Reader Experience, Month Screen & Field Notebook
+# Bibleberry — Approved Reader Experience, Navigation & Acceptance Specification
 
-> **APPROVED PRODUCT DIRECTION — AUTHORITATIVE AS OF NOVEMBER 8, 2026**  
-> **Approval:** Aaron Waid, Bibleberry product owner, explicitly confirmed that the decisions made in the November 6–8 design discussion are authoritative and supersede conflicting earlier proposals, research suggestions, handoffs, mockups and backlog descriptions.  
-> **Scope:** Product behavior, information architecture responsibilities, participation and achievement rules. This document is **not evidence that a feature has been built** and does **not** independently authorize implementation, merging, a deployment, a particular event, or editorial publication.  
-> **Primary owners:** Aaron approves product and creative implementation direction. Alexis creates and controls the substantive theological teaching; achievements are derived from that teaching and may not dictate it. Aaron can approve product designs and card concepts without inventing an additional Alexis sign-off gate for every item. Actual manuscript/theological adaptations remain subject to appropriate editorial review.  
-> **Read with:** [Gamification & Achievements](gamification-and-achievements.md), [Product Roadmap](application-development-roadmap.md), [Accounts & Sync](../architecture/user-accounts-and-sync.md), [November 7 historical notes](2026-11-07-archive-library-and-continue-working-notes.md) and the [AI Development Protocol](../ai-development-protocol.md).
+> **CONSOLIDATED AUTHORITATIVE PRODUCT SPECIFICATION — Updated November 21, 2026**  
+> **Decision lineage:** Consolidates Aaron Waid's November 5 responsive-orientation approval, November 6–8 reader-experience and Month Screen approvals, November 20–21 R06 navigation/UX approvals, and **G01–G09** in [Issue #22](https://github.com/Bibleberry/Bibleberry/issues/22), together with the November 20 first-internal-alpha scope boundary in [Roosting Falcon #260](https://github.com/Bibleberry/Bibleberry/issues/260#issuecomment-7042529764).  
+> **Supersession rule:** Later explicit owner approvals supersede conflicting earlier exploratory requirements, working notes, mockups, Issue proposals, and code fixtures. This file stays at its existing canonical path so all repository and Issue references resolve to **one** authoritative reader-experience specification.  
+> **Scope & authorization boundary:** Governs approved reader behavior, global information architecture, participation/security invariants, and integrated prototype/alpha acceptance criteria. **This document is not evidence that the connected R06 application has been built or accepted**, and it does **not** authorize coding, schema/service mutations, merging, content publication, event production, or an internal-alpha/public release Go.  
+> **Primary owners:** Aaron Waid approves product, UX, creative implementation, engineering scope, and merge/release decisions. Alexis Waid creates and holds editorial/theological authority over substantive teaching; participation and achievement mechanics are derived from her teaching and may never dictate it.  
+> **Read with:** [Canonical Six-Phase Roadmap](application-development-roadmap.md) (sole implementation sequence), [CMS Content & Publishing Architecture](../architecture/content-management-and-publishing.md), [Gamification & Achievements](gamification-and-achievements.md), [Responsive Layout & Orientation](responsive-layout-and-orientation.md), [Accounts & Sync](../architecture/user-accounts-and-sync.md), [Internal Alpha Readiness](../project/internal-alpha-readiness.md), [Current Project Status](../project/current-status.md), and [AI Development Protocol](../ai-development-protocol.md).
 
-## 1. Authority and how to interpret older plans
+---
 
-**This is the current product authority for the subjects covered.** When older documents or Issues disagree, use the November 8 decisions here and update or flag the older material before building. Earlier design-session transcripts and research reports remain historical evidence, **not parallel product specifications**. Don't reintroduce superseded features because they appear in an unmodified Issue, a handoff, a mockup, or code fixture. Technical/UX details expressly marked *deferred* are **not silently approved**.
+## 1. Authority, Precedence & Retained Core Principles
 
-Bibleberry is **first a continuously publishing Christian teaching ministry**, and also a personal learning and formation experience. The current teaching remains central on the Hub. The reward system complements Alexis's work; it does not drive curriculum, determine theological subjects, dictate pacing/length or create compulsory content.
+**This document is the single authoritative product specification for Bibleberry's reader experience, global navigation, and integrated reader acceptance.** Earlier design-session records ([November 6](2026-11-06-design-session-record.md), [November 7](2026-11-07-archive-library-and-continue-working-notes.md)), historical [Issue #22](https://github.com/Bibleberry/Bibleberry/issues/22) discussion, and older prototypes remain historical evidence, **not parallel specifications**. Do not reintroduce superseded terminology or features (`Personal Archive`, `Past Teaching Library`, `My Journey`, `Special Collections`, punitive streaks, or compulsory memorization) because they appear in older prose, fixtures, or provisional code. Technical/visual items expressly marked deferred or unresolved in [§12](#12-residual-contradictions-open-boundaries--deferred-decisions) are **not silently approved**.
 
-### Fourteen retained core principles
+Bibleberry is **first a continuously publishing Christian teaching ministry**, and also a personal biblical formation experience. Current teaching leads on **Today (Hub)**. Participation records and Scripture Cards complement Alexis's work; they never dictate theological subjects, screen counts, pacing, or compulsory catch-up.
 
-1. Ministry-first architecture: substantive current Christian teaching is the foundation, not gamification.
-2. No punitive daily login streaks, attendance resets, mandatory backlog, rankings or holiness scores.
-3. All ordinary historical daily Challenges remain available in the Library after publication.
-4. One focused historical **Shelf** with **zero to three months**, distinct from the current month and complete historical **Library**.
-5. Completing a Challenge counts identically from the Hub/current month, Shelf or Library.
-6. Both thematic discovery completion and finishing all Challenges in a month earn substantive illustrated **Scripture cards**, not generic certificates or ordinary game badges.
-7. Achievement visibility is hybrid: monthly goals visible within an active Month Screen; no huge wall of unearned cards in the permanent collection, and no fully surprise-only goal system.
-8. One evolving lifetime participation status from **distinct** Challenge completions; no accumulating lifetime milestone badges.
-9. Distraction-free teaching reader: no unrelated achievement pop-ups, tickers or announcements during the Challenge.
-10. Earned cards, awarded dates and completion history are durable, permanent and non-regressive.
-11. Record the minimum reliable facts necessary for participation and sync; exhaustive event sourcing is not a product requirement.
-12. Scripture may be saved from anywhere in the app independent of collectible earning; do not turn Bibleberry into a compulsory memorization engine.
-13. Genuine illustrated Bible-notebook/field-book identity grounded in Alexis's work, not a generic gaming badge aesthetic. Specific artwork/layout remains to be developed.
-14. Alexis's existing teaching generates the discoverable subjects; do not add, remove, rearrange or distort teaching to manufacture rewards or force daily progress.
+### 1.1 Fourteen retained core principles (November 6–8)
 
-## 2. Screens and their distinct responsibilities
+1. **Ministry-first architecture:** Substantive current Christian teaching is the foundation, not gamification.
+2. **Nonpunitive participation:** No daily login streaks, attendance resets, mandatory backlogs, rankings, or spiritual-maturity scores.
+3. **Permanent ordinary historical teaching:** All ordinary historical daily Challenges remain available in **Library** after publication.
+4. **Focused historical Shelf:** One voluntary historical **Shelf** of **0–3 months**, distinct from the current month and the complete historical **Library**.
+5. **Location-independent credit:** Finishing an authorized Challenge counts identically whether entered from **Today**, **Month Screen**, **Shelf**, **Library**, or an authorized external link.
+6. **Substantive Scripture Cards:** Thematic discovery completion and full-month completion earn substantive illustrated **Scripture Cards**, not generic certificates or ordinary game badges.
+7. **Hybrid achievement visibility:** Monthly discovery goals are visible (title + numeric progress only) inside an active **Month Screen**; **Field Notebook** shows earned Cards only (no wall of gray unearned cards, and no fully surprise-only system).
+8. **Single evolving lifetime status:** One calm evolving participation status derived from **distinct** completed Challenges; no accumulating lifetime milestone-badge wall.
+9. **Distraction-free teaching reader:** No unrelated achievement pop-ups, award tickers, streaks, or global navigation bars during focused Challenge reading.
+10. **Durable, permanent earned records:** Earned Cards, credible earned dates, and distinct completion history are permanent and non-regressive.
+11. **Minimal reliable participation records:** Record the minimum reliable facts needed for participation and sync; full append-only event sourcing is not a product requirement.
+12. **Independent Saved Scripture:** Readers may save Scripture from anywhere in the app independent of collectible earning; do not turn Bibleberry into a compulsory memorization engine.
+13. **Authentic illustrated notebook identity:** Card and Field Notebook identity is grounded in Alexis's authentic illustrated Bible-study notebooks, not a generic gaming-badge aesthetic.
+14. **Teaching generates discoveries:** Discoverable themes arise from Alexis's already-prepared Challenges; never add, remove, rearrange, or distort teaching to manufacture rewards or force daily progress.
 
-| Place | Primary purpose and approved behavior |
-| --- | --- |
-| **Hub** | Current teaching and ministry resources take priority. A single unobtrusive **Continue** suggestion may resume focused historical study. New **earned-card announcements** occur **only when entering/returning to Hub**, not simply on leaving any reader. The Notebook can show a **New Discoveries** indicator. Hub is not an achievement backlog dashboard. |
-| **Month Screen — NEW REQUIRED PRODUCT COMPONENT** | One coherent landing screen per publication month, current or historical. Shows month completion and a **calendar** of its Challenges, their availability/completion states, and **Monthly Discoveries** including progress to earn cards. Accessible in the current-month flow and when browsing months through Shelf or Library. |
-| **Shelf** | Focused historical working space for up to three months selected/protected by the reader or admitted under the approved rollover rules. Current month is not a Shelf slot. |
-| **Library** | Complete catalogue of ordinary past teaching. Readers can access, finish and earn credit directly here without placing a month on Shelf. Its catalogue and Challenge reading are not an achievement-promotion feed, but opening a month leads to that month's normal Month Screen with progress and discoveries. |
-| **Field Notebook** | Lasting, browsable record of **earned** Scripture cards, grouped by publication year/month with a separate **All Earned Cards** gallery, one evolving lifetime status, and an earned-only Special Experiences area. No personal journaling feature. |
-| **Saved Scripture** | Separate app-wide collection of Scripture references/readers' saved passages, independent of challenges, earned cards and any future optional memorization guidance. |
-| **Ministry news / What's New** | Editorial updates, including the recurring next-month preview announcement. News is not a second achievement notification stream. |
+### 1.2 Responsive orientation & palette-independent design direction
 
-**Whole-app global navigation placement remains deferred.** This screen-responsibility map does not prematurely choose tabs, hierarchy or hide Foundations, Saved Scripture, ministry updates or other roadmap features.
+- **Portrait-first across phones and tablets** ([Responsive Layout & Orientation](responsive-layout-and-orientation.md), Nov 5): Phone portrait and tablet portrait are the primary layouts. Tablet landscape preserves the **same centered vertical composition** within a responsive `max-width` and generous side margins (no separate two-column dashboard or novel landscape navigation). Phone landscape must remain functional and accessible; never force orientation lock or fixed-width viewports.
+- **Palette-independent UX & semantic tokens** ([Issue #22, Nov 20](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7049568803)): Consume centralized semantic design tokens (including contrast-safe text, focus, hover, borders, and alerts); never hardcode per-screen colors. Seasonal or manual palettes are **presentation-only** and must never alter Challenge release, teaching, historical availability, participation records, or Alexis's illustrative Card source art.
+- **Visual style direction (directional reference only)** ([G09](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7058590005)): Contemporary, restrained abstract/wellness-app visual language rather than devotional landscape/nature clichés. Conversation mockups are directional references only—**not** approved final UI, palette values, typography, or production artwork.
 
-## 3. Month Screen — approved new feature
+---
 
-The Month Screen is **calendar-based, not an ordinary 30/31-row list**. At a minimum:
+## 2. Global Navigation, Session Restoration & Routing Model
 
-- Display the month's title/theme and a clear **completed Challenges out of total** count or ticker, e.g. **18 of 30**.
-- Show **all** the month's daily Challenge titles from the beginning. The ministry prepares the complete month's teaching ahead of release. **Completed**, **available**, and **not yet released / Coming Soon** states must be distinguishable.
-- Upcoming Challenge **titles** are visible, but unreleased Challenge content is inaccessible until its assigned reader-local release date. Release enforcement is server-authoritative; the reader's device clock must not be trusted as authorization.
-- Include the month's one-time **Introduction** and a persistent **Read Monthly Introduction** link so a reader can revisit it without seeing it automatically again.
-- Below the calendar, display **Monthly Discoveries** with their titles and numeric progress; place the **full-month completion card goal last** in that section.
-- Finishing a Challenge from this Month Screen returns the reader **here**, updates its completion ticker and discovery progress promptly, and does **not** produce an on-screen toast or award notification. Awards wait for the next Hub visit.
+### 2.1 Approved four-destination global navigation
 
-**Deferred UX:** Seven-column calendar grid versus spacious week-by-week calendar, exact day cell/title layout, scroll and mobile detail treatments. Build mockups later; do not quietly replace the approved calendar with a list.
+Bibleberry uses **four persistent primary destinations**, in this exact order ([architectural IA](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7049655352), [presentation](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7054326230), [reader-facing labels](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7054910521)):
 
-### 3.1 Monthly Discoveries: goal visible, reward secret
+| Order | Approved reader-facing tab label | Architectural destination | Proposed key | Primary responsibility |
+|---:|---|---|---|---|
+| 1 | **Today** | Current Content | `current-content` | Teaching-first Hub: today's Challenge primary action, compact current Month Screen link, at most one quiet historical continuation (`Continue Your Study`), Hub-only combined inline earned-Card announcement, optional dismissible guest account invitation (when eligible), and restrained editorial News affordance. |
+| 2 | **Library** | Learning Library | `learning-library` | Shelf-centered landing (**0–3** focused historical months), directly accessible **Browse All Months** (dedicated complete historical catalogue), and directly accessible **Foundations** (overview first). |
+| 3 | **Collections** | Personal Collections | `personal-collections` | Collection overview with a small preview of genuinely earned Scripture Cards and distinct entrances to **Field Notebook** (permanent earned-only Cards & lifetime status) and **Saved Scripture** (independent saved passages). |
+| 4 | **More** | Resources & Settings | `resources-settings` | Ministry-first overview featuring the latest published editorial update (direct open) above **View All News**, **Podcasts & Resources**, **About Bibleberry**, **Appearance & Settings**, **Account & Progress**, **Review Introduction**, and **App Tutorial**. |
 
-- A reader who begins the month can see **the available thematic discovery titles and their progress**. **Do not require earning a first card** to reveal the goals. This explicitly supersedes the November 7 first-earned-card rule.
-- Example: **Dogs in the Bible — 1 of 3**. This is a *treasure hunt*. It is intended to elicit curiosity about which biblical references the month's teaching will uncover.
-- **Unearned discovery:** Show **title and numeric progress only**. No illustration, Scripture card image, Scripture text/explanation, teaser, hidden Challenge list, tap target, detail view or links revealing where to find it.
-- Do **not** identify the qualifying Challenges or offer a map to their locations. A reader finds the references/subjects through completing the actual teaching.
-- **Earned discovery:** Reveal an illustrated **badge/thumbnail** (likely derived from the card's illustration). Tapping it on the Month Screen opens the **full illustrated Scripture card** directly, without first visiting the Field Notebook.
-- The permanent **All Earned Cards** collection shows **only earned cards**; it does not display unearned gray placeholders. The Month Screen can show work-in-progress goals without leaking future card artwork.
-- **Full-month reward:** Show a visible goal such as **18 of 30 Challenges**, placed **after** the thematic discoveries. The complete Scripture card and illustration remain hidden until every Challenge in that finalized month is finished. This reward is a substantive Scripture card, not a certificate.
-- Completing **every Challenge in the month guarantees earning every monthly thematic discovery card** as well as its full-month card. There are no additional hidden tasks.
-- Thematic discoveries arise from Alexis's already-prepared Challenges; occurrences can be spread throughout the month. Some Challenges contribute to more than one discovery; others to none. **Do not engineer daily progress just to award something every day.**
-- **A discovery is recorded only when the associated Challenge is finished.** Simply reaching its text, reading the last screen, saving, opening or exiting does not award discovery credit. One Challenge completion may update multiple thematic counters.
-- Partial discovery progress updates **silently** on the Month Screen; no routine progress notification. Actual earned-card announcements follow the Hub rules below.
-- During **advance preview only**, monthly discovery titles and goals are **not exposed**. They become part of the normal Month Screen once the month begins.
+- **Presentation:** Persistent four-item **bottom navigation bar on phones**; adapts into a **navigation rail or sidebar** on wider displays using the same four destinations and order.
+- **Focused Challenge reading exception:** **Hide primary global navigation during focused Challenge reading** to avoid distractions and accidental departure.
+- **Naming distinction:** Do not conflate **Library** (the second global tab) with the complete historical **Library** catalogue reached via `Library → Browse All Months`, nor with the **Shelf** (0–3 historical months displayed on the `Library` landing). The current publication month is never a Shelf slot.
+- **No duplicate data ownership:** Secondary shortcuts (such as a compact News affordance on `Today` or earned-Card access from `Month Screen`) route to the same authoritative content and state; never maintain shadow stores or duplicate feeds.
 
-## 4. Monthly publication preview and introduction
+### 2.2 Screen-responsibility summary
 
-### 4.1 Preview calendar
+| Surface | Owning responsibility |
+|---|---|
+| **Today (Hub)** | Current teaching first; direct entry to today's Challenge; compact current Month link; single optional historical continuation; sole surface for combined earned-Card announcements; optional eligible guest account invitation; restrained News shortcut. Not an achievement backlog dashboard. |
+| **Month Screen** | Dedicated landing screen for any publication month (current or historical): theme, completed/total ticker, continuous vertically scrollable week-by-week agenda calendar, replayable Monthly Introduction, and compact progress-first **Monthly Discoveries** below the calendar. |
+| **Shelf** | Focused historical working space of **0–3** historical months on the `Library` landing, with explicit Active Focus, `Keep on Shelf` protection, `Open Month`, and `Put Away`. |
+| **Historical Library (`Browse All Months`)** | Complete chronological catalogue of all ordinary past publication months (expandable years, compact month/theme rows, month/theme search). Readers may open, finish, and earn credit directly without Shelf membership. |
+| **Foundations** | Optional foundational reading and resources (`Foundations overview` first, adaptive `Resume Reading` / `Begin with the First Reading`). |
+| **Field Notebook** | Permanent **earned-only** Scripture Card archive: lifetime status at top, `Search Your Cards`, publication year → 12 months illustrated galleries, unified `All Earned Cards` newest-earned-first grid, and earned-only `Foundations & Learning` and `Special Experiences` collections. No personal journaling. |
+| **Saved Scripture** | App-wide collection of reader-saved passages (recently saved first, Bible-book browser, search), fully independent of Challenges, earned Cards, and mandatory memorization. |
+| **Ministry News** | Editorial ministry updates, announcements, and monthly previews (`More` featured item + `View All News` unified newest-first feed with category filter). Never an achievement notification stream. |
+| **Challenge Reader** | Distraction-free, full-screen teaching view with `Exit`, screen count + subtle progress bar, visible `Previous`/`Next` + optional swipe, autosave/auto-resume, `Start from Beginning`, and explicit `Finish`. |
 
-- On the **28th of the preceding month**, or **February 27**, the next month's preview becomes visible and can be featured as a **Bibleberry ministry news event**. This is grounded in the ministry's established advance monthly editorial release practice.
-- During this advance-preview interval, the upcoming month is a **placeholder/preview destination**, showing teaching theme/introduction and upcoming Challenge titles. It does **not** reveal Monthly Discoveries or make future Challenge content available.
-- A dedicated, swipe-through **Introduction to the Month** is planned. The **four-screen** example is a working content-flow concept, **not a final mandated screen count**.
-- The last introduction screen is **“Welcome to [MONTH'S THEME]”** and is **not shown during the advance-preview period**. It appears once the month actually begins.
-- On/after the month begins, a first-time reader of that month sees the introduction including the welcome; a reader who already viewed the advance preview may **Skip to Welcome** or replay the full introduction. This is a reader choice, not a forced repetition.
-- After the month introduction/welcome has been experienced, subsequent visits open the Month Screen normally. The link to replay the introduction remains available at any time.
-- **Historical months:** If a reader first encounters an older month in Shelf/Library, show its full introduction and Welcome once, then use the Month Screen normally on future visits. Avoid repeated automatic introduction prompts.
-- What Alexis writes on each introduction screen, preview artwork and exact interactions remain future design/editorial work.
+### 2.3 Launch, in-session restoration & origin-aware return rules
 
-## 5. Completion, context and announcements
+| Event / Transition | Approved behavior |
+|---|---|
+| **Ordinary fresh app launch** | Opens at **Today** ([Nov 20](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7054393499)), subject to coordinated first-use onboarding ([§8.4](#84-first-use-guidance-app-introduction--guided-app-tutorial-g06)). Preserves all saved Challenge resume positions, Active Focus, Shelf, completions, earned Cards, Saved Scripture, and appearance preferences. |
+| **Switching to another tab (in-session)** | Restores that destination's **last-opened nested screen and scroll position** ([Nov 20](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7054335734)). Navigation restoration never alters Active Focus, Shelf membership, or participation state. |
+| **Re-tapping the already-active tab** | Intentionally returns that destination to its **main landing/overview** at top scroll ([Nov 20](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7054335734)). |
+| **Internal Challenge `Exit` or `Finish`** | Returns to the **actual originating in-app context**: Today-origin → `Today`; Month Screen-origin → same `Month Screen` with restored per-month calendar scroll position; Shelf/Library-origin → originating Shelf/Library context. Updates progress/discoveries silently on non-Hub surfaces. |
+| **External Challenge link `Exit` or `Finish`** | Always returns to **Today** ([G04-A](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7058152802)), even for a historical Challenge; never fabricates an in-app Month Screen/Shelf/Library origin from URL metadata. |
+| **First-use external Challenge link** | Opens the requested authorized Challenge **immediately before** App Introduction, App Tutorial, or Monthly Introduction ([G04-B](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7058228089), [G05](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7058247362)), keeping onboarding pending (not marked complete); `Exit`/`Finish` returns to `Today` without an exit onboarding wall. |
+| **Full Card detail `Back`** | Returns to exact originating Month Screen, Field Notebook gallery, `All Earned Cards`, `View Discoveries`, or search results without altering earned state. |
+| **More → News / Introduction / Tutorial `Back` or finish** | Returns to the originating `More` overview (or `View All News` list if opened from the feed), preserving scroll/filter context. |
 
-### 5.1 Explicit final navigation
+---
 
-- The final navigation control for a teaching Challenge reads **Finish**, prominently, rather than “Next”.
-- Tapping **Finish** is the action that **records completion** and thereby qualifies the Challenge for its monthly discoveries and lifetime total; there is **no second completion-confirmation screen** or unrelated timer.
-- Arriving on the last screen and leaving without tapping Finish leaves the Challenge **unfinished**; save its resume position. For other Challenge formats, define an intrinsic Finish/complete contract consistent with their real activity; optional deeper content remains optional.
-- The reader returns to **the origin context** on Finish: Hub-origin Challenges return to Hub, Month Screen-origin Challenges return there, Shelf-origin work returns to Shelf context, Library-origin work returns to Library context. Preserve browsing continuity.
+## 3. Today (Hub) — Current Teaching, Continuation & Announcements
 
-### 5.2 Hub-exclusive earned-card announcements
+### 3.1 Primary current-teaching action & compact Month link
 
-- Awards are issued and stored **immediately on Finish** when criteria are met, even if the reader is in the Library or opted out of announcements.
-- Completing a Challenge updates completion/discovery progress where it is shown. **Do not show partial-progress notices.**
-- **Earned-card announcement trigger: the reader arrives at/returns to the Hub.** Neither exiting the reader into Shelf/Library/Month Screen nor opening an earned badge elsewhere triggers the announcement.
-- Announce all newly unannounced earned cards as **one combined message**, never a queue of separate celebrations. If the reader leaves the app before reaching Hub, keep the pending award announcement for the next Hub visit, including a later app session.
-- Announcement opt-out affects **presentation only**: it does not disable earning, dates, Notebook or New markers. If notifications are turned back on, show **one combined catch-up announcement** for previously suppressed awards (not repeated individually).
-- One-time announcement dismissal/acknowledgment is distinct from indicators: Hub **New Discoveries** clears when the **Field Notebook opens**, while each earned card's **New** status persists until **that particular card is opened**, whether accessed from the Month Screen or Notebook. Dismissing a Hub announcement does not automatically mark cards viewed.
-- The exact illustration/wording of an announcement and settings location are UX work. No separate broad Quiet Reading mode is required by this decision.
+- **When today's released Challenge is available and unfinished** ([Nov 20](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7054509666)): The Hub's primary action opens today's authorized Challenge **directly** (honoring saved resume position if partially read). Do not route through the Month Screen or insert a Monthly Introduction ([G05](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7058247362)). Returning on `Exit`/`Finish` goes back to `Today`.
+- **After today's Challenge is completed** ([Nov 20](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7054520592)): Keep today's Challenge as the Hub's primary teaching feature with an accurate **Completed** state and prominent **Read Again** action. `Read Again` opens the same Challenge from its beginning in an intentional reread flow without resetting completion, earned dates, discoveries, or lifetime count, and without issuing duplicate awards or announcements.
+- **When today's Challenge is unavailable** (no Challenge scheduled for today or not yet server-released) ([Nov 20](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7054591121)): State neutrally that today's teaching is not available (no missed-day blame, no embargo bypass) and switch the primary action to **Explore This Month**, opening the current Month Screen instead of leaving a disabled dead CTA.
+- **Separate compact Current Month link** ([Nov 20](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7052445658)): Always provide a clearly discoverable, compact entry to the dedicated **current Month Screen** on `Today`. Never embed a partial or full calendar grid on `Today`.
 
-## 6. Shelf, Library and returning to historical teaching
+### 3.2 Single secondary historical continuation (`Continue Your Study`) & rollover precedence
 
-**Approved reader-facing names: Shelf and Library.** Supersede older “Personal Archive” and “Past Teaching Library” labels in future UI/specifications. Historical documents retain the old names solely as dated context.
+`Today` may display **at most one** compact, visibly secondary historical continuation entry, placed **immediately beneath the primary current-teaching action** ([Nov 20](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057629706)). Evaluate eligibility in this strict precedence order:
 
-- **Current month** is separate and always discoverable; the **Shelf** holds **0–3 historical months**, never automatically padded to three.
-- At rollover, a just-ended month with **at least one completed Challenge** is eligible for automatic admission. If the Shelf has a free slot, admit it.
-- The Shelf distinguishes **reader-selected/protected** months from **automatically admitted** months. Explicit selection/protection is respected even if the reader has not yet completed another Challenge there.
-- With all three slots full, an eligible just-ended month may replace the **oldest automatically admitted** month. **Never automatically evict a reader-selected/protected month.** If all three are protected, the just-ended month remains in Library.
-- Reader can **keep/protect** an auto-admitted month; wording remains UX work. Reader may **Put Away** a Shelf month at will, which removes workspace membership without deleting any completion, earned award, saved Scripture or resume location.
-- A reader's deliberately chosen **active study focus** is separate from incidental Library activity, Shelf membership, or the last thing opened. Merely browsing elsewhere does not redirect focus.
-- Hub should offer **only one** low-key Continue suggestion, prioritizing an unfinished Challenge in the active focus. When a focus month is finished, it may suggest the next active unfinished month **without silently rewriting the formal focus**. No mandatory backlogs.
-- If a reader was interrupted in a just-ended Challenge, preserve its progress **even if that month did not enter Shelf**. A temporary resume suggestion may surface on the **first visit after rollover**, then normal focus resumes. The exact “first visit” technical definition is deferred.
-- Readers may complete Challenges directly through Library without activating Shelf membership; award eligibility is exactly the same as through any other route.
-- The historical Library's **catalogue/reading** is not an award-chasing feed. A historical **Month Screen**, however, retains the same legitimate calendar and discovery progress so the reader can understand the month they're studying.
-- A publication month's thematic and full-month earned cards remain filed under their **publication month** even if earned years later. Earned **date** is the actual date of earning, separate from publication and completion timestamps.
+1. **Explicitly selected Active Historical Focus takes top precedence** ([Nov 21](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057646134), [G01](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057874403), [G02](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7058052799)):
+   - **Valid unfinished Challenge with saved position in Active Focus:** Tapping `Continue Your Study` opens **that Challenge directly at its saved reading position** (Today-origin return; no intermediate Month Screen).
+   - **No valid unfinished saved Challenge in Active Focus** (including a newly selected focus month with nothing started): Tapping `Continue Your Study` opens **that Active Focus's historical Month Screen** (Today-origin return; Challenges opened from that Month Screen use Month Screen-origin return and scroll restoration). Do **not** silently guess and launch an inferred next incomplete Challenge.
+   - **Fully completed Active Focus:** Keep the formal focus intact; the compact entry may read **Review This Month** and opens that historical Month Screen. Do **not** erase the focus or automatically switch to another Shelf month (superseding the November 8 "next active unfinished month" suggestion).
+2. **One-time post-rollover interrupted prior-month continuation (only when no Active Focus is set)** ([G02](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7058052799)):
+   - On the reader's **first ordinary `Today` visit after a month rollover**, if a Challenge from the **immediately preceding publication month** was opened and left unfinished with a valid saved reading position—**even if that just-ended month did not enter Shelf**—offer one temporary continuation in the same single secondary slot.
+   - Selecting it opens that saved prior-month Challenge directly at its persisted position (Today-origin return, normal `Finish`/earning rules).
+   - It is a **one-time opportunity**, not an ongoing historical focus, and does not reappear on routine later `Today` visits. Underlying saved progress **never expires** and remains recoverable in `Library`. It never changes Active Focus, Shelf membership, or protection.
+   - If an eligible Active Focus already exists, Active Focus **always wins**; never display two concurrent historical continuation cards.
+3. **No Active Focus and no eligible G02 rollover interruption:** Show **no** `Continue Your Study` entry. Never fabricate a focus from incidental `Library` browsing, Shelf auto-admission, or the last month opened.
 
-## 7. Field Notebook and illustrated Scripture cards
+### 3.3 Hub-exclusive combined inline earned-Card announcements & `New` semantics
 
-- Navigate by **publication year → twelve month entries**. An ordinary unpublished future month may show a neutral coming-soon state without leaking future teaching or discoveries.
-- **All Earned Cards** is a separate gallery, showing earned monthly cards and, only once relevant, earned Special Experience cards; within groups, newest-earned-first is a working selection. Do not show unearned event placeholders.
-- Earned cards contain a substantive illustration and **written biblical text/explanation**; these are **not diagrams with arrows or dependency maps**. Accessibility should make actual text available to assistive technologies and use concise descriptive text alternatives for the illustration, not require Alexis to compose a second theological exposition.
-- Cards are searchable by **card title, Bible book, passage and editorially curated theological themes/motifs** grounded in Alexis's teaching; do not invent metadata the teaching does not support.
-- **No Field Notebook personal journaling/handwritten annotation feature.** Guided worksheet, prayer or reflection interactions elsewhere remain a separate Challenge-content matter.
-- **Lifetime participation** is one prominently presented, evolving status derived from **distinct** Challenge completions. Show number completed in secondary details if useful, without a mandatory next-tier progression bar or permanent milestone card collection.
-- Reader may **share the existing original earned Scripture card**, complete with explanation; no independently designed or separately maintained social assets. The app **adds a subtle Bibleberry identifier/watermark on the export/share image at share time**, leaving the in-app original untouched. **Exact wording/logo/placement is deferred.** No attempt to block screenshots, and no attribution promise for screenshots.
-- Card visual identity is anchored in Alexis's authentic notebooks; actual art, badge thumbnails, typography and layouts will be mocked up later.
+- **Immediate award recording, Hub-only announcement:** Qualifying Scripture Cards are issued and durably stored **immediately on explicit `Finish`** regardless of where the Challenge was read (`Today`, `Month Screen`, `Shelf`, `Library`, or external link) and regardless of announcement opt-out. No award pop-ups or partial-progress notices appear during reading or when exiting to non-Hub screens.
+- **Dismissible inline announcement on `Today` arrival/return** (Nov 8; [Nov 20](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7054532536)): When the reader enters/returns to `Today` with one or more newly earned, unannounced Cards (including carried across app sessions), show **one combined, dismissible inline announcement** integrated into `Today`—never a blocking modal dialog and never a queue of per-Card pop-ups. Keep it subordinate to today's teaching.
+- **`View Discoveries` destination** ([Nov 20](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7054582593)): Selecting `View Discoveries` opens a **focused illustrated gallery containing only the specific newly earned Cards referenced by that announcement** (authentic thumbnails, tapping opens full single-scroll Card view), with a clear **Browse Full Field Notebook** action and Back to `Today`.
+- **Distinct state clearing:**
+  - **Dismissing/acknowledging** the inline announcement acknowledges that announcement batch once; it never deletes earned Cards or dates, never clears `New Discoveries`, and never marks individual Cards viewed.
+  - The **`New Discoveries` indicator** clears when the reader **enters the Field Notebook** (including via the focused `View Discoveries` gallery).
+  - Each individual Card's **`New` marker** persists until **that specific full Card view is opened** (whether from `Month Screen`, `View Discoveries`, `Field Notebook`, `All Earned Cards`, or Card search). Seeing a thumbnail preview never clears `New`.
+- **Opt-out semantics:** Disabling earned-Card announcements suppresses presentation only—earning, dates, Field Notebook, `New Discoveries`, and per-Card `New` markers continue operating. Re-enabling announcements displays **one combined catch-up announcement** for previously suppressed unannounced awards (never repeated individually).
 
-## 8. Accounts, cross-device records and earned-date integrity
+### 3.4 Optional dismissible guest account invitation & Ministry News shortcut
 
-- Registration is **optional**; guest participation is real participation.
-- When a guest creates a new account on that device, **automatically transfer/merge** their Challenge completions, saved Scripture, earned cards and earned dates, resume state and other relevant saved progress. No reset or duplicate award.
-- When someone using a **guest device** signs into an **already existing account** there, **automatically merge guest activity into that existing account**. Preserve accomplishments/saved Scripture from both sides and deduplicate by stable IDs.
-- If guest Shelf choices conflict with the existing account's Shelf, **the account's current Shelf selection takes priority**; this must not delete the guest's underlying completed Challenges or awards.
-- Duplicate offline/parallel earning of the same card yields **one** card with the **earliest credible earned date**. Do not simply trust the earliest unverified client clock.
-- On two devices with different partially read positions for a Challenge, resume from the **furthest position** by default, rather than blindly selecting latest timestamp. Deliberate reread flows can be specified later.
-- Gentle account invitations may appear **outside focused teaching** to protect recoverable progress. Cloud identity/auth, client conflict algorithms and offline capability are engineering specifications still requiring review.
+- **Gentle optional guest invitation** ([Nov 20 — placement](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057461497), [threshold](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057531825), [permanent suppression](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057623869)):
+  - Guest use is always fully supported with no forced registration.
+  - A guest becomes eligible for a compact, dismissible account invitation on `Today` **only after finishing three distinct Challenges** (explicit `Finish`, deduplicated by stable Challenge ID; any pace; ordinary historical Challenges count; no consecutive-day requirement).
+  - Subordinate to today's teaching and **never displayed simultaneously with or ahead of pending earned-Card announcements**; never interrupts focused Challenge reading.
+  - Explicit **dismiss / continue as guest** records durable profile state and **permanently suppresses** the automatic `Today` invitation for that guest profile (never reappears on more completions, elapsed time, or restarts; simply navigating away is not dismissal).
+  - A persistent user-initiated account route remains available at all times under `More` (`Account & Progress`).
+- **Restrained editorial News affordance:** `Today` retains a compact, restrained entry to authorized Ministry News using the same underlying editorial feed as `More` (never an achievement notification stream, no fabricated unread counters).
 
-## 9. Special Experiences — separate from ordinary Challenges
+---
 
-**Category is approved for future design; no individual event is approved or scheduled.**
+## 4. Month Screen, Advance Preview & Monthly Introductions
 
-- Optional, advertised, truly **time-limited** events, potentially with opt-in reminders and a Hub promotional entry.
-- Readers must **start** within the event's available participation window; **simply tapping Start is sufficient** to qualify for any grace period. No requirement to complete the first step immediately.
-- Each event has an **event-specific grace deadline** selected by the product team. Example: a one-day event can give existing starters until **noon the next day**, in the reader's local day. Do not assume every event has identical grace duration.
-- After the event closes/grace expires, its activities are **not readable/completable later** and are **not added to the ordinary historical Library**. No retrospective participation or earning.
-- Only cards actually earned by participants appear in their permanent dated collection. **No grayed-out missing event slots**, hidden historic events, or reminders of missed events.
-- Ordinary historical monthly Challenges remain permanently available. Do not apply this time limit to them.
-- Local-time/day and boundary handling need a safe technical implementation contract; it is not approval to trust arbitrary device-clock edits.
+### 4.1 Calendar structure, states & positioning
 
-## 10. Clearly deferred decisions and boundaries
+The dedicated **Month Screen** governs both the current publication month and every historical publication month (Nov 8; [Nov 20 week-by-week](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7052503817), [continuous scroll](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7052558998), [direct entry](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7052567552), [positioning](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7052847416), [weekly agenda panels](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7056523846)):
 
-**Design/UX deferred:** exact Month Screen calendar form; overall app tab/navigation IA; Field Notebook/card/thumbnail artwork; monthly intro text/layout/count; selected introduction link and Skip-to-Welcome wording; Hub reward announcement wording; watermark branding/position; lifetime tier names; on-screen visual placement for account invitations; exact shelf protection labels.
+- **Header & overview:** Displays the publication month's ministry-authored title/theme, a clear **completed of total** ticker (e.g., `18 of 30`), and a persistent **Read Monthly Introduction** replay link.
+- **Continuously vertically scrollable week-by-week agenda panels:** All weeks of the month appear in chronological order on one continuous scrollable surface (neither a compressed 7-column tile grid nor an ungrouped 30/31-row list, and not a one-week-at-a-time switcher). Each weekly agenda panel displays readable dates, **complete ministry-authored Challenge titles** (with proper wrapping and enlarged-text legibility), and accessible **Completed**, **Available**, and **Coming Soon** indicators (text/semantics, never color alone).
+- **Visibility & embargo:** All daily Challenge **titles** for the month are visible from the start of the month, but unreleased Challenge bodies and assets remain inaccessible until each Challenge's server-authorized reader-local release date. Tapping `Coming Soon` must never expose embargoed content or reward art.
+- **Direct Challenge entry:** Tapping an available Challenge opens the Challenge reader **immediately** (no preview drawer, expansion, or start confirmation). Unfinished Challenges auto-resume at their saved position; completed Challenges remain revisitable without erasing or double-counting credit.
+- **Entry positioning & scroll restoration:**
+  - **Current month, ordinary entry:** Positions initially at the **relevant/current week** while keeping all earlier/later weeks, month header, Introduction replay, and Monthly Discoveries accessible on the same continuous scroll.
+  - **Historical month, fresh entry:** Starts at the **beginning of the month**, unless restoring a recorded prior browsing position.
+  - **Return from Challenge:** Returning on `Exit` or `Finish` restores the **prior per-month calendar scroll position** (keyed to that publication month), updating completion and discovery counts silently in place with no toast or award popup.
 
-**Technical behavior to specify:** intrinsic completion for all seven Challenge formats; reliable server-enforced local-calendar publication and travel/timezone transitions; secure client/cache handling of prepublished titles versus embargoed teaching; idempotent completion/card issuance; credible earned-date merge; offline conflicts and guest-account migration; active-focus/rollover tie handling, first-post-rollover resume; announcements/new-marker persistence; performance on low-end Android and screen-reader verification.
+### 4.2 Monthly Discoveries: goal visible, reward secret
 
-**Not currently approved:** new event production; forced memorization app; Field Notebook journaling; compulsory missed-day catch-up; additional social graphics; full event sourcing; any redesign of the ministry's teaching for gamification; a specific global navigation; conversion of the calendar back to a list; hiding monthly discovery goals until the first card.
+Displayed as a **compact, progress-first list below the week-by-week calendar** (not a prominent collectible-card grid), with the **full-month completion goal placed last** (Nov 8; [Nov 20](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7056030998)):
 
-**Do not invent hypothetical ministry publication failures or major theological revisions as normal-path product requirements.** The monthly content is prepared and published reliably in advance. Routine proofreading can preserve progress without introducing elaborate retroactive-card recalculation rules; genuinely exceptional circumstances can be handled separately if they ever exist.
+- **Visible from month participation:** Thematic discovery titles and accurate numeric progress (e.g., `Dogs in the Bible — 1 of 3`) are visible once the month begins—no first-earned-card unlock prerequisite.
+- **Unearned discovery:** Shows **title and numeric progress only**—untappable, with no Card artwork, silhouette, Scripture text/explanation, teaser, qualifying Challenge list, or map revealing where to find it.
+- **Earned discovery:** Displays a modest authentic Card illustration/thumbnail in that compact list and becomes actionable, opening the **full earned Scripture Card directly** without detouring through Field Notebook.
+- **Full-month completion Card:** Listed **last** with completed/total progress (`18 of 30 Challenges`). Its Card graphic and text remain hidden until every Challenge in the **finalized** month's roster is finished. Completing all Challenges in the finalized month guarantees every monthly thematic Card plus the full-month Card (no hidden extra tasks).
+- **Finish-only silent increments:** Discovery progress increments **only on explicit Challenge `Finish`**. One Challenge may contribute to multiple discoveries or none. Partial progress updates silently without routine notifications.
+- **Withheld during advance preview:** Monthly Discovery titles and goals are **never exposed** during advance preview; they appear only once the publication month begins.
 
-## 11. Supersession checklist for developers and future AI agents
+### 4.3 Advance preview & Monthly Introduction / Welcome (G05)
 
-| Prior proposal or confusing legacy language | Binding November 8 direction |
-| --- | --- |
-| “Personal Archive” / “Past Teaching Library” as final UI labels | **Shelf** / **Library**; current month separate |
-| Rotate away reader-selected months based on raw recency | **Protect explicitly selected months**; replace oldest *auto-admitted* only |
-| Reveal monthly thematic goals after first earned card | **Visible on Month Screen when participating**, while actual card stays secret |
-| Display discovery requirements by qualifying Challenge/link | **Never expose source Challenge locations** before discovery |
-| Gray silhouettes/previews of unearned card artwork | **Title + numeric progress only; untappable** |
-| Monthly progress belongs chiefly in Field Notebook | **Calendar Month Screen** shows Challenges and discovery progress; Notebook is permanent earned collection |
-| Generic full-month certificate / top-of-page reward | **Illustrated Scripture card** as last Monthly Discovery |
-| Automatic completion merely by reaching final teaching screen | Clear **Finish** button records completion |
-| Announce as soon as reader exits any Challenge | **Hub only**; other destinations update silently and defer announcement |
-| “Current month only; older month details as flat archive entries” | **Same Month Screen** available for historical months |
-| New month appears only on the first day | **Advance preview on preceding 28th / Feb 27**, Welcome gated to month start |
-| Repeat entire introduction after someone saw the preview | **Skip to Welcome** option; intro accessible later, no automatic replay |
-| Guest account merges unspecified/manual | **Automatic** new-account transfer and guest-on-device sign-in merge; existing Shelf wins |
-| Special events can be finished retroactively via Library | **No retrospective event availability**; start during window, event-specific grace only |
-| Separate share images/social templates | **Share original earned card**, adding attribution on exported image only |
-| Every card/layout requires separate Alexis product approval | **Aaron approves product direction**; Alexis's substantive teaching/editorial authority remains intact |
+- **Advance preview window:** On the **28th of the preceding month** (or **February 27**), the upcoming month becomes visible as an advance preview and may be featured in Ministry News. Preview shows only the upcoming theme, preview introduction screens, and upcoming Challenge titles/dates—withholding the final Welcome screen, Challenge manuscripts, and Monthly Discoveries.
+- **Anchored to first intentional Month Screen entry** ([G05](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7058247362)):
+  - Starting today's Challenge directly from `Today` (including on Day 1) or arriving via an external Challenge link **never** inserts the Monthly Introduction/Welcome ahead of the Challenge and **never** consumes the one-time Month Introduction flag.
+  - On a reader's **first intentional visit to a month's Month Screen** (current or historical), present the month's one-time full Introduction ending with **“Welcome to [MONTH'S THEME]”** before entering the calendar (even if the reader already completed Challenges from that month directly via `Today`).
+  - A reader who already viewed the advance preview before month start may choose **Skip to Welcome** or replay the full introduction when the month begins.
+  - Subsequent Month Screen visits open the calendar directly; the persistent **Read Monthly Introduction** link allows voluntary replay at any time without resetting progress, calendar state, Cards, or Shelf.
+  - The four-screen introduction example is illustrative, not a mandated screen count; editorial copy and artwork remain editorial/design work.
 
-**Implementation process:** Commit approved documentation through a scoped PR. Do not represent product authorization as a finished UI, authenticated sync implementation, launched Special Experience or changed CMS schema. Follow the normal Issue, branch, review and merge protocol.
+---
+
+## 5. Focused Challenge Reading, Explicit Finish & External Entry
+
+### 5.1 Distraction-free Challenge reader contract
+
+- **Global navigation hidden** during focused Challenge reading ([Nov 20](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7054326230)). No unrelated achievement pop-ups, streak counters, completion timers, or reward tickers.
+- **Reader header** ([Nov 20](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7052549343)): Displays an accessible explicit **Exit** control, a textual screen count (e.g., `Screen 3 of 7`), and a subtle secondary visual progress bar indicating screen position only (never completion, comprehension, or award progress).
+- **Screen navigation** ([Nov 20](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7052520346)): Visible, keyboard/touch-accessible **Previous** and **Next** buttons, with **optional horizontal swiping** as a redundant one-screen shortcut. Swipe is never required, must not hijack vertical scroll, text selection, or horizontally scrollable media, and **must never implicitly finish** a Challenge.
+- **Seamless `Exit`, autosave & `Start from Beginning`** ([Nov 20](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7052538782)):
+  - Explicit `Exit` leaves the reader immediately without an interrupting confirmation modal and returns to the originating context.
+  - Reading position persists automatically as the reader advances or goes backward (not only on `Exit`), so reloads or interruptions restore the last reliably saved position. Reopening an unfinished Challenge resumes automatically without a routine Resume vs Start Over prompt.
+  - Provide a distinct, discoverable **Start from Beginning** action that resets only reading position within that Challenge and never deletes completions, earned Cards/dates, or Saved Scripture.
+
+### 5.2 Explicit `Finish`-only completion
+
+- The final forward control reads **Finish** prominently (not `Next`).
+- **Only tapping `Finish` records completion** (and qualifies the Challenge for Monthly Discoveries, full-month completion, and distinct lifetime participation)—no second confirmation screen and no mandatory reading timer.
+- Reaching the last screen, swiping, saving Scripture, or exiting without tapping `Finish` leaves the Challenge **unfinished** with its resume position preserved.
+- Going backward or rereading a completed Challenge never revokes completion or duplicates distinct credit/awards.
+- Optional deeper study blocks, prayers, and reflections remain genuinely optional. Intrinsic completion contracts for all seven Challenge formats remain to be specified without timer-gating.
+
+### 5.3 Authorized external Challenge entry (G04-A & G04-B)
+
+- **Direct arrival (G04-A & G04-B):** A valid, server-authorized external Challenge link (e.g., shared from YouTube, on cold start or warm launch) opens that specific released Challenge directly—without a `Today` or `Month Screen` detour and, for first-time readers, **before** the general App Introduction, Guided App Tutorial, Monthly Introduction, or any account wall ([G04-A](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7058152802), [G04-B](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7058228089), [G05](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7058247362)).
+- **Pending onboarding preserved (G04-B):** Opening an externally linked Challenge never silently marks App Introduction or App Tutorial complete (`onboarded` remains pending/deferred).
+- **Explicit `Exit` / `Finish` returns to `Today` (G04-A):** Exiting (saving unfinished position) or finishing (recording completion and awards) an externally entered Challenge returns the reader to **Today**—even when the linked Challenge is from a historical publication month—without injecting an exit onboarding wall and without manufacturing an in-app Month Screen/Shelf/Library origin.
+  - *Implementation reconciliation note:* Existing R12-2 ingress foundation parses optional serialized `origin` URL parameters; engineering must ensure external Challenge ingress returns to `Today` on `Exit`/`Finish` rather than treating caller-supplied URL `origin` metadata as prior in-app navigation history, while leaving internal Month/Shelf/Library origin return intact.
+- **Fail-closed unavailability:** Unreleased, withdrawn, invalid, or unauthorized external links must never leak teaching content or embargo clues; show an accessible neutral unavailable-content state with a clear **Return to Today** action.
+
+---
+
+## 6. Library, Shelf, Historical Focus, Rollover & Foundations
+
+### 6.1 Library landing (Shelf-centered overview)
+
+The **Library** tab opens to a **Shelf-centered overview** ([Nov 20](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7052860761), [Nov 20 dedicated catalogue](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7055148930), [Nov 20 empty Shelf](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7056639042), [Nov 20 populated Shelf](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057053948)):
+
+- **Shelf capacity:** **0–3 historical publication months** only; never automatically padded to three; the current publication month is never a Shelf slot.
+- **Persistent primary entrances:** Both **Browse All Months** (dedicated complete historical catalogue) and **Foundations** remain directly accessible on the `Library` landing whether the Shelf holds 0, 1, 2, or 3 months. Do not append the full multi-year catalogue inline beneath the Shelf.
+- **Empty Shelf (0 months):** Welcoming explanatory state describing the Shelf's optional purpose (keeping up to 3 historical months handy) with prominent **Browse All Months** and direct **Foundations** access. Avoid "behind," "missed," "catch up," or streak language.
+- **Populated Shelf (1–3 months):** Display **editorial month cards** (not compact rows) showing real publication month, ministry-authored teaching theme, accurate completed/total Challenge count (accessible text, even if paired with a bar), explicit Active Focus status, protection status, and direct controls:
+  - **Open Month:** Opens that month's historical Month Screen without changing Active Focus.
+  - **Active Focus controls** ([Nov 20](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7053182477), [visible control](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057331278)): Non-active cards display a visible **Set as Active Focus** button (not hidden in a Manage menu); the selected card clearly shows **Active Focus** (at most one active focus); a discoverable **Clear Active Focus / No Active Focus** control clears focus without removing the month from Shelf or removing `Kept on Shelf` protection.
+  - **Protection controls** ([Nov 20](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057337055)): Automatically admitted (unprotected) cards display a visible **Keep on Shelf** action directly on the card; once protected (or when explicitly added by the reader from Library/Month Screen), the card clearly shows **Kept on Shelf**. `Keep on Shelf` is distinct from `Active Focus` (neither implies the other).
+  - **Put Away:** Removes Shelf membership only—never deletes completions, earned Cards/dates, Saved Scripture, or resume positions.
+- **Shelf card display order** ([Nov 20](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057349222)): Presentation-only ordering places the explicitly selected **Active Focus month first**, followed by remaining Shelf months in **publication-month descending (newest to oldest)** order; if no Active Focus is selected, all Shelf months display newest to oldest.
+
+### 6.2 `Add to Shelf`, Full-Shelf Replacement & Putting Away Active Focus
+
+- **Dual `Add to Shelf` entry** ([Nov 20](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7052980820)): Available from **both** the complete historical Library (`Browse All Months`) and any historical Month Screen, backed by the same membership state. Explicitly added months are permanently **protected** (`Kept on Shelf`) against automatic rollover eviction; browsing or reading never implicitly adds a month or alters Active Focus.
+- **Full Shelf manual replacement (4th month)** ([Nov 20](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7053133391)): Attempting to add a fourth historical month opens an **in-place chooser** (from either Library or historical Month Screen) showing the incoming month and all three current Shelf months (clearly marking any Active Focus or Kept month), requiring **explicit final confirmation** to atomically put away the chosen month and add the incoming month. `Cancel` makes no change; origin and scroll context are preserved.
+- **Putting away the Active Focus month** ([Nov 20](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7053192149)): Whether via direct `Put Away` or full-Shelf manual replacement, prompt the reader to **explicitly choose another remaining Shelf month as Active Focus or choose no focus for now**. `Cancel` preserves original Shelf membership and Active Focus. Never silently retain an off-Shelf focus or auto-redirect focus to the most recently viewed month.
+
+### 6.3 Month rollover auto-admission & Active Focus eviction protection (G03)
+
+- **Rollover eligibility:** When a publication month ends, if the reader has **at least one completed Challenge** in that just-ended month, it is eligible for automatic Shelf admission.
+- **Slot allocation & G03 protection precedence** (Nov 8; [G03](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7058107372)):
+  1. If Shelf has a free slot (<3 months), admit the eligible just-ended month as an **automatically admitted (unprotected)** entry.
+  2. If all 3 slots are occupied, consider **only unprotected, non-active-focus automatically admitted** Shelf months as replacement candidates, replacing the **oldest** such auto-admitted month.
+  3. **Never automatically evict** either (a) a permanently **Kept / reader-selected** month or (b) the currently selected **Active Focus** month (even if that Active Focus month was auto-admitted and not independently `Kept on Shelf`).
+  4. If all 3 slots are occupied by permanently Kept months and/or the Active Focus, **displace nothing**—the just-ended month remains fully accessible in `Library` with no forced management dialog or 4th slot.
+  5. **Temporary nature of G03 focus protection:** Clearing Active Focus or moving Active Focus to another Shelf month returns the formerly focused auto-admitted month to ordinary automatic-replacement eligibility (unless it was independently `Kept on Shelf`), without immediate eviction. Selecting Active Focus never falsely labels an auto-admitted month as permanently `Kept on Shelf`.
+  6. Manual confirmed `Put Away` / replacement remains permitted on an Active Focus month via the explicit reassign-or-no-focus flow.
+
+### 6.4 Dedicated complete historical catalogue (`Library → Browse All Months`)
+
+- **Expandable chronological years** ([Nov 20](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7055164443)): Separate browsable screen organized by expandable year sections; on fresh entry, the **most recent year containing eligible historical months is expanded by default**, with earlier years collapsed.
+- **Compact editorial month rows** ([Nov 20](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7055197075)): Each expanded year shows compact text-forward rows displaying **month name and ministry-authored published teaching theme** (not large illustrated cover tiles, and not an award-hunting feed). Selecting a row opens that month's normal historical **Month Screen**.
+- **Month/theme search** ([Nov 20 search](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7055714307), [unified results](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7055721055)): Simple search field scoped strictly to **authorized published month names and published month teaching themes** (not full-text Challenge bodies, AI-inferred topics, News, or embargoed months). Active queries render **one combined flat list across all years sorted by publication month descending**; clearing the query restores the expandable-year view.
+- **Direct reading & full credit:** Readers can open, finish, and earn identical completion and Card credit directly through `Browse All Months` without adding a month to Shelf or altering Active Focus.
+
+### 6.5 Foundations
+
+- **Overview first** ([Nov 20](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7055735259)): Selecting `Foundations` from `Library` always opens the **Foundations overview** (never auto-launches a lesson). Foundations is optional and non-punitive.
+- **Conditional primary reading action** ([Nov 20](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7056022159)): When a genuine, valid resumable partially read Foundations reading exists, prominently feature **Resume Reading** (opening that reading at its actual saved location); otherwise display **Begin with the First Reading**. All other Foundations resources remain clearly accessible in both states, with safe fallback if a saved reading becomes unavailable. *(Requirement note: Engineering must verify/implement Foundations resumable persistence in scoped work; do not fabricate a resume state.)*
+
+---
+
+## 7. Collections — Field Notebook, Scripture Cards & Saved Scripture
+
+### 7.1 `Collections` landing
+
+Opens as a **collection overview** ([Nov 20](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7053205179)) featuring a small preview of **genuinely earned** Scripture Cards (or a calm, accurate empty state with no gray silhouettes or unearned placeholders) alongside two distinct, clearly accessible entrances: **Field Notebook** and **Saved Scripture**. Thumbnail previews on this landing do not duplicate award records and never clear a Card's `New` marker.
+
+### 7.2 Field Notebook hierarchy & earned-only collections (G07)
+
+The **Field Notebook** is the permanent, browsable record of **actually earned** Scripture Cards (no personal journaling feature). Its overview follows this approved top-to-bottom hierarchy ([Nov 20 hierarchy](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7053308787), [lifetime status](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057367015), [search](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057378732), [All Earned Cards](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057395219), [Special Experiences](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057435289), [G07](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7058548963)):
+
+1. **Lifetime participation status (top):** Calmly and prominently displayed immediately below the `Field Notebook` heading and above collection entrances. One single evolving status derived from **distinct** Challenges explicitly finished (optional modest completed count in secondary detail; no next-tier progression bar, streaks, rankings, or milestone-badge collection).
+2. **`Search Your Cards`:** Directly discoverable on the overview. Searches **only Cards genuinely earned by this reader** across **Card title**, **Bible book**, **passage/reference**, and **editorially curated theological themes/motifs** grounded in Alexis's teaching (never searches unearned/restricted Cards or invents metadata). Results render as **compact illustrated rows** showing authentic earned thumbnail, Card title, and Scripture reference ([Nov 20](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057383873)).
+3. **Publication year → 12 months (default browse):** Cards earned from monthly teaching remain permanently filed under their **original publication year and month** even if earned years later. Unpublished future months may show a neutral Coming Soon state without leaking content/discoveries. Within a publication month, earned Cards render as an **illustrated gallery** of authentic image-forward thumbnails ([Nov 20](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7054099540)).
+4. **`All Earned Cards` gallery:** Directly accessible responsive **illustrated thumbnail grid** displaying authentic thumbnail, legible title, and **actual earned date** ([Nov 20 order](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057390504), [grid](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057395219)). Includes **every genuinely earned Card** across monthly teaching, `Foundations & Learning`, and `Special Experiences` as views of one authoritative record, ordered by **persisted credible actual earned date descending** (with deterministic tie-breaking).
+5. **`Foundations & Learning` (earned-only, G07):** Separate entry on the Notebook overview, **visible only after the reader has earned at least one eligible Foundation or substantive ministry-learning Scripture Card**. Permanently earnable and retained when authorized by explicit `Finish` on eligible content. Never displays unearned placeholders or locked slots; never absorbs time-limited event Cards.
+6. **`Special Experiences` (earned-only, G07):** Separate entry on the Notebook overview, **visible only after the reader has earned at least one Special Experience Card**. Organizes earned event Cards **grouped by originating Special Experience/event** using authoritative event identity ([Nov 20](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057441039)); a group appears only if the reader earned ≥1 Card from that event. Never displays missed events, unearned slots, or a parent `Special Collections` destination, and never reopens expired event activities.
+
+### 7.3 Full Scripture Card view & export-only sharing
+
+- **Single continuously scrollable view** ([Nov 20](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7054114898)): Opening any genuinely earned Card displays its authentic illustration, biblical text/reference, full written theological explanation, and earned-date metadata together on **one uninterrupted vertical scroll** (no flip, tab, or extra tap to reach the text). Accessible `Back` returns to exact origin. Seasonal app chrome never recolors source Card illustrations.
+- **Accessibility:** Cards are finished graphic-first assets with embedded text; screen readers must receive the meaningful biblical text/explanation alongside concise descriptive alt text for the illustration (not requiring Alexis to author a second exposition).
+- **`New` marker clearing:** Opening this full Card view clears that specific Card's `New` marker; gallery thumbnails and search rows never clear it.
+- **Sharing restricted to full view** ([Nov 20](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057361359)): **Share Scripture Card** is offered **only** inside the full earned Card reading view (never on thumbnails or galleries). Exports the **complete existing original earned Card** (illustration + full biblical explanation—never a separate social asset), adding a **subtle Bibleberry identifier/watermark to the exported image at share time only**, leaving the in-app original untouched. No screenshot blocking and no attribution promise for reader screenshots.
+
+### 7.4 Saved Scripture
+
+- Independent app-wide collection of reader-saved Scripture passages (saving a passage never counts as Challenge completion, confers a Card, or imposes memorization).
+- **Browse and find** ([Nov 20](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7054125640)): Opens by default to **recently saved first** (descending saved date), with separately accessible **browse by Bible book** and **search** (over saved reference/book text) pathways. Clear nonpunitive empty/no-results states.
+
+---
+
+## 8. More — Ministry News, Resources, Appearance & First-Use Guidance
+
+### 8.1 `More` landing (ministry-first overview)
+
+Opens as a **ministry-first overview** ([Nov 20](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7054142361)) featuring the **latest authorized Bibleberry editorial/ministry update** near the top, above clearly accessible links to:
+- **View All News** (always available, even if no featured item exists)
+- **Podcasts & Resources**
+- **About Bibleberry**
+- **Appearance & Settings** (seasonal/manual palette and reader/privacy preferences)
+- **Account & Progress** (persistent optional account entry, always reachable even if guest `Today` invitation was dismissed)
+- **Review Introduction** (replays the 3-screen App Introduction)
+- **App Tutorial** (replays the G06 guided spotlight interface tutorial)
+
+If no published update is available, show a truthful calm fallback without inventing headlines; preferences and local guest-data controls remain reachable regardless of News connectivity.
+
+### 8.2 Ministry News navigation & index
+
+- **Featured item opens directly** ([Nov 20](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7054151165)): Selecting the featured update on `More` opens that specific editorial article directly (with `Back` returning to `More`).
+- **Unified newest-first index** ([Nov 20](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7054174247)): `View All News` defaults to **one unified newest-first feed** of all authorized published ministry news, with optional category filtering using the existing CMS News taxonomy (`All News`, `Ministry Updates`, `Announcements`, `Monthly Previews` in `src/components/news/newsModel.ts`).
+- **Boundaries:** Editorial only (never an earned-Card announcement stream); no fabricated unread badges or per-user read-count bubbles; enforces the authorized News link allowlist and month preview/embargo rules.
+
+### 8.3 Appearance preference model
+
+- **Two persistent user-switchable modes** ([Nov 20 model](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7052411448), [default](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7054315386)):
+  1. **Follow Bibleberry Seasons (default for first-time readers):** Automatically applies the product-approved seasonal semantic palette with no forced first-run appearance onboarding.
+  2. **Choose My Colors:** Reader chooses any offered palette and **keeps it year-round**; seasonal date transitions never overwrite a manual selection until the reader explicitly switches back to `Follow Bibleberry Seasons`.
+- Reversible; preserves prior manual choice when practical; presentation-only (no effect on content, progress, Cards, or Card artwork); keep light/dark/system contrast mode separate from palette selection where feasible.
+
+### 8.4 First-use guidance: App Introduction & Guided App Tutorial (G06)
+
+Bibleberry distinguishes **four separate onboarding/guidance concepts** that must never be conflated ([G05](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7058247362), [G06](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7058270243), [G07](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7058548963)):
+
+| Concept | Purpose & Scope | Replay Entry | Skippable? | Award-Eligible? |
+|---|---|---|---|---|
+| **1. App Introduction** (G06) | Existing 3-screen orientation (`WELCOME`, `A GENTLE DAILY RHYTHM`, `OPTIONAL DAILY REMINDER` with reader-controlled reminder choice). | `More → Review Introduction` | Yes | **No** |
+| **2. Guided App Tutorial** (G06) | Brief spotlight walkthrough of **actually shipped** controls across `Today \| Library \| Collections \| More` (generally one logical step per destination). Accessible nonvisual keyboard/screen-reader equivalent, `Next`/`Back`/`Skip`/`Close`, reduced-motion safe, no dead-end spotlights, never points to absent/feature-gated controls or retired `My Journey`/`Archive`. | `More → App Tutorial` | **Yes — always skippable** | **No** (never awards a Card, never requires Challenge `Finish`, never increments distinct Challenge count) |
+| **3. Monthly Introduction / Welcome** (G05) | Publication-specific month introduction + final `Welcome to [MONTH'S THEME]` screen, shown once on **first intentional Month Screen entry** (with advance-preview `Skip to Welcome`). | `Month Screen → Read Monthly Introduction` | Replayable; `Skip to Welcome` if previewed | **No** |
+| **4. CMS Award-Eligible Ministry Teaching (`readerGuidance` / Foundations)** (G07) | Separately authored substantive theological/ministry teaching explicitly designated as award-eligible in CMS/participation contracts. | `Library → Foundations` (or authorized teaching route) | Optional to start; see [§12.1](#12-residual-contradictions-open-boundaries--deferred-decisions) | **Only if explicitly designated eligible**, via explicit `Finish` → filed under **Foundations & Learning** |
+
+- **Ordinary first use (G06):** On a fresh launch with no external content deep link, sequence **App Introduction** followed by **Guided App Tutorial** as two coordinated but independent steps (never interleaved; independent completed/skipped/pending/replay flags). Replaying either from `More` returns to `More` and never resets reading progress, Shelf, Cards, Saved Scripture, or preferences, and never prompts account creation.
+- **External Challenge ingress (G04-B):** Bypasses both App Introduction and Guided App Tutorial initially so the reader reaches the requested teaching first, leaving both flags pending/deferred without marking either complete.
+
+---
+
+## 9. Security, Release Integrity, Participation & Account Continuity
+
+### 9.1 Server-authoritative release & confidentiality
+
+- **Bibleberry backend/gateway—not Sanity and not the device clock—enforces reader release.** Sanity-published does not equal reader-released.
+- Reader-local calendar-day release must be server-authoritative; manipulated client clocks or arbitrary client offsets must never unlock embargoed teaching.
+- Reader applications must never query Sanity directly with private credentials or access unfiltered/unpublished Sanity documents.
+- **Zero leakage:** Future Challenge bodies, hidden qualifying Challenge lists for Monthly Discoveries, unearned Scripture Card artwork/text, unpublished editorial notes, and withdrawn content must never leak via APIs, search, caches, page source, share previews, media URLs, or error messages.
+- Fail closed when authorization cannot be verified; emergency withdrawal suppresses new delivery and dependent unsent notifications without erasing already-earned reader records.
+
+### 9.2 Durable participation, earned dates & Special Experiences
+
+- **Authoritative completion:** Explicit `Finish` only, keyed to stable canonical IDs (`cms:<SanityBaseId>`), idempotent and deduplicated across repeats, rereads, and syncs.
+- **Permanent non-regressive records:** Ordinary editorial proofreading, Shelf `Put Away`, announcement dismissal, or rereading never revokes earned Cards, earned dates, or distinct completions.
+- **Credible earned dates:** Publication month (filing location) and actual earned date (discovery date) are stored separately. Duplicate/offline/parallel earning of the same Card collapses to **one** Card retaining the **earliest credible earned date** (never blindly trusting an unverified client clock).
+- **Special Experiences** (approved category; **no specific event approved or scheduled**): Optional, advertised, genuinely time-limited events. Tapping `Start` within the event window qualifies the reader for that event's specific grace deadline (e.g., noon the next reader-local day for a one-day event). After close/grace expires, activities are unavailable and never enter the ordinary historical `Library`. Completing all designated required activities (not optional activities) earns the permanent event Card, filed under `Special Experiences` and `All Earned Cards`. No missed-event placeholders.
+
+### 9.3 Optional accounts & verified guest-to-account merges (G08)
+
+- **Registration is optional; guest participation is real participation.** Communicate honestly that unsigned guest records are device/browser-local and may be lost on device change, reinstall, or local-data loss; never imply cloud backup for unsigned guests.
+- **Automatic non-destructive merge** (Nov 8):
+  - Guest creating a **new account** automatically transfers completions, Saved Scripture, earned Cards/dates, resume positions, and relevant state without resetting or duplicating awards.
+  - Guest signing into an **existing account** automatically merges guest records into that account, deduplicating by stable IDs, retaining earliest credible earned dates, and preserving both sides' completions, earned Cards, and Saved Scripture.
+  - **Existing-account Shelf precedence:** If guest and existing-account Shelf selections differ, the **existing account's current Shelf wins**, without deleting underlying guest completions, earned Cards, or Saved Scripture (all remain accessible in `Library`/`Collections`).
+  - **Partial reading position conflict:** Default to the **furthest valid read position** rather than blind latest timestamp (see [§12.5](#12-residual-contradictions-open-boundaries--deferred-decisions) for current server screen-order contract gap).
+- **Post-verified merge confirmation (G08)** ([G08](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7058577267)):
+  - Display **one brief, calm confirmation** **only after** durable merge/reconciliation has **actually succeeded and been verified** by the backend. Suppress duplicates on rerender, refresh, or retry.
+  - Plainly describe actual preserved/combined categories (adapted to data the reader actually had—never hypothetical unused categories).
+  - Include a concise subordinate sentence noting existing-account Shelf precedence (and that underlying guest reading/awards remain in `Library`/`Collections`) **only when a real Shelf conflict occurred**.
+  - Proceed directly into normal signed-in `Today | Library | Collections | More` navigation (no conflict-management dashboard or teaching block).
+  - **Pending / failed / partial merge:** **Never claim success** before verified persistence. Show a factual pending/error state with safe retry, retain recoverable local guest records until verified handoff, and never duplicate awards.
+
+---
+
+## 10. Consolidated Acceptance Matrix & Verification Baseline (G09)
+
+> **Integrated status (G09):** The UX/IA specification and acceptance matrix are complete. **The single connected R06 prototype/application has NOT been built, exercised end-to-end, or accepted.** Do not convert isolated component passes or this documentation review into an implementation or alpha PASS.
+
+### 10.1 Empty, loading & error state matrix (G09)
+
+Routine empty/loading/error visuals and neutral copy use product-safe defaults without further A/B micro-decisions unless a prototype exposes a genuine product contradiction:
+
+| Surface | Empty / No-eligibility state | Loading / In-progress state | Failure / Unavailable / Partial state |
+|---|---|---|---|
+| **Today** | Primary CTA opens today's released Challenge, or `Explore This Month` if unavailable. No Active Focus and no eligible G02 rollover interruption → **no faux Continue card**. Guest account invitation shown only after 3 distinct completions and never after explicit dismissal. | Keep current teaching visually primary; max one secondary Continue; never flash fabricated progress or awards during hydration. | Truthful neutral unavailability message + safe `Explore This Month` where eligible; no disabled dead primary CTA, unearned announcements, forced account wall, or embargo leaks. |
+| **Month Screen & Introduction** | Calendar displays actual published titles/dates, Completed/Available/Coming Soon states, and unearned discovery **title + progress only**. Intro triggers only on first intentional Month Screen entry (G05); preview withholds Welcome and discovery titles until month start. | Preserve context and per-month calendar scroll during load/refresh; avoid duplicate Introduction/Welcome; never reset Challenge progress. | Embargoed, withdrawn, unpublished, invalid, or gateway-error routes fail closed with factual state and safe return/retry. Never leak future teaching/art or guess unavailable dates. |
+| **Library & Shelf** | 0-month Shelf shows welcoming explanation + `Browse All Months` + `Foundations` (never padded to 3). Distinguish true zero historical months from “more pages may load.” Full Library browsing works without Shelf selection. | Preserve loaded catalogue rows, pagination, active query, pending manual replacement, and Active Focus state; return restores scroll. | Failed load/retry preserves earlier visible rows; invalid entries fail safely. `Keep on Shelf`, Active Focus, G03 protection, and full-Shelf replacement require explicit confirmations with zero silent loss of guest reading. |
+| **Collections & Field Notebook** | No earned Cards: calm explanation of earning with **no** locked gray silhouettes, empty `Foundations & Learning` or `Special Experiences` entries, or invented counts. `Saved Scripture` has its own independent truthful empty state. | Never display earned status before durable award projection; preserve filters, grid/scroll context, and return focus. | Missing/broken image for a genuinely earned Card keeps the honest earned record with clear unavailable-art text (no invented art/Bible text). Never leak unearned Cards or clear `New` from thumbnail scrolling. |
+| **More, News & Preferences** | No published News or empty filter result shows calm guidance (no fabricated headlines/podcasts/events). | Preserve active News filter, open article, return context, and appearance preference during load. | News request errors offer `Retry` and safe `Back` (never raw API internals, and never silently presented as “nothing published”). Replaying Intro/Tutorial never loses reader data. |
+| **App Introduction & Spotlight Tutorial** | Never point a spotlight to an absent or feature-gated control; maintain independent completed/skipped/pending/replay flags. Ordinary first use sequences Intro → Tutorial; external Challenge ingress defers both (G04-B). | Transition cleanly without resetting participation; skippable accessible steps, focus management, and reduced-motion support; `More` replay returns to `More`. | Missing target, resize, keyboard, or screen-reader mode provides readable nonvisual guidance, `Skip`/`Close`, and safe recovery (no dead-end spotlight). **Interface tour awards no Cards.** |
+| **Account & Guest Continuity** | Guest mode works without sign-in; honestly disclose device-local loss limits and never imply cloud backup for unsigned guests. | Distinguish authenticating, transferring, reconciling, and verified completion—**no success claim before verified durable merge**. Preserve account Shelf precedence and earliest credible earned dates. | Failed/partial merge gives truthful status + safe retry, preserves guest/account records without duplicate awards. G08 one-time confirmation only after verified success (mention Shelf conflict only if real). |
+| **App-wide Fallback** | Treat a state as empty only after authoritative data confirms zero results. | Accessible status, no blocking decorative spinners; long loads remain navigable or offer safe exit; no fake counts. | Invalid/unauthorized/withdrawn external links fail closed with `Return to Today` (no raw internals or embargo clues); errors offer safe `Back`/`Retry` without data loss. Online-first scope does not promise unsynced offline survival across all failures. |
+
+### 10.2 Whole-application acceptance journeys (G09)
+
+Run **one connected R06 candidate build/prototype** using clearly marked synthetic month, Card, and (where conditionally enabled) account fixtures to verify all eight integrated journeys end-to-end:
+
+1. **First-use normal guest:** Fresh launch → App Introduction → short skippable four-destination Guided App Tutorial → `Today` → today's Challenge → seamless `Exit` / automatic resume / `Start from Beginning` / explicit `Finish` → `Today`. Verify Finish-only completion and independent pending/skip/replay states.
+2. **First-use external Challenge:** Authorized external Challenge deep link opens released teaching *before* App Introduction, App Tutorial, and Monthly Introduction; `Exit`/`Finish` → `Today`; pending onboarding stays accurate; unavailable/embargoed link fails closed with `Return to Today`; cold and warm launches behave consistently.
+3. **Current month & advance preview:** `Today` → first intentional `Month Screen` entry (one-time full Introduction + Welcome) → continuous weekly agenda → direct available Challenge → `Finish` → same Month Screen & scroll; later Month entry skips intro; `Read Monthly Introduction` replays safely; preceding-28th / Feb 27 preview withholds Welcome, embargoed bodies, and Monthly Discoveries until month start (with `Skip to Welcome`).
+4. **Historical continuity & rollover:** Explicit Active Focus → `Today` single `Continue Your Study` → saved Challenge direct resume; no saved resume → Active Focus Month Screen; completed Active Focus → `Review This Month`; no Active Focus + interrupted prior-month Challenge → G02 one-time rollover continuation (never two historical cards); full Shelf rollover protects both independently `Kept on Shelf` months and current Active Focus (G03).
+5. **Library & Shelf workspace:** 0–3 Shelf states, `Add to Shelf` (from Library & Month Screen), visible `Keep on Shelf` → `Kept on Shelf`, visible `Set as Active Focus` / `Clear Active Focus`, `Put Away` (including Active Focus reassign/no-focus prompt), full-Shelf manual 4th-month replacement with confirmation/Cancel, completed historical Challenge credit, `Browse All Months` expandable years + month/theme search + flat newest-first results + pagination/return, and `Foundations` overview + conditional `Resume Reading`. Verify browsing/earning never silently alters Active Focus or Shelf.
+6. **Earned collections & Saved Scripture:** `Finish` genuine teaching → silent Month Screen discovery progress + Hub-only combined inline Card announcement → `View Discoveries` focused gallery + `Browse Full Field Notebook`; Month Screen direct earned-Card viewer; Field Notebook lifetime status, `Search Your Cards` illustrated rows, publication year/month galleries, unified newest-earned-first `All Earned Cards` grid, conditional `Foundations & Learning` and event-grouped `Special Experiences` visibility, full single-scroll Card view, full-view-only `Share` with export-time attribution, broken-art fallback, `New Discoveries` / per-Card `New` clearing; independent `Saved Scripture` (recent-first, Bible-book browse, search). Zero unearned art, phantom awards, or duplicates.
+7. **More, News, Appearance & Replay:** `More` featured News → direct article → `Back`; `View All News` unified newest-first feed + category filters + empty/error/retry; `Follow Bibleberry Seasons` default vs `Choose My Colors` persistence; `More → Review Introduction` and `More → App Tutorial` independent replay/return with zero data loss; guest account invitation eligibility after 3 distinct completions and permanent suppression after explicit dismissal (`More → Account & Progress` still reachable).
+8. **Accounts (conditional on account-enabled scope):** In an account-enabled candidate or dedicated post-guest-alpha gate, verify automatic guest → new/existing account merge, existing-account Shelf precedence, G08 verified-success one-time confirmation (with/without Shelf conflict), and failure/retry with no false success claim. **Do not fabricate a live auth demo in a guest-only internal alpha.**
+
+### 10.3 Cross-cutting criteria & acceptance blockers (G09)
+
+- **Accessibility & responsive devices:** Verify at **320px** narrow phone and **375px** standard phone, **200% text / large-text reflow**, adequate touch targets, visible keyboard focus, screen-reader labels and status announcements, `prefers-reduced-motion`, focus restoration from overlays/viewers, horizontal swipe never required for Challenge reading, portrait-first phone/tablet plus centered tablet-landscape composition. Real physical low-end Android remains an explicit later supported-device launch gate ([Issue #37](https://github.com/Bibleberry/Bibleberry/issues/37)).
+- **Navigation integrity:** Exact tab order `Today | Library | Collections | More`; ordinary cold launch → `Today`; per-tab nested route + scroll restoration within session; active-tab retap resets to landing; Challenge reader hides global navigation; OS/browser Back and `Exit`/`Finish` never lose state, duplicate visits, or trigger Card announcements outside `Today`.
+- **Release, integrity & privacy:** Zero future Challenge body / Card art / qualifying-list leakage; neutral not-found vs embargo privacy; no direct reader Sanity calls; no duplicate Finish/awards; earliest credible earned date preserved across merges; no data loss from Shelf management; honest guest/online-first limitations.
+- **Hard acceptance blockers:** Wrong destination/tab architecture; unintentional loss of reading/participation progress; leakage of unreleased or unearned content/art; false merge-success claim; unskippable or dead-end tutorial/spotlight; inaccessible essential controls; duplicate earned awards; inability to `Exit` or `Finish` a released Challenge.
+- **Non-blocking visual/editorial refinements (unless breaking readability, truth, or navigation):** Spacing, typography tuning, card radii, spinner shapes, illustration refinements, final color palettes, and exact neutral empty/error microcopy.
+
+### 10.4 Evidence-backed disposition: Approved vs Isolated vs Unverified vs Conditional Alpha Scope
+
+| Classification | Status | Scope & Authoritative Evidence |
+|---|---|---|
+| **1. Approved product & UX specification** | **OWNER APPROVED** | November 5 orientation, November 6–8 core reader/Month Screen/Notebook/account rules, November 20–21 R06 decisions, G01–G08, and G09 acceptance matrix ([Issue #22](https://github.com/Bibleberry/Bibleberry/issues/22)). *Product approval is not build completion.* |
+| **2. Existing isolated / component verification** | **PASS (isolated / legacy shell only)** | Existing merged modules verified in isolation or behind `VITE_ENABLE_*` flags on the legacy `Today \| Foundations \| Archive \| More` shell—**not** whole-app R06 acceptance: [R08-4 Shelf surface](../testing/r08-4-shelf-reader-surface.md); [R08-2 Historical Library catalogue](../testing/r08-2-historical-library-catalogue.md); [R14-7 Field Notebook](../testing/r14-7-field-notebook.md) (monthly only; lacks `Foundations & Learning` & `Special Experiences`); [R08A-6 Month Screen](../testing/r08a-6-month-screen-verification.md) (provisional layout; live full-month staging pending); [R11-2 News shell](../testing/r11-2-news-app-shell.md) & [R05-UI-1 controlled shell](../testing/r05-ui-1-controlled-app-shell-integration.md) (legacy tabs); [R12-3 onboarding](../testing/r12-3-replayable-onboarding.md) & [More replay](../testing/r12-replay-more-integration.md) (3-screen Intro only; no G06 spotlight tour); [R12-2 deep-link ingress](../testing/r12-2-external-deep-link-ingress.md) (parser/auth foundation only; lacks platform ingress & G04 routing); single-Challenge R05 private staging ([Issue #63](https://github.com/Bibleberry/Bibleberry/issues/63)); real-*local* Supabase account continuity ([PR #249](https://github.com/Bibleberry/Bibleberry/pull/249)). |
+| **3. Integrated evidence still required** | **NOT VERIFIED** | Single connected R06 prototype/build exercising all 8 G09 journeys on `Today \| Library \| Collections \| More` (**A1/A4**); live end-to-end monthly editorial rehearsal in private Sanity `staging` (**A2**); live full-month staging gateway preview/local-day release/negative embargo acceptance (**A3**); hosted Supabase OTP/sync & private verifier (**A6/A7** for authenticated beta/launch); physical iOS & low-end Android device qualification (**A8** / [#37](https://github.com/Bibleberry/Bibleberry/issues/37)); full alpha operations/rollback verification (**A10**). See [Internal Alpha Readiness](../project/internal-alpha-readiness.md). |
+| **4. First-internal-alpha scope boundary** | **OWNER SCOPE DECIDED (Nov 20 — #260)** | Approved in [Roosting Falcon #260](https://github.com/Bibleberry/Bibleberry/issues/260#issuecomment-7042529764) (**not** an Alpha Go): **A8** Access-protected web app first (Cloudflare Access staging); **A6** Local guest-only participation with explicit device-local disclosure; **A5** Manual Sanity Studio authoring on private `staging` dataset (synthetic/approved content; BerryMark retained for longer-term workflow); **A7** Hosted account Card verifier excluded from guest-only first alpha, **NOT VERIFIED** and **not waived** for authenticated beta/public release. |
+
+---
+
+## 11. Terminology Reconciliation & Supersession Register
+
+| Legacy / Conflicting Term or Proposal | Binding Authoritative Direction | Authority |
+|---|---|---|
+| `Personal Archive` / `Past Teaching Library` / standalone `Archive` global tab | **Shelf** (0–3 historical months on `Library` landing) and **Library** (`Library` tab + `Browse All Months` complete historical catalogue); current month separate on `Today`. | Nov 8; Nov 20 ([tabs](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7054910521), [Library](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7055148930)) |
+| `My Journey` destination (old streaks, red `3 new` badges, combined Archive/Foundations/achievements hub) | **Retired.** Responsibilities cleanly split across **Library** (Shelf, Browse All Months, Foundations) and **Collections** (earned-only **Field Notebook** + independent **Saved Scripture**). No fabricated unread-count bubbles. | Nov 8; Nov 19–20 ([#22](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7049655352)) |
+| Legacy `Today \| Foundations \| Archive \| More` shell | Superseded by **`Today \| Library \| Collections \| More`** (bottom nav on phones, rail/sidebar on wide displays, hidden in focused Challenge reading). | Nov 20 ([nav](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7054326230), [labels](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7054910521)) |
+| `Special Collections` grouping tutorial, Foundation, and Special Experience Cards together (Nov 9 CMS architecture) | **Superseded.** Field Notebook keeps **Foundations & Learning** (permanently earnable eligible teaching Cards) and **Special Experiences** (time-limited event Cards, grouped by event) as **two separate earned-only entries**—no parent `Special Collections` destination. | [G07](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7058548963) |
+| Ambiguous single `tutorial` concept with "no exit path after entry without Finish" (Nov 9 CMS §7.4) | **Reconciled:** (1) **App Introduction** (`More → Review Introduction`, 3 screens, skippable, no Cards); (2) **Guided App Tutorial** (`More → App Tutorial`, G06 skippable UI spotlight tour, **awards no Cards**, never traps reader); (3) **CMS award-eligible ministry teaching** (`readerGuidance` / Foundations, optional, `Finish`-gated for permanent Card under `Foundations & Learning`). Legacy no-exit rule **must never apply** to #1 or #2. | [G06](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7058270243), [G07](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7058548963) |
+| `All Earned Cards` split into two sub-sections (Nov 7 notes / `gamification-and-achievements.md`) | **One unified illustrated thumbnail grid** across all earned sources (monthly, `Foundations & Learning`, `Special Experiences`), ordered by persisted credible **actual earned date descending**. Source-specific views live separately on Field Notebook overview. | Nov 20 ([order](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057390504), [grid](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057395219)), [G07](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7058548963) |
+| "When a focus month is finished, Hub may suggest the next active unfinished month" (Nov 8 §6) | **Superseded by G01:** Keep completed Active Focus intact; Today's compact entry reads **Review This Month** and opens that Month Screen. No automatic fallback to a different Shelf month. | [G01](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057874403) |
+| Raw-recency Shelf eviction or evicting an unprotected auto-admitted Active Focus | Protect permanently **Kept / reader-selected** months **and** temporarily protect the currently selected **Active Focus** from automatic rollover eviction (G03). Replace oldest unprotected, non-active-focus auto-admitted month only. | Nov 8; [G03](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7058107372) |
+| External Challenge link trusting URL `origin` parameter or routing to historical Month Screen | External Challenge ingress opens directly (before onboarding on first use per G04-B) and returns to **Today** on explicit `Exit` or `Finish` (G04-A). | [G04-A](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7058152802), [G04-B](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7058228089) |
+| First-earned-card gate before showing Monthly Discoveries; gray unearned Card silhouettes; qualifying Challenge map; generic full-month certificate | Monthly Discoveries visible on active Month Screen from start (title + numeric progress only, untappable, no art/text/Challenge map); full-month reward is a substantive illustrated Scripture Card placed last. | Nov 8; Nov 20 ([discoveries](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7056030998)) |
+| Automatic completion on reaching final screen; immediate post-Challenge award pop-up; blocking modal Hub celebration | Explicit **`Finish`-only** completion; silent non-Hub updates; **Hub-only combined dismissible inline announcement** with focused `View Discoveries` gallery. | Nov 8; Nov 20 ([inline](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7054532536), [View Discoveries](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7054582593)) |
+| Unspecified guest invitation threshold/re-prompting; silent vs conflict-wizard account merge | Guest `Today` invitation eligible after **3 distinct finished Challenges**, permanently suppressed on explicit dismissal (`More` always open); automatic non-destructive merge followed by **G08 single brief post-verified confirmation** (conditional Shelf-conflict sentence). | Nov 20 ([invite](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057531825), [dismiss](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057623869)), [G08](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7058577267) |
+
+---
+
+## 12. Residual Contradictions, Open Boundaries & Deferred Decisions
+
+Items below **cannot be resolved unilaterally from recorded owner authority** and must not be silently decided in code. Escalate genuine product contradictions to Aaron; handle routine implementation details through scoped technical/prototype review.
+
+### 12.1 Genuine residual contradictions & contract gaps requiring owner or cross-spec reconciliation
+
+1. **Future CMS-authored award-eligible `readerGuidance` exit contract:** November 9 CMS Architecture (§7.4, Appendix A #8) states that once a reader enters a CMS-authored ministry tutorial, *"there is no exit path that bypasses the final `Finish` action."* G07 explicitly forbids applying that rule to the skippable G06 interface `App Tutorial` and three-screen `App Introduction`, but does **not** explicitly state whether a future CMS-authored award-eligible `readerGuidance` teaching item should retain "no exit after entry" or adopt the November 20 teaching-Challenge contract (seamless `Exit` with saved unfinished position + `Finish`-only award). **Resolve with Aaron before implementing `readerGuidance` reader flow.**
+2. **Deferred first-use onboarding re-offer trigger after G04-B external link:** G04-B and G06 require that a first-time reader arriving via an external Challenge link reads the teaching first, returns to `Today` on `Exit`/`Finish` without an exit onboarding wall, and keeps App Introduction + App Tutorial pending. **When and how** those pending experiences are subsequently offered (e.g., next ordinary fresh launch at `Today` vs a gentle prompt vs `More`-only) is explicitly open for coordinated prototype/owner review.
+3. **Catalogue search scope (R06) vs broader future CMS search (Phase 06):** November 20 ([Comments 42–43](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7055714307)) scopes `Library → Browse All Months` search strictly to published month names and teaching themes, whereas November 9 CMS Architecture (§4.5, §8.2, Decision #53) envisions future secure full-text/keyword search across released Challenges, News, and Resources. **R06 / internal alpha uses the narrow surface-specific searches only** (month/theme in `Library`, earned metadata in `Field Notebook`, reference/book in `Saved Scripture`); any future cross-content Phase 06 search entry requires a separate UX decision.
+4. **Non-Challenge direct external deep links & external-app OS Back:** G04-A governs explicit `Exit`/`Finish` on external **Challenge** links (`→ Today`), and explicitly leaves undecided (a) how a direct external link to a **Month Screen** returns and (b) whether system/browser Back at an external-app entry boundary should exit Bibleberry to the referring app (follow platform conventions and verify in prototype; escalate only real conflicts).
+5. **Multi-device partial reading position merge (`furthest position` vs server screen order):** Product rules (Nov 8 §8, G08) specify defaulting conflicting partial Challenge positions to the **furthest valid position**, whereas the current local account transaction contract ([R13-TX1](../architecture/r13-tx1-account-transaction-backend.md)) notes that no trusted screen-order table exists server-side and therefore preserves the account position with `unresolved_conflict = true` (`undecidableReadingPosition`). Reconcile with an authoritative screen-order lookup before hosted multi-device sync acceptance.
+6. **Sanity `scriptureCard.cardCategory` `"tutorial"` metadata & Studio grouping:** Existing Sanity schema (`studio/schemaTypes/documents/scriptureCard.ts`) defines `cardCategory` values `monthlyThematic`, `monthlyFull`, `foundation`, `tutorial`, `specialExperience` as **organizational metadata only**, and `studio/structure.ts` groups `foundation`, `tutorial`, and `specialExperience` together. Before implementing Field Notebook's G07 collections, reconcile naming/mapping so award-eligible `foundation` and substantive ministry-teaching `tutorial` Cards project to **Foundations & Learning**, `specialExperience` projects strictly to **Special Experiences**, and CMS card existence never implies reader-earned status.
+
+### 12.2 Explicitly deferred visual, editorial & technical items (not yet approved)
+
+- **Visual / editorial deferred:** Final color palette values, approved seasonal palette list and liturgical/civil season schedule dates, light/dark/system interaction with seasonal palettes, tab/action iconography, final Card artwork and thumbnail aspect ratios, watermark wording/logo/placement, monthly introduction copy/artwork/screen count, lifetime participation status tier names/thresholds/copy, Foundations resource ordering, and exact neutral empty/loading/error copy.
+- **Interaction / edge-case follow-ups:** Whether a reader can unprotect a `Kept on Shelf` month without `Put Away` ([Nov 20](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057337055)); exact technical "first visit after rollover" consumption and multi-unfinished-Challenge tie-breaking in G02; completed-Challenge reread entry position when opened from Month Screen (vs Hub `Read Again` starting from beginning); within-collection grouping inside `Foundations & Learning` and group/card ordering inside `Special Experiences`.
+- **Technical contracts & launch gates:** Intrinsic `Finish` contracts for all seven Challenge formats; Foundations resumable position storage; verified hosted Supabase auth/OTP/sync and private Card verifier; native iOS/Android packaging, secure token storage, and physical low-end Android performance qualification ([Issue #37](https://github.com/Bibleberry/Bibleberry/issues/37)); production backups/restore and monitoring.
+- **Explicitly NOT approved:** Any specific Special Experience event or schedule; forced memorization engine; Field Notebook journaling; compulsory missed-day catch-up; separate social-share Card graphics; full append-only event sourcing; broad Quiet Reading mode beyond announcement opt-out; real-day consecutive consistency acknowledgments (exploratory only); or any redesign of Alexis's teaching for gamification.
+
+---
+
+## 13. Decision Traceability Index
+
+| Decision / Topic | Issue Reference | Consolidated Section(s) |
+|---|---|---|
+| Portrait-first phone/tablet & centered tablet-landscape UX | [Nov 5](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-6669088153) | §1.2, §10.3 |
+| Core reader experience, 14 principles, Month Screen, Shelf/Library, Field Notebook, Finish, Hub announcements, accounts, Special Experiences | Nov 8 (this file) | §§1–9, §11 |
+| First-internal-alpha scope boundary (A5 manual Studio `staging`, A6 guest-only local, A8 protected web, A7 out of guest alpha) | [#260 Nov 20](https://github.com/Bibleberry/Bibleberry/issues/260#issuecomment-7042529764) | §10.4 |
+| Palette-independent UX, semantic tokens & seasonal capability | [Nov 20 #05](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7049568803) | §1.2, §8.3 |
+| Four-destination architectural IA, presentation, tab restoration, fresh launch, reader-facing tab labels (`Today \| Library \| Collections \| More`) | [Nov 20 #06](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7049655352), [#30](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7054326230), [#31](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7054335734), [#32](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7054393499), [#38](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7054910521) | §2.1, §2.3 |
+| Appearance modes (`Follow Bibleberry Seasons` default vs `Choose My Colors`) | [Nov 20 #07](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7052411448), [#29](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7054315386) | §8.3 |
+| Hub compact Month entry, primary Challenge action, `Read Again` after completion, `Explore This Month` fallback | [Nov 20 #08](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7052445658), [#33](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7054509666), [#34](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7054520592), [#37](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7054591121) | §3.1 |
+| Hub inline dismissible earned-Card announcement & `View Discoveries` focused gallery | [Nov 20 #35](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7054532536), [#36](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7054582593) | §3.3 |
+| Guest account invitation on `Today`: dismissible, 3 distinct Challenges, permanent suppression | [Nov 20 #61](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057461497), [#62](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057531825), [#63](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057623869) | §3.4 |
+| Today `Continue Your Study` placement directly below primary teaching & direct resume | [Nov 20 #64](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057629706), [Nov 21 #65](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057646134) | §3.2 |
+| Month Screen: continuous scrollable week-by-week agenda panels, direct Challenge entry, positioning/scroll restoration, compact progress-first Monthly Discoveries | [Nov 20 #09](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7052503817), [#13](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7052558998), [#14](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7052567552), [#15](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7052847416), [#46](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7056030998), [#47](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7056523846) | §4.1, §4.2 |
+| Challenge reader: `Previous`/`Next` + optional swipe, seamless `Exit` + autosave/resume + `Start from Beginning`, header (`Exit` + screen count + subtle bar) | [Nov 20 #10](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7052520346), [#11](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7052538782), [#12](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7052549343) | §5.1, §5.2 |
+| Library & Shelf: Shelf-centered landing, welcoming empty Shelf, editorial cards, `Add to Shelf` (dual entry), full-Shelf chooser, Active Focus visible/clear/ordering, `Keep on Shelf` → `Kept on Shelf`, Put Away Active Focus prompt | [Nov 20 #16](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7052860761), [#17](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7052980820), [#18](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7053133391), [#19](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7053182477), [#20](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7053192149), [#48](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7056639042), [#49](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057053948), [#50](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057331278), [#51](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057337055), [#52](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057349222) | §6.1, §6.2 |
+| Historical catalogue (`Browse All Months`): dedicated screen, expandable years, compact month/theme rows, month/theme search, unified newest-first results | [Nov 20 #39](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7055148930), [#40](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7055164443), [#41](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7055197075), [#42](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7055714307), [#43](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7055721055) | §6.4 |
+| Foundations: overview first, conditional primary `Resume Reading` vs `Begin with the First Reading` | [Nov 20 #44](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7055735259), [#45](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7056022159) | §6.5 |
+| Collections, Field Notebook, Cards & Saved Scripture: overview preview, year/month default, monthly illustrated gallery, single-scroll full Card, full-view-only Share, top lifetime status, `Search Your Cards` illustrated rows, `All Earned Cards` newest-earned-first thumbnail grid, earned-only event-grouped `Special Experiences`, Saved Scripture recent-first + book + search | [Nov 20 #21](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7053205179), [#22](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7053308787), [#23](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7054099540), [#24](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7054114898), [#25](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7054125640), [#53](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057361359), [#54](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057367015), [#55](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057378732), [#56](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057383873), [#57](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057390504), [#58](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057395219), [#59](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057435289), [#60](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057441039) | §7.1–§7.4 |
+| More & Ministry News: ministry-first landing, featured item direct open + `View All News`, unified newest-first feed with existing CMS category filter | [Nov 20 #26](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7054142361), [#27](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7054151165), [#28](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7054174247) | §8.1, §8.2 |
+| **G01** — Today historical continuation fallback to Active Focus Month Screen (`Review This Month` if completed) | [G01](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7057874403) | §3.2, §11 |
+| **G02** — One-time post-rollover continuation of interrupted prior-month Challenge (subordinate to Active Focus) | [G02](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7058052799) | §3.2, §12.2 |
+| **G03** — Active historical focus temporarily protected from automatic Shelf rollover eviction | [G03](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7058107372) | §6.3, §11 |
+| **G04-A** — External Challenge links return to `Today` on explicit `Exit` / `Finish` | [G04-A](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7058152802) | §2.3, §5.3, §11, §12.1 |
+| **G04-B** — First-use external Challenge link opens requested teaching before onboarding (onboarding stays pending) | [G04-B](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7058228089) | §2.3, §5.3, §8.4, §12.1 |
+| **G05** — Monthly Introduction opens on first intentional Month Screen visit, not before direct Challenge | [G05](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7058247362) | §3.1, §4.3, §8.4 |
+| **G06** — Separate App Introduction (`Review Introduction`) and skippable Guided App Tutorial (`App Tutorial`), coordinated at ordinary first use | [G06](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7058270243) | §8.4, §11, §12.1 |
+| **G07** — Separate earned `Foundations & Learning` Cards from `Special Experiences` (no `Special Collections`; skippable UI tour earns no Cards) | [G07](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7058548963) | §7.2, §8.4, §11, §12.1 |
+| **G08** — Single brief post-verified guest-to-account merge confirmation (conditional Shelf-conflict sentence) | [G08](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7058577267) | §9.3, §11 |
+| **G09** — Consolidated empty/loading/error state matrix, 8 whole-application acceptance journeys, cross-cutting criteria & evidence disposition | [G09](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7058590005) | §1.2, §10.1–§10.4 |
+
+**Change control:** Amend this specification only through reviewed documentation PRs approved by Aaron Waid. Implementation requires separately scoped, uniquely codenamed Issues, branches, verification evidence, independent review, and explicit owner merge authorization.
