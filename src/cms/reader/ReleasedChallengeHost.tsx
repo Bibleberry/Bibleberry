@@ -34,6 +34,11 @@ export type ReleasedChallengeHostProps = {
   store?: ReaderParticipationStore
   getNow?: () => Date
   origin?: ChallengeOrigin
+  /**
+   * Load through the release gateway regardless of origin. Used for external entries, whose
+   * origin is the untrusted-default Hub and so no longer selects the gateway on its own.
+   */
+  requireGatewayAuthorization?: boolean
   onReturn?: (origin: ChallengeOrigin) => void
   onExit?: () => void
   exitLabel?: string
@@ -58,6 +63,7 @@ export function ReleasedChallengeHost({
   store = defaultGuestParticipationStore,
   getNow = () => new Date(),
   origin,
+  requireGatewayAuthorization = false,
   onReturn,
   onExit,
   exitLabel,
@@ -75,9 +81,9 @@ export function ReleasedChallengeHost({
   const effectiveProvider = useMemo(() => {
     if (challengeProvider) return challengeProvider
     if (catalogProvider) return adaptCatalogProviderToDetailProvider(catalogProvider)
-    if (resolvedOrigin.kind === 'month') return defaultGatewayChallengeProvider
+    if (resolvedOrigin.kind === 'month' || requireGatewayAuthorization) return defaultGatewayChallengeProvider
     return resolveDefaultChallengeProvider()
-  }, [challengeProvider, catalogProvider, resolvedOrigin.kind])
+  }, [challengeProvider, catalogProvider, resolvedOrigin.kind, requireGatewayAuthorization])
 
   const [detailResult, setDetailResult] = useState<ChallengeDetailResult | null>(null)
   const [loadAttempt, setLoadAttempt] = useState<number>(0)

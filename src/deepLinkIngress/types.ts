@@ -41,7 +41,11 @@ export interface ParsedExternalDeepLink {
   readonly scheme: string
   readonly destination: InternalDestination
   readonly internalHash: string
-  readonly origin: ChallengeOrigin | null
+  /**
+   * Always `null`: external links never carry a trusted return origin (G04-A). Challenge
+   * destinations are `entry: 'external'` with the default origin, so Exit/Finish go to Today.
+   */
+  readonly origin: null
 }
 
 export interface RejectedExternalDeepLink {
@@ -91,6 +95,7 @@ export type AuthorizedDestinationInfo =
       readonly contentKind: 'releasedChallenge'
       readonly slug: string
       readonly origin: ChallengeOrigin
+      readonly entry: 'external'
     }
 
 export type DeepLinkAuthorizationResult =

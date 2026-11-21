@@ -1,22 +1,36 @@
 import {
-  DEFAULT_CHALLENGE_ORIGIN,
   isValidChallengeYearMonth,
-  parseChallengeOrigin,
-  parseChallengeOriginFromSearchParams,
   serializeChallengeOriginToSearchParams,
   type ChallengeOrigin,
 } from '../cms/reader/challengeOrigin.ts'
+import {
+  resolveTrustedChallengeReturn,
+  type ChallengeEntry,
+} from './trustedChallengeOrigin.ts'
 
 export type InternalDestination =
   | { readonly type: 'month'; readonly yearMonth: string }
-  | { readonly type: 'releasedChallenge'; readonly slug: string; readonly origin: ChallengeOrigin }
+  | {
+      readonly type: 'releasedChallenge'
+      readonly slug: string
+      readonly origin: ChallengeOrigin
+      /**
+       * `inSession` when `origin` came from app-recorded session state; `external` when the
+       * Challenge was entered without one (cold link, reload of a typed URL, native ingress).
+       * Optional only for `buildInternalDestination` callers; the parser always sets it.
+       */
+      readonly entry?: ChallengeEntry
+    }
 
 export interface InternalDestinationOptions {
   readonly monthScreenEnabled: boolean
   readonly releasedChallengeRouteEnabled: boolean
   readonly currentYearMonth?: string
+  /**
+   * The only trusted origin source: the value the app itself recorded for this history entry
+   * (`history.state.challengeOrigin`). Never pass anything derived from a URL.
+   */
   readonly challengeOrigin?: unknown
-  readonly search?: string
 }
 
 const CHALLENGE_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
@@ -86,7 +100,10 @@ export function buildInternalDestination(destination: InternalDestination): stri
 
   if (destination.type === 'releasedChallenge') {
     if (
-      !hasOnlyKeys(destination, ['type', 'slug', 'origin']) ||
+      !hasOnlyKeys(destination, ['type', 'slug', 'origin', 'entry'], ['type', 'slug', 'origin']) ||
+      (destination.entry !== undefined &&
+        destination.entry !== 'inSession' &&
+        destination.entry !== 'external') ||
       typeof destination.slug !== 'string' ||
       !CHALLENGE_SLUG_PATTERN.test(destination.slug) ||
       !isValidDestinationOrigin(destination.origin)
@@ -103,6 +120,9 @@ export function buildInternalDestination(destination: InternalDestination): stri
 /**
  * Parses only existing, feature-gated internal Month and released-Challenge hashes.
  * It does not accept or resolve public URLs, schemes, or external destinations.
+ *
+ * Challenge `?origin=` / `yearMonth` hash parameters are still accepted (legacy link format)
+ * but are untrusted and never become the return origin; see `trustedChallengeOrigin.ts`.
  */
 export function parseInternalDestination(
   candidate: unknown,
@@ -151,17 +171,9 @@ export function parseInternalDestination(
   const slug = route.slice('challenge/'.length)
   if (!CHALLENGE_SLUG_PATTERN.test(slug)) return null
 
-  const queryParams = parseChallengeQuery(query)
-  if (!queryParams) return null
+  // Validated for shape only (unknown or repeated keys still fail closed); values are ignored.
+  if (!parseChallengeQuery(query)) return null
 
-  let origin = DEFAULT_CHALLENGE_ORIGIN
-  if (options.challengeOrigin !== undefined) {
-    origin = parseChallengeOrigin(options.challengeOrigin)
-  } else if (query.length > 0) {
-    origin = parseChallengeOriginFromSearchParams(queryParams)
-  } else if (options.search) {
-    origin = parseChallengeOriginFromSearchParams(new URLSearchParams(options.search))
-  }
-
-  return { type: 'releasedChallenge', slug, origin }
+  const { origin, entry } = resolveTrustedChallengeReturn(options.challengeOrigin)
+  return { type: 'releasedChallenge', slug, origin, entry }
 }

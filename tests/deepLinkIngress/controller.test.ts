@@ -171,7 +171,8 @@ test('handles cold start, resumed session, and duplicate incoming-link suppressi
   assert.deepEqual(controller.getState().activeDestination, {
     type: 'releasedChallenge',
     slug: 'rejoice-always',
-    origin: { kind: 'library', yearMonth: '2026-10' },
+    origin: { kind: 'hub' },
+    entry: 'external',
   })
   assert.equal(unavailable.length, 0)
 
@@ -245,6 +246,7 @@ test('cancels superseded in-flight authorization (latest-wins) and handles unava
     type: 'releasedChallenge',
     slug: 'fast-challenge',
     origin: { kind: 'hub' },
+    entry: 'external',
   })
 
   // Unreleased link produces unavailable outcome and clears activeDestination without guessing
@@ -311,6 +313,7 @@ test('a delayed cold-start URL cannot replace a newer resumed-session URL', asyn
     type: 'releasedChallenge',
     slug: 'rejoice-always',
     origin: { kind: 'hub' },
+    entry: 'external',
   })
 })
 

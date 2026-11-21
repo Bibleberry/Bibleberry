@@ -40,74 +40,49 @@ test('parses authorized HTTPS and custom-scheme Month links into internal destin
   assert.deepEqual(tripleSlashMonth.destination, { type: 'month', yearMonth: '2026-09' })
 })
 
-test('parses authorized Challenge links and preserves valid ChallengeOrigin context', () => {
-  const monthOrigin = parseExternalDeepLink(
-    'https://reader.example.test/challenge/2026-11-02-rejoice-always?origin=month&yearMonth=2026-11',
-    baseOptions,
-  )
-  assert.equal(monthOrigin.status, 'parsed')
-  assert.deepEqual(monthOrigin.destination, {
-    type: 'releasedChallenge',
-    slug: '2026-11-02-rejoice-always',
-    origin: { kind: 'month', yearMonth: '2026-11' },
-  })
-  assert.equal(
-    monthOrigin.internalHash,
-    '#/challenge/2026-11-02-rejoice-always?origin=month&yearMonth=2026-11',
-  )
-
-  const shelfOriginNoMonth = parseExternalDeepLink(
-    'bibleberry://challenge/rejoice-always?origin=shelf',
-    baseOptions,
-  )
-  assert.equal(shelfOriginNoMonth.status, 'parsed')
-  assert.deepEqual(shelfOriginNoMonth.destination, {
-    type: 'releasedChallenge',
-    slug: 'rejoice-always',
-    origin: { kind: 'shelf' },
-  })
-
-  const libraryOriginWithMonth = parseExternalDeepLink(
-    'https://reader.example.test/challenge/rejoice-always?origin=library&yearMonth=2026-08',
-    baseOptions,
-  )
-  assert.equal(libraryOriginWithMonth.status, 'parsed')
-  assert.deepEqual(libraryOriginWithMonth.destination, {
-    type: 'releasedChallenge',
-    slug: 'rejoice-always',
-    origin: { kind: 'library', yearMonth: '2026-08' },
-  })
-
-  const defaultHubOrigin = parseExternalDeepLink(
-    'https://reader.example.test/challenge/rejoice-always',
-    baseOptions,
-  )
-  assert.equal(defaultHubOrigin.status, 'parsed')
-  assert.deepEqual(defaultHubOrigin.destination, {
-    type: 'releasedChallenge',
-    slug: 'rejoice-always',
-    origin: { kind: 'hub' },
-  })
+const EXTERNAL_CHALLENGE = (slug: string) => ({
+  type: 'releasedChallenge',
+  slug,
+  origin: { kind: 'hub' },
+  entry: 'external',
 })
 
-test('external URL origin takes precedence over conflicting ambient destination options', () => {
+test('parses authorized Challenge links as external entries that never carry a return origin (G04-A)', () => {
+  for (const [rawUrl, slug] of [
+    [
+      'https://reader.example.test/challenge/2026-11-02-rejoice-always?origin=month&yearMonth=2026-11',
+      '2026-11-02-rejoice-always',
+    ],
+    ['bibleberry://challenge/rejoice-always?origin=shelf', 'rejoice-always'],
+    ['https://reader.example.test/challenge/rejoice-always?origin=library&yearMonth=2026-08', 'rejoice-always'],
+    ['https://reader.example.test/challenge/rejoice-always?origin=hub', 'rejoice-always'],
+    ['https://reader.example.test/challenge/rejoice-always', 'rejoice-always'],
+  ] as const) {
+    const result = parseExternalDeepLink(rawUrl, baseOptions)
+    assert.equal(result.status, 'parsed', rawUrl)
+    if (result.status !== 'parsed') continue
+    assert.deepEqual(result.destination, EXTERNAL_CHALLENGE(slug), rawUrl)
+    assert.equal(result.origin, null, rawUrl)
+    // The internal hash is canonical and drops the caller-supplied origin.
+    assert.equal(result.internalHash, `#/challenge/${slug}?origin=hub`, rawUrl)
+  }
+})
+
+test('forged external origins cannot be smuggled in through ambient destination options', () => {
   const result = parseExternalDeepLink(
     'https://reader.example.test/challenge/rejoice-always?origin=month&yearMonth=2026-11',
     {
       ...baseOptions,
       challengeOrigin: { kind: 'shelf' },
-      search: '?origin=library&yearMonth=2026-10',
+      ...({ search: '?origin=library&yearMonth=2026-10' } as object),
     },
   )
 
   assert.equal(result.status, 'parsed')
   if (result.status !== 'parsed') return
-  assert.deepEqual(result.destination.origin, { kind: 'month', yearMonth: '2026-11' })
-  assert.equal(
-    result.internalHash,
-    '#/challenge/rejoice-always?origin=month&yearMonth=2026-11',
-  )
-  assert.deepEqual(result.origin, result.destination.origin)
+  assert.deepEqual(result.destination, EXTERNAL_CHALLENGE('rejoice-always'))
+  assert.equal(result.origin, null)
+  assert.equal(result.internalHash, '#/challenge/rejoice-always?origin=hub')
 })
 
 test('supports explicit custom-scheme host allowlist when configured', () => {
