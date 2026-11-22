@@ -41,7 +41,7 @@ Use the existing **Bibleberry Development** GitHub Project board for work status
 
 ### Five questions
 
-1. **Completed:** What was accepted or merged since the last review? Confirm the related Issues and board entries are **Done**. A green build alone does not mean a feature is accepted or released.
+1. **Completed:** What was accepted or merged since the last review? Verify whether each originating Issue's full scope and acceptance criteria have been satisfied. Confirm **Done** status only for completed Issues; partial implementations remain open with their outstanding obligations recorded. A green build or merged PR alone does not establish full Issue completion or product release.
 2. **In progress:** Which approved, scoped Issues are actually being worked on? Make sure they reflect **In Progress**, have an owner/next action, and are not stalled by an unreviewed PR.
 3. **Blocked:** What cannot proceed, why, and who can resolve it? Use the **blocked** label if configured. Otherwise, record the reason, owner, and next decision in the Issue or project item. Keep the Issue in its current workflow status while blocked.
 4. **Decisions needed:** Which questions require Aaron’s product or technical decision, or Alexis’s editorial, theological, or ministry-facing visual approval? Record the pending decision with a link to the governing document.
