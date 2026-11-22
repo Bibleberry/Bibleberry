@@ -317,4 +317,10 @@ Review may propose procedural improvements, but permanent organizational changes
 
 ### 5.5 Engineering Issue Planning
 
-A separate Engineering Issue Planning department is proposed
+Engineering Issue Planning (Planning) investigates upcoming engineering requirements and creates candidate Issues within Aaron's authorized planning initiatives.
+
+Independent Review evaluates completed implementations against their authorized scope, technical requirements, and verification evidence.
+
+Planning does not conduct independent PR reviews or determine implementation acceptance. Review does not assume Planning's responsibility for researching and preparing future engineering assignments.
+
+The departments retain separate responsibilities, with Development Management coordinating the transition from planned assignments to authorized implementation and independent review.
