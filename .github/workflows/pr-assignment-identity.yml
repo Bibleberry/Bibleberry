@@ -48,7 +48,7 @@ jobs:
               print(f"Historical PR #{number}: identity check not retroactive.")
               sys.exit(0)
 
-          exempt_bots = {"dependabot[bot]", "renovate[bot]", "github-actions[bot]"}
+          exempt_bots = {"dependabot[bot]", "renovate[bot]"}
           if author_type == "Bot" and author in exempt_bots:
               print(f"Automated PR by {author}: human assignment identity exempt.")
               sys.exit(0)
