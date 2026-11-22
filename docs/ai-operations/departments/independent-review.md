@@ -218,7 +218,11 @@ When technical findings reveal a conflict between approved requirements, Review 
 
 ## 4. Technical Review Dispositions
 
-Review uses two substantive dispositions.
+Review uses two substantive dispositions: `CODE APPROVED` and `CHANGES REQUESTED`.
+
+Review records either disposition as a substantive top-level comment in the GitHub PR Conversation, identifying the exact reviewed HEAD commit SHA and supporting technical evidence. Native GitHub review approval events or separate status registers do not replace this established disposition mechanism.
+
+When essential evidence is unavailable, Review reports its investigation as incomplete rather than issuing a substantive disposition.
 
 ### 4.1 CODE APPROVED
 
