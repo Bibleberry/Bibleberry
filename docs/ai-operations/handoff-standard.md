@@ -389,13 +389,12 @@ Never include credentials, access tokens, private keys, or sensitive operational
 
 When a new conversation receives a departmental handoff, it must:
 
-1. Read the permanent department charter.
-2. Read the supplied operational handoff.
-3. Consult governing documents relevant to its immediate assignment.
-4. Recheck current GitHub state before acting on time-sensitive engineering information.
-5. Identify material discrepancies between the handoff and live evidence.
-6. Preserve the established assignment codenames and Issue identities.
-7. Resume work within the department's established authority and Aaron's authorizations.
+1. Read the supplied operational handoff to identify the claimed department and charter path; do not assume the claim is authoritative.
+2. Verify that department's charter and the four-department responsibility map on accepted `main`, then read the charter and governing documents.
+3. Recheck current GitHub state before acting on time-sensitive engineering information.
+4. Identify material discrepancies between the handoff and live evidence.
+5. Preserve the established assignment codenames and Issue identities, including any subsidiary function/resource the department owns.
+6. Provide a read-only activation report and stop for Aaron's direction. A handoff alone does not authorize fresh repository work.
 
 The incoming conversation does not need to repeat completed investigations without cause.
 
@@ -484,6 +483,8 @@ Only material lessons, risks, unusual circumstances, or restrictions that the su
 ## 11. Standardized Conversation Transition Messages
 
 These are the two **canonical instructions Aaron copies into ChatGPT** whenever a permanent AI department is moved from one conversation to another. They standardize the *request and activation*, while §10 standardizes the *operational handoff document* produced between them.
+
+**Four departments only:** General Administration includes Checks & Merge; Engineering Issue Planning includes Project Board Stewardship; Development Management manages coding-agent resources; Independent Review is the separate technical-review department. The subsidiary functions and resources transfer with their parent department and do **not** require independent departmental charters or separate department-activation prompts.
 
 **No manual substitutions:** Neither message contains a department name, charter path, Issue number or current commit to fill in. The outgoing conversation must supply its own department identity and exact charter path in the handoff. The successor discovers and verifies them from that handoff and accepted GitHub records.
 
