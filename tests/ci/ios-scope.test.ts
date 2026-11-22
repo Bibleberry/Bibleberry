@@ -92,6 +92,8 @@ test('native, shared build and unknown inputs require build and full runtime on 
     'scripts/ios-simulator-snapshot.py',
     'tests/ci/test_ios_simulator_smoke.py',
     'tests/nativeLifecycle.test.ts',
+    'tests/sanity/capacitorLifecycleSource.test.ts',
+    'tests/sanity/lifecycleAdapter.test.ts',
     '.github/workflows/native-ios.yml',
     '.github/workflows/native-ios-runner-comparison.yml',
     'scripts/ci/build-ios-simulator.sh',
@@ -104,6 +106,9 @@ test('native, shared build and unknown inputs require build and full runtime on 
     'tsconfig.app.json',
     'tailwind.config.js',
     'postcss.config.js',
+    'src/config/featureFlags.ts',
+    'src/components/reader.config.ts',
+    'src/data/unknown-build-input.json',
     'public/config.js',
     'build/new-packaging-input',
   ]) {

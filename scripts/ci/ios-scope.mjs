@@ -10,10 +10,12 @@ const nativeStorage = new Set([
   'src/components/announcements/announcementPreferencesStorage.ts',
   'src/components/month/monthIntroStorage.ts',
 ])
-const nativeReference = /@capacitor\b|\bCapacitor\b|\bcordova\b|\bWKWebView\b|webkit\s*\.\s*messageHandlers|CapacitorPreferences|(?:^|[/'"])\b(?:native|deepLinkIngress|participation|shelfPersistence|readerProfile)\//im
+const nativeReference = /@capacitor\b|\b(?:Capacitor(?:App|Preferences)?|cordova|WKWebView|messageHandlers)\b|(?:^|[/'"])(?:native|deepLinkIngress|participation|shelfPersistence|readerProfile)\//im
+const webSource = /^src\/.*\.(?:[cm]?[jt]sx?|css)$/
+const sourceConfig = /\/(?:config\/|[^/]+\.config\.)/
 const staticAsset = /\.(?:avif|gif|ico|jpe?g|png|svg|webp|woff2?|ttf|otf|pdf|mp3|mp4|webm|vtt)$/i
 const unrelatedFolder = /^(?:android|docs|studio|supabase)\//
-const runtimeTest = /^tests\/(?:ci\/|[^/]*(?:ios|native|simulator|deepLinkIngress|participation|shelfPersistence|readerProfile))/i
+const runtimeTest = /^tests\/(?:ci\/|.*(?:ios|native|simulator|capacitor|lifecycle|deepLink|preferences|participation|shelfPersistence|readerProfile))/i
 const unrelatedFiles = new Set([
   '.github/workflows/native-android.yml',
   'README.md',
@@ -80,7 +82,7 @@ export function detectIosScope({ event, base, head, build, cwd }) {
         return { scope: 'runtime', reason: 'Native integration source changed' }
       }
 
-      if (/^src\/.*\.(?:[cm]?[jt]sx?|css|json|html)$/.test(path)) {
+      if (webSource.test(path) && !sourceConfig.test(path)) {
         // Inspect both versions to catch a new native bridge and the removal of an existing one.
         if ((status !== 'A' && nativeReference.test(git(cwd, 'cat-file', 'blob', `${before}:${path}`)))
           || (status !== 'D' && nativeReference.test(git(cwd, 'cat-file', 'blob', `${after}:${path}`)))) {
