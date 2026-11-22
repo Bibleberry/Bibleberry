@@ -244,6 +244,7 @@ async function tabTo(page: Page, target: Locator): Promise<void> {
 }
 
 async function finishIntroIfShown(page: Page): Promise<void> {
+  await expect(page.locator('.month-intro, .month-header h1').first()).toBeVisible()
   const intro = page.locator('.month-intro')
   for (let count = 0; count < 4 && await intro.isVisible(); count += 1) {
     const skipToWelcome = intro.getByRole('button', { name: 'Skip to Welcome' })

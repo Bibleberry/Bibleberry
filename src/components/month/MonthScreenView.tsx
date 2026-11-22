@@ -5,6 +5,7 @@ import {
   BookOpen,
   Calendar,
   Check,
+  ChevronRight,
   Clock3,
   Lock,
   Play,
@@ -13,10 +14,10 @@ import {
 import type { MonthDetailData, MonthPreviewData } from '../../cms/reader/monthProvider.ts'
 import { EarnedScriptureCardViewer } from '../cards/EarnedScriptureCardViewer.tsx'
 import {
+  formatShortMonthName,
   formatYearMonthHeading,
   getAdjacentYearMonths,
   isValidYearMonth,
-  WEEKDAY_SHORT_LABELS,
   type MonthCalendarWeek,
   type MonthCompletionSummary,
   type MonthDiscoveryPresentation,
@@ -59,11 +60,12 @@ function SlotStatusIcon({ status }: { status: MonthSlotPresentation['status'] })
 }
 
 /**
- * Provisional calendar Month Screen presentation (R08A-6 / Phase 03C).
+ * Functional R06 Month Screen weekly agenda presentation.
  *
- * Groups all 28–31 civil-day slots into Monday–Sunday calendar weeks, enforces
- * non-interactive Coming Soon / Unavailable states without leaking future slugs or IDs,
- * and places Monthly Discoveries below the calendar with the full-month goal last.
+ * Renders all 28–31 civil-day slots as uninterrupted Monday–Sunday weekly agenda
+ * sections from `monthScreenModel.ts` (`week.slots`), enforces non-interactive
+ * Coming Soon / Unavailable states without leaking future slugs or IDs, and places
+ * Monthly Discoveries below the agenda with the full-month goal last.
  */
 export function MonthScreenView({
   mode,
@@ -91,6 +93,7 @@ export function MonthScreenView({
   const jumpValue = jumpDraft.monthId === month.monthId ? jumpDraft.value : month.monthId
   const adjacent = getAdjacentYearMonths(month.monthId)
   const monthHeading = formatYearMonthHeading(month.monthId)
+  const shortMonth = formatShortMonthName(month.monthId)
   const phaseLabel =
     mode === 'preview'
       ? 'Advance Preview'
@@ -183,92 +186,97 @@ export function MonthScreenView({
       <section className="month-calendar" aria-labelledby="month-calendar-heading">
         <div className="month-calendar__header">
           <h2 id="month-calendar-heading">Daily Challenges</h2>
-          <span>{month.daysInMonth} days</span>
+          <span>
+            {month.daysInMonth} days · {weeks.length} {weeks.length === 1 ? 'week' : 'weeks'}
+          </span>
         </div>
 
-        <div className="month-calendar__weekdays" aria-hidden="true">
-          {WEEKDAY_SHORT_LABELS.map(label => (
-            <span key={label}>{label}</span>
-          ))}
-        </div>
+        {weeks.length === 0 ? (
+          <p className="month-calendar__empty">No daily Challenges are scheduled for this month.</p>
+        ) : (
+          <div className="month-weeks">
+            {weeks.map(week => {
+              const weekHeadingId = `month-week-${month.monthId}-${week.weekNumber}`
+              return (
+                <section
+                  key={week.weekNumber}
+                  className="month-week"
+                  aria-labelledby={weekHeadingId}
+                >
+                  <h3 id={weekHeadingId} className="month-week__title">
+                    Week {week.weekNumber} · {week.label}
+                  </h3>
 
-        <div className="month-weeks">
-          {weeks.map(week => (
-            <section
-              key={week.weekNumber}
-              className="month-week"
-              aria-labelledby={`month-week-${month.monthId}-${week.weekNumber}`}
-            >
-              <h3 id={`month-week-${month.monthId}-${week.weekNumber}`} className="month-week__title">
-                Week {week.weekNumber} · {week.label}
-              </h3>
-
-              <div className="month-week__grid">
-                {week.cells.map(cell => {
-                  if (!cell.slot) {
-                    return (
-                      <div
-                        key={`pad-${week.weekNumber}-${cell.weekdayIndex}`}
-                        className="month-day-pad"
-                        aria-hidden="true"
-                      />
-                    )
-                  }
-
-                  const slot = cell.slot
-                  const cardHeader = (
-                    <div className="month-day__meta">
-                      <span className="month-day__date">
-                        <span>{slot.weekdayLabel}</span>
-                        <strong>{slot.dayOfMonth}</strong>
-                      </span>
-                      <span className={`month-day__badge month-day__badge--${slot.status}`}>
-                        <SlotStatusIcon status={slot.status} />
-                        {slot.statusLabel}
-                      </span>
-                    </div>
-                  )
-
-                  if (slot.interactive && slot.slug) {
-                    return (
-                      <button
-                        key={slot.date}
-                        type="button"
-                        className={`month-day month-day--${slot.status}`}
-                        onClick={() => onOpenChallenge(slot.slug!)}
-                      >
-                        {cardHeader}
-                        <span className="month-day__title">{slot.title}</span>
-                      </button>
-                    )
-                  }
-
-                  return (
-                    <div
-                      key={slot.date}
-                      className={`month-day month-day--${slot.status} month-day--locked`}
-                      role="group"
-                      aria-label={`${monthHeading}, ${slot.weekdayLabel} ${slot.dayOfMonth}: ${
-                        slot.status === 'unavailable' ? 'Challenge unavailable' : slot.title
-                      }, ${slot.statusLabel}. Not available to open.`}
-                      aria-disabled="true"
-                    >
-                      {cardHeader}
-                      <span className="month-day__title">
-                        {slot.status === 'unavailable'
+                  <ol className="month-week__agenda">
+                    {week.slots.map(slot => {
+                      const displayTitle =
+                        slot.status === 'unavailable'
                           ? 'Challenge unavailable'
-                          : slot.title}
-                      </span>
-                      {slot.previouslyCompleted && (
-                        <small className="month-day__note">Previously completed</small>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            </section>
-          ))}
-        </div>
+                          : (slot.title ?? 'Daily Challenge')
+                      const fullDateLabel = `${slot.weekdayLabel}, ${shortMonth} ${slot.dayOfMonth}, ${month.year}`
+
+                      const rowContent = (
+                        <div className="month-day__content">
+                          <div className="month-day__meta">
+                            <time className="month-day__date" dateTime={slot.date}>
+                              <span className="month-day__weekday">{slot.weekdayLabel},</span>{' '}
+                              <strong className="month-day__calendar-day">
+                                {shortMonth} {slot.dayOfMonth}, {month.year}
+                              </strong>
+                            </time>
+                            <span className={`month-day__badge month-day__badge--${slot.status}`}>
+                              <SlotStatusIcon status={slot.status} />
+                              {slot.statusLabel}
+                            </span>
+                          </div>
+                          <div className="month-day__body">
+                            <span className="month-day__title">{displayTitle}</span>
+                            {slot.previouslyCompleted && (
+                              <small className="month-day__note">Previously completed</small>
+                            )}
+                          </div>
+                        </div>
+                      )
+
+                      if (slot.interactive && slot.slug) {
+                        return (
+                          <li key={slot.date} className="month-week__item">
+                            <button
+                              type="button"
+                              className={`month-day month-day--${slot.status}`}
+                              aria-label={`${fullDateLabel}: ${displayTitle}, ${slot.statusLabel}`}
+                              onClick={() => onOpenChallenge(slot.slug!)}
+                            >
+                              {rowContent}
+                              <ChevronRight
+                                className="month-day__chevron"
+                                size={16}
+                                aria-hidden="true"
+                              />
+                            </button>
+                          </li>
+                        )
+                      }
+
+                      return (
+                        <li key={slot.date} className="month-week__item">
+                          <div
+                            className={`month-day month-day--${slot.status} month-day--locked`}
+                            role="group"
+                            aria-label={`${monthHeading}, ${slot.weekdayLabel} ${slot.dayOfMonth}: ${displayTitle}, ${slot.statusLabel}.${slot.previouslyCompleted ? ' Previously completed.' : ''} Not available to open.`}
+                            aria-disabled="true"
+                          >
+                            {rowContent}
+                          </div>
+                        </li>
+                      )
+                    })}
+                  </ol>
+                </section>
+              )
+            })}
+          </div>
+        )}
       </section>
 
       {mode === 'detail' && (
