@@ -2,7 +2,13 @@
 Describe what this change accomplishes.
 
 ## Related Issue
-Related to #
+Refs #123
+
+Replace `123` with **the one originating Issue number** before submitting the PR. Keep exactly one direct originating-Issue line:
+- Use `Refs #N` for partial work or when the Issue should remain open after this PR.
+- Use `Fixes #N` or `Closes #N` only if this PR satisfies **all** of the Issue's acceptance criteria and should close it when merged.
+
+The two-word codename in the PR title must match the originating Issue's title.
 
 ## Changes Made
 -
