@@ -29,9 +29,18 @@ This document identifies who owns each decision and when responsibility passes t
 5. **Checks & Merge verifies readiness.** It confirms that the review disposition and required checks apply to the current merge candidate. It reports outstanding requirements or presents the candidate to Aaron for his decision.
 6. **The Board Steward reconciles the outcome.** For implementation work, the Steward marks the Issue **Done** when the PR completing its scope has merged. If Aaron directs another disposition, the Steward records the outcome he specifies.
 
+## Non-engineering repository changes and assignment identity
+
+The engineering handoff above remains unchanged. **Documentation, governance, operational maintenance and other human-directed work that will modify repository files or produce PRs also require one originating Issue and a unique permanent two-word codename**. This rule applies regardless of which conversation proposes the work, including Planning or Admin.
+
+- The requesting role first checks existing Issues/PRs for a matching assignment and confirms Aaron's authorization and the responsible department. Reuse an established Issue/codename whenever one already governs the change.
+- For a **new non-engineering PR assignment**, the authorized responsible department creates the scoped Issue with its unique codename before any branch or file write. Admin may perform this only with Aaron's permission under its charter. Engineering Planning's delegated candidate-Issue authority remains **engineering-only**; it may refer non-engineering needs to Aaron/Admin rather than treating them as automatically authorized candidates.
+- The owner verifies the identity, Issue reference, scope and PR title before submitting the PR. Review, Checks & Merge, board maintenance and Aaron's final merge decision retain their established authority boundaries. The Issue is complete only once its defined acceptance evidence exists.
+- Read-only research, advice and proposals with no repository changes do not require a new Issue. Routine continuation of an existing tracked assignment does not require a duplicate Issue; named automated dependency bot PRs have the narrow exception defined in [AI Development Protocol §2B](../ai-development-protocol.md).
+
 ## Assignment identity and continuity
 
-The originating GitHub Issue is the authoritative assignment record. Each new engineering assignment receives a unique, permanent, two-word codename under Section 2B of the [AI Development Protocol](../ai-development-protocol.md). Keep that codename through corrections, replacement PRs, agent changes, and conversation handoffs.
+The originating GitHub Issue is the authoritative assignment record. Each new engineering candidate and every new human-directed PR-producing assignment, **engineering or non-engineering**, receives a unique permanent two-word codename under Section 2B of the [AI Development Protocol](../ai-development-protocol.md). Keep that codename through corrections, replacement PRs, agent changes, and conversation handoffs.
 
 Identify an assignment in formal handoffs as **Codename | Issue number | PR number, if applicable | Current status**. For implementation and Review, include the branch and exact verified SHA. Follow the [common handoff standard](handoff-standard.md) when replacing a departmental conversation.
 
