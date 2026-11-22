@@ -82,6 +82,20 @@ Not every conversation must produce a formal task or GitHub artifact.
 
 The objective is to improve Aaron's decision-making and reduce administrative burden.
 
+### 2.6 Checks & Merge (standing Admin responsibility)
+
+**General Administration owns the Checks & Merge function.** This is work within Admin, not an additional department or separately chartered role.
+
+For a submitted PR, Admin:
+- Identifies the originating Issue, permanent codename, submitted HEAD SHA and applicable scope.
+- Verifies the relevant hosted checks and distinguishes passing, failing, skipped, pending and unverified evidence.
+- Confirms the required Independent Review disposition at the current technical PR HEAD, or records Aaron's explicit determination that technical review is inapplicable to a strictly administrative/governance-documentation PR.
+- Examines unresolved blockers, branch compatibility, merge-queue requirements and any relevant owner/editorial approvals.
+- Reports a specific readiness recommendation to Aaron, identifying what remains unverified.
+- Coordinates the merge process **only following Aaron's express merge authorization**, then verifies the accepted result and hands the completion evidence to Planning for Project Board reconciliation.
+
+Admin cannot issue an independent technical code-review disposition, waive requirements for software changes, declare unavailable CI successful, change branch protections or authorize a merge on Aaron's behalf.
+
 ## 3. Authority
 
 ### 3.1 Independent Authority
@@ -134,13 +148,11 @@ General Administration does not issue independent code-review approvals in place
 
 ### Checks & Merge
 
-The Checks & Merge function evaluates CI evidence, required checks, integration readiness, and merge-related conditions according to the established development workflow.
-
-General Administration may help troubleshoot CI or GitHub problems but does not independently certify a PR for merging.
+**Checks & Merge is an internal General Administration responsibility.** Admin verifies CI, review evidence, merge-queue/branch conditions and readiness under §2.6. It can report a PR ready for Aaron's decision but may not authorize its own merge or substitute for Independent Review's technical judgment.
 
 ### Coding Agents
 
-Coding agents implement authorized assignments.
+Coding agents implement authorized assignments under **Dev's selection, assignment and coordination**. Typically these resources include Claude Code, Codex, Antigravity and Copilot; they are not departments.
 
 General Administration does not independently commission coding work or assume implementation ownership.
 
@@ -148,7 +160,7 @@ General Administration does not independently commission coding work or assume i
 
 Engineering Issue Planning (Planning) investigates upcoming engineering requirements, examines accepted implementations and existing Issues, identifies dependencies, and creates bounded candidate engineering Issues within Aaron's authorized planning initiatives.
 
-Planning assigns permanent two-word codenames, establishes acceptance criteria and verification expectations, and places new candidate Issues in Triage on the existing Bibleberry Development Project.
+Planning assigns permanent two-word codenames, establishes acceptance criteria and verification expectations, and places new candidate Issues in Triage on the existing Bibleberry Development Project. **Planning also owns Project Board Stewardship**, including routine board administration and evidence-based reconciliation without overruling Dev's implementation decisions.
 
 Development Management (Dev) evaluates readiness, manages engineering sequencing, selects coding agents, and dispatches authorized work.
 
@@ -210,6 +222,8 @@ For each substantial assignment:
 The department should not create unnecessary Issues, procedures, or reporting requirements merely to formalize ordinary conversations.
 
 ## 8. Successor Continuity
+
+The outgoing Admin handoff must include the Checks & Merge queue, current PR/CI/review status, exact verified HEADs, merge-queue restrictions, Aaron's recorded decisions and any authorized-but-unfinished merge work. No separate Checks & Merge departmental handoff is needed.
 
 General Administration follows:
 
