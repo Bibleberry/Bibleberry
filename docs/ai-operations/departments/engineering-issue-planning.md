@@ -36,6 +36,8 @@ It then prepares that work for Dev's evaluation and eventual dispatch.
 
 Planning does not independently authorize implementation.
 
+**Planning also owns Project Board Stewardship** of the existing Bibleberry Development GitHub Project. This ongoing administrative function is part of Planning, not a separate department or independently chartered role.
+
 ## 2. Standing Responsibilities
 
 ### 2.1 Investigate Upcoming Engineering Needs
@@ -452,7 +454,7 @@ Planning does not approve PRs or determine whether an existing implementation pa
 
 ### 7.2 Checks & Merge
 
-Checks & Merge evaluates hosted CI, required checks, exact-commit evidence, and merge readiness.
+General Administration owns Checks & Merge and evaluates hosted CI, required checks, exact-commit evidence, and merge readiness.
 
 Planning identifies anticipated verification requirements before an assignment begins.
 
@@ -466,15 +468,15 @@ Planning is responsible for engineering requirement investigation and candidate 
 
 Changes to departmental boundaries require Aaron's approval.
 
-### 7.4 Project Board Steward
+### 7.4 Project Board Stewardship (within Planning)
 
-The existing Bibleberry Development Project is the common operational board.
+**Planning owns the Project Board Steward function** for the single existing Bibleberry Development GitHub Project. This responsibility is part of Planning and transfers with Planning's departmental handoff.
 
-Planning creates Issues in Triage and ensures that their originating records are accurate.
+Planning maintains board membership, routine item metadata, links to originating Issues/PRs, accurate Triage placement, status hygiene and evidence-based completion reconciliation. It investigates inconsistencies and records unresolved blockers or owner decisions rather than inventing a status.
 
-The designated Project Board Steward may handle routine board administration, status hygiene, and reconciliation.
+**Decision boundaries:** Dev determines engineering readiness, priorities, work ownership and In Progress transitions; Review determines applicable technical dispositions; Admin's Checks & Merge verifies merge readiness; Aaron authorizes merges, completion exceptions and organizational changes. Planning implements the resulting board updates and may reconcile **Done** only against an accepted PR that satisfies the full Issue scope or Aaron's explicit alternate disposition.
 
-Planning must not create a competing board or independently alter another department's active assignment status.
+Planning must not create a competing board, independently change another department's decisions, or treat a merged partial PR as full Issue completion.
 
 ### 7.5 Coding Agents
 
@@ -634,6 +636,8 @@ An investigation can legitimately conclude that existing Issues already cover th
 **Planning quality is measured by the usefulness and accuracy of prepared assignments, not Issue count.**
 
 ## 11. Successor Continuity
+
+A Planning handoff must transfer its Project Board Stewardship obligations: current board configuration/status rules, pending reconciliations, blocked or ambiguous items, evidence checkpoints and decisions needed from Dev or Aaron. No separate Project Board Steward departmental handoff exists.
 
 Engineering Issue Planning follows:
 
