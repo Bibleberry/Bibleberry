@@ -4,7 +4,7 @@
 
 ## November 22, 2026 — accepted R06 foundations and remaining integration
 
-**Verified repository checkpoint:** [Bibleberry/Bibleberry](https://github.com/Bibleberry/Bibleberry) `main` at `d6157fd05cc2912390dfae7d37370a8ea8d5d88a`, after [governance PR #294](https://github.com/Bibleberry/Bibleberry/pull/294) merged. At this inspection, [Juniper Signal PR #291](https://github.com/Bibleberry/Bibleberry/pull/291) and [Dependabot PR #295](https://github.com/Bibleberry/Bibleberry/pull/295) are open. These are dated observations, not automatically refreshed counts or approval to merge.
+**Verified repository checkpoint:** [Bibleberry/Bibleberry](https://github.com/Bibleberry/Bibleberry) `main` at `52228290748d2e76970f6aedee3fcbc523e52cab`, following merged [governance PR #294](https://github.com/Bibleberry/Bibleberry/pull/294) and [Dependabot setup-java PR #295](https://github.com/Bibleberry/Bibleberry/pull/295). At this inspection [Juniper Signal PR #291](https://github.com/Bibleberry/Bibleberry/pull/291) and [Cobalt Ledger governance PR #296](https://github.com/Bibleberry/Bibleberry/pull/296) are open. These are dated observations, not automatically refreshed counts or permission to merge.
 
 **Newly accepted foundations (implementation, not whole-application acceptance):**
 
