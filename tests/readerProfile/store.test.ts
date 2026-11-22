@@ -439,3 +439,49 @@ test('platform factory: native uses Preferences for profile but reads legacy fro
   assert.equal(webLoaded.source, 'migratedLegacy')
   assert.ok(web.has(READER_PROFILE_STORAGE_KEY))
 })
+
+test('corrupt profile + legacy read failure: recovery writes nothing, then migrates on retry', async () => {
+  const driver = createMemoryDriver({ [READER_PROFILE_STORAGE_KEY]: '{corrupt' })
+  const legacy = createMemoryDriver({ [LEGACY_PROTOTYPE_STORAGE_KEY]: LEGACY_FULL })
+  const store = createReaderProfileStore({ driver, legacyDriver: legacy })
+
+  legacy.failGet = true
+  const loaded = await store.load()
+  assert.equal(loaded.health, 'corruptStoredData')
+  assert.equal(loaded.persisted, false)
+  assert.ok(loaded.diagnostics.some(d => d.field === LEGACY_PROTOTYPE_STORAGE_KEY))
+
+  const blocked = await store.recoverCorruptProfile()
+  assert.equal(blocked.ok, false)
+  assert.equal(!blocked.ok && blocked.error, 'storageUnavailable')
+  assert.equal(driver.writes.length, 0)
+  assert.equal(driver.store.get(READER_PROFILE_STORAGE_KEY), '{corrupt')
+
+  legacy.failGet = false
+  const recovered = await store.recoverCorruptProfile()
+  assert.equal(recovered.ok, true)
+  assert.deepEqual(driver.writes, [{ op: 'set', key: READER_PROFILE_STORAGE_KEY }])
+  assert.equal(storedProfile(driver).origin, 'legacyPrototypeMigration')
+
+  const after = await createReaderProfileStore({ driver, legacyDriver: legacy }).load()
+  assert.equal(after.source, 'stored')
+  assert.equal(after.profile.introStatus, 'completed')
+  assert.equal(after.profile.tutorialStatus, 'pending')
+  assert.equal(after.profile.contrastMode, 'dark')
+  assert.equal(after.profile.textScale, 'large')
+  assert.deepEqual(after.profile.reminder, { enabled: true, time: '06:45' })
+  assert.equal(legacy.store.get(LEGACY_PROTOTYPE_STORAGE_KEY), LEGACY_FULL)
+  assert.equal(legacy.writes.length, 0)
+})
+
+test('corrupt profile recovers to defaults when legacy is disabled or read as absent', async () => {
+  const disabled = createMemoryDriver({ [READER_PROFILE_STORAGE_KEY]: '{corrupt' })
+  const r1 = await createReaderProfileStore({ driver: disabled, legacyDriver: null }).recoverCorruptProfile()
+  assert.equal(r1.ok, true)
+  assert.equal(storedProfile(disabled).origin, 'defaults')
+
+  const absent = createMemoryDriver({ [READER_PROFILE_STORAGE_KEY]: '{corrupt' })
+  const r2 = await createReaderProfileStore({ driver: absent, legacyDriver: absent }).recoverCorruptProfile()
+  assert.equal(r2.ok, true)
+  assert.deepEqual(storedProfile(absent).profile, createDefaultReaderProfile())
+})

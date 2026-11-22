@@ -103,6 +103,11 @@ interface Fallback {
   readonly profile: ReaderProfile
   readonly origin: ReaderProfileOrigin
   readonly diagnostics: readonly ReaderProfileDiagnostic[]
+  /**
+   * True when the legacy source exists but could not be read, so `profile` is a display-only
+   * default. Such a fallback must never be persisted: doing so would permanently skip migration.
+   */
+  readonly legacyUnavailable: boolean
 }
 
 export function createReaderProfileStore(options: ReaderProfileStoreOptions): ReaderProfileStore {
@@ -131,7 +136,12 @@ export function createReaderProfileStore(options: ReaderProfileStoreOptions): Re
   /** Builds the legacy-or-defaults profile. `null` means the legacy source could not be read. */
   async function buildFromLegacy(): Promise<Fallback | null> {
     if (!legacyDriver) {
-      return { profile: createDefaultReaderProfile(), origin: 'defaults', diagnostics: [] }
+      return {
+        profile: createDefaultReaderProfile(),
+        origin: 'defaults',
+        diagnostics: [],
+        legacyUnavailable: false,
+      }
     }
     let legacyRaw: string | null
     try {
@@ -141,20 +151,32 @@ export function createReaderProfileStore(options: ReaderProfileStoreOptions): Re
     }
     const mapped = mapLegacyPrototypeState(legacyRaw)
     if (mapped.kind === 'mapped') {
-      return { profile: mapped.profile, origin: 'legacyPrototypeMigration', diagnostics: mapped.diagnostics }
+      return {
+        profile: mapped.profile,
+        origin: 'legacyPrototypeMigration',
+        diagnostics: mapped.diagnostics,
+        legacyUnavailable: false,
+      }
     }
     return {
       profile: createDefaultReaderProfile(),
       origin: 'defaults',
       diagnostics:
         mapped.kind === 'unreadable' ? [{ field: legacyStorageKey, reason: mapped.reason }] : [],
+      legacyUnavailable: false,
     }
   }
 
+  /** Display fallback for unreadable profile records; flags (never hides) a legacy read failure. */
   async function safeFallback(): Promise<Fallback> {
     return (
       (await buildFromLegacy())
-      ?? { profile: createDefaultReaderProfile(), origin: 'defaults', diagnostics: [] }
+      ?? {
+        profile: createDefaultReaderProfile(),
+        origin: 'defaults',
+        diagnostics: [{ field: legacyStorageKey, reason: 'Legacy settings could not be read.' }],
+        legacyUnavailable: true,
+      }
     )
   }
 
@@ -348,6 +370,14 @@ export function createReaderProfileStore(options: ReaderProfileStoreOptions): Re
         return { ok: false, error: 'notCorrupt', message: 'Stored reader profile is not corrupt.' }
       }
       const { fallback } = resolved
+      if (fallback.legacyUnavailable) {
+        // Recovering now would persist defaults and permanently skip legacy migration.
+        return {
+          ok: false,
+          error: 'storageUnavailable',
+          message: 'Legacy settings could not be read; recovery was not written. Retry later.',
+        }
+      }
       if (!(await write(serializeReaderProfileEnvelope(fallback.profile, fallback.origin)))) {
         return { ok: false, error: 'writeFailed', message: 'Recovery write failed; record unchanged.' }
       }
