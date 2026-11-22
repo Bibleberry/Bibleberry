@@ -710,21 +710,42 @@ test.describe('Copper Meadow — Functional R06 Month Screen weekly agenda', () 
       const check = await page.evaluate(() => {
         const container = document.querySelector('.month-screen')?.getBoundingClientRect()
         const clippedNodes = [
-          ...document.querySelectorAll('.month-screen .month-day, .month-screen .month-day__title, .month-screen .month-day__date, .month-screen h1'),
-        ].filter(el => {
-          const r = el.getBoundingClientRect()
-          return r.width > 0 && container !== undefined && (r.left < container.left - 1 || r.right > container.right + 1)
-        })
+          ...document.querySelectorAll(
+            '.month-screen .month-day, .month-screen .month-day__title, .month-screen .month-day__date, .month-screen .month-discovery, .month-screen button, .month-screen input, .month-screen h1',
+          ),
+        ]
+          .filter(el => {
+            const r = el.getBoundingClientRect()
+            return (
+              r.width > 0
+              && container !== undefined
+              && (r.left < Math.max(container.left, 0) - 1
+                || r.right > Math.min(container.right, window.innerWidth) + 1)
+            )
+          })
+          .map(el => ({
+            tag: el.tagName,
+            cls: el.className,
+            left: el.getBoundingClientRect().left,
+            right: el.getBoundingClientRect().right,
+          }))
         return {
           viewportWidth: window.innerWidth,
           scrollWidth: document.documentElement.scrollWidth,
-          clippedCount: clippedNodes.length,
+          containerLeft: container?.left ?? -1,
+          containerRight: container?.right ?? -1,
+          clippedNodes,
         }
       })
+      expect(check.viewportWidth, `actual viewport width for ${vp.label}`).toBe(vp.width)
       expect(check.scrollWidth, `no horizontal overflow at ${vp.label}`).toBeLessThanOrEqual(
-        Math.max(check.viewportWidth, 320) + 1,
+        check.viewportWidth + 1,
       )
-      expect(check.clippedCount, `no clipped agenda nodes at ${vp.label}`).toBe(0)
+      expect(check.containerLeft, `Month Screen left within viewport at ${vp.label}`).toBeGreaterThanOrEqual(-1)
+      expect(check.containerRight, `Month Screen right within viewport at ${vp.label}`).toBeLessThanOrEqual(
+        check.viewportWidth + 1,
+      )
+      expect(check.clippedNodes, `no clipped agenda nodes at ${vp.label}`).toEqual([])
     }
 
     // 200% root text scaling at phone (375px) and tablet portrait (768px)
@@ -734,6 +755,7 @@ test.describe('Copper Meadow — Functional R06 Month Screen weekly agenda', () 
         document.documentElement.style.fontSize = '200%'
       })
       const textScaleCheck = await page.evaluate(() => {
+        const container = document.querySelector('.month-screen')?.getBoundingClientRect()
         const titleEl = document.querySelector('.month-day__title') as HTMLElement | null
         const dayEl = document.querySelector('.month-day') as HTMLElement | null
         const titleStyle = titleEl ? window.getComputedStyle(titleEl) : null
@@ -742,6 +764,7 @@ test.describe('Copper Meadow — Functional R06 Month Screen weekly agenda', () 
         return {
           scrollWidth: document.documentElement.scrollWidth,
           viewportWidth: window.innerWidth,
+          containerRight: container?.right ?? -1,
           computedFontPx: titleStyle ? parseFloat(titleStyle.fontSize) : 0,
           titleFitsRow:
             titleRect !== undefined
@@ -750,10 +773,15 @@ test.describe('Copper Meadow — Functional R06 Month Screen weekly agenda', () 
             && titleRect.height > (titleStyle ? parseFloat(titleStyle.fontSize) * 1.5 : 0),
         }
       })
+      expect(textScaleCheck.viewportWidth, `actual viewport width at 200% text (${width}px)`).toBe(width)
       expect(textScaleCheck.computedFontPx, `title scales at 200% text (${width}px)`).toBeGreaterThanOrEqual(28)
       expect(textScaleCheck.scrollWidth, `no horizontal overflow at 200% text (${width}px)`).toBeLessThanOrEqual(
         textScaleCheck.viewportWidth + 1,
       )
+      expect(
+        textScaleCheck.containerRight,
+        `Month Screen fits viewport at 200% text (${width}px)`,
+      ).toBeLessThanOrEqual(textScaleCheck.viewportWidth + 1)
       expect(textScaleCheck.titleFitsRow, `long title wraps inside row at 200% text (${width}px)`).toBe(true)
     }
   })

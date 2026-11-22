@@ -1,4 +1,9 @@
-/* Provisional Month Screen & Introduction styles (R08A-6) */
+/* Functional R06 Month Screen & Introduction styles */
+
+html:has(.month-screen),
+body:has(.month-screen) {
+  min-width: 0;
+}
 
 .sr-only {
   position: absolute;
@@ -629,6 +634,39 @@ button.month-day:focus-visible {
   .month-entry-bar {
     flex-direction: column;
     align-items: flex-start;
+  }
+}
+
+@media (max-width: 320px) {
+  .standard-page.month-screen {
+    padding-inline: 12px;
+  }
+
+  .month-switcher,
+  .month-switcher__jump {
+    width: 100%;
+  }
+
+  .month-switcher__jump input {
+    width: 100%;
+  }
+
+  .month-screen__topbar button,
+  .month-header__actions .button {
+    max-width: 100%;
+    white-space: normal;
+  }
+
+  .month-discovery__top {
+    flex-wrap: wrap;
+  }
+
+  .month-discovery__top h3 {
+    overflow-wrap: anywhere;
+  }
+
+  .month-discovery__card-button {
+    flex-wrap: wrap;
   }
 }
 
