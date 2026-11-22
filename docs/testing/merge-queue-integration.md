@@ -33,12 +33,7 @@ PRs are verified and integrated one by one.
   permissions, job identities, and per-PR cancellation behavior remain.
   *(Updated by [#239](https://github.com/Bibleberry/Bibleberry/issues/239) / `Silver Badger`: Draft-PR waiting-room CI suppression was later removed on standard hosted runners; read-only token permissions, job identities, per-PR cancellation, and Draft PR ineligibility for merge/queue entry remain unchanged. See [draft-pr-hosted-ci.md](draft-pr-hosted-ci.md).)*
 
-**iOS:** `Native iOS simulator build` remains PR/push/workflow_dispatch only
-and is **not** a merge-queue gate at this stage. Its simulator runtime
-installation/lifecycle checks have experienced runner timeouts. Keep its
-existing PR checks; investigate and stabilize before deciding to make it a
-queue-required check. Do not treat absence of a queue-specific iOS run as
-evidence that iOS integration was verified.
+**iOS:** The iOS workflow runs on PRs, main pushes, and manual dispatch. Before Aaron authorizes queue entry, Review and Checks & Merge confirm the iOS summary for the exact reviewed head. Native-sensitive and unknown scopes require **iOS Runtime Verified**. GitHub branch protection currently requires the reader and Studio checks. Adding an iOS required context would need owner approval and a check that also reports on merge-group commits. [Pine Relay scope and required-check handoff](native-ci-trigger-parity.md#checks--merge-handoff)
 
 ## Activation procedure (human admin steps after CI preparation PR passes and merges)
 
