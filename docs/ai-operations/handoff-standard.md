@@ -215,7 +215,7 @@ Do not create duplicate tracking systems solely for handoff purposes.
 
 ## 6. Assignment Identity and Two-Word Codenames
 
-Bibleberry uses a **mandatory two-word codename system** for all human-directed assignments that change repository files or produce Pull Requests, **not just engineering**. Engineering Planning candidates also receive codenames when created. Read the cross-department identity-first gate in [AI Development Protocol §2B](../../ai-development-protocol.md) before beginning repository mutations.
+Bibleberry uses a **mandatory two-word codename system** for all human-directed assignments that change repository files or produce Pull Requests, **not just engineering**. Engineering Planning candidates also receive codenames when created. Read the cross-department identity-first gate in [AI Development Protocol §2B](../ai-development-protocol.md) before beginning repository mutations.
 
 The system exists primarily to help Aaron recognize, remember, and coordinate assignments while moving rapidly between multiple AI platforms, coding agents, and departmental conversations.
 
@@ -308,7 +308,7 @@ A corresponding PR, including documentation and administrative PRs, must preserv
 
 Branches and formal handoffs should also follow the naming requirements in the AI Development Protocol.
 
-**Cross-department preflight:** Before any department or agent creates a new branch, edits repository files or opens a PR, verify the authorized Issue, codename, ownership and scope; create the originating Issue first if authorized and none exists. Never exempt a request merely because it came from Planning, Admin or an informal conversation. Read-only advice does not by itself require a new assignment. Reuse an existing Issue/codename for follow-up work, and do not invent a second tracking record. Automated dependency PRs from the expressly named bot senders are exempt from human-assignment identity, but not review/merge controls. The required PR check is described in [AI Development Protocol §2B](../../ai-development-protocol.md).
+**Cross-department preflight:** Before any department or agent creates a new branch, edits repository files or opens a PR, verify the authorized Issue, codename, ownership and scope; create the originating Issue first if authorized and none exists. Never exempt a request merely because it came from Planning, Admin or an informal conversation. Read-only advice does not by itself require a new assignment. Reuse an existing Issue/codename for follow-up work, and do not invent a second tracking record. Automated dependency PRs from the expressly named bot senders are exempt from human-assignment identity, but not review/merge controls. The required PR check is described in [AI Development Protocol §2B](../ai-development-protocol.md).
 
 ### 6.5 Codenames survive agent and conversation changes
 
