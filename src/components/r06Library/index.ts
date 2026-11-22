@@ -12,6 +12,8 @@ export {
   resolveInitialR06LibrarySurface,
   resolveActiveR06LibrarySurface,
   canTransitionR06LibrarySurface,
+  resolveNextR06LibraryReturnSurface,
+  resolveR06LibraryHostBackAction,
   countValidHistoricalShelfMonths,
   buildR06LibraryEntrances,
   buildR06LibraryLandingViewModel,
@@ -21,6 +23,7 @@ export {
   type R06LibraryEntranceAction,
   type R06LibraryEntranceDescriptor,
   type R06LibraryLandingViewModel,
+  type R06LibraryHostBackAction,
 } from './r06LibraryModel.ts'
 
 export type {

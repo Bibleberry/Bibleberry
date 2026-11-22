@@ -46,6 +46,12 @@ export interface R06LibraryLandingViewModel {
   readonly entrances: readonly R06LibraryEntranceDescriptor[]
 }
 
+export interface R06LibraryHostBackAction {
+  readonly mode: 'returnToSurface' | 'outerExit' | 'none'
+  readonly targetSurface: R06LibrarySurface | null
+  readonly label: string
+}
+
 /**
  * Type guard for valid R06 Library surface identifiers.
  */
@@ -87,6 +93,63 @@ export function canTransitionR06LibrarySurface(
   nextSurface: unknown,
 ): nextSurface is R06LibrarySurface {
   return isValidR06LibrarySurface(nextSurface) && nextSurface !== currentSurface
+}
+
+/**
+ * Computes the prior-surface return target across `'shelf'` <-> `'library'`
+ * transitions.
+ *
+ * - Returning to the already-recorded `currentReturnSurface` clears it.
+ * - Navigating forward to the alternate surface records `currentSurface` so
+ *   Back restores the immediately prior surface rather than firing outer `onExit`.
+ */
+export function resolveNextR06LibraryReturnSurface(params: {
+  readonly currentSurface: R06LibrarySurface
+  readonly nextSurface: R06LibrarySurface
+  readonly currentReturnSurface: R06LibrarySurface | null
+}): R06LibrarySurface | null {
+  if (params.currentSurface === params.nextSurface) {
+    return params.currentReturnSurface
+  }
+  if (params.currentReturnSurface === params.nextSurface) {
+    return null
+  }
+  return params.currentSurface
+}
+
+/**
+ * Resolves the Back / Exit action and label passed into `LibraryShelfHost` so
+ * both Shelf -> Browse All Months -> Back and Browse All Months -> Your Shelf -> Back
+ * preserve the prior surface in controlled and uncontrolled usage.
+ */
+export function resolveR06LibraryHostBackAction(params: {
+  readonly activeSurface: R06LibrarySurface
+  readonly returnSurface: R06LibrarySurface | null
+  readonly hasOuterExit: boolean
+  readonly exitLabel?: string
+}): R06LibraryHostBackAction {
+  if (params.returnSurface && params.returnSurface !== params.activeSurface) {
+    return {
+      mode: 'returnToSurface',
+      targetSurface: params.returnSurface,
+      label: params.returnSurface === 'library' ? 'Back to Library' : 'Back to Shelf',
+    }
+  }
+
+  const fallbackLabel = params.exitLabel ?? 'Return'
+  if (params.hasOuterExit) {
+    return {
+      mode: 'outerExit',
+      targetSurface: null,
+      label: fallbackLabel,
+    }
+  }
+
+  return {
+    mode: 'none',
+    targetSurface: null,
+    label: fallbackLabel,
+  }
 }
 
 /**

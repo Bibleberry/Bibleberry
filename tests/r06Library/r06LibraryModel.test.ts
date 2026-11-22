@@ -9,6 +9,8 @@ import {
   isValidR06LibrarySurface,
   resolveActiveR06LibrarySurface,
   resolveInitialR06LibrarySurface,
+  resolveNextR06LibraryReturnSurface,
+  resolveR06LibraryHostBackAction,
 } from '../../src/components/r06Library/r06LibraryModel.ts'
 import type { LocalCalendarDate, PublicationYearMonth } from '../../src/participation/types.ts'
 import type { ShelfState } from '../../src/shelf/types.ts'
@@ -160,4 +162,81 @@ test('buildR06LibraryLandingViewModel and transition announcements reflect Shelf
 
   assert.match(formatR06LibrarySurfaceAnnouncement('library'), /Browse All Months/)
   assert.match(formatR06LibrarySurfaceAnnouncement('shelf'), /Shelf/)
+})
+
+test('return-surface helpers preserve reverse Back navigation in both directions', () => {
+  // Shelf -> Browse All Months -> Shelf
+  const afterForwardToLibrary = resolveNextR06LibraryReturnSurface({
+    currentSurface: 'shelf',
+    nextSurface: 'library',
+    currentReturnSurface: null,
+  })
+  assert.equal(afterForwardToLibrary, 'shelf')
+  assert.deepEqual(
+    resolveR06LibraryHostBackAction({
+      activeSurface: 'library',
+      returnSurface: afterForwardToLibrary,
+      hasOuterExit: true,
+      exitLabel: 'Return to Today',
+    }),
+    { mode: 'returnToSurface', targetSurface: 'shelf', label: 'Back to Shelf' },
+  )
+
+  const afterBackToShelf = resolveNextR06LibraryReturnSurface({
+    currentSurface: 'library',
+    nextSurface: 'shelf',
+    currentReturnSurface: afterForwardToLibrary,
+  })
+  assert.equal(afterBackToShelf, null)
+  assert.deepEqual(
+    resolveR06LibraryHostBackAction({
+      activeSurface: 'shelf',
+      returnSurface: afterBackToShelf,
+      hasOuterExit: false,
+    }),
+    { mode: 'none', targetSurface: null, label: 'Return' },
+  )
+
+  // Direct Browse All Months -> Your Shelf -> Back to Library -> outer Exit
+  const afterForwardToShelf = resolveNextR06LibraryReturnSurface({
+    currentSurface: 'library',
+    nextSurface: 'shelf',
+    currentReturnSurface: null,
+  })
+  assert.equal(afterForwardToShelf, 'library')
+  assert.deepEqual(
+    resolveR06LibraryHostBackAction({
+      activeSurface: 'shelf',
+      returnSurface: afterForwardToShelf,
+      hasOuterExit: true,
+      exitLabel: 'Return to Today',
+    }),
+    { mode: 'returnToSurface', targetSurface: 'library', label: 'Back to Library' },
+  )
+
+  const afterBackToLibrary = resolveNextR06LibraryReturnSurface({
+    currentSurface: 'shelf',
+    nextSurface: 'library',
+    currentReturnSurface: afterForwardToShelf,
+  })
+  assert.equal(afterBackToLibrary, null)
+  assert.deepEqual(
+    resolveR06LibraryHostBackAction({
+      activeSurface: 'library',
+      returnSurface: afterBackToLibrary,
+      hasOuterExit: true,
+      exitLabel: 'Return to Today',
+    }),
+    { mode: 'outerExit', targetSurface: null, label: 'Return to Today' },
+  )
+
+  // No-op transition leaves returnSurface untouched
+  assert.equal(
+    resolveNextR06LibraryReturnSurface({
+      currentSurface: 'shelf',
+      nextSurface: 'shelf',
+      currentReturnSurface: 'library',
+    }),
+    'library',
+  )
 })

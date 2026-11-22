@@ -245,9 +245,47 @@ test.describe('Juniper Signal (#289): R06 Functional Shelf-Centered Library Land
     await page.getByTestId('shell-reset-to-shelf').click()
     await expect(page.getByRole('heading', { name: 'Shelf', level: 1 })).toBeVisible()
 
-    // Uncontrolled starting on library with outer onExit
+    // Uncontrolled starting on library with outer onExit:
+    // Browse All Months -> Your Shelf -> Back to Library restores catalogue without invoking outer onExit
     await page.goto(`${harnessRootUrl}?scenario=uncontrolled-start-library`)
     await expect(page.getByRole('heading', { name: 'Historical Library', level: 1 })).toBeVisible()
+    await page.getByRole('button', { name: 'Load more past months' }).click()
+    await expect(page.locator('.library-card')).toHaveCount(5)
+    await expect(page.getByTestId('provider-fetch-count')).toHaveText('2')
+
+    await page.getByTestId('r06-library-entrance-shelf-overview').click()
+    await expect(page.getByRole('heading', { name: 'Shelf', level: 1 })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Back to Library' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Return to Today' })).toHaveCount(0)
+
+    await page.getByRole('button', { name: 'Back to Library' }).click()
+    await expect(page.getByRole('heading', { name: 'Historical Library', level: 1 })).toBeVisible()
+    await expect(page.locator('.library-card')).toHaveCount(5)
+    await expect(page.getByTestId('provider-fetch-count')).toHaveText('2')
+    await expect(page.getByTestId('exit-calls')).toHaveText('0')
+
+    // Outer exit from root Library surface still works after returning
+    await page.getByRole('button', { name: 'Return to Today' }).click()
+    await expect(page.getByTestId('exit-calls')).toHaveText('1')
+
+    // Controlled starting on library with outer onExit:
+    // Browse All Months -> Your Shelf -> Back to Library restores catalogue without invoking outer onExit
+    await page.goto(`${harnessRootUrl}?scenario=controlled-start-library`)
+    await expect(page.getByRole('heading', { name: 'Historical Library', level: 1 })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Return to Today' })).toBeVisible()
+
+    await page.getByTestId('r06-library-entrance-shelf-overview').click()
+    await expect(page.getByRole('heading', { name: 'Shelf', level: 1 })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Back to Library' })).toBeVisible()
+    await expect(page.getByTestId('surface-changes')).toHaveText(JSON.stringify(['shelf']))
+
+    await page.getByRole('button', { name: 'Back to Library' }).click()
+    await expect(page.getByRole('heading', { name: 'Historical Library', level: 1 })).toBeVisible()
+    await expect(page.getByTestId('surface-changes')).toHaveText(
+      JSON.stringify(['shelf', 'library']),
+    )
+    await expect(page.getByTestId('exit-calls')).toHaveText('0')
+
     await page.getByRole('button', { name: 'Return to Today' }).click()
     await expect(page.getByTestId('exit-calls')).toHaveText('1')
   })

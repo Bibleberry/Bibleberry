@@ -10,6 +10,8 @@ import {
   formatR06LibrarySurfaceAnnouncement,
   resolveActiveR06LibrarySurface,
   resolveInitialR06LibrarySurface,
+  resolveNextR06LibraryReturnSurface,
+  resolveR06LibraryHostBackAction,
   type R06LibraryEntranceAction,
   type R06LibrarySurface,
 } from './r06LibraryModel.ts'
@@ -76,9 +78,11 @@ export function R06LibraryLanding({
   onExit,
   exitLabel,
 }: R06LibraryLandingProps) {
-  const resolvedInitialSurface = resolveInitialR06LibrarySurface(initialSurface)
+  const [mountedInitialSurface] = useState<R06LibrarySurface>(() =>
+    resolveInitialR06LibrarySurface(controlledSurface ?? initialSurface),
+  )
   const [uncontrolledSurface, setUncontrolledSurface] = useState<R06LibrarySurface>(
-    resolvedInitialSurface,
+    mountedInitialSurface,
   )
   const [observedUncontrolledShelfState, setObservedUncontrolledShelfState] = useState(
     initialShelfState,
@@ -87,14 +91,21 @@ export function R06LibraryLanding({
     controlledSurface,
     uncontrolledSurface,
   })
-  const [lastAnnouncedSurface, setLastAnnouncedSurface] = useState<R06LibrarySurface>(activeSurface)
+  const [lastObservedSurface, setLastObservedSurface] = useState<R06LibrarySurface>(activeSurface)
+  const [returnSurface, setReturnSurface] = useState<R06LibrarySurface | null>(null)
   const [surfaceAnnouncement, setSurfaceAnnouncement] = useState('')
   const containerRef = useRef<HTMLDivElement>(null)
   const previousSurfaceRef = useRef<R06LibrarySurface>(activeSurface)
   const entrancesHeadingId = useId()
 
-  if (lastAnnouncedSurface !== activeSurface) {
-    setLastAnnouncedSurface(activeSurface)
+  if (lastObservedSurface !== activeSurface) {
+    const nextReturnSurface = resolveNextR06LibraryReturnSurface({
+      currentSurface: lastObservedSurface,
+      nextSurface: activeSurface,
+      currentReturnSurface: returnSurface,
+    })
+    setLastObservedSurface(activeSurface)
+    setReturnSurface(nextReturnSurface)
     setSurfaceAnnouncement(formatR06LibrarySurfaceAnnouncement(activeSurface))
   }
 
@@ -147,6 +158,27 @@ export function R06LibraryLanding({
     focusVisibleSurfaceHeading(container)
   }, [activeSurface])
 
+  const hostBackAction = useMemo(
+    () =>
+      resolveR06LibraryHostBackAction({
+        activeSurface,
+        returnSurface,
+        hasOuterExit: Boolean(onExit),
+        exitLabel,
+      }),
+    [activeSurface, exitLabel, onExit, returnSurface],
+  )
+
+  const handleHostExit = useCallback(() => {
+    if (hostBackAction.mode === 'returnToSurface' && hostBackAction.targetSurface) {
+      handleSurfaceChange(hostBackAction.targetSurface)
+      return
+    }
+    onExit?.()
+  }, [handleSurfaceChange, hostBackAction.mode, hostBackAction.targetSurface, onExit])
+
+  const hostOnExit = hostBackAction.mode === 'none' ? undefined : handleHostExit
+
   const handleEntranceAction = useCallback(
     (action: R06LibraryEntranceAction) => {
       switch (action) {
@@ -186,11 +218,11 @@ export function R06LibraryLanding({
         timeZone={timeZone}
         monthMetadata={monthMetadata}
         surface={activeSurface}
-        initialSurface={resolvedInitialSurface}
+        initialSurface={mountedInitialSurface}
         onSurfaceChange={handleSurfaceChange}
         onOpenMonth={onOpenMonth}
-        onExit={onExit}
-        exitLabel={exitLabel}
+        onExit={hostOnExit}
+        exitLabel={hostBackAction.label}
       />
 
       <section

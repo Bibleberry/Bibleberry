@@ -112,6 +112,7 @@ function buildScenarioShelfState(scenario: string): ShelfState {
 
     case 'capacity-2':
     case 'controlled-surface':
+    case 'controlled-start-library':
       return {
         months: [
           {
@@ -194,14 +195,17 @@ function buildScenarioShelfState(scenario: string): ShelfState {
 // eslint-disable-next-line react-refresh/only-export-components
 function R06LibraryHarnessApp() {
   const scenario = readScenario()
-  const isControlledSurface = scenario === 'controlled-surface'
+  const isControlledSurface =
+    scenario === 'controlled-surface' || scenario === 'controlled-start-library'
   const initialSurface: R06LibrarySurface =
     scenario === 'uncontrolled-start-library' ? 'library' : 'shelf'
 
   const [persistedShelfState, setPersistedShelfState] = useState<ShelfState>(() =>
     buildScenarioShelfState(scenario),
   )
-  const [controlledSurface, setControlledSurface] = useState<R06LibrarySurface>('shelf')
+  const [controlledSurface, setControlledSurface] = useState<R06LibrarySurface>(
+    scenario === 'controlled-start-library' ? 'library' : 'shelf',
+  )
   const [surfaceChanges, setSurfaceChanges] = useState<readonly R06LibrarySurface[]>([])
   const [openedMonths, setOpenedMonths] = useState<
     readonly { readonly yearMonth: string; readonly origin: string }[]
@@ -419,7 +423,11 @@ function R06LibraryHarnessApp() {
         onSurfaceChange={handleSurfaceChange}
         onOpenMonth={handleOpenMonth}
         onOpenFoundations={handleOpenFoundations}
-        onExit={scenario === 'uncontrolled-start-library' ? handleExit : undefined}
+        onExit={
+          scenario === 'uncontrolled-start-library' || scenario === 'controlled-start-library'
+            ? handleExit
+            : undefined
+        }
         exitLabel="Return to Today"
       />
 
