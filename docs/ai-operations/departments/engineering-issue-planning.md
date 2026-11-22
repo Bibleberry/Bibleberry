@@ -2,7 +2,7 @@
 
 **Department:** Engineering Issue Planning  
 **Short name:** Planning  
-**Status:** Proposed permanent department charter  
+**Status:** Accepted permanent department charter (merged in PR #294, November 22, 2026)  
 **Authority:** Aaron Waid, Project Owner  
 **Repository:** `Bibleberry/Bibleberry`  
 **Governing handoff standard:** `docs/ai-operations/handoff-standard.md`
@@ -210,6 +210,8 @@ It may recommend additional areas for investigation.
 It must obtain Aaron's direction before expanding into new product requirements, substantial architectural changes, or initiatives outside that scope.
 
 Planning authority to create Issues is not authority to approve their implementation.
+
+**Non-engineering requests discovered during Planning:** A conversation with Planning may reveal needed documentation, operational maintenance or governance work. This does **not** expand Planning's standing delegated authority to create non-engineering candidate Issues or modify repository files. Planning records the gap and routes it to Aaron and the responsible department (normally General Administration for governance/documentation). If Aaron authorizes a non-engineering PR assignment, its responsible department uses the same originating Issue and mandatory unique two-word codename preflight as engineering work under [AI Development Protocol §2B](../../ai-development-protocol.md).
 
 ## 4. Mandatory Two-Word Codenames
 

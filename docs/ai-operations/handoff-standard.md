@@ -1,6 +1,6 @@
 # Bibleberry | AI Department Handoff Standard
 
-**Status:** Proposed organizational standard  
+**Status:** Accepted organizational standard (merged in PR #294, November 22, 2026)  
 **Authority:** Aaron Waid, Project Owner  
 **Applies to:** All permanent AI departments within the Bibleberry development organization  
 **Repository:** `Bibleberry/Bibleberry`  
@@ -17,6 +17,9 @@ A conversation is temporary. **The department is permanent.**
 This standard establishes a consistent process for transferring responsibility between outgoing and incoming conversations without losing important operational information, altering departmental authority, or requiring each successor to reconstruct the department's history.
 
 The objective is reliable continuity with minimal administrative overhead.
+
+**Quick access (copy-and-paste instructions):** [Outgoing department message](#111-message-to-the-outgoing-conversation) · [Incoming department message](#112-message-to-the-incoming-conversation). Both messages are universal; neither requires editing a department name or charter path. The outgoing conversation supplies those details in its handoff.
+
 
 ## 2. Two Components of Departmental Continuity
 
@@ -130,7 +133,7 @@ Distinguish established policy from temporary exceptions and proposed improvemen
 
 Identify work that remains unfinished or requires future attention.
 
-For every engineering assignment, use its **permanent two-word codename and originating GitHub Issue number/link**.
+For every Issue-backed assignment, including engineering, planning-originated repository work, documentation, governance and administration, use its **permanent two-word codename and originating GitHub Issue number/link**.
 
 For each matter, include:
 
@@ -215,7 +218,7 @@ Do not create duplicate tracking systems solely for handoff purposes.
 
 ## 6. Assignment Identity and Two-Word Codenames
 
-Bibleberry uses a **mandatory two-word codename system** for engineering assignments.
+Bibleberry uses a **mandatory two-word codename system** for all human-directed assignments that change repository files or produce Pull Requests, **not just engineering**. Engineering Planning candidates also receive codenames when created. Read the cross-department identity-first gate in [AI Development Protocol §2B](../ai-development-protocol.md) before beginning repository mutations.
 
 The system exists primarily to help Aaron recognize, remember, and coordinate assignments while moving rapidly between multiple AI platforms, coding agents, and departmental conversations.
 
@@ -223,7 +226,7 @@ Codenames are not decorative labels. They are a core part of Bibleberry's operat
 
 ### 6.1 Codename structure
 
-Every new engineering assignment Issue must receive a unique, permanent two-word codename.
+Every new engineering candidate Issue and every new Issue for a human-directed PR-producing assignment must receive a unique, permanent two-word codename.
 
 Codenames follow a **Descriptor + Noun** pattern.
 
@@ -260,7 +263,7 @@ Avoid overly technical phrases, lengthy names, confusing combinations, offensive
 
 **A codename may never be reused.**
 
-Before creating a new engineering Issue, the responsible department must check the complete history of Bibleberry development Issues, including open and closed Issues, to ensure the name has not previously been assigned.
+Before creating any new codenamed Issue, the responsible department must check the complete history of Bibleberry Issues, including open and closed, to ensure the name has not previously been assigned.
 
 Treat capitalization, spaces, and hyphens as equivalent when checking uniqueness.
 
@@ -298,21 +301,23 @@ This includes:
 - Operational handoffs between departmental conversations.
 - Cross-department discussions about the assignment.
 
-An engineering Issue should ordinarily be titled:
+An assignment Issue should ordinarily be titled:
 
 `[Steady Finch] Correct Shelf Rollover Behavior`
 
-A corresponding PR should preserve the same codename:
+A corresponding PR, including documentation and administrative PRs, must preserve the same codename:
 
 `[Steady Finch] Implement Shelf Rollover Correction`
 
 Branches and formal handoffs should also follow the naming requirements in the AI Development Protocol.
 
+**Cross-department preflight:** Before any department or agent creates a new branch, edits repository files or opens a PR, verify the authorized Issue, codename, ownership and scope; create the originating Issue first if authorized and none exists. Never exempt a request merely because it came from Planning, Admin or an informal conversation. Read-only advice does not by itself require a new assignment. Reuse an existing Issue/codename for follow-up work, and do not invent a second tracking record. Automated dependency PRs from the expressly named bot senders are exempt from human-assignment identity, but not review/merge controls. The required PR check is described in [AI Development Protocol §2B](../ai-development-protocol.md).
+
 ### 6.5 Codenames survive agent and conversation changes
 
 **An assignment's codename does not change when its personnel change.**
 
-A coding assignment may pass between agents, undergo multiple review cycles, require replacement PRs, or continue across several departmental conversations.
+An engineering, documentation or administrative assignment may pass between agents, undergo review and corrections, require replacement PRs, or continue across several departmental conversations.
 
 It retains its original codename throughout.
 
@@ -331,7 +336,7 @@ An older Issue without a codename must not be arbitrarily renamed. Preserve its 
 
 ### 6.6 Required assignment identification in handoffs
 
-Whenever an operational handoff discusses an engineering assignment, identify it using:
+Whenever an operational handoff discusses an Issue-backed assignment, including non-engineering work, identify it using:
 
 **Codename | Issue number | PR number (if applicable) | Current status**
 
@@ -368,7 +373,7 @@ The assignment's identity and history persist even when the AI systems working o
 Outgoing agents must:
 
 1. Distinguish completed, in-progress, proposed, blocked, and unverified work.
-2. Use permanent two-word codenames and originating Issue references when discussing engineering assignments.
+2. Use permanent two-word codenames and originating Issue references when discussing all Issue-backed assignments, engineering and non-engineering.
 3. Provide exact references for material GitHub activity when available.
 4. Identify the latest verified commit when code or review state matters.
 5. Disclose checks that were skipped, failed, not run, or only reported by another agent.
@@ -438,7 +443,7 @@ Brief summary of the department's operational state.
 
 Meaningful work completed, decisions implemented, and supporting references.
 
-Use permanent codenames and Issue numbers for engineering assignments.
+Use permanent codenames and Issue numbers for all Issue-backed assignments, including non-engineering work.
 
 #### 3. Decisions and Authorizations
 
@@ -446,7 +451,7 @@ Aaron's decisions, approved actions, restrictions, and outstanding approvals.
 
 #### 4. Active and Unresolved Matters
 
-For each engineering assignment:
+For each Issue-backed assignment, engineering or non-engineering:
 
 **Codename | Issue number | PR number (if applicable) | Status**
 
@@ -476,7 +481,88 @@ Only material lessons, risks, unusual circumstances, or restrictions that the su
 
 ---
 
-## 11. Organizational Ownership
+## 11. Standardized Conversation Transition Messages
+
+These are the two **canonical instructions Aaron copies into ChatGPT** whenever a permanent AI department is moved from one conversation to another. They standardize the *request and activation*, while §10 standardizes the *operational handoff document* produced between them.
+
+**No manual substitutions:** Neither message contains a department name, charter path, Issue number or current commit to fill in. The outgoing conversation must supply its own department identity and exact charter path in the handoff. The successor discovers and verifies them from that handoff and accepted GitHub records.
+
+**Use in order:**
+
+1. Copy the complete **outgoing message** (§11.1) into the retiring department conversation. Receive the full handoff and retain it.
+2. Start a new conversation and paste the complete **incoming message** (§11.2), followed by the unaltered handoff in the same message or the next message. Do not replace the universal instructions with the handoff alone.
+3. Review the incoming conversation's read-only activation report. Its report is not permission to begin or resume repository mutations; Aaron separately gives any needed direction.
+
+### 11.1 Message to the outgoing conversation
+
+Copy **only** the content inside the block.
+
+~~~text
+# Bibleberry | Departmental Operational Handoff Request
+
+I am preparing to replace this conversation with a new conversation taking over the same permanent Bibleberry department.
+
+Prepare a complete operational handoff under the accepted standard in:
+docs/ai-operations/handoff-standard.md
+Repository: https://github.com/Bibleberry/Bibleberry
+
+Your permanent departmental charter governs your responsibilities and department-specific handoff requirements.
+
+Your assignment:
+
+1. Read the accepted handoff standard and your permanent charter. Identify your department and include its exact charter path in the report.
+2. Reconcile your current work against authoritative GitHub evidence where accessible. Preserve the last verification checkpoint and clearly flag anything you cannot independently verify.
+3. Summarize the department's actual operational state: meaningful completed work, outstanding assignments, decisions, authorizations, blockers, dependencies, and next actions.
+4. For each Issue-backed assignment, whether engineering or non-engineering, preserve the permanent two-word codename, originating Issue, relevant PRs, ownership, branch and exact verified SHA when applicable.
+5. Distinguish merged and accepted work from open PRs, proposed work, review dispositions, actual CI evidence, assumptions, and unverified service status.
+6. Preserve material context or decisions from this conversation that a successor cannot reliably recover from permanent documents and GitHub records.
+7. Identify the responsible party and any separate authorization needed for each next action.
+8. Include all department-specific requirements from your permanent charter.
+
+Produce one self-contained "Bibleberry Department Operational Handoff" using the template in Section 10 of the handoff standard. Finish with a brief Successor Verification Checklist specifying the facts the incoming conversation must check independently.
+
+This is a read-only transition assignment. Do not start new work; create or modify Issues, PRs, branches, files or Project records; dispatch agents; alter permanent authority; or merge or deploy anything.
+
+After delivering the handoff, stop.
+~~~
+
+### 11.2 Message to the incoming conversation
+
+Copy **only** the content inside the block. Then paste the outgoing handoff after it, either in the same message or immediately afterward. **There are no department names or paths to edit.**
+
+~~~text
+# Bibleberry | Departmental Activation and Continuity Verification
+
+You are assuming responsibility for an existing permanent department of the Bibleberry software development program.
+
+Repository: https://github.com/Bibleberry/Bibleberry
+
+I am supplying the complete operational handoff prepared by your predecessor, in this message or immediately after it. Do not begin your activation assessment until the handoff has been supplied.
+
+This is a read-only initialization and continuity verification assignment.
+
+Initialization requirements:
+
+1. Read the predecessor's handoff in full. Identify the claimed department name and permanent charter path from it; do not assume the handoff itself establishes authority.
+2. Retrieve that charter from accepted main and confirm the department appears in docs/ai-operations/department-responsibilities.md. If the identity/path cannot be verified or conflicts with accepted documentation, report the discrepancy and stop rather than inventing a role.
+3. Read the permanent charter, docs/ai-operations/handoff-standard.md, docs/ai-operations/department-responsibilities.md, and other governing documents required by the charter.
+4. Independently verify the current main commit and all relevant active Issues, PRs, review dispositions, dependencies, authorization records, and outstanding work. Do not mistake dated handoff observations for current evidence.
+5. Reconcile the predecessor's handoff against accepted repository records. Identify stale claims, missing context, unresolved responsibilities, missing evidence, and matters needing my direction.
+6. Preserve existing assignment codenames, Issue/PR identities, departmental boundaries, and authorizations. Do not create duplicate assignments.
+7. Provide an activation report covering documents reviewed, the verified repository checkpoint, your responsibilities and limits, active/unresolved matters, material discrepancies, immediate priorities, and any required decisions.
+
+Restrictions: Do not create or modify branches, repository files, Issues, PRs, Project records, or service environments; do not dispatch agents, run implementation work, merge, or deploy. An outgoing handoff transfers context, not new authorization.
+
+After presenting your activation report, stop and await my direction.
+~~~
+
+**Missing handoff:** If the incoming conversation has not received the predecessor's report, it must ask for that report instead of guessing its department. If GitHub is unavailable, it must disclose the limitation and cannot claim repository-verified activation. A handoff-only message without this initialization instruction is not the standardized activation procedure.
+
+**Maintenance:** These two messages are stored here in the same authoritative document as the handoff requirements. Changes to them are organizational-policy changes, requiring Aaron's authorization and the normal Issue/PR/review process. Individual departments must not maintain competing prompt versions.
+
+---
+
+## 12. Organizational Ownership
 
 Aaron retains authority over departmental responsibilities, organizational changes, and adoption of this standard.
 
@@ -492,6 +578,6 @@ Changes to permanent organizational documents should follow the repository's est
 
 **The department's responsibilities remain stable. The conversation's working context is transferred. GitHub preserves the authoritative record. Aaron retains control.**
 
-Bibleberry's permanent two-word codenames ensure that engineering assignments remain recognizable across departments, models, and conversation replacements.
+Bibleberry's permanent two-word codenames ensure that engineering and non-engineering repository assignments remain recognizable across departments, models, and conversation replacements.
 
 A successful handoff allows a replacement conversation to continue its department's work accurately, promptly, and without unnecessary reconstruction of the past.

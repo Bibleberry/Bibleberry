@@ -1,6 +1,27 @@
 # Bibleberry — Current Project Status
 
-> **CURRENT RECONCILIATION CHECKPOINT — November 19, 2026 (Roosting Falcon #260):** The earlier "November 9–10 latest design" and "next R08A-1 coding assignment" statements below are **dated historical handoff material**, not the current implementation queue. See the dated update immediately below, the [single canonical six-phase roadmap](../product/application-development-roadmap.md), [Internal Alpha Readiness](internal-alpha-readiness.md), and [Roosting Falcon's live issue disposition](https://github.com/Bibleberry/Bibleberry/issues/260). Recheck live GitHub before acting. This checkpoint is a documentation-only reconciliation, not hosted-service or release acceptance.
+> **CURRENT RECONCILIATION CHECKPOINT — November 22, 2026:** The new R06 integration and governance checkpoint below supersedes the November 19 and earlier engineering snapshots for current execution state. Preserve earlier sections as dated historical evidence, not an executable queue. Use the [canonical roadmap](../product/application-development-roadmap.md) for dependencies, [Internal Alpha Readiness](internal-alpha-readiness.md) for acceptance gates, and current GitHub Issues/PRs/code for volatile facts. No hosted-service or product-release acceptance is implied.
+
+## November 22, 2026 — accepted R06 foundations and remaining integration
+
+**Verified repository checkpoint:** [Bibleberry/Bibleberry](https://github.com/Bibleberry/Bibleberry) `main` at `52228290748d2e76970f6aedee3fcbc523e52cab`, following merged [governance PR #294](https://github.com/Bibleberry/Bibleberry/pull/294) and [Dependabot setup-java PR #295](https://github.com/Bibleberry/Bibleberry/pull/295). At this inspection [Juniper Signal PR #291](https://github.com/Bibleberry/Bibleberry/pull/291) and [Cobalt Ledger governance PR #296](https://github.com/Bibleberry/Bibleberry/pull/296) are open. These are dated observations, not automatically refreshed counts or permission to merge.
+
+**Newly accepted foundations (implementation, not whole-application acceptance):**
+
+- **Navigation and guest state:** [Maple Meridian #276](https://github.com/Bibleberry/Bibleberry/pull/276) merged the isolated R06 navigation reducer/adapter; [Moss Ledger #280](https://github.com/Bibleberry/Bibleberry/pull/280) merged the durable reader-profile store and legacy preference migration; [Cedar Bridge #281](https://github.com/Bibleberry/Bibleberry/pull/281) merged explicit Active Focus choice on Shelf removal.
+- **Reader and Month components:** [River Lantern #282](https://github.com/Bibleberry/Bibleberry/pull/282) merged functional Challenge controls; [Copper Meadow #286](https://github.com/Bibleberry/Bibleberry/pull/286) merged the continuous weekly Month agenda. These are not proof of a mounted, fully connected R06 reading journey.
+- **Composition and Today:** [Tidal Hearth #292](https://github.com/Bibleberry/Bibleberry/pull/292) merged a feature-gated four-tab R06 production shell, preserving the legacy off-flag path; [Amber Causeway #290](https://github.com/Bibleberry/Bibleberry/pull/290) merged the authorized Today primary-action projection. The projection is **not yet connected** to the shell's Today presentation.
+- **CI and organizational foundations:** [Pine Relay #285](https://github.com/Bibleberry/Bibleberry/pull/285) separated the fast signing-free iOS build from conditional full Simulator runtime acceptance; [PR #294](https://github.com/Bibleberry/Bibleberry/pull/294) established the permanent departmental charters, responsibility map, and handoff standard.
+
+**What remains unconnected:** `src/main.tsx` selects the R06 shell only with `VITE_ENABLE_R06_SHELL=true`. On the accepted checkpoint, `src/readerShell/chrome/ReaderScreens.tsx` still renders a Today teaching-unavailable placeholder, routes a Month's Challenge action to an unavailable destination, and lacks a working Foundations destination. The R06 shell and component PRs do **not** establish the M1a Today → Challenge → explicit Finish → correct return walkthrough, complete connected G09/M1 acceptance, or private alpha/M2 approval.
+
+**Open implementation and verification obligations:** [Juniper Signal #289 / PR #291](https://github.com/Bibleberry/Bibleberry/pull/291) is the functional Shelf-centered Library landing under independent `CODE APPROVED` at `e088aba4a846297165d406eb81b5f17cb04c487f`, but remains unmerged. Its recorded [iOS Simulator runtime workflow](https://github.com/Bibleberry/Bibleberry/actions/runs/44982911172) failed; Checks & Merge must establish the cause, current required checks, branch compatibility and merge readiness, followed by Aaron's decision. [Silver Relay #293](https://github.com/Bibleberry/Bibleberry/issues/293) already records missing hosted execution of reader-shell unit tests and is not a completed implementation. Neither should be duplicated through new candidate Issues.
+
+**Next dependency sequence, not dispatch authorization:** Under the canonical roadmap, Planning should investigate bounded **WP-03a focused Reader/shell integration**, **remaining WP-04 connected Today presentation**, and **WP-09a connected G09 acceptance** based on accepted components and existing Issues. Dev determines readiness, ownership and authorized dispatch. G02 rollover, Library/Shelf follow-ups, and staging/editorial readiness remain distinct dependent or parallel work. No new Issue, coding, service mutation or release is authorized by this checkpoint.
+
+**Alpha boundary remains unchanged:** The first internal alpha is an Access-protected private web candidate with guest-local participation and approved/synthetic content authored manually in the existing private Sanity `staging` dataset, subject to the applicable [readiness gates](internal-alpha-readiness.md). No new live staging, device, hosted account, editorial or operational acceptance testing was performed for this documentation reconciliation.
+
+---
 
 ## November 19, 2026 — Roosting Falcon implementation and alpha checkpoint
 
@@ -21,9 +42,9 @@
 ---
 
 **Last full inventory reconciled:** November 5, 2026  
-**Latest scoped checkpoint:** November 9–10, 2026 (Argon R08A-0 Revision 2 read-only design and ChatGPT review; full implementation remains unstarted)  
+**Historical scoped checkpoint:** November 9–10, 2026 (Argon R08A-0 Revision 2 read-only design and ChatGPT review; historical design status only)  
 **Status:** Living, cross-repository handoff and project-state summary  
-**Primary repository:** [ContraPhilosophy/Bibleberry](https://github.com/ContraPhilosophy/Bibleberry)  
+**Primary repository:** [Bibleberry/Bibleberry](https://github.com/Bibleberry/Bibleberry)  
 **Companion repository:** [ContraPhilosophy/BerryMark](https://github.com/ContraPhilosophy/BerryMark)  
 **Product roadmap:** [Product & Application Development Roadmap](../product/application-development-roadmap.md)  
 **Initial preserved snapshot:** [November 5, 2026 baseline](status-history/2026-11-05.md)  
@@ -246,7 +267,7 @@ These are **dated reference points**, not SHA pins that future agents should con
 
 **Suggested opening to a new chat:**
 
-> We're continuing Bibleberry AppDev. Read `README.md`, `docs/project/current-status.md`, `docs/product/application-development-roadmap.md`, and `docs/ai-development-protocol.md` in ContraPhilosophy/Bibleberry. Verify the current `main` refs of Bibleberry and BerryMark and relevant open Issues/PRs. Identify what changed since the status timestamp, then discuss the next approved scope before making changes. Do not assume a planned task is complete or authorized.
+> We're continuing Bibleberry AppDev. Read `README.md`, `docs/project/current-status.md`, `docs/product/application-development-roadmap.md`, and `docs/ai-development-protocol.md` in Bibleberry/Bibleberry. Verify the current `main` refs of Bibleberry and BerryMark and relevant open Issues/PRs. Identify what changed since the status timestamp, then discuss the next approved scope before making changes. Do not assume a planned task is complete or authorized.
 
 **Maintenance rules:**
 1. **The repository is authoritative:** compare current refs, merged PRs, tests and relevant Issue comments; only then update this *summary*. If evidence contradicts the file, report the discrepancy and fix the dated status through review.

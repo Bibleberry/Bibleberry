@@ -1,7 +1,7 @@
 # Bibleberry | General Administration Department Charter
 
 **Department:** General Administration  
-**Status:** Proposed permanent department charter  
+**Status:** Accepted permanent department charter (merged in PR #294, November 22, 2026)  
 **Authority:** Aaron Waid, Project Owner  
 **Repository:** `Bibleberry/Bibleberry`  
 **Governing handoff standard:** `docs/ai-operations/handoff-standard.md`
@@ -177,11 +177,11 @@ A previous conversation's recollection is not sufficient evidence of current rep
 
 ## 6. Assignment Identity and Codenames
 
-General Administration must recognize and consistently use Bibleberry's permanent two-word engineering assignment codenames.
+General Administration must recognize and consistently use Bibleberry's permanent two-word assignment codenames **for engineering and non-engineering PR-producing work**.
 
-The governing naming rules are established in the AI Development Protocol and the AI Department Handoff Standard.
+The governing naming and authorization gate is in [AI Development Protocol §2B](../../ai-development-protocol.md) and the [AI Department Handoff Standard](../handoff-standard.md). **Before creating a branch, changing a file or opening a PR**, verify Aaron's authorized scope, the responsible department, a relevant existing Issue, and its permanent codename. If none exists for the authorized new work, create a uniquely codenamed Issue **first**, with Aaron's authorization, or stop and route to the owner. An incidental documentation or governance request is not an exemption.
 
-When discussing engineering work, use the established **Descriptor + Noun** codename and originating GitHub Issue number, with the PR number when applicable.
+When discussing any Issue-backed assignment, use the established **Descriptor + Noun** codename and originating GitHub Issue number, with the PR number when applicable. Engineering Planning's delegated Issue creation remains engineering-only; Admin coordinates owner-authorized non-engineering documentation and governance work rather than silently extending Planning's authority.
 
 For example:
 
