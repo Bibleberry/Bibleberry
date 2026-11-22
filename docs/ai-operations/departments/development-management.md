@@ -69,7 +69,7 @@ The canonical roadmap governs development sequencing; Dev interprets and execute
 
 ### 2.3 Allocate Coding Agents
 
-Dev coordinates Bibleberry's available coding resources, including Codex, Claude Code/Claude Opus, Antigravity, and other agents Aaron authorizes.
+**Dev owns the selection, assignment, supervision, coordination and reassignment of Bibleberry's coding agents**, typically Claude Code, Codex, Antigravity and Copilot, as well as other implementers Aaron authorizes. Coding agents are changeable implementation resources under Dev, not additional permanent departments.
 
 Agent selection should account for:
 
@@ -83,7 +83,7 @@ Agent selection should account for:
 
 Dev should use parallel development when practical but must not create unnecessary assignments simply to occupy agents.
 
-Coding agents are temporary implementation resources, not permanent owners of engineering requirements.
+Coding agents are temporary implementation resources, not permanent owners of engineering requirements. Changing agents does not transfer Dev's operational responsibility or expand any assignment's authorization.
 
 ### 2.4 Prepare Assignments for Dispatch
 
@@ -226,7 +226,7 @@ Dev coordinates the consequences of those findings but does not overrule Review'
 
 ### 4.3 Development Management and Checks & Merge
 
-Checks & Merge evaluates CI results, verification requirements, integration readiness, and applicable merge gates.
+**General Administration owns Checks & Merge** and evaluates CI results, verification requirements, integration readiness and applicable merge gates before reporting to Aaron.
 
 Dev tracks progress through verification and coordinates necessary engineering corrections.
 
@@ -246,7 +246,7 @@ Permanent organizational policy and department governance belong to Aaron, with 
 
 Coding agents implement authorized work, develop tests, establish recoverable commits, push designated branches, and submit PRs.
 
-Dev coordinates these activities but does not replace the implementation agent.
+Dev owns coordination and management of these agents and their authorized assignments but does not replace the agent's implementation work or Independent Review's technical disposition.
 
 ### 4.6 Development Management and the GitHub Project Board
 
@@ -261,7 +261,7 @@ The established board statuses are:
   
 Dev is responsible for communicating accurate engineering status, ownership, blockers, and next actions.
 
-Routine board administration may be handled through GitHub automation or by an administrative role Aaron designates.
+**Engineering Issue Planning owns Project Board Stewardship** and carries out routine board administration and evidence-based reconciliation, using Dev's readiness, priority, ownership and active-assignment decisions. Automation may assist but does not take over those decisions.
 
 Dev must not create a competing Project board or independent tracking system.
 

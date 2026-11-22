@@ -49,9 +49,11 @@ A planning document alone does not authorize implementation.
 - Create a separate branch for each appropriately scoped assignment.
 - Never commit or push directly to `main`.
 - Make descriptive, logically organized commits.
-- Open a pull request targeting `main` as **Ready for review (non-Draft)** once a coherent change is available for automated checks and independent review. Checks may still be running or failing when the PR opens; report their actual results. Do not use Draft by default.
+- Open a pull request targeting `main` as **Ready for review (non-Draft)** once a coherent change is available for automated checks and applicable review. Checks may still be running or failing when the PR opens; report their actual results. Do not use Draft by default.
 - Complete the repository's pull request template.
 - Do not merge the pull request or delete its development branch without Aaron's authorization.
+
+**Review applicability and departmental ownership:** Software or technical PRs require Independent Review's exact-HEAD technical disposition. For strictly administrative or governance-documentation PRs, Aaron may explicitly determine technical Review is inapplicable and approve the change himself; record that decision transparently. This does not exempt any source-code, security, CI behavior or configuration change from applicable technical scrutiny. General Administration owns Checks & Merge (applicable CI, review evidence, integration readiness and authorized merge operations); Planning owns Project Board Stewardship; Dev manages changeable coding agents. **Only Aaron may authorize a merge.**
 
 ## 2A. Incremental Delivery and Agent Recovery
 
