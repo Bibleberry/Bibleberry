@@ -31,7 +31,7 @@ See [Department Responsibilities](ai-operations/department-responsibilities.md) 
 5. Implement and test the changes.
 6. Open a Pull Request for review.
 7. Verify the implementation and check for regressions.
-8. Merge approved changes into main and close the Issue.
+8. With Aaron's authorization, merge approved changes into `main`. Close the originating Issue only when its full scope and acceptance criteria have been satisfied. Otherwise, keep the Issue open. The Project Board Steward reconciles the **Done** status against the accepted outcome.
 
 ## Weekly Operating Review
 
