@@ -12,8 +12,9 @@ export function captureScreenRestoration(
   // Record an element's position in this screen without storing labels, text,
   // or form values from the reader. Check the element type again on return.
   const steps: string[] = []
-  if (lastFocused && screen.contains(lastFocused)) {
-    for (let node = lastFocused; node !== screen && node.parentElement; node = node.parentElement) {
+  const focused = lastFocused && screen.contains(lastFocused) ? lastFocused : document.activeElement
+  if (focused instanceof HTMLElement && screen.contains(focused)) {
+    for (let node = focused; node !== screen && node.parentElement; node = node.parentElement) {
       const index = Array.from(node.parentElement.children).indexOf(node)
       steps.unshift(`${node.localName}:${index}`)
     }
@@ -47,6 +48,7 @@ export function restoreScreen(
   if (focusScreen && !screen.contains(document.activeElement)) screen.focus({ preventScroll: true })
 
   const restore = () => {
+    if (screen.querySelector('.month-intro')) return false
     viewport.scrollTop = targetScroll
     if (focusId) {
       const target = findSavedFocus(screen, focusId)

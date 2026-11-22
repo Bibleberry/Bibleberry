@@ -2,7 +2,6 @@ import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import {
   applyNavigationAction,
   createBrowserNavigation,
-  restoreBrowserLocation,
   serializeBrowserNavigation,
   type BrowserNavigation,
   type NavigationAction,
@@ -10,6 +9,7 @@ import {
   type NavigationUpdate,
   type RouteRestoration,
 } from '../navigation/index.ts'
+import { resolveReaderLocation } from '../navigation/routeTable.ts'
 
 const sessionKey = 'bibleberry-r06-navigation-v1'
 
@@ -31,17 +31,7 @@ function writeSession(navigation: BrowserNavigation) {
 
 function readLocation(navigation: BrowserNavigation, options: NavigationRouteOptions): NavigationUpdate {
   const address = { hash: window.location.hash, historyState: window.history.state }
-  const result = restoreBrowserLocation(navigation, address, options)
-  if (result.status === 'ready') return result
-
-  // The focused reader and its gateway authorization are a later integration.
-  // Resolve every Challenge arrival to the adapter's neutral unavailable screen.
-  const unavailable = restoreBrowserLocation(navigation, address, options, {
-    slug: result.slug,
-    status: 'unavailable',
-  })
-  if (unavailable.status === 'ready') return unavailable
-  return applyNavigationAction(navigation, { type: 'unavailable', problem: 'challengeUnavailable' })
+  return resolveReaderLocation(navigation, address, options)
 }
 
 function applyHistoryUpdate({ history }: NavigationUpdate) {
@@ -107,6 +97,8 @@ export function useReaderNavigation(
   }, [commit, rememberScreen])
 
   useLayoutEffect(() => {
+    const previousScrollRestoration = window.history.scrollRestoration
+    window.history.scrollRestoration = 'manual'
     if (!initialized.current) {
       initialized.current = true
       writeSession(initial.navigation)
@@ -131,6 +123,7 @@ export function useReaderNavigation(
     window.addEventListener('hashchange', onLocationChange)
     window.addEventListener('pagehide', onPageHide)
     return () => {
+      window.history.scrollRestoration = previousScrollRestoration
       window.removeEventListener('popstate', onLocationChange)
       window.removeEventListener('hashchange', onLocationChange)
       window.removeEventListener('pagehide', onPageHide)

@@ -133,7 +133,7 @@ function CurrentScreen({ state, send }: { state: NavigationState; send: Send }) 
     case 'detail':
       return <UnavailableDetail screen={route.screen} send={send} />
     default:
-      return null
+      return <UnavailableDetail screen={route.kind} send={send} />
   }
 }
 
