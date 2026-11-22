@@ -423,7 +423,7 @@ test.describe('Issue #227 [Velvet Badger]: Ordinary Reader Library & Shelf Integ
     expect(storageSnapshot.participationRaw).toContain('cms:2026-10-day-01-doc')
   })
 
-  test('enforces 0-3 capacity replacement, distinct protection states, and Put Away without erasing progress', async ({
+  test('persists focused replacement and Put Away atomically without erasing participation', async ({
     page,
   }) => {
     await mockGatewayRoutes(page)
@@ -435,7 +435,7 @@ test.describe('Issue #227 [Velvet Badger]: Ordinary Reader Library & Shelf Integ
           { yearMonth: '2026-09', admissionKind: 'autoAdmitted', isProtected: false, admittedOn: '2026-10-01' },
           { yearMonth: '2026-08', admissionKind: 'readerSelected', isProtected: true, admittedOn: '2026-09-01' },
         ],
-        activeFocusMonth: '2026-10',
+        activeFocusMonth: '2026-09',
         updatedOn: '2026-11-01',
       },
       rolloverWatermark: null,
@@ -446,9 +446,11 @@ test.describe('Issue #227 [Velvet Badger]: Ordinary Reader Library & Shelf Integ
         completedChallenges: {
           'cms:2026-09-day-01-doc': { completedOn: '2026-09-10' },
         },
-        inProgressChallenges: {},
+        inProgressChallenges: {
+          'cms:2026-09-day-02-doc': { screenId: 'reflection', updatedOn: '2026-09-11' },
+        },
         savedChallenges: {},
-        savedScriptures: [],
+        savedScriptures: [{ reference: 'John 3:16', translation: 'ESV', savedOn: '2026-09-12' }],
         lastOpenedChallenge: null,
         earnedAwards: {
           'card:monthly:2026-09:full-month': {
@@ -471,6 +473,8 @@ test.describe('Issue #227 [Velvet Badger]: Ordinary Reader Library & Shelf Integ
     expect(seededCheck.data.earnedAwards['card:monthly:2026-09:full-month']?.earnedOn).toBe(
       '2026-09-30',
     )
+    expect(seededCheck.data.inProgressChallenges['cms:2026-09-day-02-doc']?.screenId).toBe('reflection')
+    expect(seededCheck.data.savedScriptures).toHaveLength(1)
 
     await page.addInitScript(
       ({ prototypeKey, prototypeState, shelfKey, shelfPayload, participationKey, participationPayload }) => {
@@ -497,18 +501,41 @@ test.describe('Issue #227 [Velvet Badger]: Ordinary Reader Library & Shelf Integ
     await page.goto(`${enabledBaseUrl}#/library`, { waitUntil: 'domcontentloaded' })
     await expect(page.getByRole('heading', { level: 1, name: 'Historical Library' })).toBeVisible()
 
-    // Full Shelf (3 months) triggers explicit replacement dialog when selecting a 4th month
-    await page.getByRole('button', { name: 'Add July 2026 to Shelf' }).click()
+    const addJuly = page.getByRole('button', { name: 'Add July 2026 to Shelf' })
+    await addJuly.click()
     const replaceDialog = page.getByRole('dialog')
     await expect(replaceDialog).toBeVisible()
-    await replaceDialog.getByRole('radio', { name: /September 2026/i }).check()
-    await replaceDialog.getByRole('button', { name: 'Replace Selected Month' }).click()
+    const slots = replaceDialog.getByRole('group', { name: 'Current Shelf months' })
+    const focusChoices = replaceDialog.getByRole('group', { name: 'Choose your Active Focus' })
+    const confirmReplace = replaceDialog.getByRole('button', { name: 'Replace Selected Month' })
+    await slots.getByRole('radio', { name: /September 2026.*Active Focus/ }).check()
+    await expect(confirmReplace).toBeDisabled()
+    await focusChoices.getByRole('radio', { name: /October 2026/ }).check()
+
+    // A storage update while the confirmation is open invalidates the pending choice.
+    const newerShelf = { ...seededShelf, state: { ...seededShelf.state, updatedOn: '2026-11-02' } }
+    await page.evaluate(({ key, payload }) => {
+      const newValue = JSON.stringify(payload)
+      window.localStorage.setItem(key, newValue)
+      window.dispatchEvent(new StorageEvent('storage', { key, newValue, storageArea: window.localStorage }))
+    }, { key: SHELF_STORAGE_KEY, payload: newerShelf })
+    await confirmReplace.click()
+    await expect(replaceDialog).toBeHidden()
+    await expect(addJuly).toBeFocused()
+    await expect(page.getByRole('alert').getByText('Your Shelf changed. Review it and try again.')).toBeVisible()
+    expect(await page.evaluate(key => window.localStorage.getItem(key), SHELF_STORAGE_KEY)).toBe(JSON.stringify(newerShelf))
+
+    await addJuly.click()
+    await slots.getByRole('radio', { name: /September 2026.*Active Focus/ }).check()
+    await focusChoices.getByRole('radio', { name: /October 2026/ }).check()
+    await confirmReplace.click()
 
     await page.getByRole('button', { name: /View Shelf/i }).click()
     await expect(page).toHaveURL(/#\/shelf$/)
     const shelfMain = page.getByRole('main', { name: 'Shelf' })
     await expect(shelfMain.getByText('Steadfast Joy')).toBeVisible()
     await expect(shelfMain.getByText('Quiet Trust')).toHaveCount(0)
+    await expect(shelfMain.locator('[data-year-month="2026-10"]').getByText('Active Study Focus')).toBeVisible()
 
     // Verify 2026-09 participation and earned awards remain contract-valid and intact
     const participationAfterReplace = await page.evaluate(
@@ -516,31 +543,31 @@ test.describe('Issue #227 [Velvet Badger]: Ordinary Reader Library & Shelf Integ
       PARTICIPATION_STORAGE_KEY,
     )
     const parsedAfterReplace = parseParticipationEnvelope(participationAfterReplace, 'cms')
-    expect(parsedAfterReplace.health).toBe('ok')
-    expect(parsedAfterReplace.data.completedChallenges['cms:2026-09-day-01-doc']?.completedOn).toBe(
-      '2026-09-10',
-    )
-    expect(
-      parsedAfterReplace.data.earnedAwards['card:monthly:2026-09:full-month']?.earnedOn,
-    ).toBe('2026-09-30')
+    expect(parsedAfterReplace).toEqual(seededCheck)
 
-    // Put Away July 2026 from Shelf and verify focus and valid participation remain intact
-    await shelfMain.getByRole('button', { name: /Put Away July 2026/i }).click()
-    await expect(shelfMain.getByText('Steadfast Joy')).toHaveCount(0)
-    await expect(shelfMain.getByText('Walking in Wisdom')).toBeVisible()
+    await shelfMain.getByRole('button', { name: /Put Away October 2026/i }).click()
+    const putAway = page.getByRole('dialog', { name: 'Put Away Active Focus' })
+    await putAway.getByRole('radio', { name: 'No focus for now' }).check()
+    await putAway.getByRole('button', { name: 'Confirm Put Away' }).click()
+    await expect(shelfMain.getByText('Walking in Wisdom')).toHaveCount(0)
+    await expect(shelfMain.getByText('Steadfast Joy')).toBeVisible()
+
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await expect(shelfMain.locator('.shelf-card')).toHaveCount(2)
+    await expect(shelfMain.getByText('Active Study Focus', { exact: true })).toHaveCount(0)
+    const persistedShelf = await page.evaluate(key => JSON.parse(window.localStorage.getItem(key)!).state, SHELF_STORAGE_KEY)
+    expect(persistedShelf.activeFocusMonth).toBeNull()
+    expect(persistedShelf.months).toEqual([
+      { yearMonth: '2026-07', admissionKind: 'readerSelected', isProtected: true },
+      seededShelf.state.months[2],
+    ])
 
     const participationAfterPutAway = await page.evaluate(
       key => window.localStorage.getItem(key),
       PARTICIPATION_STORAGE_KEY,
     )
     const parsedAfterPutAway = parseParticipationEnvelope(participationAfterPutAway, 'cms')
-    expect(parsedAfterPutAway.health).toBe('ok')
-    expect(parsedAfterPutAway.data.completedChallenges['cms:2026-09-day-01-doc']?.completedOn).toBe(
-      '2026-09-10',
-    )
-    expect(
-      parsedAfterPutAway.data.earnedAwards['card:monthly:2026-09:full-month']?.earnedOn,
-    ).toBe('2026-09-30')
+    expect(parsedAfterPutAway).toEqual(seededCheck)
   })
 
   test('fails closed on unsupported Shelf schema without overwriting storage, and respects feature gate', async ({

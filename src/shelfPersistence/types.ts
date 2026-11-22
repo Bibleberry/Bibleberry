@@ -86,6 +86,7 @@ export type ShelfCommand =
       readonly type: 'applyValidatedState'
       readonly state: ShelfState
       readonly referenceCurrentMonth?: PublicationYearMonth | string
+      readonly expectedState?: ShelfState
     }
 
 export interface ReduceShelfCommandOutcome {

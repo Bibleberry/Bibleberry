@@ -129,6 +129,7 @@ export function attemptSelectLibraryMonthForShelf(params: {
   readonly approvedLibraryItems: readonly LibraryMonthSummary[]
   readonly admittedOn?: LocalCalendarDate
   readonly replaceMonth?: PublicationYearMonth
+  readonly nextFocus?: PublicationYearMonth | null
 }): LibraryToShelfSelectionResult {
   const ym = parseValidPublicationYearMonth(params.yearMonth)
   if (!ym) {
@@ -162,6 +163,7 @@ export function attemptSelectLibraryMonthForShelf(params: {
     admittedOn: params.admittedOn,
     updatedOn: params.admittedOn,
     replaceMonth: params.replaceMonth,
+    nextFocus: params.nextFocus,
   })
 
   if (!result.ok) {

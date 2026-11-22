@@ -1,4 +1,5 @@
 import { AlertCircle, ArrowLeft, BookOpen, Compass, Library, Plus, X } from 'lucide-react'
+import type { RefObject } from 'react'
 import type { PublicationYearMonth } from '../../participation/types.ts'
 import { ShelfCard } from './ShelfCard.tsx'
 import type {
@@ -8,6 +9,7 @@ import type {
 
 export interface ShelfViewProps {
   readonly viewModel: ShelfViewModel
+  readonly headingRef?: RefObject<HTMLHeadingElement | null>
   readonly candidateMonths?: readonly ShelfCandidateMonthViewModel[]
   readonly liveAnnouncement?: string
   readonly errorMessage?: string | null
@@ -35,6 +37,7 @@ export interface ShelfViewProps {
  */
 export function ShelfView({
   viewModel,
+  headingRef,
   candidateMonths = [],
   liveAnnouncement = '',
   errorMessage = null,
@@ -84,7 +87,7 @@ export function ShelfView({
         <div className="shelf-header__row">
           <div>
             <span className="shelf-header__eyebrow">Focused Historical Study</span>
-            <h1 className="shelf-header__title">Shelf</h1>
+            <h1 ref={headingRef} tabIndex={-1} className="shelf-header__title">Shelf</h1>
           </div>
           <span className="shelf-capacity-pill" aria-label={capacityText}>
             {capacityText}

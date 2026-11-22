@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import {
   DEFAULT_LIBRARY_PAGE_SIZE,
   defaultGatewayLibraryMonthIndexProvider,
@@ -8,8 +8,9 @@ import type {
   LocalCalendarDate,
   PublicationYearMonth,
 } from '../../participation/types.ts'
-import { createEmptyShelfState } from '../../shelf/policy.ts'
+import { createEmptyShelfState, SHELF_CONFIRMATION_STALE_MESSAGE } from '../../shelf/policy.ts'
 import { MAX_SHELF_CAPACITY, type ShelfState } from '../../shelf/types.ts'
+import { areShelfStatesEqual } from '../../shelf/validation.ts'
 import { HistoricalLibraryHost } from '../library/HistoricalLibraryHost.tsx'
 import {
   initialHistoricalLibraryState,
@@ -19,6 +20,7 @@ import { ShelfHost } from '../shelf/ShelfHost.tsx'
 import { ShelfReplaceDialog } from '../shelf/ShelfReplaceDialog.tsx'
 import {
   projectShelfViewModel,
+  type ShelfEntryViewModel,
   type ShelfMonthMetadata,
 } from '../shelf/shelfModel.ts'
 import {
@@ -51,8 +53,12 @@ export interface LibraryShelfHostProps {
 
   /**
    * Injected callback invoked whenever a policy-driven action produces a new ShelfState.
+   * Confirmed changes supply the state the reader saw for conditional persistence.
    */
-  readonly onShelfStateChange?: (nextState: ShelfState) => void
+  readonly onShelfStateChange?: (
+    nextState: ShelfState,
+    expectedState?: ShelfState,
+  ) => void | Promise<void | string>
 
   /**
    * Optional local calendar date used for admittedOn / updatedOn stamps.
@@ -148,9 +154,14 @@ export function LibraryShelfHost({
     null,
   )
   const [libraryAnnouncement, setLibraryAnnouncement] = useState('')
-  const [pendingReplaceTarget, setPendingReplaceTarget] = useState<PublicationYearMonth | null>(
-    null,
-  )
+  const [librarySelectionError, setLibrarySelectionError] = useState<string | null>(null)
+  const [pendingReplace, setPendingReplace] = useState<{
+    readonly yearMonth: PublicationYearMonth
+    readonly state: ShelfState
+    readonly referenceCurrentYearMonth: string | null
+    readonly entries: readonly ShelfEntryViewModel[]
+  } | null>(null)
+  const libraryFocusRef = useRef<HTMLDivElement>(null)
 
   const activeShelfState = controlledShelfState ?? internalShelfState
   const activeSurface = controlledSurface ?? internalSurface
@@ -180,11 +191,11 @@ export function LibraryShelfHost({
   )
 
   const commitShelfState = useCallback(
-    (nextState: ShelfState) => {
+    (nextState: ShelfState, expectedState?: ShelfState) => {
       if (controlledShelfState === undefined) {
         setInternalShelfState(nextState)
       }
-      onShelfStateChange?.(nextState)
+      return onShelfStateChange?.(nextState, expectedState)
     },
     [controlledShelfState, onShelfStateChange],
   )
@@ -227,8 +238,14 @@ export function LibraryShelfHost({
     onExit?.()
   }, [initialSurface, navigateToSurface, onExit, returnSurface])
 
+  const reportLibrarySelectionError = useCallback((message: string) => {
+    setLibraryAnnouncement('')
+    setLibrarySelectionError(message)
+  }, [])
+
   const handleSelectForShelfFromLibrary = useCallback(
-    (yearMonth: string, replaceMonth?: PublicationYearMonth) => {
+    async (yearMonth: string, replaceMonth?: PublicationYearMonth, nextFocus?: PublicationYearMonth | null) => {
+      setLibrarySelectionError(null)
       const outcome = attemptSelectLibraryMonthForShelf({
         state: activeShelfState,
         yearMonth,
@@ -236,21 +253,34 @@ export function LibraryShelfHost({
         approvedLibraryItems: libraryState.items,
         admittedOn: currentLocalDate,
         replaceMonth,
+        nextFocus,
       })
 
       if (!outcome.ok) {
         if (outcome.reason === 'capacityExceeded') {
-          setPendingReplaceTarget(outcome.pendingReplaceTarget)
+          if (replaceMonth) {
+            reportLibrarySelectionError(SHELF_CONFIRMATION_STALE_MESSAGE)
+            return
+          }
+          setPendingReplace({
+            yearMonth: outcome.pendingReplaceTarget,
+            state: activeShelfState,
+            referenceCurrentYearMonth: resolvedCurrentYearMonth,
+            entries: shelfViewModel.entries,
+          })
           setLibraryAnnouncement(outcome.announcement)
           return
         }
-        setLibraryAnnouncement(outcome.message)
+        reportLibrarySelectionError(outcome.message)
         return
       }
 
-      setPendingReplaceTarget(null)
+      const rejection = await commitShelfState(outcome.state, replaceMonth ? activeShelfState : undefined)
+      if (rejection) {
+        reportLibrarySelectionError(rejection)
+        return
+      }
       setSelectedMonthYearMonth(outcome.selectedYearMonth)
-      commitShelfState(outcome.state)
       setLibraryAnnouncement(outcome.announcement)
     },
     [
@@ -258,22 +288,30 @@ export function LibraryShelfHost({
       commitShelfState,
       currentLocalDate,
       libraryState.items,
+      reportLibrarySelectionError,
       resolvedCurrentYearMonth,
+      shelfViewModel.entries,
     ],
   )
 
   const handleConfirmReplace = useCallback(
-    (replaceYearMonth: PublicationYearMonth) => {
-      if (!pendingReplaceTarget) {
+    (replaceYearMonth: PublicationYearMonth, nextFocus?: PublicationYearMonth | null) => {
+      if (!pendingReplace) return
+      setPendingReplace(null)
+      if (
+        !areShelfStatesEqual(pendingReplace.state, activeShelfState)
+        || pendingReplace.referenceCurrentYearMonth !== resolvedCurrentYearMonth
+      ) {
+        reportLibrarySelectionError(SHELF_CONFIRMATION_STALE_MESSAGE)
         return
       }
-      handleSelectForShelfFromLibrary(pendingReplaceTarget, replaceYearMonth)
+      void handleSelectForShelfFromLibrary(pendingReplace.yearMonth, replaceYearMonth, nextFocus)
     },
-    [handleSelectForShelfFromLibrary, pendingReplaceTarget],
+    [activeShelfState, handleSelectForShelfFromLibrary, pendingReplace, reportLibrarySelectionError, resolvedCurrentYearMonth],
   )
 
   const handleCancelReplace = useCallback(() => {
-    setPendingReplaceTarget(null)
+    setPendingReplace(null)
     setLibraryAnnouncement('Replacement cancelled. Shelf unchanged.')
   }, [])
 
@@ -337,11 +375,11 @@ export function LibraryShelfHost({
   )
 
   const pendingReplaceTitle = useMemo(() => {
-    if (!pendingReplaceTarget) {
+    if (!pendingReplace) {
       return null
     }
-    return mergedMonthMetadata.get(pendingReplaceTarget)?.title ?? null
-  }, [mergedMonthMetadata, pendingReplaceTarget])
+    return mergedMonthMetadata.get(pendingReplace.yearMonth)?.title ?? null
+  }, [mergedMonthMetadata, pendingReplace])
 
   const shelfOnExit =
     returnSurface === 'library'
@@ -386,7 +424,12 @@ export function LibraryShelfHost({
           </section>
         </main>
       )}
-      <div hidden={!showLibrary} aria-hidden={!showLibrary}>
+      <div ref={libraryFocusRef} tabIndex={-1} hidden={!showLibrary} aria-hidden={!showLibrary}>
+        {librarySelectionError && (
+          <div className="provisional-collections-bar" role="alert">
+            <p className="provisional-collections-bar__description">{librarySelectionError}</p>
+          </div>
+        )}
         <HistoricalLibraryHost
           provider={libraryProvider}
           pageSize={libraryPageSize}
@@ -406,12 +449,13 @@ export function LibraryShelfHost({
       </div>
 
       <ShelfReplaceDialog
-        isOpen={pendingReplaceTarget !== null}
-        incomingYearMonth={pendingReplaceTarget}
+        isOpen={showLibrary && pendingReplace !== null}
+        incomingYearMonth={pendingReplace?.yearMonth ?? null}
         incomingTitle={pendingReplaceTitle}
-        currentEntries={shelfViewModel.entries}
+        currentEntries={pendingReplace?.entries ?? []}
         onConfirmReplace={handleConfirmReplace}
         onCancel={handleCancelReplace}
+        fallbackFocusRef={libraryFocusRef}
       />
     </>
   )

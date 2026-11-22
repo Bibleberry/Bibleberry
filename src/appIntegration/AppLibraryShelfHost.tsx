@@ -54,11 +54,12 @@ export function AppLibraryShelfHost({
     shelfSnapshot.health === 'storageUnavailable'
 
   const handleShelfStateChange = useCallback(
-    (nextState: ShelfState) => {
+    async (nextState: ShelfState, expectedState?: ShelfState) => {
       if (readBlocked) {
         return
       }
-      void shelfStore.applyState(nextState)
+      const result = await shelfStore.applyState(nextState, undefined, expectedState)
+      if (!result.ok) return result.message
     },
     [readBlocked, shelfStore],
   )
