@@ -5,6 +5,10 @@ on:
   pull_request_target:
     types: [opened, reopened, edited, synchronize, ready_for_review]
     branches: [main]
+  # Required Actions jobs must report against GitHub's synthetic queue head too.
+  merge_group:
+    types: [checks_requested]
+    branches: [main]
 
 permissions:
   contents: read
@@ -16,6 +20,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Validate human-directed PR assignment identity
+        # merge_group does not carry a pull_request title/body/number.
+        if: github.event_name == 'pull_request_target'
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_TITLE: ${{ github.event.pull_request.title }}
@@ -91,3 +97,26 @@ jobs:
 
           print(f"Verified PR #{number}: [{codename}], Issue #{issue_number}.")
           PY
+      - name: Verify trusted merge-group context
+        # Runs under the SAME job/status name so the queue reports this check.
+        # The individual PR's title/body/Issue were checked on pull_request_target.
+        if: github.event_name == 'merge_group'
+        shell: bash
+        env:
+          QUEUE_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+          QUEUE_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          QUEUE_BASE_REF: ${{ github.event.merge_group.base_ref }}
+        run: |
+          if [[ ! "$QUEUE_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Invalid or missing merge-group head SHA."
+            exit 1
+          fi
+          if [[ ! "$QUEUE_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Invalid or missing merge-group base SHA."
+            exit 1
+          fi
+          if [[ "$QUEUE_BASE_REF" != 'refs/heads/main' ]]; then
+            echo "::error::Unexpected merge-group base ref (expected refs/heads/main)."
+            exit 1
+          fi
+          echo "Merge-group context verified at $QUEUE_HEAD_SHA; per-PR metadata must be enforced by requiring this named check on individual PRs."
