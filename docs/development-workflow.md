@@ -13,11 +13,14 @@
 
 ## Development Statuses
 
-1. **Backlog:** Planned work or ideas requiring consideration.
-2. **Ready:** Approved and sufficiently defined for implementation.
-3. **In Progress:** Actively being developed.
-4. **Review:** Implementation finished, awaiting verification or approval.
-5. **Done:** Work has been accepted and completed.
+The **Bibleberry Development** Project uses four statuses.
+
+1. **Triage** holds candidate Issues. Planning creates engineering assignment Issues here for Dev to evaluate.
+2. **Ready to Assign** means Dev has determined that the scope, acceptance criteria, and dependencies are clear enough to assign. Dev dispatches work when Aaron’s authorization covers the assignment.
+3. **In Progress** covers implementation, PR review, corrections, and merge checks. The Issue stays here while the PR awaits Aaron’s merge decision.
+4. **Done** records completion. For implementation work, the Project Board Steward marks the Issue Done when the PR completing its scope has merged. If Aaron directs another disposition, the Steward records the outcome he specifies.
+
+See [Department Responsibilities](ai-operations/department-responsibilities.md) for ownership and handoffs at each stage.
 
 ## Development Procedure
 
@@ -40,13 +43,13 @@ Use the existing **Bibleberry Development** GitHub Project board for work status
 
 1. **Completed:** What was accepted or merged since the last review? Confirm the related Issues and board entries are **Done**. A green build alone does not mean a feature is accepted or released.
 2. **In progress:** Which approved, scoped Issues are actually being worked on? Make sure they reflect **In Progress**, have an owner/next action, and are not stalled by an unreviewed PR.
-3. **Blocked:** What cannot proceed, why, and who can resolve it? Mark the affected Issue with a **blocked** label **if that label is configured**; otherwise write **Blocked: [reason / owner / next decision]** in the Issue or project item. Keep the existing five board statuses; do not invent a sixth column solely for blockers.
-4. **Decisions needed:** Which questions require Aaron's product/technical decision or Alexis's editorial, theological, or ministry-facing visual approval? Keep these visibly pending, with links to the governing document. Unresolved ideas are **not** automatically Ready for coding.
-5. **Next priority:** Select only the next highest-priority **approved and well-scoped** assignment(s), with an Issue, acceptance criteria, and dependencies understood. Move to **Ready** only when implementation is authorized. Do not start work just because it appears in a document.
+3. **Blocked:** What cannot proceed, why, and who can resolve it? Use the **blocked** label if configured. Otherwise, record the reason, owner, and next decision in the Issue or project item. Keep the Issue in its current workflow status while blocked.
+4. **Decisions needed:** Which questions require Aaron’s product or technical decision, or Alexis’s editorial, theological, or ministry-facing visual approval? Record the pending decision with a link to the governing document.
+5. **Next priority:** Which candidate should Dev evaluate next, and which ready assignment has Aaron authorized for dispatch? Use **Ready to Assign** for Dev’s readiness decision and **In Progress** when authorized work begins.
 
 ### During the review
 
-- Reconcile existing board statuses: **Backlog → Ready → In Progress → Review → Done**. Use **Review** for a PR awaiting independent verification and Aaron's acceptance, not an implied pass. Do not automatically move issues to Done when code is merely written.
+- Reconcile the board against linked Issues and PRs using **Triage → Ready to Assign → In Progress → Done**. For an Issue in **In Progress**, use the PR Conversation to identify the latest Independent Review disposition and the commit it covers. Use the merged PR or Aaron’s recorded direction to reconcile completion.
 - Check open PRs for required CI status, reported functional/regression checks, unresolved comments, and required editorial approvals. Follow [AI Development Protocol](ai-development-protocol.md) and [Regression Smoke-Test Checklist](testing/regression-smoke-checklist.md).
 - Distinguish **documented**, **approved**, **implemented**, **verified**, **merged**, and **released**. Capture scope changes and major decisions in the relevant `docs/` file, with an Issue/PR link.
 - Keep issues concise and avoid recurring duplicate tickets or a large status report. The weekly review can be handled asynchronously in conversation and the GitHub board.
