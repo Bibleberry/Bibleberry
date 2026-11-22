@@ -218,6 +218,8 @@ When technical findings reveal a conflict between approved requirements, Review 
 
 ## 4. Technical Review Dispositions
 
+These technical dispositions govern software and technical PRs. Strictly administrative/governance-documentation PRs are not automatically software code-review assignments: Aaron may expressly decide that Independent Review is inapplicable and approve such work himself. Admin records that decision during Checks & Merge. This exception does **not** waive technical review for source, security, CI behavior or configuration changes merely because a PR also edits documentation.
+
 Review uses two substantive dispositions: `CODE APPROVED` and `CHANGES REQUESTED`.
 
 Review records either disposition as a substantive top-level comment in the GitHub PR Conversation, identifying the exact reviewed HEAD commit SHA and supporting technical evidence. Native GitHub review approval events or separate status registers do not replace this established disposition mechanism.
@@ -303,7 +305,7 @@ An implementation agent must not unilaterally declare an independent blocking re
 
 ### 5.3 Checks & Merge
 
-Checks & Merge evaluates required hosted checks, exact-commit verification, branch compatibility, unresolved findings, integration readiness, and applicable merge gates.
+**General Administration owns Checks & Merge** as one of its standing responsibilities. Admin evaluates required hosted checks, exact-commit verification, branch compatibility, unresolved findings, integration readiness and applicable merge gates.
 
 Review evaluates implementation correctness and test adequacy.
 
@@ -315,7 +317,7 @@ None of these conditions is equivalent to the others.
 
 ### 5.4 General Administration
 
-General Administration handles organizational governance support, operational troubleshooting, cross-department coordination, and special assignments.
+General Administration handles organizational governance support, operational troubleshooting, cross-department coordination, special assignments, and its Checks & Merge function. It does not replace Review's independent technical judgment.
 
 Review may propose procedural improvements, but permanent organizational changes require Aaron's approval.
 
