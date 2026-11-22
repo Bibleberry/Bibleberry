@@ -1,6 +1,6 @@
 # Manual Review Checklist — R06 Connected Experience Prototype (Glass Atlas)
 
-Use this checklist for hands-on UX acceptance review (Aaron Waid) and independent verification (Gamma Review). Launch [`index.html`](./index.html) directly or via local HTTP and use the top **Reviewer Workbench** bar to select and reset scenarios.
+Use this checklist for hands-on UX acceptance review (Aaron Waid) and independent verification (Independent Review). Launch [`index.html`](./index.html) directly or via local HTTP and use the top **Reviewer Workbench** bar to select and reset scenarios.
 
 ## A. Global Navigation & Layout
 - [ ] Bottom navigation on phone (`320px` & `375px`) displays exact tabs in order: **`Today | Library | Collections | More`** (no `Archive`, no `My Journey`).
