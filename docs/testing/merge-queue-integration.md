@@ -35,6 +35,20 @@ PRs are verified and integrated one by one.
 
 **iOS:** The iOS workflow runs on PRs, main pushes, and manual dispatch. Before Aaron authorizes queue entry, Review and Checks & Merge confirm the iOS summary for the exact reviewed head. Native-sensitive and unknown scopes require **iOS Runtime Verified**. GitHub branch protection currently requires the reader and Studio checks. Adding an iOS required context would need owner approval and a check that also reports on merge-group commits. [Pine Relay scope and required-check handoff](native-ci-trigger-parity.md#checks--merge-handoff)
 
+## PR assignment identity: required-check activation (Indigo Relay #304)
+
+The trusted [PR Assignment Identity workflow](../../.github/workflows/pr-assignment-identity.yml) checks **each human-directed PR's codename and originating Issue** on `pull_request_target` and reports the status **Verify PR codename and originating Issue**. It does not check out or run code from the PR. Its new `merge_group: checks_requested` path reports **the same job name** on GitHub's synthetic queue commit and validates that event's trusted head/base SHA and base branch. **Queue context success alone does not prove any PR metadata passed.** Enforcement depends on requiring the job on the individual PR *as well as* receiving the job for the merge-group candidate.
+
+**Owner-controlled activation, only after this workflow change is reviewed and merged:**
+
+1. Admin checks a real post-merge Actions run of **Verify PR codename and originating Issue** on an ordinary PR, records its exact head SHA, and confirms the check still fails on a PR with an invalid codename/Issue reference. The PR validation step must run; a skipped check is not evidence of validation.
+2. Aaron authorizes a controlled, non-feature merge-queue test candidate **without changing the required status list yet**. Admin records the `merge_group` run, integration head SHA, the unchanged job name, and result. If unavailable or failing, do not activate a new required gate.
+3. When active queues are clear and the above evidence is satisfactory, Aaron edits the **existing protected `main` rule** in [repository branch settings](https://github.com/Bibleberry/Bibleberry/settings/branches) to add **Verify PR codename and originating Issue** as a required check from the correct GitHub Actions source. **Preserve** existing required checks **Build reader application** and **Verify Sanity Studio**, merge-queue settings, reviews and owner controls. This repository's GitHub App cannot read/modify the complete protection rule (403); only owner UI confirmation establishes that the requirement is actually enforced.
+4. Confirm another owner-authorized queue candidate passes the now-required context on both the PR and `merge_group` SHA; record an invalid-identity negative check showing that a malformed human PR cannot merge. If the check stays pending, fails, or is missing on merge-group runs, **do not bypass or disable protection**. Remove the test candidate from the queue as appropriate, diagnose the trigger/context and return for a new review.
+5. Keep [Indigo Relay Issue #304](https://github.com/Bibleberry/Bibleberry/issues/304) open until the owner-controlled required-check activation and hosted positive/negative evidence are recorded. The workflow PR alone prepares enforcement but **does not enforce it**.
+
+This is separate from the existing [Copper Turnstile #202](https://github.com/Bibleberry/Bibleberry/issues/202) batch-queue coordinator. Do not edit its code, queue order, credentials, approval environment, or protection settings as part of Indigo Relay.
+
 ## Activation procedure (human admin steps after CI preparation PR passes and merges)
 
 1. Inspect the final head of the CI preparation PR. Check the workflow,
