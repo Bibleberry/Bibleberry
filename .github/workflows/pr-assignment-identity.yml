@@ -1,0 +1,93 @@
+name: PR Assignment Identity
+
+# Trusted default-branch workflow. No checkout or execution of PR code.
+on:
+  pull_request_target:
+    types: [opened, reopened, edited, synchronize, ready_for_review]
+    branches: [main]
+
+permissions:
+  contents: read
+  issues: read
+
+jobs:
+  identity:
+    name: Verify PR codename and originating Issue
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Validate human-directed PR assignment identity
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
+          REPOSITORY: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import sys
+          import urllib.error
+          import urllib.request
+
+          def fail(message):
+              print(f"::error title=PR assignment identity::{message}")
+              sys.exit(1)
+
+          number = int(os.environ["PR_NUMBER"])
+          author = os.environ.get("PR_AUTHOR", "")
+          author_type = os.environ.get("PR_AUTHOR_TYPE", "")
+          title = os.environ.get("PR_TITLE", "")
+          body = os.environ.get("PR_BODY", "")
+
+          # PRs #1-#295 predate the rule; #296 is explicitly repaired.
+          if number < 296:
+              print(f"Historical PR #{number}: identity check not retroactive.")
+              sys.exit(0)
+
+          exempt_bots = {"dependabot[bot]", "renovate[bot]", "github-actions[bot]"}
+          if author_type == "Bot" and author in exempt_bots:
+              print(f"Automated PR by {author}: human assignment identity exempt.")
+              sys.exit(0)
+
+          match = re.match(r"^\[([A-Z][a-z]+ [A-Z][a-z]+)\]\s+\S", title)
+          if not match:
+              fail("Human PR titles must begin [Descriptor Noun] followed by a title.")
+          codename = match.group(1)
+
+          refs = re.findall(
+              r"^\s*(?:Refs|Fixes|Closes)\s+#([1-9]\d*)\b",
+              body,
+              flags=re.IGNORECASE | re.MULTILINE,
+          )
+          distinct = sorted(set(refs))
+          if len(distinct) != 1:
+              fail("PR body must have exactly one originating Issue line: Refs #123, Fixes #123, or Closes #123.")
+          issue_number = distinct[0]
+
+          repository = os.environ["REPOSITORY"]
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{repository}/issues/{issue_number}",
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
+                  "User-Agent": "bibleberry-pr-identity",
+              },
+          )
+          try:
+              with urllib.request.urlopen(request, timeout=15) as response:
+                  issue = json.load(response)
+          except (urllib.error.URLError, TimeoutError, ValueError) as error:
+              fail(f"Could not verify originating Issue #{issue_number}: {error}")
+
+          if "pull_request" in issue:
+              fail(f"Reference #{issue_number} is a PR, not an originating Issue.")
+          expected = f"[{codename}] "
+          if not issue.get("title", "").startswith(expected):
+              fail(f"PR [{codename}] must match originating Issue #{issue_number} title prefix {expected.strip()}.")
+
+          print(f"Verified PR #{number}: [{codename}], Issue #{issue_number}.")
+          PY
