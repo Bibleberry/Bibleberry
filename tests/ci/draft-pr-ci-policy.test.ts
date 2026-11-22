@@ -77,6 +77,15 @@ test('PR verification workflows rerun on opened, reopened, synchronize, and read
   }
 });
 
+test('iOS verifies Draft and Ready PRs by commit without a redundant promotion run', () => {
+  const workflow = readRepoFile('.github/workflows/native-ios.yml');
+  const prBlock = extractBlock(workflow, /^ {2}pull_request:\s*$/);
+
+  assert.match(prBlock, /^ {4}types: \[opened, reopened, synchronize\]\s*$/m);
+  assert.match(prBlock, /^ {4}branches: \[main\]\s*$/m);
+  assert.doesNotMatch(prBlock, /paths(?:-ignore)?:/);
+});
+
 test('Required and named PR verification jobs remain intact with standard hosted runners', () => {
   const expectedJobs: Array<{ file: string; jobId: string; jobName: string }> = [
     { file: '.github/workflows/ci.yml', jobId: 'reader-app', jobName: 'Build reader application' },
@@ -143,7 +152,7 @@ test('Native Android preserves existing PR path filtering while merge_group rema
 });
 
 test('PR verification workflows preserve read-only permissions, SHA-pinned actions, checkout hygiene, and no secrets/pull_request_target', () => {
-  for (const file of prVerificationWorkflows) {
+  for (const file of allPrCiWorkflows) {
     const workflow = readRepoFile(file);
 
     assert.match(
