@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url'
 const sha = /^[0-9a-f]{40}$/
 const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
 
-const nativeSource = /^src\/(?:(?:App|main)\.tsx$|(?:native|deepLinkIngress|participation|shelfPersistence|readerProfile|readerShell\/navigation|appIntegration)\/)/
+const nativeSource = /^src\/(?:(?:App|main)\.tsx$|(?:native|deepLinkIngress|participation|shelfPersistence|readerProfile|readerShell|appIntegration)\/)/
 const nativeStorage = new Set([
   'src/components/announcements/announcementPreferencesStorage.ts',
   'src/components/month/monthIntroStorage.ts',

@@ -68,6 +68,17 @@ test('web bundle changes use the fast build, and unrelated PRs need neither macO
   }
 });
 
+test('reader-shell entry changes require runtime even without a native bridge reference', t => {
+  const repo = repository(t);
+  const request = repo.pullRequest(() => {
+    repo.write('src/readerShell/entry/entryCoordinator.ts', 'export const deferIntroduction = true;\n');
+  });
+  assert.deepEqual(detectIosScope(request), {
+    scope: 'runtime',
+    reason: 'Native integration source changed',
+  });
+});
+
 test('native, shared build and unknown inputs require build and full runtime on PRs', async t => {
   for (const file of [
     'ios/App/App/AppDelegate.swift',
