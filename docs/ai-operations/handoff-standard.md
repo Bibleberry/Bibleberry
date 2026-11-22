@@ -1,6 +1,6 @@
 # Bibleberry | AI Department Handoff Standard
 
-**Status:** Proposed organizational standard  
+**Status:** Accepted organizational standard (merged in PR #294, November 22, 2026)  
 **Authority:** Aaron Waid, Project Owner  
 **Applies to:** All permanent AI departments within the Bibleberry development organization  
 **Repository:** `Bibleberry/Bibleberry`  
