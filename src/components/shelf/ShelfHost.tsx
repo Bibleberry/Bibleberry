@@ -13,6 +13,7 @@ import {
   setShelfMonthProtection,
 } from '../../shelf/policy.ts'
 import type { ShelfState } from '../../shelf/types.ts'
+import { areShelfStatesEqual } from '../../shelf/validation.ts'
 import {
   filterHistoricalCandidateMonths,
   formatPublicationMonthHeading,
@@ -46,6 +47,7 @@ export interface ShelfHostProps {
 
   /**
    * Callback invoked whenever a policy-driven action produces a new ShelfState.
+   * Confirmed changes supply the state the reader saw for conditional persistence.
    */
   readonly onStateChange?: (
     nextState: ShelfState,
@@ -245,7 +247,10 @@ export function ShelfHost({
     (replaceYearMonth: PublicationYearMonth, nextFocus?: PublicationYearMonth | null) => {
       if (!pendingReplace) return
       setPendingReplace(null)
-      if (pendingReplace.state !== currentState || pendingReplace.referenceCurrentYearMonth !== referenceCurrentYearMonth) {
+      if (
+        !areShelfStatesEqual(pendingReplace.state, currentState)
+        || pendingReplace.referenceCurrentYearMonth !== referenceCurrentYearMonth
+      ) {
         reportError(SHELF_CONFIRMATION_STALE_MESSAGE)
         return
       }
@@ -296,7 +301,12 @@ export function ShelfHost({
       if (!result.ok) {
         if (result.error === 'requiresFocusDecision' && nextFocus === undefined) {
           setErrorMessage(null)
-          setPendingPutAway({ yearMonth, state: currentState, referenceCurrentYearMonth, entries: viewModel.entries })
+          setPendingPutAway({
+            yearMonth,
+            state: currentState,
+            referenceCurrentYearMonth,
+            entries: viewModel.entries,
+          })
           return
         }
         reportError(result.message)
@@ -321,7 +331,10 @@ export function ShelfHost({
   const handleConfirmPutAway = (nextFocus: PublicationYearMonth | null) => {
     if (!pendingPutAway) return
     setPendingPutAway(null)
-    if (pendingPutAway.state !== currentState || pendingPutAway.referenceCurrentYearMonth !== referenceCurrentYearMonth) {
+    if (
+      !areShelfStatesEqual(pendingPutAway.state, currentState)
+      || pendingPutAway.referenceCurrentYearMonth !== referenceCurrentYearMonth
+    ) {
       reportError(SHELF_CONFIRMATION_STALE_MESSAGE)
       return
     }

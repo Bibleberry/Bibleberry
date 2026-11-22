@@ -10,6 +10,7 @@ import type {
 } from '../../participation/types.ts'
 import { createEmptyShelfState, SHELF_CONFIRMATION_STALE_MESSAGE } from '../../shelf/policy.ts'
 import { MAX_SHELF_CAPACITY, type ShelfState } from '../../shelf/types.ts'
+import { areShelfStatesEqual } from '../../shelf/validation.ts'
 import { HistoricalLibraryHost } from '../library/HistoricalLibraryHost.tsx'
 import {
   initialHistoricalLibraryState,
@@ -52,6 +53,7 @@ export interface LibraryShelfHostProps {
 
   /**
    * Injected callback invoked whenever a policy-driven action produces a new ShelfState.
+   * Confirmed changes supply the state the reader saw for conditional persistence.
    */
   readonly onShelfStateChange?: (
     nextState: ShelfState,
@@ -152,6 +154,7 @@ export function LibraryShelfHost({
     null,
   )
   const [libraryAnnouncement, setLibraryAnnouncement] = useState('')
+  const [librarySelectionError, setLibrarySelectionError] = useState<string | null>(null)
   const [pendingReplace, setPendingReplace] = useState<{
     readonly yearMonth: PublicationYearMonth
     readonly state: ShelfState
@@ -235,8 +238,14 @@ export function LibraryShelfHost({
     onExit?.()
   }, [initialSurface, navigateToSurface, onExit, returnSurface])
 
+  const reportLibrarySelectionError = useCallback((message: string) => {
+    setLibraryAnnouncement('')
+    setLibrarySelectionError(message)
+  }, [])
+
   const handleSelectForShelfFromLibrary = useCallback(
     async (yearMonth: string, replaceMonth?: PublicationYearMonth, nextFocus?: PublicationYearMonth | null) => {
+      setLibrarySelectionError(null)
       const outcome = attemptSelectLibraryMonthForShelf({
         state: activeShelfState,
         yearMonth,
@@ -250,7 +259,7 @@ export function LibraryShelfHost({
       if (!outcome.ok) {
         if (outcome.reason === 'capacityExceeded') {
           if (replaceMonth) {
-            setLibraryAnnouncement(SHELF_CONFIRMATION_STALE_MESSAGE)
+            reportLibrarySelectionError(SHELF_CONFIRMATION_STALE_MESSAGE)
             return
           }
           setPendingReplace({
@@ -262,13 +271,13 @@ export function LibraryShelfHost({
           setLibraryAnnouncement(outcome.announcement)
           return
         }
-        setLibraryAnnouncement(outcome.message)
+        reportLibrarySelectionError(outcome.message)
         return
       }
 
       const rejection = await commitShelfState(outcome.state, replaceMonth ? activeShelfState : undefined)
       if (rejection) {
-        setLibraryAnnouncement(rejection)
+        reportLibrarySelectionError(rejection)
         return
       }
       setSelectedMonthYearMonth(outcome.selectedYearMonth)
@@ -279,6 +288,7 @@ export function LibraryShelfHost({
       commitShelfState,
       currentLocalDate,
       libraryState.items,
+      reportLibrarySelectionError,
       resolvedCurrentYearMonth,
       shelfViewModel.entries,
     ],
@@ -288,13 +298,16 @@ export function LibraryShelfHost({
     (replaceYearMonth: PublicationYearMonth, nextFocus?: PublicationYearMonth | null) => {
       if (!pendingReplace) return
       setPendingReplace(null)
-      if (pendingReplace.state !== activeShelfState || pendingReplace.referenceCurrentYearMonth !== resolvedCurrentYearMonth) {
-        setLibraryAnnouncement(SHELF_CONFIRMATION_STALE_MESSAGE)
+      if (
+        !areShelfStatesEqual(pendingReplace.state, activeShelfState)
+        || pendingReplace.referenceCurrentYearMonth !== resolvedCurrentYearMonth
+      ) {
+        reportLibrarySelectionError(SHELF_CONFIRMATION_STALE_MESSAGE)
         return
       }
       void handleSelectForShelfFromLibrary(pendingReplace.yearMonth, replaceYearMonth, nextFocus)
     },
-    [activeShelfState, handleSelectForShelfFromLibrary, pendingReplace, resolvedCurrentYearMonth],
+    [activeShelfState, handleSelectForShelfFromLibrary, pendingReplace, reportLibrarySelectionError, resolvedCurrentYearMonth],
   )
 
   const handleCancelReplace = useCallback(() => {
@@ -412,6 +425,11 @@ export function LibraryShelfHost({
         </main>
       )}
       <div ref={libraryFocusRef} tabIndex={-1} hidden={!showLibrary} aria-hidden={!showLibrary}>
+        {librarySelectionError && (
+          <div className="provisional-collections-bar" role="alert">
+            <p className="provisional-collections-bar__description">{librarySelectionError}</p>
+          </div>
+        )}
         <HistoricalLibraryHost
           provider={libraryProvider}
           pageSize={libraryPageSize}

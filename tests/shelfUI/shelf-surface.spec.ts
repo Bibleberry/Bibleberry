@@ -221,6 +221,23 @@ test.describe('Phase 05 / R08-4: Standalone Shelf Reader Surface', () => {
     await expect(page.getByText('Active Study Focus', { exact: true })).toHaveCount(0)
   })
 
+  test('putting away the last Shelf month requires explicitly clearing Active Focus', async ({ page }) => {
+    await page.goto(`${harnessRootUrl}?scenario=one-month`)
+    await page.getByRole('button', { name: /Set October 2026 as active study focus/i }).click()
+    await page.getByRole('button', { name: 'Put away October 2026 from Shelf' }).click()
+
+    const dialog = page.getByRole('dialog', { name: 'Put Away Active Focus' })
+    const confirm = dialog.getByRole('button', { name: 'Confirm Put Away' })
+    await expect(confirm).toBeDisabled()
+    await expect(dialog.getByRole('radio')).toHaveCount(1)
+    await dialog.getByRole('radio', { name: 'No focus for now' }).check()
+    await confirm.click()
+
+    await expect(dialog).toBeHidden()
+    await expect(page.getByRole('heading', { name: 'Your Shelf is Empty' })).toBeVisible()
+    await expect(page.getByRole('region', { name: 'Active study focus outside Shelf' })).toHaveCount(0)
+  })
+
   test('focus outside Shelf can be cleared and mobile reflow has no horizontal overflow or undersized targets', async ({ page }) => {
     await page.goto(`${harnessRootUrl}?scenario=focus-outside-shelf`)
 

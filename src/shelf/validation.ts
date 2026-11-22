@@ -20,6 +20,27 @@ import {
 
 const YEAR_MONTH_STRICT_REGEX = /^\d{4}-(?:0[1-9]|1[0-2])$/
 
+export function areShelfEntriesEqual(
+  left: readonly ShelfEntry[],
+  right: readonly ShelfEntry[],
+): boolean {
+  return left === right || (left.length === right.length && left.every((entry, index) => {
+    const other = right[index]!
+    return entry.yearMonth === other.yearMonth
+      && entry.admissionKind === other.admissionKind
+      && entry.isProtected === other.isProtected
+      && entry.admittedOn === other.admittedOn
+  }))
+}
+
+export function areShelfStatesEqual(left: ShelfState, right: ShelfState): boolean {
+  return left === right || (
+    (left.activeFocusMonth ?? null) === (right.activeFocusMonth ?? null)
+    && left.updatedOn === right.updatedOn
+    && areShelfEntriesEqual(left.months, right.months)
+  )
+}
+
 /**
  * Strictly parses and validates a publication year-month string.
  * Rejects leading/trailing whitespace, malformed tokens, traversal, and invalid months.

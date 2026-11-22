@@ -501,8 +501,8 @@ test.describe('Issue #227 [Velvet Badger]: Ordinary Reader Library & Shelf Integ
     await page.goto(`${enabledBaseUrl}#/library`, { waitUntil: 'domcontentloaded' })
     await expect(page.getByRole('heading', { level: 1, name: 'Historical Library' })).toBeVisible()
 
-    // Full Shelf (3 months) triggers explicit replacement dialog when selecting a 4th month
-    await page.getByRole('button', { name: 'Add July 2026 to Shelf' }).click()
+    const addJuly = page.getByRole('button', { name: 'Add July 2026 to Shelf' })
+    await addJuly.click()
     const replaceDialog = page.getByRole('dialog')
     await expect(replaceDialog).toBeVisible()
     const slots = replaceDialog.getByRole('group', { name: 'Current Shelf months' })
@@ -510,6 +510,23 @@ test.describe('Issue #227 [Velvet Badger]: Ordinary Reader Library & Shelf Integ
     const confirmReplace = replaceDialog.getByRole('button', { name: 'Replace Selected Month' })
     await slots.getByRole('radio', { name: /September 2026.*Active Focus/ }).check()
     await expect(confirmReplace).toBeDisabled()
+    await focusChoices.getByRole('radio', { name: /October 2026/ }).check()
+
+    // A storage update while the confirmation is open invalidates the pending choice.
+    const newerShelf = { ...seededShelf, state: { ...seededShelf.state, updatedOn: '2026-11-02' } }
+    await page.evaluate(({ key, payload }) => {
+      const newValue = JSON.stringify(payload)
+      window.localStorage.setItem(key, newValue)
+      window.dispatchEvent(new StorageEvent('storage', { key, newValue, storageArea: window.localStorage }))
+    }, { key: SHELF_STORAGE_KEY, payload: newerShelf })
+    await confirmReplace.click()
+    await expect(replaceDialog).toBeHidden()
+    await expect(addJuly).toBeFocused()
+    await expect(page.getByRole('alert').getByText('Your Shelf changed. Review it and try again.')).toBeVisible()
+    expect(await page.evaluate(key => window.localStorage.getItem(key), SHELF_STORAGE_KEY)).toBe(JSON.stringify(newerShelf))
+
+    await addJuly.click()
+    await slots.getByRole('radio', { name: /September 2026.*Active Focus/ }).check()
     await focusChoices.getByRole('radio', { name: /October 2026/ }).check()
     await confirmReplace.click()
 
@@ -541,7 +558,7 @@ test.describe('Issue #227 [Velvet Badger]: Ordinary Reader Library & Shelf Integ
     const persistedShelf = await page.evaluate(key => JSON.parse(window.localStorage.getItem(key)!).state, SHELF_STORAGE_KEY)
     expect(persistedShelf.activeFocusMonth).toBeNull()
     expect(persistedShelf.months).toEqual([
-      { ...seededShelf.state.months[1], yearMonth: '2026-07', admissionKind: 'readerSelected', isProtected: true, admittedOn: undefined },
+      { yearMonth: '2026-07', admissionKind: 'readerSelected', isProtected: true },
       seededShelf.state.months[2],
     ])
 

@@ -21,8 +21,8 @@ import type {
   ShelfActionResult,
   ShelfState,
 } from '../shelf/types.ts'
+import { areShelfEntriesEqual } from '../shelf/validation.ts'
 import {
-  areShelfEntriesEqual,
   emptyPersistedShelfPayload,
   reduceShelfCommand,
   replayShelfCommands,
@@ -100,6 +100,7 @@ export interface GuestShelfStore {
     updatedOn?: LocalCalendarDate,
   ): Promise<ShelfActionResult<'focusUpdated'>>
   evaluateMonthlyRollover(params: MonthlyRolloverParams): Promise<RolloverResult>
+  /** Supply the state the reader confirmed to guard against a newer persisted Shelf during replay. */
   applyState(
     state: ShelfState,
     referenceCurrentMonth?: PublicationYearMonth | string,
