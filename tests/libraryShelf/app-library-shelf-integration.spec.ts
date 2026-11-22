@@ -397,7 +397,7 @@ test.describe('Issue #227 [Velvet Badger]: Ordinary Reader Library & Shelf Integ
     await expect(page).toHaveURL(/#\/challenge\/2026-10-day-01\?origin=month&yearMonth=2026-10$/)
     await page
       .getByRole('navigation', { name: 'Challenge screen navigation' })
-      .getByRole('button', { name: 'Continue' })
+      .getByRole('button', { name: 'Next' })
       .click()
     await page.getByRole('button', { name: 'Finish' }).click()
 

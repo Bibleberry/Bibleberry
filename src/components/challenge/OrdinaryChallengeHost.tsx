@@ -11,6 +11,7 @@ import {
   emptyOrdinaryChallengeSessionState,
   isOrdinaryScriptureSaved,
   resolveOrdinaryChallengeStateController,
+  restartOrdinaryChallengeFromBeginning,
   setOrdinaryChallengeScreen,
   startOrdinaryChallengeProgress,
   toggleOrdinaryChallengeSaved,
@@ -103,6 +104,7 @@ function OrdinaryChallengeHostFrame({
         onToggleSaveScripture={actions.onToggleSaveScripture}
         onComplete={actions.onComplete}
         onStartProgress={actions.onStartProgress}
+        onStartFromBeginning={actions.onStartFromBeginning}
         onExit={onExit}
         exitLabel={exitLabel}
         returnOnFinish={returnOnFinish}
@@ -164,6 +166,8 @@ function OrdinaryChallengeHostView({
           }
         },
         onStartProgress: () => applyChange(startOrdinaryChallengeProgress),
+        onStartFromBeginning: () =>
+          applyChange(current => restartOrdinaryChallengeFromBeginning(challenge, current)),
       }}
     />
   )

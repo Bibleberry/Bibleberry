@@ -60,7 +60,7 @@ test.describe('Participation Persistence Reload Pilot (A3 / Issue #46)', () => {
     await expect(statusLine).toContainText('Store: ready (ok) · Distinct completed: 0 · Status: notStarted · Challenge not saved · 0 Scripture references saved');
 
     // 2. Advance to Screen 2 -> status becomes `inProgress (a3-pilot-screen-two)` -> reload resumes at Screen 2!
-    await nav.getByRole('button', { name: 'Continue' }).click();
+    await nav.getByRole('button', { name: 'Next' }).click();
     await expect(page.locator('#a3-pilot-screen-two-title')).toBeFocused();
     await expect(statusLine).toContainText('Status: inProgress (a3-pilot-screen-two)');
 
@@ -69,8 +69,8 @@ test.describe('Participation Persistence Reload Pilot (A3 / Issue #46)', () => {
     await expect(page.locator('#a3-pilot-screen-two-title')).toBeFocused();
     await expect(statusLine).toContainText('Status: inProgress (a3-pilot-screen-two)');
 
-    // 3. Navigate Back to Screen 1 -> reload MUST retain `inProgress (a3-pilot-screen-one)` (never reset to notStarted!)
-    await nav.getByRole('button', { name: 'Back' }).click();
+    // 3. Navigate Previous to Screen 1 -> reload MUST retain `inProgress (a3-pilot-screen-one)` (never reset to notStarted!)
+    await nav.getByRole('button', { name: 'Previous' }).click();
     await expect(page.locator('#a3-pilot-screen-one-title')).toBeFocused();
     await expect(statusLine).toContainText('Status: inProgress (a3-pilot-screen-one)');
 
@@ -86,7 +86,7 @@ test.describe('Participation Persistence Reload Pilot (A3 / Issue #46)', () => {
     const primaryScripture = page.locator('section[aria-label="Primary Scripture"]');
     await primaryScripture.locator('button.lab-scripture-save').click();
 
-    await nav.getByRole('button', { name: 'Continue' }).click();
+    await nav.getByRole('button', { name: 'Next' }).click();
     const optionalStudy = page.locator('.lab-optional');
     await optionalStudy.locator('.lab-optional__toggle').click();
     const optionalScripture = optionalStudy.locator('.cms-scripture', { hasText: 'John 11:33–35' });
@@ -157,7 +157,7 @@ test.describe('Participation Persistence Reload Pilot (A3 / Issue #46)', () => {
     await expect(page.locator('#a3-pilot-screen-one-title')).toBeFocused();
     await expect(statusLine).toContainText('Distinct completed: 1 · Status: completed (2026-11-05)');
 
-    await nav.getByRole('button', { name: 'Continue' }).click();
+    await nav.getByRole('button', { name: 'Next' }).click();
     await expect(page.locator('#a3-pilot-screen-two-title')).toBeFocused();
     await expect(nav.getByRole('button', { name: 'Challenge complete' })).toBeDisabled();
     await expect(statusLine).toContainText('Distinct completed: 1 · Status: completed (2026-11-05)');
@@ -264,10 +264,10 @@ test.describe('Participation Persistence Reload Pilot (A3 / Issue #46)', () => {
     await expect(page.locator('button.challenge-player__exit')).toHaveText('Return to More');
 
     // Advance via keyboard
-    const continueBtn = page
+    const nextBtn = page
       .getByRole('navigation', { name: 'Challenge screen navigation' })
-      .getByRole('button', { name: 'Continue' });
-    await continueBtn.focus();
+      .getByRole('button', { name: 'Next' });
+    await nextBtn.focus();
     await page.keyboard.press('Enter');
     await expect(page.locator('#a3-pilot-screen-two-title')).toBeFocused();
 
@@ -403,7 +403,7 @@ test.describe('Participation Persistence Reload Pilot (A3 / Issue #46)', () => {
     await startBtn.click();
     await expect(statusLine).toContainText('Distinct completed: 0 · Status: inProgress (a3-pilot-screen-one)');
     await expect(startBtn).toHaveCount(0);
-    await expect(nav.getByRole('button', { name: 'Back' })).toBeDisabled();
+    await expect(nav.getByRole('button', { name: 'Previous' })).toBeDisabled();
 
     const storedEnvelopeAfterStart = await page.evaluate(pilotKey => {
       const raw = localStorage.getItem(pilotKey);
@@ -418,7 +418,7 @@ test.describe('Participation Persistence Reload Pilot (A3 / Issue #46)', () => {
     await page.reload();
     await expect(page.locator('#a3-pilot-screen-one-title')).toBeVisible();
     await expect(statusLine).toContainText('Distinct completed: 0 · Status: inProgress (a3-pilot-screen-one)');
-    await expect(nav.getByRole('button', { name: 'Back' })).toBeDisabled();
+    await expect(nav.getByRole('button', { name: 'Previous' })).toBeDisabled();
     await expect(completeBtn).toBeEnabled();
 
     // 4. Explicitly completing the Challenge changes its status to completed and clears inProgress

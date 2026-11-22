@@ -737,7 +737,7 @@ test.describe('R08A-6 Calendar Month Screen Integration', () => {
 
     const nextScreenBtn = page
       .getByRole('navigation', { name: 'Challenge screen navigation' })
-      .getByRole('button', { name: 'Continue' })
+      .getByRole('button', { name: 'Next' })
 
     // 1. Start Day 1 mid-way (Part 2 of 3) without Finish -> exit back to March 2098
     await page.getByRole('button', { name: /Light in Darkness/ }).click()

@@ -10,6 +10,7 @@ import type {
   ChallengePlayerChallenge,
   ChallengePlayerProps,
 } from '../components/challenge/ChallengePlayer.tsx'
+import { resolveFirstScreenId } from '../components/challenge/challengePlayerModel.ts'
 import { OrdinaryChallengeHost } from '../components/challenge/OrdinaryChallengeHost.tsx'
 import type { AdmittedChallenge } from './admission.ts'
 import { formatLocalCalendarDate } from './identity.ts'
@@ -50,6 +51,13 @@ export type PersistedChallengeHostProps = {
   onReturn?: (origin: ChallengeOrigin) => void
   onCompletionDispatched?: (completionWrite: Promise<void>) => void
   returnOnFinish?: boolean
+  /**
+   * Intentional `Read Again` entry for an already-completed Challenge.
+   * Ensures reading begins cleanly at the first screen without revoking completed status.
+   */
+  readAgain?: boolean
+  /** Optional host-supplied session key that resets local completed reread position to Screen 1. */
+  rereadSessionKey?: string | number
   onExit?: () => void
   exitLabel?: string
   eyebrow?: ReactNode
@@ -60,7 +68,7 @@ export type PersistedChallengeHostProps = {
 
 type ReadyPersistedChallengeHostProps = Omit<
   PersistedChallengeHostProps,
-  'expectedNamespace' | 'getToday' | 'origin' | 'onReturn' | 'returnOnFinish'
+  'expectedNamespace' | 'getToday' | 'origin' | 'onReturn' | 'returnOnFinish' | 'readAgain' | 'rereadSessionKey'
 > & {
   getToday: () => LocalCalendarDate
   effectiveReturnOnFinish: boolean
@@ -74,7 +82,7 @@ function ReadyPersistedChallengeHost({
   effectiveReturnOnFinish,
   onCompletionDispatched,
   onExit,
-  exitLabel = 'Return',
+  exitLabel = 'Exit',
   eyebrow,
   banner,
   footer,
@@ -164,11 +172,25 @@ function ReadyPersistedChallengeHost({
         },
         onStartProgress: () => {
           if (view.isCompleted || view.isInProgress) return
-          const initialScreenId = challenge.screens[0]?.id
+          const initialScreenId = resolveFirstScreenId(challenge.screens)
           void store.dispatch({
             type: 'saveChallengeProgress',
             challengeId,
             ...(initialScreenId ? { screenId: initialScreenId } : {}),
+            updatedOn: getToday(),
+          })
+        },
+        onStartFromBeginning: () => {
+          const firstScreenId = resolveFirstScreenId(challenge.screens)
+          if (!firstScreenId) return
+          setRereadScreenId(undefined)
+          if (view.isCompleted) {
+            return
+          }
+          void store.dispatch({
+            type: 'saveChallengeProgress',
+            challengeId,
+            screenId: firstScreenId,
             updatedOn: getToday(),
           })
         },
@@ -226,6 +248,8 @@ export function PersistedChallengeHost({
   onReturn,
   onCompletionDispatched,
   returnOnFinish,
+  readAgain = false,
+  rereadSessionKey,
   onExit,
   exitLabel,
   eyebrow,
@@ -240,7 +264,7 @@ export function PersistedChallengeHost({
     exitLabel ??
     (origin !== undefined || onReturn !== undefined
       ? formatChallengeOriginLabel(resolvedOrigin)
-      : 'Return')
+      : 'Exit')
   const handleExit = onReturn ? () => onReturn(resolvedOrigin) : onExit
 
   const snapshot = useReaderParticipation(store)
@@ -256,7 +280,7 @@ export function PersistedChallengeHost({
         {banner}
         {handleExit && (
           <button type="button" className="back-link challenge-player__exit" onClick={handleExit}>
-            <ArrowLeft size={17} /> {effectiveExitLabel}
+            <ArrowLeft size={17} aria-hidden="true" /> {effectiveExitLabel}
           </button>
         )}
         <p role="status" aria-live="polite">
@@ -267,9 +291,15 @@ export function PersistedChallengeHost({
     )
   }
 
+  const hostSessionKey = readAgain
+    ? `${admittedChallenge.challengeId}:readAgain:${rereadSessionKey ?? ''}`
+    : rereadSessionKey !== undefined
+      ? `${admittedChallenge.challengeId}:${rereadSessionKey}`
+      : admittedChallenge.challengeId
+
   return (
     <ReadyPersistedChallengeHost
-      key={admittedChallenge.challengeId}
+      key={hostSessionKey}
       store={store}
       admittedChallenge={admittedChallenge}
       challenge={challenge}

@@ -30,7 +30,11 @@ export type ChallengePlayerCopy = {
   navigationAriaLabel: string
   completionMessage: string
   navigationNote: string
+  previousButton: string
+  nextButton: string
   startChallengeButton: string
+  startFromBeginningButton: string
+  readAgainButton: string
   finishButton: string
   completedButton: string
 }
@@ -52,7 +56,11 @@ export function resolveChallengePlayerCopy(options: {
     navigationNote: diagnostics
       ? 'Optional studies, reflection choices, and companion links never change required progress. Revisiting does not automatically complete a Challenge.'
       : 'Optional studies, reflection choices, and companion links are never required. Revisiting does not automatically complete a Challenge.',
+    previousButton: diagnostics ? 'Back' : 'Previous',
+    nextButton: diagnostics ? 'Continue' : 'Next',
     startChallengeButton: labels.startChallenge ?? 'Start Challenge',
+    startFromBeginningButton: 'Start from Beginning',
+    readAgainButton: 'Read Again',
     finishButton: diagnostics ? 'Complete Challenge' : 'Finish',
     completedButton: diagnostics || !returnOnFinish ? 'Challenge complete' : 'Finish',
   }
@@ -148,4 +156,31 @@ export function challengePlayerPosition(screens: ScreenList, screenId: string | 
  */
 export function canCompleteChallenge(position: ChallengePlayerPosition, isCompleted: boolean) {
   return position.isLast && !isCompleted
+}
+
+/**
+ * Formats textual screen-position copy. Ordinary reader mode uses the approved `Screen n of N`
+ * phrasing, while Developer Studio diagnostics retain its compact `n of N` format.
+ */
+export function formatChallengeScreenPosition(
+  position: Pick<ChallengePlayerPosition, 'index' | 'total'>,
+  options: { diagnostics?: boolean } = {},
+): string {
+  const current = position.total === 0 ? 0 : position.index + 1
+  return options.diagnostics ? `${current} of ${position.total}` : `Screen ${current} of ${position.total}`
+}
+
+/**
+ * Resolves the stable identity of the first screen for safe `Start from Beginning` navigation.
+ */
+export function resolveFirstScreenId(screens: ScreenList): string | undefined {
+  return screens[0]?.id
+}
+
+/**
+ * `Start from Beginning` is enabled on multi-screen Challenges whenever the reader has moved
+ * beyond the first screen.
+ */
+export function canStartChallengeFromBeginning(position: ChallengePlayerPosition): boolean {
+  return position.total > 1 && !position.isFirst
 }

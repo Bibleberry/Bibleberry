@@ -1,11 +1,23 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { canCompleteChallenge, challengePlayerPosition, resolveChallengePlayerCopy, resolveScreenIndex } from '../../src/components/challenge/challengePlayerModel.ts'
+import {
+  canCompleteChallenge,
+  canStartChallengeFromBeginning,
+  challengePlayerPosition,
+  resolveChallengePlayerCopy,
+  resolveFirstScreenId,
+  resolveScreenIndex,
+} from '../../src/components/challenge/challengePlayerModel.ts'
 import { parseChallengeOrigin, parseChallengeOriginFromSearchParams, serializeChallengeOriginToSearchParams } from '../../src/cms/reader/challengeOrigin.ts'
-import { createPersistedChallengeFinishController } from '../../src/participation/persistedChallengeHostModel.ts'
+import { createPersistedChallengeFinishController, resolvePersistedHostScreenId } from '../../src/participation/persistedChallengeHostModel.ts'
 import { createEnvelopePersistenceAdapter } from '../../src/participation/persistence.ts'
 import { createReaderParticipationStore } from '../../src/participation/store.ts'
-import { parseLocalCalendarDate, parseStoredChallengeId } from '../../src/participation/identity.ts'
+import { selectChallengeParticipationView } from '../../src/participation/model.ts'
+import {
+  parseCanonicalMonthlyAwardId,
+  parseLocalCalendarDate,
+  parseStoredChallengeId,
+} from '../../src/participation/identity.ts'
 
 const first = parseStoredChallengeId('cms:challenge-lifecycle-first')!
 const second = parseStoredChallengeId('cms:challenge-lifecycle-second')!
@@ -125,4 +137,77 @@ test('Hub, Month, Shelf, and Library origins remain distinct and round-trip', ()
     assert.deepEqual(parseChallengeOriginFromSearchParams(new URLSearchParams(query)), origin)
   }
   assert.deepEqual(parseChallengeOrigin({ kind: 'month', yearMonth: 'drafts.2026' }), { kind: 'hub' })
+})
+
+test('Start from Beginning resets only target unfinished resume position and leaves saved Scripture, completions, earned awards, and other Challenges intact across reload', async () => {
+  const target = parseStoredChallengeId('cms:challenge-restart-target')!
+  const otherInProgress = parseStoredChallengeId('cms:challenge-restart-other-in-progress')!
+  const otherCompleted = parseStoredChallengeId('cms:challenge-restart-other-completed')!
+  const earnedAwardId = parseCanonicalMonthlyAwardId('card:monthly:2026-11:steadfast-faith')!
+  const earlierDate = parseLocalCalendarDate('2026-11-10')!
+  const todayDate = parseLocalCalendarDate('2026-11-21')!
+  const screens = [{ id: 'screen-1' }, { id: 'screen-2' }, { id: 'screen-3' }]
+
+  const backing = new Map<string, string>()
+  const driver = {
+    getItem: async (key: string) => backing.get(key) ?? null,
+    setItem: async (key: string, value: string) => { backing.set(key, value) },
+    removeItem: async (key: string) => { backing.delete(key) },
+  }
+  const store = createReaderParticipationStore(createEnvelopePersistenceAdapter({ storageKey: 'restart-safety', driver }))
+  await store.whenReady()
+
+  // Seed unrelated completions, earned Card award, saved Scripture, saved Challenge, and another in-progress Challenge
+  await store.dispatch({ type: 'completeChallenge', challengeId: otherCompleted, completedOn: earlierDate })
+  await store.dispatch({
+    type: 'recordEarnedAwards',
+    awards: [{ awardId: earnedAwardId, discoveryId: 'discovery:2026-11:steadfast-faith', earnedOn: earlierDate }],
+  })
+  await store.dispatch({
+    type: 'setScriptureSaved',
+    scripture: { reference: 'Psalm 119:105', translation: 'WEBP', sourceChallengeId: target },
+    saved: true,
+    savedOn: earlierDate,
+  })
+  await store.dispatch({ type: 'setChallengeSaved', challengeId: target, saved: true, savedOn: earlierDate })
+  await store.dispatch({ type: 'saveChallengeProgress', challengeId: otherInProgress, screenId: 'other-s2', updatedOn: earlierDate })
+  await store.dispatch({ type: 'saveChallengeProgress', challengeId: target, screenId: 'screen-3', updatedOn: earlierDate })
+
+  const beforeView = selectChallengeParticipationView(store.getSnapshot().data, target)
+  assert.equal(beforeView.resumeScreenId, 'screen-3')
+  assert.equal(canStartChallengeFromBeginning(challengePlayerPosition(screens, beforeView.resumeScreenId)), true)
+
+  // Start from Beginning on unfinished Challenge uses existing saveChallengeProgress with first stable screen ID
+  const firstScreenId = resolveFirstScreenId(screens)!
+  await store.dispatch({
+    type: 'saveChallengeProgress',
+    challengeId: target,
+    screenId: firstScreenId,
+    updatedOn: todayDate,
+  })
+
+  // Completed Challenge Read Again starts at Screen 1 and never revokes completion or duplicates awards
+  const completedView = selectChallengeParticipationView(store.getSnapshot().data, otherCompleted)
+  assert.equal(completedView.isCompleted, true)
+  assert.equal(resolvePersistedHostScreenId(completedView, undefined), undefined)
+  await store.dispatch({ type: 'saveChallengeProgress', challengeId: otherCompleted, screenId: 'screen-1', updatedOn: todayDate })
+  await store.dispatch({ type: 'completeChallenge', challengeId: otherCompleted, completedOn: todayDate })
+
+  store.dispose()
+
+  // Reload from backing storage and verify isolation + durability
+  const reloaded = createReaderParticipationStore(createEnvelopePersistenceAdapter({ storageKey: 'restart-safety', driver }))
+  await reloaded.whenReady()
+  const data = reloaded.getSnapshot().data
+
+  assert.equal(data.inProgressChallenges[target]?.screenId, 'screen-1')
+  assert.equal(data.inProgressChallenges[otherInProgress]?.screenId, 'other-s2')
+  assert.equal(data.inProgressChallenges[otherCompleted], undefined)
+  assert.equal(data.completedChallenges[otherCompleted]?.completedOn, earlierDate)
+  assert.equal(data.earnedAwards[earnedAwardId]?.earnedOn, earlierDate)
+  assert.equal(data.savedChallenges[target]?.savedOn, earlierDate)
+  assert.equal(data.savedScriptures.length, 1)
+  assert.equal(data.savedScriptures[0]?.reference, 'Psalm 119:105')
+  assert.equal(reloaded.getSnapshot().distinctCompletedCount, 1)
+  reloaded.dispose()
 })
