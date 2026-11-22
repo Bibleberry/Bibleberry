@@ -345,7 +345,7 @@ For active implementation or review work, also include:
 
 For example:
 
-`Copper Meadow | Issue #283 | PR #286 | In Review`
+`Copper Meadow | Issue #283 | PR #286 | In Progress (under Review)`
 
 The example identifies the required format; actual handoffs must report the assignment's currently verified status.
 
