@@ -5,6 +5,7 @@ import {
   clearActiveFocusMonth,
   createEmptyShelfState,
   putAwayShelfMonth,
+  selectShelfMonth,
   setActiveFocusMonth,
 } from '../../src/shelf/policy.ts'
 import type {
@@ -65,7 +66,7 @@ describe('Shelf Active Focus and Extension Seam Separation', () => {
     assert.equal(cleared.activeFocusMonth, null)
   })
 
-  it('preserves active focus when a month is put away from the Shelf', () => {
+  it('puts away Active Focus only with a valid explicit choice', () => {
     const state: ShelfState = {
       months: [
         { yearMonth: ym09, admissionKind: 'readerSelected', isProtected: true },
@@ -74,13 +75,93 @@ describe('Shelf Active Focus and Extension Seam Separation', () => {
       activeFocusMonth: ym09,
     }
 
-    // Putting away ym09 from Shelf removes it from membership, but deliberate focus is separate
-    const putAwayRes = putAwayShelfMonth(state, ym09)
-    assert.equal(putAwayRes.ok, true)
-    if (!putAwayRes.ok) return
-    assert.equal(putAwayRes.state.months.length, 1)
-    assert.equal(putAwayRes.state.months[0]?.yearMonth, ym10)
-    assert.equal(putAwayRes.state.activeFocusMonth, ym09)
+    const missing = putAwayShelfMonth(state, ym09)
+    assert.equal(missing.ok, false)
+    if (!missing.ok) assert.equal(missing.error, 'requiresFocusDecision')
+    assert.equal(missing.state, state)
+
+    for (const nextFocus of [ym09, ym08, 'invalid']) {
+      const invalid = putAwayShelfMonth(state, { yearMonth: ym09, nextFocus })
+      assert.equal(invalid.ok, false)
+      if (!invalid.ok) assert.equal(invalid.error, 'invalidFocusDecision')
+      assert.equal(invalid.state, state)
+    }
+
+    for (const nextFocus of [ym10, null]) {
+      const result = putAwayShelfMonth(state, { yearMonth: ym09, nextFocus, updatedOn: dNov01 })
+      assert.equal(result.ok, true)
+      assert.deepEqual(result.state, { months: [state.months[1]], activeFocusMonth: nextFocus, updatedOn: dNov01 })
+      assert.equal(result.state.months[0], state.months[1])
+
+      const repeated = putAwayShelfMonth(result.state, { yearMonth: ym09, nextFocus })
+      assert.equal(repeated.ok, false)
+      assert.equal(repeated.state, result.state)
+    }
+  })
+
+  it('replaces Active Focus atomically with reassignment or clear', () => {
+    const state: ShelfState = {
+      months: [
+        { yearMonth: ym08, admissionKind: 'autoAdmitted', isProtected: false },
+        { yearMonth: ym09, admissionKind: 'readerSelected', isProtected: true },
+        { yearMonth: ym10, admissionKind: 'readerSelected', isProtected: true },
+      ],
+      activeFocusMonth: ym09,
+    }
+    const params = {
+      yearMonth: '2026-07',
+      referenceCurrentYearMonth: ym11,
+      replaceMonth: ym09,
+      admittedOn: dNov01,
+    }
+
+    for (const [nextFocus, error] of [
+      [undefined, 'requiresFocusDecision'],
+      ['2026-07', 'invalidFocusDecision'],
+      [ym09, 'invalidFocusDecision'],
+      [ym11, 'invalidFocusDecision'],
+    ] as const) {
+      const result = selectShelfMonth(state, { ...params, nextFocus })
+      assert.equal(result.ok, false)
+      if (!result.ok) assert.equal(result.error, error)
+      assert.equal(result.state, state)
+    }
+
+    for (const nextFocus of [ym08, null]) {
+      const result = selectShelfMonth(state, { ...params, nextFocus })
+      assert.equal(result.ok, true)
+      assert.equal(result.state.activeFocusMonth, nextFocus)
+      assert.equal(result.state.months[0], state.months[0])
+      assert.equal(result.state.months[2], state.months[2])
+      assert.deepEqual(result.state.months[1], {
+        yearMonth: '2026-07', admissionKind: 'readerSelected', isProtected: true, admittedOn: dNov01,
+      })
+
+      const repeated = selectShelfMonth(result.state, { ...params, nextFocus })
+      assert.equal(repeated.ok, false)
+      assert.equal(repeated.state, result.state)
+    }
+
+    const staleStates = [
+      { ...state, activeFocusMonth: ym10 },
+      { ...state, months: state.months.slice(0, 2) },
+    ]
+    for (const stale of staleStates) {
+      const result = selectShelfMonth(stale, { ...params, nextFocus: null })
+      assert.equal(result.ok, false)
+      assert.equal(result.state, stale)
+    }
+  })
+
+  it('keeps existing off-Shelf focus through ordinary Put Away', () => {
+    const state: ShelfState = {
+      months: [{ yearMonth: ym09, admissionKind: 'readerSelected', isProtected: true }],
+      activeFocusMonth: ym10,
+    }
+    const result = putAwayShelfMonth(state, ym09)
+    assert.equal(result.ok, true)
+    assert.deepEqual(result.state.months, [])
+    assert.equal(result.state.activeFocusMonth, ym10)
   })
 
   it('never silently rewrites active focus on monthly rollover', () => {

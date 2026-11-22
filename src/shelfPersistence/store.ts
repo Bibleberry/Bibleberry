@@ -19,9 +19,9 @@ import type {
   SetActiveFocusMonthParams,
   SetShelfMonthProtectionParams,
   ShelfActionResult,
-  ShelfEntry,
   ShelfState,
 } from '../shelf/types.ts'
+import { areShelfEntriesEqual } from '../shelf/validation.ts'
 import {
   emptyPersistedShelfPayload,
   reduceShelfCommand,
@@ -100,9 +100,11 @@ export interface GuestShelfStore {
     updatedOn?: LocalCalendarDate,
   ): Promise<ShelfActionResult<'focusUpdated'>>
   evaluateMonthlyRollover(params: MonthlyRolloverParams): Promise<RolloverResult>
+  /** Supply the state the reader confirmed to guard against a newer persisted Shelf during replay. */
   applyState(
     state: ShelfState,
     referenceCurrentMonth?: PublicationYearMonth | string,
+    expectedState?: ShelfState,
   ): Promise<ShelfActionResult<'stateApplied'>>
   flushPending(): Promise<void>
   clearLocalData(): Promise<void>
@@ -113,27 +115,6 @@ interface TaggedShelfCommand {
   readonly id: number
   readonly epoch: number
   readonly command: ShelfCommand
-}
-
-function areShelfEntriesEqual(
-  left: readonly ShelfEntry[],
-  right: readonly ShelfEntry[],
-): boolean {
-  if (left === right) return true
-  if (left.length !== right.length) return false
-  for (let i = 0; i < left.length; i += 1) {
-    const a = left[i]!
-    const b = right[i]!
-    if (
-      a.yearMonth !== b.yearMonth
-      || a.admissionKind !== b.admissionKind
-      || a.isProtected !== b.isProtected
-      || a.admittedOn !== b.admittedOn
-    ) {
-      return false
-    }
-  }
-  return true
 }
 
 function stabilizeShelfState(prev: ShelfState, next: ShelfState): ShelfState {
@@ -683,9 +664,9 @@ export function createGuestShelfStore(
       )
     },
 
-    applyState(state: ShelfState, referenceCurrentMonth?: PublicationYearMonth | string) {
+    applyState(state, referenceCurrentMonth, expectedState) {
       return dispatchCommand(
-        { type: 'applyValidatedState', state, referenceCurrentMonth },
+        { type: 'applyValidatedState', state, referenceCurrentMonth, expectedState },
         outcome => outcome.actionResult as ShelfActionResult<'stateApplied'>,
         reason => createCanceledActionResult(reason),
       )

@@ -7,3 +7,41 @@
   outline: 2px solid var(--focus);
   outline-offset: 6px;
 }
+
+.challenge-player__exit {
+  min-height: 44px;
+}
+
+.lab-screen-nav {
+  flex-wrap: wrap;
+}
+
+.lab-screen-nav .button {
+  min-height: 44px;
+}
+
+.challenge-player__secondary-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.challenge-player__restart {
+  min-height: 44px;
+}
+
+.challenge-player__restart:disabled:hover {
+  transform: none;
+  text-decoration-color: var(--rule);
+}
+
+.challenge-player__completion-actions {
+  margin-top: 14px;
+}
+
+.challenge-player__read-again {
+  min-height: 44px;
+}

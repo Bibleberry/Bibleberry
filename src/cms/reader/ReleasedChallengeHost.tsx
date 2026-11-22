@@ -45,6 +45,8 @@ export type ReleasedChallengeHostProps = {
   onExit?: () => void
   exitLabel?: string
   returnLabel?: string
+  readAgain?: boolean
+  rereadSessionKey?: string | number
   banner?: ReactNode
   footer?: ReactNode
 }
@@ -70,6 +72,8 @@ export function ReleasedChallengeHost({
   onExit,
   exitLabel,
   returnLabel,
+  readAgain,
+  rereadSessionKey,
   banner,
   footer,
 }: ReleasedChallengeHostProps) {
@@ -268,6 +272,8 @@ export function ReleasedChallengeHost({
       }}
       onExit={onExit}
       returnOnFinish={Boolean(onReturn || onExit)}
+      readAgain={readAgain}
+      rereadSessionKey={rereadSessionKey}
       exitLabel={effectiveExitLabel}
       banner={banner}
       footer={footer}

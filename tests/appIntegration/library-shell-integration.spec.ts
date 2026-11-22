@@ -374,7 +374,7 @@ test.describe('Issue #158: Historical Library App-Shell Integration', () => {
     // Complete Challenge via Finish
     await page
       .getByRole('navigation', { name: 'Challenge screen navigation' })
-      .getByRole('button', { name: 'Continue' })
+      .getByRole('button', { name: 'Next' })
       .click()
     await page.getByRole('button', { name: 'Finish' }).click()
 

@@ -24,29 +24,29 @@ test.describe('Shared Challenge reader accessibility', () => {
     const firstHeading = page.getByRole('heading', { level: 2, name: 'Pilot screen one: normal app shell' });
     await expect(firstHeading).toBeFocused();
     await expect(page.getByRole('progressbar', { name: 'Challenge screen position' }))
-      .toHaveAttribute('aria-valuetext', '1 of 2');
+      .toHaveAttribute('aria-valuetext', 'Screen 1 of 2');
 
     const headingOutline = await firstHeading.evaluate(element => getComputedStyle(element).outlineStyle);
     expect(headingOutline).not.toBe('none');
 
     const navigation = page.getByRole('navigation', { name: 'Challenge screen navigation' });
-    const continueButton = navigation.getByRole('button', { name: 'Continue' });
-    await continueButton.focus();
+    const nextButton = navigation.getByRole('button', { name: 'Next' });
+    await nextButton.focus();
     await page.keyboard.press('Enter');
 
     const finalHeading = page.getByRole('heading', { level: 2, name: 'Pilot screen two: optional study and completion' });
     await expect(finalHeading).toBeFocused();
     await expect(page.getByRole('progressbar', { name: 'Challenge screen position' }))
-      .toHaveAttribute('aria-valuetext', '2 of 2');
+      .toHaveAttribute('aria-valuetext', 'Screen 2 of 2');
     expect(await finalHeading.evaluate(element => getComputedStyle(element).outlineStyle)).not.toBe('none');
 
-    const backButton = navigation.getByRole('button', { name: 'Back' });
-    await backButton.focus();
+    const previousButton = navigation.getByRole('button', { name: 'Previous' });
+    await previousButton.focus();
     await page.keyboard.press('Enter');
     await expect(firstHeading).toBeFocused();
     expect(await firstHeading.evaluate(element => getComputedStyle(element).outlineStyle)).not.toBe('none');
 
-    await continueButton.focus();
+    await nextButton.focus();
     await page.keyboard.press('Enter');
     await expect(finalHeading).toBeFocused();
     await expect(page.locator('.lab-completion')).toHaveCount(0);
@@ -83,9 +83,9 @@ test.describe('Shared Challenge reader accessibility', () => {
     await expect(screenBlocks.nth(0)).toContainText('shared ChallengePlayer');
     await expect(screenBlocks.nth(1)).toContainText('Non-durable demonstration boundary');
 
-    const continueButton = page.getByRole('navigation', { name: 'Challenge screen navigation' })
-      .getByRole('button', { name: 'Continue' });
-    await continueButton.focus();
+    const nextButton = page.getByRole('navigation', { name: 'Challenge screen navigation' })
+      .getByRole('button', { name: 'Next' });
+    await nextButton.focus();
     await page.keyboard.press('Enter');
     await expect(page.locator('#pilot-screen-finish-title')).toBeFocused();
 

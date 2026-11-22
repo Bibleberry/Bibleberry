@@ -6,6 +6,7 @@ import {
 } from '../../src/participation/defaultGuestStore.ts'
 import type { CapacitorPreferencesBridge } from '../../src/participation/drivers/capacitorPreferencesDriver.ts'
 import type { KeyValueStorageDriver } from '../../src/participation/persistence.ts'
+import { putAwayShelfMonth } from '../../src/shelf/policy.ts'
 import {
   GUEST_SHELF_STORAGE_KEY,
   createGuestShelfStore,
@@ -325,7 +326,7 @@ test('clearLocalData during pending async write prevents resurrection in memory 
   store.dispose()
 })
 
-test('full Shelf rejects select without replaceMonth and preserves activeFocusMonth across Put Away', async () => {
+test('full Shelf requires a replacement slot and Put Away of Active Focus requires a choice', async () => {
   const webStorage = createWebStorageDouble()
   const store = createWebGuestShelfStore({
     storage: webStorage,
@@ -357,10 +358,16 @@ test('full Shelf rejects select without replaceMonth and preserves activeFocusMo
     ['2026-10', '2026-08', '2026-09'],
   )
 
-  // Active focus independent of Shelf membership
   await store.setFocus('2026-08')
-  await store.putAway('2026-08')
-  assert.equal(store.getSnapshot().state.activeFocusMonth, '2026-08')
+  const before = store.getSnapshot()
+  const withoutChoice = await store.putAway('2026-08')
+  assert.equal(withoutChoice.ok, false)
+  if (!withoutChoice.ok) assert.equal(withoutChoice.error, 'requiresFocusDecision')
+  assert.equal(store.getSnapshot(), before)
+
+  const removed = await store.putAway({ yearMonth: '2026-08', nextFocus: '2026-09' })
+  assert.equal(removed.ok, true)
+  assert.equal(store.getSnapshot().state.activeFocusMonth, '2026-09')
   assert.deepEqual(
     store.getSnapshot().state.months.map(m => m.yearMonth),
     ['2026-10', '2026-09'],
@@ -614,5 +621,34 @@ test('commands rebased onto external storage changes return the committed policy
   const month06 = store.getSnapshot().state.months.find(m => m.yearMonth === '2026-06')
   assert.equal(month06?.isProtected, false)
 
+  store.dispose()
+})
+
+test('confirmed Shelf update cannot overwrite a storage change that arrived before commit', async () => {
+  const webStorage = createWebStorageDouble()
+  const store = createWebGuestShelfStore({ storage: webStorage, referenceCurrentMonth: '2026-11' })
+  await store.whenReady()
+  await store.select({ yearMonth: '2026-08', referenceCurrentYearMonth: '2026-11' })
+  await store.select({ yearMonth: '2026-09', referenceCurrentYearMonth: '2026-11' })
+  await store.setFocus('2026-08')
+
+  const expectedState = store.getSnapshot().state
+  const confirmation = putAwayShelfMonth(expectedState, { yearMonth: '2026-08', nextFocus: '2026-09' })
+  assert.equal(confirmation.ok, true)
+
+  // Another tab changes focus without this store having processed its storage event.
+  const newerShelf = JSON.stringify({
+    schemaVersion: 1,
+    state: { ...expectedState, activeFocusMonth: '2026-09' },
+  })
+  webStorage.setItem(GUEST_SHELF_STORAGE_KEY, newerShelf)
+
+  const stale = await store.applyState(confirmation.state, '2026-11', expectedState)
+  assert.equal(stale.ok, false)
+  if (!stale.ok) assert.equal(stale.error, 'staleShelfConfirmation')
+  assert.deepEqual(stale.state.months, expectedState.months)
+  assert.equal(stale.state.activeFocusMonth, '2026-09')
+  assert.equal(webStorage.getItem(GUEST_SHELF_STORAGE_KEY), newerShelf)
+  assert.equal(store.getSnapshot().hasPendingWrites, false)
   store.dispose()
 })

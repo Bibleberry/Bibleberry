@@ -52,8 +52,9 @@ export function buildShelfHostPropsFromGuestStore(
   return {
     referenceCurrentYearMonth,
     state: snapshot.state,
-    onStateChange: (nextState: ShelfState) => {
-      void store.applyState(nextState, referenceCurrentYearMonth)
+    onStateChange: async (nextState: ShelfState, expectedState?: ShelfState) => {
+      const result = await store.applyState(nextState, referenceCurrentYearMonth, expectedState)
+      if (!result.ok) return result.message
     },
     onOpenMonth,
     ...(onRequestLibraryPicker ? { onRequestLibraryPicker } : {}),

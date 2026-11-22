@@ -10,6 +10,7 @@ import {
   createFirstPostRolloverResumeSeam,
   putAwayShelfMonth,
   selectShelfMonth,
+  SHELF_CONFIRMATION_STALE_MESSAGE,
   setActiveFocusMonth,
   setShelfMonthProtection,
 } from '../shelf/policy.ts'
@@ -20,6 +21,7 @@ import type {
   ShelfState,
 } from '../shelf/types.ts'
 import {
+  areShelfStatesEqual,
   getPreviousPublicationYearMonth,
   isHistoricalPublicationYearMonth,
   parseValidPublicationYearMonth,
@@ -336,6 +338,20 @@ export function reduceShelfCommand(
     }
 
     case 'applyValidatedState': {
+      const { expectedState } = command
+      if (expectedState && !areShelfStatesEqual(expectedState, payload.state)) {
+        return {
+          payload,
+          changed: false,
+          actionResult: {
+            ok: false,
+            state: payload.state,
+            error: 'staleShelfConfirmation',
+            message: SHELF_CONFIRMATION_STALE_MESSAGE,
+          },
+        }
+      }
+
       const validation = validateShelfState(command.state, {
         referenceCurrentMonth: command.referenceCurrentMonth,
       })
