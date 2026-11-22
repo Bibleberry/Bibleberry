@@ -2,43 +2,10 @@ name: Native iOS simulator build
 
 on:
   pull_request:
+    types: [opened, reopened, synchronize]
     branches: [main]
-    paths:
-      - ios/**
-      - capacitor.config.ts
-      - package.json
-      - package-lock.json
-      # Vite/Capacitor packages current web app assets into the native iOS app.
-      - src/**
-      - public/**
-      - index.html
-      - vite.config.*
-      - tsconfig*.json
-      - tailwind.config.js
-      - postcss.config.js
-      - scripts/ios-simulator-snapshot.py
-      - scripts/ios-simulator-smoke.py
-      - tests/ci/test_ios_simulator_smoke.py
-      - .github/workflows/native-ios.yml
   push:
     branches: [main]
-    paths:
-      - ios/**
-      - capacitor.config.ts
-      - package.json
-      - package-lock.json
-      # Vite/Capacitor packages current web app assets into the native iOS app.
-      - src/**
-      - public/**
-      - index.html
-      - vite.config.*
-      - tsconfig*.json
-      - tailwind.config.js
-      - postcss.config.js
-      - scripts/ios-simulator-snapshot.py
-      - scripts/ios-simulator-smoke.py
-      - tests/ci/test_ios_simulator_smoke.py
-      - .github/workflows/native-ios.yml
   workflow_dispatch:
     inputs:
       run_lifecycle_probe:
@@ -46,21 +13,57 @@ on:
         type: boolean
         default: false
 
+# Only PR runs share a concurrency group. Each main push and dispatch must run.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
-jobs:
-  ios-simulator:
-    name: Signing-free iOS Simulator build
-    runs-on: macos-26
+defaults:
+  run:
+    shell: bash
 
+env:
+  HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
+jobs:
+  scope:
+    name: Determine iOS PR scope
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    outputs:
+      scope: ${{ steps.classify.outputs.scope }}
+      reason: ${{ steps.classify.outputs.reason }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          package-manager-cache: false
+
+      - name: Classify complete PR and integration diffs
+        id: classify
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/ci/ios-scope.mjs
+
+  ios-simulator:
+    name: Signing-free iOS Simulator build
+    needs: scope
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && (needs.scope.result != 'success' || needs.scope.outputs.scope != 'none') }}
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -68,14 +71,38 @@ jobs:
           node-version: '22'
           cache: npm
 
-      - name: Select documented Xcode 26.4.1
+      - name: Compile and verify the unsigned app and run smoke unit tests
         run: |
-          sudo xcode-select --switch /Applications/Xcode_26.4.1.app/Contents/Developer
-          xcodebuild -version | tee "$RUNNER_TEMP/xcode-version.txt"
-          grep -Fxq 'Xcode 26.4.1' "$RUNNER_TEMP/xcode-version.txt"
-          grep -Fxq 'Build version 17E202' "$RUNNER_TEMP/xcode-version.txt"
-          xcodebuild -showsdks | tee "$RUNNER_TEMP/xcode-sdks.txt"
-          grep -Fq 'iphonesimulator26.4' "$RUNNER_TEMP/xcode-sdks.txt"
+          source scripts/ci/build-ios-simulator.sh
+          select_ios_xcode
+          prepare_ios_project
+          build_unsigned_ios_app "$RUNNER_TEMP/BibleberryDerivedData"
+          verify_ios_bundle "$RUNNER_TEMP/BibleberryDerivedData/Build/Products/Debug-iphonesimulator/App.app"
+          run_ios_smoke_unit_tests
+
+  ios-runtime:
+    name: iOS Simulator runtime acceptance
+    needs: scope
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.scope.result != 'success' || (needs.scope.outputs.scope != 'none' && needs.scope.outputs.scope != 'build')) }}
+    runs-on: macos-26
+    outputs:
+      build-proof: ${{ steps.smoke-unit-tests.outcome }}
+      runtime-proof: ${{ steps.runtime-smoke.outcome }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Select and verify pinned Xcode and Simulator SDK
+        run: |
+          source scripts/ci/build-ios-simulator.sh
+          select_ios_xcode
           xcrun simctl list runtimes | tee "$RUNNER_TEMP/simulator-runtimes-before.txt"
 
       - name: Provision iOS 26.4 Simulator runtime when missing
@@ -110,17 +137,10 @@ jobs:
             exit 1
           fi
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build web application
-        run: npm run build
-
-      - name: Sync Capacitor iOS project
+      - name: Build web assets and sync Capacitor iOS project
         run: |
-          npx cap sync ios
-          grep -Fq 'CapacitorApp' ios/App/CapApp-SPM/Package.swift
-          grep -Fq 'CapacitorPreferences' ios/App/CapApp-SPM/Package.swift
+          source scripts/ci/build-ios-simulator.sh
+          prepare_ios_project
 
       - name: Inspect iOS Simulator destinations
         run: |
@@ -137,37 +157,23 @@ jobs:
 
       - name: Build unsigned iOS Simulator app
         run: |
-          xcodebuild \
-            -project ios/App/App.xcodeproj \
-            -scheme App \
-            -configuration Debug \
-            -destination 'generic/platform=iOS Simulator' \
-            -derivedDataPath "$RUNNER_TEMP/BibleberryDerivedData" \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY='' \
-            build
+          source scripts/ci/build-ios-simulator.sh
+          build_unsigned_ios_app "$RUNNER_TEMP/BibleberryDerivedData"
 
       - name: Verify simulator app identity and web assets
         id: verify-app
-        env:
-          APP: ${{ runner.temp }}/BibleberryDerivedData/Build/Products/Debug-iphonesimulator/App.app
         run: |
-          test -d "$APP"
-          test -s "$APP/Info.plist"
-          BUNDLE_ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist")
-          test "$BUNDLE_ID" = 'com.example.bibleberry.r20poc'
-          test -s "$APP/public/index.html"
-          test -n "$(find "$APP/public/assets" -type f -name '*.js' -size +0c -print -quit)"
-          echo "Bundle ID: $BUNDLE_ID"
-          echo "PR head SHA (or push SHA): ${{ github.event.pull_request.head.sha || github.sha }}"
-          echo "Build SHA (GITHUB_SHA): $GITHUB_SHA"
-          echo "App size: $(du -sh "$APP" | cut -f1)"
+          source scripts/ci/build-ios-simulator.sh
+          verify_ios_bundle "$RUNNER_TEMP/BibleberryDerivedData/Build/Products/Debug-iphonesimulator/App.app"
 
       - name: Run iOS simulator smoke unit tests
-        run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v tests/ci/test_ios_simulator_smoke.py
+        id: smoke-unit-tests
+        run: |
+          source scripts/ci/build-ios-simulator.sh
+          run_ios_smoke_unit_tests
 
       - name: Run iOS Simulator runtime smoke (install, launch, restart, UI lifecycle)
+        id: runtime-smoke
         run: |
           mkdir -p "$RUNNER_TEMP/ios-simulator-evidence/env"
           uname -m > "$RUNNER_TEMP/ios-simulator-evidence/env/uname-m.txt"
@@ -188,11 +194,20 @@ jobs:
           cp -f "$RUNNER_TEMP"/xcode-*.txt "$RUNNER_TEMP"/simulator-runtimes*.txt "$RUNNER_TEMP"/ios-destinations-before-build.txt "$RUNNER_TEMP/ios-simulator-evidence/env/" 2>/dev/null || true
           python3 scripts/ios-simulator-snapshot.py "$RUNNER_TEMP/ios-simulator-evidence/env/simctl-devices-after-failure.json"
 
+      - name: Record runtime evidence provenance
+        if: always()
+        run: |
+          evidence="$RUNNER_TEMP/ios-simulator-evidence"
+          mkdir -p "$evidence"
+          printf 'event=%s\nhead_sha=%s\nbuild_sha=%s\nrun_id=%s\nrun_attempt=%s\nsmoke_outcome=%s\n' \
+            "$GITHUB_EVENT_NAME" "$HEAD_SHA" "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" \
+            "${{ steps.runtime-smoke.outcome }}" > "$evidence/ci-provenance.txt"
+
       - name: Upload iOS Simulator runtime smoke evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: bibleberry-r20-4-ios-simulator-evidence
+          name: bibleberry-r20-4-ios-simulator-evidence-${{ github.run_attempt }}
           path: ${{ runner.temp }}/ios-simulator-evidence
           if-no-files-found: warn
           retention-days: 7
@@ -201,7 +216,7 @@ jobs:
         if: ${{ !cancelled() && steps.verify-app.outcome == 'success' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: bibleberry-r20-3-ios-simulator-app
+          name: bibleberry-r20-3-ios-simulator-app-${{ github.run_attempt }}
           path: ${{ runner.temp }}/BibleberryDerivedData/Build/Products/Debug-iphonesimulator/App.app
           if-no-files-found: error
           retention-days: 7
@@ -212,28 +227,88 @@ jobs:
         env:
           VITE_ENABLE_NATIVE_LIFECYCLE_PROBE: 'true'
         run: |
+          source scripts/ci/build-ios-simulator.sh
+          evidence="$RUNNER_TEMP/ios-simulator-lifecycle-probe-evidence"
+          mkdir -p "$evidence"
+          printf 'event=%s\nhead_sha=%s\nbuild_sha=%s\nrun_id=%s\nrun_attempt=%s\n' \
+            "$GITHUB_EVENT_NAME" "$HEAD_SHA" "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" \
+            > "$evidence/ci-provenance.txt"
           npm run build
           npx cap sync ios
-          xcodebuild \
-            -project ios/App/App.xcodeproj \
-            -scheme App \
-            -configuration Debug \
-            -destination 'generic/platform=iOS Simulator' \
-            -derivedDataPath "$RUNNER_TEMP/BibleberryLifecycleProbeDerivedData" \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY='' \
-            build
+          build_unsigned_ios_app "$RUNNER_TEMP/BibleberryLifecycleProbeDerivedData"
           python3 scripts/ios-simulator-smoke.py \
             --lifecycle-probe-only \
             --app-path "$RUNNER_TEMP/BibleberryLifecycleProbeDerivedData/Build/Products/Debug-iphonesimulator/App.app" \
-            --evidence-dir "$RUNNER_TEMP/ios-simulator-lifecycle-probe-evidence"
+            --evidence-dir "$evidence"
 
       - name: Upload iOS Simulator lifecycle probe evidence
         if: ${{ !cancelled() && (steps.lifecycle-probe.outcome == 'success' || steps.lifecycle-probe.outcome == 'failure') }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: bibleberry-r20-4-ios-lifecycle-probe-evidence
+          name: bibleberry-r20-4-ios-lifecycle-probe-evidence-${{ github.run_attempt }}
           path: ${{ runner.temp }}/ios-simulator-lifecycle-probe-evidence
           if-no-files-found: warn
           retention-days: 7
+
+  ios-summary:
+    name: iOS verification summary
+    if: always()
+    needs: [scope, ios-simulator, ios-runtime]
+    runs-on: ubuntu-24.04
+    env:
+      SCOPE_RESULT: ${{ needs.scope.result }}
+      PR_SCOPE: ${{ needs.scope.outputs.scope }}
+      SCOPE_REASON: ${{ needs.scope.outputs.reason }}
+      BUILD_RESULT: ${{ needs.ios-simulator.result }}
+      RUNTIME_RESULT: ${{ needs.ios-runtime.result }}
+      RUNTIME_BUILD_PROOF: ${{ needs.ios-runtime.outputs.build-proof }}
+      RUNTIME_SMOKE_PROOF: ${{ needs.ios-runtime.outputs.runtime-proof }}
+    steps:
+      - name: Report iOS proof for this commit
+        run: |
+          build_required=false
+          runtime_required=true
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            build_required=true
+            if [[ "$SCOPE_RESULT" == success ]]; then
+              case "$PR_SCOPE" in
+                none) build_required=false; runtime_required=false ;;
+                build) runtime_required=false ;;
+              esac
+            else
+              SCOPE_REASON='Scope job did not succeed; full runtime required'
+            fi
+          else
+            SCOPE_REASON='Full acceptance for main pushes and manual runs'
+          fi
+
+          failed=0
+          if [[ "$BUILD_RESULT" == success || ( "$GITHUB_EVENT_NAME" != pull_request && "$RUNTIME_BUILD_PROOF" == success ) ]]; then
+            build_status='iOS Build Passed'
+          elif [[ "$GITHUB_EVENT_NAME" != pull_request ]]; then
+            build_status="No passing build proof from the runtime job (${RUNTIME_BUILD_PROOF:-unavailable})"
+            failed=1
+          elif [[ "$build_required" == false && "$BUILD_RESULT" == skipped ]]; then
+            build_status='Not run / Not required for this PR'
+          else
+            build_status="No passing build proof ($BUILD_RESULT)"
+            failed=1
+          fi
+
+          if [[ "$RUNTIME_RESULT" == success && "$RUNTIME_SMOKE_PROOF" == success ]]; then
+            runtime_status='iOS Runtime Verified'
+          elif [[ "$runtime_required" == false && "$RUNTIME_RESULT" == skipped ]]; then
+            runtime_status='Not run / Not required for this PR'
+          else
+            runtime_status="No passing runtime proof ($RUNTIME_RESULT)"
+            failed=1
+          fi
+
+          {
+            printf '## iOS verification\n\n'
+            printf -- '- Event: %s\n- PR head or run commit: `%s`\n- Build/integration SHA: `%s`\n' \
+              "$GITHUB_EVENT_NAME" "$HEAD_SHA" "$GITHUB_SHA"
+            printf -- '- Scope: %s\n- Build: **%s**\n- Runtime: **%s**\n' \
+              "${SCOPE_REASON:-Scope missing; full runtime required}" "$build_status" "$runtime_status"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          exit "$failed"

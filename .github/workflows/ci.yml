@@ -51,6 +51,10 @@ jobs:
         if: steps.scope.outputs.should_run == 'true'
         run: npm run test:shelf-persistence
 
+      - name: Run reader profile unit tests
+        if: steps.scope.outputs.should_run == 'true'
+        run: npm run test:reader-profile
+
       - name: Run hermetic regression tests
         if: steps.scope.outputs.should_run == 'true'
         run: >-

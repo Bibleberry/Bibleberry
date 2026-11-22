@@ -14,7 +14,7 @@ Now that Bibleberry is a public repository running on standard ephemeral GitHub-
   - `.github/workflows/ci.yml` (`Bibleberry CI`: `Build reader application`, `Verify CMS adapters and BerryMark preview`, `Verify Release Gateway core`, `Verify Sanity Studio`)
   - `.github/workflows/collections-browser.yml` (`Collections Browser Tests`: `Saved Scripture and Field Notebook (Chromium)`)
   - `.github/workflows/native-android.yml` (`Native Android debug build`: `Native Android debug APK`)
-  - `.github/workflows/native-ios.yml` already had no Draft guard and remains unchanged.
+  - `.github/workflows/native-ios.yml` applies the same build and runtime scope rules to Draft and Ready PRs on open, reopen, and synchronize. Ready promotion alone reuses evidence for the tested commit. [Pine Relay trigger policy](native-ci-trigger-parity.md)
 - **PR event triggers:** `ci.yml`, `collections-browser.yml`, and `native-android.yml` run on `pull_request` types `[opened, reopened, synchronize, ready_for_review]` targeting `main`. `converted_to_draft` is removed so converting a PR to Draft does not spawn redundant duplicate runs.
 - **Legitimate change-scope skips retained:**
   - `ci.yml` and `collections-browser.yml` continue to evaluate changed files via `scripts/ci/check-scope.mjs`. When a Draft PR modifies only irrelevant files (such as documentation-only edits), jobs still fast-skip heavy build/test steps and succeed cleanly.
