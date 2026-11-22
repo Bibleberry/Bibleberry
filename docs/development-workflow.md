@@ -18,7 +18,7 @@ The **Bibleberry Development** Project uses four statuses.
 1. **Triage** holds candidate Issues. Planning creates engineering assignment Issues here for Dev to evaluate.
 2. **Ready to Assign** means Dev has determined that the scope, acceptance criteria, and dependencies are clear enough to assign. Dev dispatches work when Aaron’s authorization covers the assignment.
 3. **In Progress** covers implementation, PR review, corrections, and merge checks. The Issue stays here while the PR awaits Aaron’s merge decision.
-4. **Done** records completion. For implementation work, the Project Board Steward marks the Issue Done when the PR completing its scope has merged. If Aaron directs another disposition, the Steward records the outcome he specifies.
+4. **Done** records completion. **Planning, acting as Project Board Steward**, marks an implementation Issue Done only after the PR completing its full scope has merged. If Aaron directs another disposition, Planning records his decision.
 
 See [Department Responsibilities](ai-operations/department-responsibilities.md) for ownership and handoffs at each stage.
 
@@ -30,8 +30,8 @@ See [Department Responsibilities](ai-operations/department-responsibilities.md) 
 4. Create a development branch for the work.
 5. Implement and test the changes.
 6. Open a Pull Request for review.
-7. Verify the implementation and check for regressions.
-8. With Aaron's authorization, merge approved changes into `main`. Close the originating Issue only when its full scope and acceptance criteria have been satisfied. Otherwise, keep the Issue open. The Project Board Steward reconciles the **Done** status against the accepted outcome.
+7. For technical/software changes, obtain Independent Review's exact-HEAD disposition; **Admin's Checks & Merge** verifies required CI, review evidence, and merge readiness. For strictly administrative/governance-documentation PRs, Aaron may expressly deem technical Review inapplicable and approve the work himself; Admin records that decision and still checks applicable requirements.
+8. **Only with Aaron's authorization**, Admin may execute the merge process into `main`. Close the originating Issue only when its full scope and acceptance criteria have been satisfied; otherwise keep it open. Planning, as Project Board Steward, reconciles **Done** against the accepted outcome.
 
 ## Weekly Operating Review
 
@@ -49,7 +49,7 @@ Use the existing **Bibleberry Development** GitHub Project board for work status
 
 ### During the review
 
-- Reconcile the board against linked Issues and PRs using **Triage → Ready to Assign → In Progress → Done**. For an Issue in **In Progress**, use the PR Conversation to identify the latest Independent Review disposition and the commit it covers. Use the merged PR or Aaron’s recorded direction to reconcile completion.
+- **Planning's Project Board Steward** reconciles the board against linked Issues and PRs using **Triage → Ready to Assign → In Progress → Done**, implementing Dev's readiness and active-work decisions. For technical PRs, inspect the PR Conversation for the latest Independent Review disposition and its reviewed SHA. For strictly administrative/governance-documentation PRs without technical review, inspect Aaron's explicit applicability/approval decision. Use the completing merged PR or Aaron's recorded direction to reconcile completion.
 - Check open PRs for required CI status, reported functional/regression checks, unresolved comments, and required editorial approvals. Follow [AI Development Protocol](ai-development-protocol.md) and [Regression Smoke-Test Checklist](testing/regression-smoke-checklist.md).
 - Distinguish **documented**, **approved**, **implemented**, **verified**, **merged**, and **released**. Capture scope changes and major decisions in the relevant `docs/` file, with an Issue/PR link.
 - Keep issues concise and avoid recurring duplicate tickets or a large status report. The weekly review can be handled asynchronously in conversation and the GitHub board.
