@@ -146,13 +146,15 @@ General Administration does not independently commission coding work or assume i
 
 ### Engineering Issue Planning
 
-A future Engineering Issue Planning department is being considered.
+Engineering Issue Planning (Planning) investigates upcoming engineering requirements, examines accepted implementations and existing Issues, identifies dependencies, and creates bounded candidate engineering Issues within Aaron's authorized planning initiatives.
 
-Its proposed responsibilities include researching upcoming engineering requirements and preparing well-defined GitHub Issues.
+Planning assigns permanent two-word codenames, establishes acceptance criteria and verification expectations, and places new candidate Issues in Triage on the existing Bibleberry Development Project.
 
-Its final authority and relationship with Dev will be established separately by Aaron.
+Development Management (Dev) evaluates readiness, manages engineering sequencing, selects coding agents, and dispatches authorized work.
 
-General Administration will help integrate its charter into the existing organizational structure.
+General Administration supports cross-department coordination and organizational governance but does not assume Planning's engineering research or Issue-creation responsibilities.
+
+Planning's authority to create candidate Issues does not authorize implementation. Aaron retains final engineering and organizational authority.
 
 ## 5. Sources of Truth
 
