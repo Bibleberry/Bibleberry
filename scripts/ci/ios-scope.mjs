@@ -6,6 +6,10 @@ const sha = /^[0-9a-f]{40}$/
 const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
 
 const nativeSource = /^src\/(?:(?:App|main)\.tsx$|(?:native|deepLinkIngress|participation|shelfPersistence|readerProfile|readerShell\/navigation|appIntegration)\/)/
+const nativeStorage = new Set([
+  'src/components/announcements/announcementPreferencesStorage.ts',
+  'src/components/month/monthIntroStorage.ts',
+])
 const nativeReference = /@capacitor\b|\bCapacitor\b|\bcordova\b|\bWKWebView\b|webkit\s*\.\s*messageHandlers|CapacitorPreferences|(?:^|[/'"])\b(?:native|deepLinkIngress|participation|shelfPersistence|readerProfile)\//im
 const staticAsset = /\.(?:avif|gif|ico|jpe?g|png|svg|webp|woff2?|ttf|otf|pdf|mp3|mp4|webm|vtt)$/i
 const unrelatedFolder = /^(?:android|docs|studio|supabase)\//
@@ -32,7 +36,7 @@ function git(cwd, ...args) {
 
 function changedPaths(cwd, before, after) {
   // Treat a rename as a deletion and addition so both names are classified.
-  const fields = git(cwd, 'diff', '--no-ext-diff', '--no-renames', '--raw', '-z', before, after, '--').split('\0')
+  const fields = git(cwd, 'diff', '--no-ext-diff', '--no-renames', '--ignore-submodules=none', '--raw', '-z', before, after, '--').split('\0')
   if (fields.pop() !== '' || fields.length % 2 !== 0) throw new Error('Malformed Git diff')
 
   const changes = []
@@ -72,7 +76,9 @@ export function detectIosScope({ event, base, head, build, cwd }) {
     for (const { status, path, before, after } of changes) {
       if (unrelatedFolder.test(path) || unrelatedFiles.has(path)
           || (path.startsWith('tests/') && !runtimeTest.test(path))) continue
-      if (nativeSource.test(path)) return { scope: 'runtime', reason: 'Native integration source changed' }
+      if (nativeSource.test(path) || nativeStorage.has(path)) {
+        return { scope: 'runtime', reason: 'Native integration source changed' }
+      }
 
       if (/^src\/.*\.(?:[cm]?[jt]sx?|css|json|html)$/.test(path)) {
         // Inspect both versions to catch a new native bridge and the removal of an existing one.

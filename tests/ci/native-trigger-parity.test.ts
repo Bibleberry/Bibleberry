@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const SHARED_WEB_BUNDLE_PATHS = [
   'capacitor.config.ts',
@@ -232,6 +235,60 @@ test('The iOS jobs share strict build checks, with simulator provisioning and ac
   assert.match(runtime, /VITE_ENABLE_NATIVE_LIFECYCLE_PROBE: 'true'/);
   assert.match(runtime, /--lifecycle-probe-only/);
   assert.match(runtime, /name: bibleberry-r20-4-ios-lifecycle-probe-evidence-/);
+});
+
+test('the iOS summary reports actual proof and rejects missing required runtime', t => {
+  const workflow = readRepoFile('.github/workflows/native-ios.yml');
+  const summary = extractBlock(workflow, /^ {2}ios-summary:\s*$/);
+  const run = extractBlock(summary, /^ {8}run: \|$/);
+  const script = run.split('\n').slice(1).map(line => line.slice(10)).join('\n');
+  const dir = mkdtempSync(join(tmpdir(), 'ios-summary-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+
+  const common = {
+    GITHUB_EVENT_NAME: 'pull_request',
+    GITHUB_SHA: 'integration-sha',
+    HEAD_SHA: 'pr-head-sha',
+    BUILD_RESULT: 'success',
+    SCOPE_RESULT: 'success',
+    PR_SCOPE: 'runtime',
+  };
+  const cases = [
+    { env: { PR_SCOPE: 'build', RUNTIME_RESULT: 'skipped' }, pass: true, verified: false },
+    { env: { PR_SCOPE: 'none', BUILD_RESULT: 'skipped', RUNTIME_RESULT: 'skipped' }, pass: true, verified: false },
+    { env: { RUNTIME_RESULT: 'success', RUNTIME_SMOKE_PROOF: 'success' }, pass: true, verified: true },
+    { env: { RUNTIME_RESULT: 'success', RUNTIME_SMOKE_PROOF: 'skipped' }, pass: false, verified: false },
+    { env: { RUNTIME_RESULT: 'failure', RUNTIME_SMOKE_PROOF: 'failure' }, pass: false, verified: false },
+    { env: { RUNTIME_RESULT: 'cancelled' }, pass: false, verified: false },
+    { env: { RUNTIME_RESULT: 'skipped' }, pass: false, verified: false },
+    { env: { BUILD_RESULT: 'failure', RUNTIME_RESULT: 'success', RUNTIME_SMOKE_PROOF: 'success' }, pass: false, verified: true },
+    { env: { SCOPE_RESULT: 'failure', PR_SCOPE: 'build', RUNTIME_RESULT: 'skipped' }, pass: false, verified: false },
+    { env: { PR_SCOPE: '', RUNTIME_RESULT: 'skipped' }, pass: false, verified: false },
+    ...['push', 'workflow_dispatch'].map(event => ({
+      env: { GITHUB_EVENT_NAME: event, SCOPE_RESULT: 'skipped', BUILD_RESULT: 'skipped',
+        RUNTIME_RESULT: 'success', RUNTIME_BUILD_PROOF: 'success', RUNTIME_SMOKE_PROOF: 'success' },
+      pass: true,
+      verified: true,
+    })),
+  ];
+
+  for (const [i, { env, pass, verified }] of cases.entries()) {
+    const path = join(dir, 'summary-' + i + '.md');
+    const result = spawnSync('bash', ['-eo', 'pipefail', '-c', script], {
+      env: { ...common, ...env, GITHUB_STEP_SUMMARY: path },
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    assert.equal(result.status, pass ? 0 : 1, result.stderr);
+    const body = readFileSync(path, 'utf8');
+    assert.match(body, /PR head or run commit: .pr-head-sha/);
+    assert.match(body, /Build\/integration SHA: .integration-sha/);
+    assert.equal(body.includes('iOS Runtime Verified'), verified, body);
+    assert.equal(body.includes('iOS Build Passed'),
+      (env.BUILD_RESULT ?? common.BUILD_RESULT) === 'success' || env.RUNTIME_BUILD_PROOF === 'success', body);
+    if (!verified && pass) assert.match(body, /Runtime: \*\*Not run \/ Not required for this PR\*\*/);
+    if (!verified && !pass) assert.match(body, /No passing runtime proof/);
+  }
 });
 
 test('Native Android preserves debug APK validation path, Draft-PR policy from Silver Badger, and unfiltered merge_group', () => {

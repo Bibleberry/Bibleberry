@@ -83,6 +83,8 @@ test('native, shared build and unknown inputs require build and full runtime on 
     'src/participation/defaultGuestStore.ts',
     'src/deepLinkIngress/index.ts',
     'src/readerShell/navigation/navigationBrowser.ts',
+    'src/components/announcements/announcementPreferencesStorage.ts',
+    'src/components/month/monthIntroStorage.ts',
     'src/shelfPersistence/defaultGuestShelfStore.ts',
     'src/readerProfile/platformStore.ts',
     'src/App.tsx',
@@ -153,6 +155,15 @@ test('scope has no 300-path cutoff', t => {
   assert.equal(detectIosScope(request).reason, 'Native, packaging, CI, or unclassified input changed');
 });
 
+test('both the original PR diff and the checked-out integration diff contribute to scope', t => {
+  const repo = repository(t);
+  const request = repo.pullRequest(() => repo.write('src/components/Web.ts'));
+  repo.write('ios/App/Package.resolved');
+  repo.git('add', 'ios/App/Package.resolved');
+  repo.git('commit', '--amend', '--no-edit');
+  assert.equal(detectIosScope({ ...request, build: repo.git('rev-parse', 'HEAD') }).scope, 'runtime');
+});
+
 test('unavailable, empty or ambiguous PR comparisons require runtime', async t => {
   await t.test('missing metadata, nonmatching checkout and empty diff', t => {
     const repo = repository(t);
@@ -173,6 +184,17 @@ test('unavailable, empty or ambiguous PR comparisons require runtime', async t =
     const tree = repo.git('rev-parse', 'HEAD^{tree}');
     rmSync(join(repo.cwd, '.git/objects', tree.slice(0, 2), tree.slice(2)));
     assert.equal(detectIosScope(request).reason, 'PR comparison could not be established');
+  });
+
+  await t.test('multiple possible merge bases', t => {
+    const repo = repository(t);
+    const request = repo.pullRequest(() => repo.write('src/components/Web.ts'));
+    const tree = repo.git('rev-parse', 'HEAD^{tree}');
+    const crossedHead = repo.git('commit-tree', tree, '-p', request.head, '-p', request.base, '-m', 'Second merge');
+    const build = repo.git('commit-tree', tree, '-p', request.build, '-p', crossedHead, '-m', 'Synthetic merge');
+    repo.git('checkout', '--detach', build);
+    assert.equal(detectIosScope({ ...request, base: request.build, head: crossedHead, build }).reason,
+      'PR comparison could not be established');
   });
 
   await t.test('control characters and symlinks are out of scope for a safe skip', t => {
