@@ -130,7 +130,7 @@ Distinguish established policy from temporary exceptions and proposed improvemen
 
 Identify work that remains unfinished or requires future attention.
 
-For every engineering assignment, use its **permanent two-word codename and originating GitHub Issue number/link**.
+For every Issue-backed assignment, including engineering, planning-originated repository work, documentation, governance and administration, use its **permanent two-word codename and originating GitHub Issue number/link**.
 
 For each matter, include:
 
@@ -215,7 +215,7 @@ Do not create duplicate tracking systems solely for handoff purposes.
 
 ## 6. Assignment Identity and Two-Word Codenames
 
-Bibleberry uses a **mandatory two-word codename system** for engineering assignments.
+Bibleberry uses a **mandatory two-word codename system** for all human-directed assignments that change repository files or produce Pull Requests, **not just engineering**. Engineering Planning candidates also receive codenames when created. Read the cross-department identity-first gate in [AI Development Protocol §2B](../../ai-development-protocol.md) before beginning repository mutations.
 
 The system exists primarily to help Aaron recognize, remember, and coordinate assignments while moving rapidly between multiple AI platforms, coding agents, and departmental conversations.
 
@@ -223,7 +223,7 @@ Codenames are not decorative labels. They are a core part of Bibleberry's operat
 
 ### 6.1 Codename structure
 
-Every new engineering assignment Issue must receive a unique, permanent two-word codename.
+Every new engineering candidate Issue and every new Issue for a human-directed PR-producing assignment must receive a unique, permanent two-word codename.
 
 Codenames follow a **Descriptor + Noun** pattern.
 
@@ -260,7 +260,7 @@ Avoid overly technical phrases, lengthy names, confusing combinations, offensive
 
 **A codename may never be reused.**
 
-Before creating a new engineering Issue, the responsible department must check the complete history of Bibleberry development Issues, including open and closed Issues, to ensure the name has not previously been assigned.
+Before creating any new codenamed Issue, the responsible department must check the complete history of Bibleberry Issues, including open and closed, to ensure the name has not previously been assigned.
 
 Treat capitalization, spaces, and hyphens as equivalent when checking uniqueness.
 
@@ -298,21 +298,23 @@ This includes:
 - Operational handoffs between departmental conversations.
 - Cross-department discussions about the assignment.
 
-An engineering Issue should ordinarily be titled:
+An assignment Issue should ordinarily be titled:
 
 `[Steady Finch] Correct Shelf Rollover Behavior`
 
-A corresponding PR should preserve the same codename:
+A corresponding PR, including documentation and administrative PRs, must preserve the same codename:
 
 `[Steady Finch] Implement Shelf Rollover Correction`
 
 Branches and formal handoffs should also follow the naming requirements in the AI Development Protocol.
 
+**Cross-department preflight:** Before any department or agent creates a new branch, edits repository files or opens a PR, verify the authorized Issue, codename, ownership and scope; create the originating Issue first if authorized and none exists. Never exempt a request merely because it came from Planning, Admin or an informal conversation. Read-only advice does not by itself require a new assignment. Reuse an existing Issue/codename for follow-up work, and do not invent a second tracking record. Automated dependency PRs from the expressly named bot senders are exempt from human-assignment identity, but not review/merge controls. The required PR check is described in [AI Development Protocol §2B](../../ai-development-protocol.md).
+
 ### 6.5 Codenames survive agent and conversation changes
 
 **An assignment's codename does not change when its personnel change.**
 
-A coding assignment may pass between agents, undergo multiple review cycles, require replacement PRs, or continue across several departmental conversations.
+An engineering, documentation or administrative assignment may pass between agents, undergo review and corrections, require replacement PRs, or continue across several departmental conversations.
 
 It retains its original codename throughout.
 
@@ -331,7 +333,7 @@ An older Issue without a codename must not be arbitrarily renamed. Preserve its 
 
 ### 6.6 Required assignment identification in handoffs
 
-Whenever an operational handoff discusses an engineering assignment, identify it using:
+Whenever an operational handoff discusses an Issue-backed assignment, including non-engineering work, identify it using:
 
 **Codename | Issue number | PR number (if applicable) | Current status**
 
@@ -438,7 +440,7 @@ Brief summary of the department's operational state.
 
 Meaningful work completed, decisions implemented, and supporting references.
 
-Use permanent codenames and Issue numbers for engineering assignments.
+Use permanent codenames and Issue numbers for all Issue-backed assignments, including non-engineering work.
 
 #### 3. Decisions and Authorizations
 
@@ -492,6 +494,6 @@ Changes to permanent organizational documents should follow the repository's est
 
 **The department's responsibilities remain stable. The conversation's working context is transferred. GitHub preserves the authoritative record. Aaron retains control.**
 
-Bibleberry's permanent two-word codenames ensure that engineering assignments remain recognizable across departments, models, and conversation replacements.
+Bibleberry's permanent two-word codenames ensure that engineering and non-engineering repository assignments remain recognizable across departments, models, and conversation replacements.
 
 A successful handoff allows a replacement conversation to continue its department's work accurately, promptly, and without unnecessary reconstruction of the past.
