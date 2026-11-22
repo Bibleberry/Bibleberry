@@ -2,7 +2,7 @@
 
 **Department:** Engineering Issue Planning  
 **Short name:** Planning  
-**Status:** Proposed permanent department charter  
+**Status:** Accepted permanent department charter (merged in PR #294, November 22, 2026)  
 **Authority:** Aaron Waid, Project Owner  
 **Repository:** `Bibleberry/Bibleberry`  
 **Governing handoff standard:** `docs/ai-operations/handoff-standard.md`
