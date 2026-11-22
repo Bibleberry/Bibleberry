@@ -258,6 +258,7 @@ The established board statuses are:
 - **Ready to Assign:** Dev has determined that the scope, acceptance criteria, and dependencies are sufficiently clear for assignment. Implementation still requires Aaron's authorization.
 - **In Progress:** Authorized work undergoing implementation, independent review, correction, or merge verification. The Issue remains here while awaiting Aaron's merge decision.
 - **Done:** For implementation work, the Project Board Steward records completion when the PR satisfying the Issue's scope has merged. Other dispositions require Aaron's direction.
+  
 Dev is responsible for communicating accurate engineering status, ownership, blockers, and next actions.
 
 Routine board administration may be handled through GitHub automation or by an administrative role Aaron designates.
