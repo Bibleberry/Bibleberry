@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import type {
   LocalCalendarDate,
   PublicationYearMonth,
@@ -8,6 +8,7 @@ import {
   createEmptyShelfState,
   putAwayShelfMonth,
   selectShelfMonth,
+  SHELF_CONFIRMATION_STALE_MESSAGE,
   setActiveFocusMonth,
   setShelfMonthProtection,
 } from '../../shelf/policy.ts'
@@ -17,9 +18,11 @@ import {
   formatPublicationMonthHeading,
   projectShelfViewModel,
   validateOpenShelfMonthTarget,
+  type ShelfEntryViewModel,
   type ShelfMonthMetadata,
 } from './shelfModel.ts'
 import { ShelfReplaceDialog } from './ShelfReplaceDialog.tsx'
+import { ShelfPutAwayDialog } from './ShelfPutAwayDialog.tsx'
 import { ShelfView } from './ShelfView.tsx'
 
 export interface ShelfHostProps {
@@ -44,7 +47,10 @@ export interface ShelfHostProps {
   /**
    * Callback invoked whenever a policy-driven action produces a new ShelfState.
    */
-  readonly onStateChange?: (nextState: ShelfState) => void
+  readonly onStateChange?: (
+    nextState: ShelfState,
+    expectedState?: ShelfState,
+  ) => void | Promise<void | string>
 
   /**
    * Callback invoked when the reader opens a validated historical month on the Shelf.
@@ -88,6 +94,13 @@ export interface ShelfHostProps {
   readonly exitLabel?: string
 }
 
+interface PendingShelfConfirmation {
+  readonly yearMonth: PublicationYearMonth
+  readonly state: ShelfState
+  readonly referenceCurrentYearMonth: string
+  readonly entries: readonly ShelfEntryViewModel[]
+}
+
 /**
  * State-injected host container for the standalone Shelf reader surface (Phase 05 / R08-4).
  *
@@ -115,18 +128,23 @@ export function ShelfHost({
   )
   const [liveAnnouncement, setLiveAnnouncement] = useState('')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  const [pendingReplaceTarget, setPendingReplaceTarget] = useState<PublicationYearMonth | null>(
-    null,
-  )
+  const [pendingReplace, setPendingReplace] = useState<PendingShelfConfirmation | null>(null)
+  const [pendingPutAway, setPendingPutAway] = useState<PendingShelfConfirmation | null>(null)
+  const shelfHeadingRef = useRef<HTMLHeadingElement>(null)
 
   const currentState = controlledState ?? internalState
 
+  const reportError = useCallback((message: string) => {
+    setErrorMessage(message)
+    setLiveAnnouncement(message)
+  }, [])
+
   const commitState = useCallback(
-    (nextState: ShelfState) => {
+    (nextState: ShelfState, expectedState?: ShelfState) => {
       if (controlledState === undefined) {
         setInternalState(nextState)
       }
-      onStateChange?.(nextState)
+      return onStateChange?.(nextState, expectedState)
     },
     [controlledState, onStateChange],
   )
@@ -175,32 +193,40 @@ export function ShelfHost({
   )
 
   const handleSelectMonth = useCallback(
-    (yearMonth: string, replaceMonth?: PublicationYearMonth) => {
+    async (yearMonth: string, replaceMonth?: PublicationYearMonth, nextFocus?: PublicationYearMonth | null) => {
       const result = selectShelfMonth(currentState, {
         yearMonth,
         referenceCurrentYearMonth,
         admittedOn: currentLocalDate,
         updatedOn: currentLocalDate,
         replaceMonth,
+        nextFocus,
       })
 
       if (!result.ok) {
-        if (result.error === 'shelfCapacityExceeded') {
+        if (!replaceMonth && result.error === 'shelfCapacityExceeded') {
           setErrorMessage(null)
-          setPendingReplaceTarget(yearMonth as PublicationYearMonth)
+          setPendingReplace({
+            yearMonth: yearMonth as PublicationYearMonth,
+            state: currentState,
+            referenceCurrentYearMonth,
+            entries: viewModel.entries,
+          })
           setLiveAnnouncement(
             'Shelf is full. Choose an existing month to replace or cancel.',
           )
           return
         }
-        setErrorMessage(result.message)
-        setLiveAnnouncement(result.message)
+        reportError(result.message)
         return
       }
 
       setErrorMessage(null)
-      setPendingReplaceTarget(null)
-      commitState(result.state)
+      const rejection = await commitState(result.state, replaceMonth ? currentState : undefined)
+      if (rejection) {
+        reportError(rejection)
+        return
+      }
 
       const heading = formatPublicationMonthHeading(yearMonth)
       if (result.action === 'replaced' && replaceMonth) {
@@ -212,21 +238,24 @@ export function ShelfHost({
         setLiveAnnouncement(`Added ${heading} to your Shelf.`)
       }
     },
-    [commitState, currentLocalDate, currentState, referenceCurrentYearMonth],
+    [commitState, currentLocalDate, currentState, referenceCurrentYearMonth, reportError, viewModel.entries],
   )
 
   const handleConfirmReplace = useCallback(
-    (replaceYearMonth: PublicationYearMonth) => {
-      if (!pendingReplaceTarget) {
+    (replaceYearMonth: PublicationYearMonth, nextFocus?: PublicationYearMonth | null) => {
+      if (!pendingReplace) return
+      setPendingReplace(null)
+      if (pendingReplace.state !== currentState || pendingReplace.referenceCurrentYearMonth !== referenceCurrentYearMonth) {
+        reportError(SHELF_CONFIRMATION_STALE_MESSAGE)
         return
       }
-      handleSelectMonth(pendingReplaceTarget, replaceYearMonth)
+      void handleSelectMonth(pendingReplace.yearMonth, replaceYearMonth, nextFocus)
     },
-    [handleSelectMonth, pendingReplaceTarget],
+    [currentState, handleSelectMonth, pendingReplace, referenceCurrentYearMonth, reportError],
   )
 
   const handleCancelReplace = useCallback(() => {
-    setPendingReplaceTarget(null)
+    setPendingReplace(null)
     setLiveAnnouncement('Replacement cancelled. Shelf unchanged.')
   }, [])
 
@@ -257,27 +286,47 @@ export function ShelfHost({
   )
 
   const handlePutAway = useCallback(
-    (yearMonth: PublicationYearMonth) => {
+    async (yearMonth: PublicationYearMonth, nextFocus?: PublicationYearMonth | null) => {
       const result = putAwayShelfMonth(currentState, {
         yearMonth,
         updatedOn: currentLocalDate,
+        nextFocus,
       })
 
       if (!result.ok) {
-        setErrorMessage(result.message)
-        setLiveAnnouncement(result.message)
+        if (result.error === 'requiresFocusDecision' && nextFocus === undefined) {
+          setErrorMessage(null)
+          setPendingPutAway({ yearMonth, state: currentState, referenceCurrentYearMonth, entries: viewModel.entries })
+          return
+        }
+        reportError(result.message)
         return
       }
 
+      if (result.action === 'noop') return
       setErrorMessage(null)
-      commitState(result.state)
+      const rejection = await commitState(result.state, nextFocus !== undefined ? currentState : undefined)
+      if (rejection) {
+        reportError(rejection)
+        return
+      }
       const heading = formatPublicationMonthHeading(yearMonth)
       setLiveAnnouncement(
         `${heading} put away from Shelf. Your completed Challenges and saved Scripture are preserved.`,
       )
     },
-    [commitState, currentLocalDate, currentState],
+    [commitState, currentLocalDate, currentState, referenceCurrentYearMonth, reportError, viewModel.entries],
   )
+
+  const handleConfirmPutAway = (nextFocus: PublicationYearMonth | null) => {
+    if (!pendingPutAway) return
+    setPendingPutAway(null)
+    if (pendingPutAway.state !== currentState || pendingPutAway.referenceCurrentYearMonth !== referenceCurrentYearMonth) {
+      reportError(SHELF_CONFIRMATION_STALE_MESSAGE)
+      return
+    }
+    void handlePutAway(pendingPutAway.yearMonth, nextFocus)
+  }
 
   const handleSetFocus = useCallback(
     (yearMonth: PublicationYearMonth) => {
@@ -308,14 +357,13 @@ export function ShelfHost({
   }, [commitState, currentLocalDate, currentState])
 
   const pendingTitle = useMemo(() => {
-    if (!pendingReplaceTarget) return null
-    const match = candidateMonths.find(c => c.yearMonth === pendingReplaceTarget)
-    return match?.title ?? null
-  }, [candidateMonths, pendingReplaceTarget])
+    return candidateMonths.find(c => c.yearMonth === pendingReplace?.yearMonth)?.title ?? null
+  }, [candidateMonths, pendingReplace])
 
   return (
     <>
       <ShelfView
+        headingRef={shelfHeadingRef}
         viewModel={viewModel}
         candidateMonths={candidateMonths}
         liveAnnouncement={liveAnnouncement}
@@ -333,13 +381,26 @@ export function ShelfHost({
       />
 
       <ShelfReplaceDialog
-        isOpen={pendingReplaceTarget !== null}
-        incomingYearMonth={pendingReplaceTarget}
+        isOpen={pendingReplace !== null}
+        incomingYearMonth={pendingReplace?.yearMonth ?? null}
         incomingTitle={pendingTitle}
-        currentEntries={viewModel.entries}
+        currentEntries={pendingReplace?.entries ?? []}
         onConfirmReplace={handleConfirmReplace}
         onCancel={handleCancelReplace}
+        fallbackFocusRef={shelfHeadingRef}
       />
+      {pendingPutAway && (
+        <ShelfPutAwayDialog
+          yearMonth={pendingPutAway.yearMonth}
+          remainingEntries={pendingPutAway.entries.filter(entry => entry.yearMonth !== pendingPutAway.yearMonth)}
+          onConfirm={handleConfirmPutAway}
+          onCancel={() => {
+            setPendingPutAway(null)
+            setLiveAnnouncement('Put Away cancelled. Shelf unchanged.')
+          }}
+          fallbackFocusRef={shelfHeadingRef}
+        />
+      )}
     </>
   )
 }

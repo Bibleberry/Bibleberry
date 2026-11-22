@@ -10,6 +10,7 @@ import {
   createFirstPostRolloverResumeSeam,
   putAwayShelfMonth,
   selectShelfMonth,
+  SHELF_CONFIRMATION_STALE_MESSAGE,
   setActiveFocusMonth,
   setShelfMonthProtection,
 } from '../shelf/policy.ts'
@@ -17,6 +18,7 @@ import type {
   RolloverDisposition,
   RolloverResult,
   ShelfActionResult,
+  ShelfEntry,
   ShelfState,
 } from '../shelf/types.ts'
 import {
@@ -180,6 +182,19 @@ export function parseShelfEnvelope(
 
 export type { ReduceShelfCommandOutcome }
 
+export function areShelfEntriesEqual(
+  left: readonly ShelfEntry[],
+  right: readonly ShelfEntry[],
+): boolean {
+  return left === right || (left.length === right.length && left.every((entry, index) => {
+    const other = right[index]!
+    return entry.yearMonth === other.yearMonth
+      && entry.admissionKind === other.admissionKind
+      && entry.isProtected === other.isProtected
+      && entry.admittedOn === other.admittedOn
+  }))
+}
+
 export function reduceShelfCommand(
   payload: GuestShelfPersistedPayload,
   command: ShelfCommand,
@@ -336,6 +351,24 @@ export function reduceShelfCommand(
     }
 
     case 'applyValidatedState': {
+      const { expectedState } = command
+      if (expectedState && (
+        (expectedState.activeFocusMonth ?? null) !== (payload.state.activeFocusMonth ?? null)
+        || expectedState.updatedOn !== payload.state.updatedOn
+        || !areShelfEntriesEqual(expectedState.months, payload.state.months)
+      )) {
+        return {
+          payload,
+          changed: false,
+          actionResult: {
+            ok: false,
+            state: payload.state,
+            error: 'staleShelfConfirmation',
+            message: SHELF_CONFIRMATION_STALE_MESSAGE,
+          },
+        }
+      }
+
       const validation = validateShelfState(command.state, {
         referenceCurrentMonth: command.referenceCurrentMonth,
       })

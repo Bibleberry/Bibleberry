@@ -243,12 +243,12 @@ test('policy engine integration: select, protect, put away, and focus work toget
     ['2026-10', '2026-09', '2026-07'],
   )
 
-  // Put away preserves activeFocusMonth independently
-  const putAwayRes = putAwayShelfMonth(state, { yearMonth: '2026-09' })
+  // Put Away changes focus only when the reader supplies an explicit choice.
+  const putAwayRes = putAwayShelfMonth(state, { yearMonth: '2026-09', nextFocus: null })
   assert.equal(putAwayRes.ok, true)
   state = putAwayRes.state
   assert.equal(state.months.length, 2)
-  assert.equal(state.activeFocusMonth, '2026-09')
+  assert.equal(state.activeFocusMonth, null)
 
   // Focus can be updated explicitly
   const focusRes = setActiveFocusMonth(state, { yearMonth: '2026-10' })

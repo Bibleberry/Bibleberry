@@ -105,6 +105,48 @@ export function findOldestAutoAdmittedMonth(
 // Reader Selection Reducer
 // ---------------------------------------------------------------------------
 
+export const SHELF_CONFIRMATION_STALE_MESSAGE = 'Your Shelf changed. Review it and try again.'
+
+function invalidFocusDecision(state: ShelfState): Extract<ShelfActionResult, { ok: false }> {
+  return {
+    ok: false,
+    state,
+    error: 'invalidFocusDecision',
+    message: SHELF_CONFIRMATION_STALE_MESSAGE,
+  }
+}
+
+function resolveRemovalFocus(
+  state: ShelfState,
+  removedMonth: PublicationYearMonth | null,
+  nextFocus: SelectShelfMonthParams['nextFocus'],
+):
+  | { readonly ok: true; readonly focusUpdate: Pick<ShelfState, 'activeFocusMonth'> }
+  | Extract<ShelfActionResult, { ok: false }> {
+  if (removedMonth && removedMonth === state.activeFocusMonth) {
+    if (nextFocus === undefined) {
+      return {
+        ok: false,
+        state,
+        error: 'requiresFocusDecision',
+        message: 'Choose another Shelf month as Active Focus or choose no focus for now.',
+      }
+    }
+
+    const focus = nextFocus === null ? null : parseValidPublicationYearMonth(nextFocus)
+    if (
+      nextFocus === null ||
+      (focus && focus !== removedMonth && state.months.some(entry => entry.yearMonth === focus))
+    ) {
+      return { ok: true, focusUpdate: { activeFocusMonth: focus } }
+    }
+  } else if (nextFocus === undefined) {
+    return { ok: true, focusUpdate: {} }
+  }
+
+  return invalidFocusDecision(state)
+}
+
 /**
  * Reader explicitly selects a historical month from the Library to add to the Shelf.
  *
@@ -156,6 +198,12 @@ export function selectShelfMonth(
 
   // 1. Month already on Shelf?
   const existingIndex = state.months.findIndex(entry => entry.yearMonth === ym)
+  if (
+    params.nextFocus !== undefined &&
+    (existingIndex >= 0 || state.months.length < MAX_SHELF_CAPACITY)
+  ) {
+    return invalidFocusDecision(state)
+  }
   if (existingIndex >= 0) {
     const existing = state.months[existingIndex]!
     const updatedEntry: ShelfEntry = Object.freeze({
@@ -229,6 +277,9 @@ export function selectShelfMonth(
     }
   }
 
+  const decision = resolveRemovalFocus(state, replaceYm, params.nextFocus)
+  if (!decision.ok) return decision
+
   const newEntry: ShelfEntry = Object.freeze({
     yearMonth: ym,
     admissionKind: 'readerSelected',
@@ -243,6 +294,7 @@ export function selectShelfMonth(
     ok: true,
     state: Object.freeze({
       ...state,
+      ...decision.focusUpdate,
       months: Object.freeze(newMonths),
       ...(updatedOn ? { updatedOn } : {}),
     }),
@@ -261,7 +313,7 @@ export function selectShelfMonth(
  * "Reader Put Away only removes membership. It must not mutate Challenge completions,
  * earned cards, saved Scripture, resume, or earned dates."
  *
- * Active focus is also modeled independently and preserved unless explicitly cleared.
+ * Putting away Active Focus also requires an explicit choice to reassign or clear it.
  */
 export function putAwayShelfMonth(
   state: ShelfState,
@@ -280,6 +332,10 @@ export function putAwayShelfMonth(
   }
 
   const existingIndex = state.months.findIndex(entry => entry.yearMonth === ym)
+  const nextFocus = typeof params === 'string' ? undefined : params.nextFocus
+  const decision = resolveRemovalFocus(state, existingIndex >= 0 ? ym : null, nextFocus)
+  if (!decision.ok) return decision
+
   if (existingIndex < 0) {
     // Idempotent: putting away a month not on the shelf is a safe no-op
     return {
@@ -298,6 +354,7 @@ export function putAwayShelfMonth(
     ok: true,
     state: Object.freeze({
       ...state,
+      ...decision.focusUpdate,
       months: Object.freeze(newMonths),
       ...(updatedOn ? { updatedOn } : {}),
     }),

@@ -99,6 +99,8 @@ export interface SelectShelfMonthParams {
    * reader selection.
    */
   readonly replaceMonth?: PublicationYearMonth | string
+  /** Existing Shelf month to focus, or null to clear, when replacing Active Focus. */
+  readonly nextFocus?: PublicationYearMonth | string | null
   /** Calendar date for state update stamping. */
   readonly updatedOn?: LocalCalendarDate | string
 }
@@ -107,6 +109,8 @@ export interface SelectShelfMonthParams {
 export interface PutAwayShelfMonthParams {
   /** The month to remove from the Shelf. */
   readonly yearMonth: PublicationYearMonth | string
+  /** Remaining Shelf month to focus, or null to clear, when putting away Active Focus. */
+  readonly nextFocus?: PublicationYearMonth | string | null
   /** Calendar date for state update stamping. */
   readonly updatedOn?: LocalCalendarDate | string
 }
@@ -161,6 +165,9 @@ export type ShelfActionError =
   | 'shelfCapacityExceeded'
   | 'replaceMonthNotFound'
   | 'monthNotOnShelf'
+  | 'requiresFocusDecision'
+  | 'invalidFocusDecision'
+  | 'staleShelfConfirmation'
   | 'invalidStateShape'
 
 export type ShelfActionResult<TAction extends string = string> =
