@@ -206,23 +206,15 @@ Dev must not treat a prototype, engineering implementation, or proposed design a
 
 ### 4.1 Development Management and Engineering Issue Planning
 
-Bibleberry is establishing a separate Engineering Issue Planning department.
+**Engineering Issue Planning (Planning)** investigates upcoming engineering requirements, accepted implementations, dependencies, and existing Issues. Within a planning initiative authorized by Aaron, Planning creates appropriately scoped candidate engineering Issues in Triage, including permanent codenames, acceptance criteria, and verification expectations.
 
-The intended division is:
+**Development Management (Dev)** evaluates candidate Issues for readiness, manages engineering priorities and dependencies within the canonical roadmap, selects and dispatches coding agents for authorized work, and coordinates active implementation and corrections.
 
-**Engineering Issue Planning** investigates upcoming engineering requirements, identifies technical gaps, researches implementation contracts, and prepares and creates appropriately scoped GitHub Issues in Triage.
+**Planning prepares and creates candidate Issues. Dev controls engineering execution.**
 
-**Dev** determines immediate implementation readiness, sequencing, dependencies, coding-agent allocation, dispatch, and coordination of active assignments.
+Creating an Issue does not authorize its implementation. Aaron retains implementation authorization.
 
-Issue Planning prepares the work. Dev manages its execution.
-
-Creating an Issue does not place it into active development.
-
-Until Engineering Issue Planning's charter is formally established, Dev retains its existing assignment-preparation responsibilities as necessary to maintain continuity.
-
-Dev may also coordinate urgent corrective work arising from active implementation or Review, subject to established authorization.
-
-The detailed boundary will be finalized in the Engineering Issue Planning charter without creating competing dispatch authority.
+Dev may coordinate urgent corrective work arising from active implementation or Independent Review, subject to established authorization.
 
 ### 4.2 Development Management and Independent Review
 
