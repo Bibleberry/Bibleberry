@@ -154,7 +154,7 @@ test.describe('Gateway-Backed Released Challenge Integration (R05 Stage 2A)', ()
     expect(stored.data.savedChallenges['cms:mock-gateway-challenge-doc-1']).toBeDefined()
 
     // Advance to Screen 2
-    await page.locator('.lab-screen-nav button:has-text("Continue")').click()
+    await page.locator('.lab-screen-nav button:has-text("Next")').click()
     await expect(page.locator('.lab-screen .eyebrow')).toHaveText('Step 2')
     await expect(page.locator('.lab-screen h2')).toHaveText('Second Step Heading')
 
@@ -469,7 +469,7 @@ test.describe('Gateway-Backed Released Challenge Integration (R05 Stage 2A)', ()
     await page.locator('.lab-save-challenge').click()
 
     // Advance to Screen 2
-    await page.locator('.lab-screen-nav button:has-text("Continue")').click()
+    await page.locator('.lab-screen-nav button:has-text("Next")').click()
     await expect(page.locator('.lab-screen .eyebrow')).toHaveText('Step 2')
 
     // Finish the Challenge and return immediately to Today without intermediate confirmation
@@ -589,7 +589,7 @@ test.describe('Gateway-Backed Released Challenge Integration (R05 Stage 2A)', ()
     // 1. Forged Month origin on a cold link: external entry, Finish records completion and returns to Today
     await page.goto('/#/challenge/walking-in-the-light?origin=month&yearMonth=2027-03')
     await expect(page.locator('.challenge-player__exit')).toHaveText('Return to Today')
-    await page.locator('.lab-screen-nav button:has-text("Continue")').click()
+    await page.locator('.lab-screen-nav button:has-text("Next")').click()
     await page.locator('.lab-screen-nav button:has-text("Finish")').click()
 
     await expect(page.locator('#daily-teaching')).toBeVisible()
@@ -603,7 +603,7 @@ test.describe('Gateway-Backed Released Challenge Integration (R05 Stage 2A)', ()
     await expect(page.locator('.lab-challenge-header h1')).toHaveText('Walking in the Light')
     await expect(page.locator('.challenge-player__exit')).toHaveText('Return to Today')
     await expect(page.locator('.lab-screen h2')).toHaveText('First Step Heading')
-    await page.locator('.lab-screen-nav button:has-text("Continue")').click()
+    await page.locator('.lab-screen-nav button:has-text("Next")').click()
     await expect(page.locator('.lab-screen h2')).toHaveText('Second Step Heading')
     await expect(page.locator('.lab-completion')).toHaveCount(0)
     await page.locator('.lab-screen-nav button:has-text("Finish")').click()

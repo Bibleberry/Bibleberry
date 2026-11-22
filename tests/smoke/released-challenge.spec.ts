@@ -203,7 +203,7 @@ test.describe('Controlled Released CMS Challenge Integration (A4.1, external ent
     expect(stored.data.savedChallenges['cms:mock-released-challenge-doc-1']).toBeDefined()
 
     // Advance to Screen 2
-    await page.locator('.lab-screen-nav button:has-text("Continue")').click()
+    await page.locator('.lab-screen-nav button:has-text("Next")').click()
     await expect(page.locator('.lab-screen .eyebrow')).toHaveText('Step 2')
     await expect(page.locator('.lab-screen h2')).toHaveText('Second Step Heading')
 
@@ -243,7 +243,7 @@ test.describe('Controlled Released CMS Challenge Integration (A4.1, external ent
     await expect(page.locator('.challenge-player__exit')).toHaveText('Return to Today')
     expect(new Set(gatewayRequests)).toEqual(new Set(['mock-released-challenge']))
 
-    await page.locator('.lab-screen-nav button:has-text("Continue")').click()
+    await page.locator('.lab-screen-nav button:has-text("Next")').click()
     await page.locator('.lab-screen-nav button:has-text("Finish")').click()
     await expect(page.locator('#daily-teaching')).toBeVisible()
     expect(page.url()).not.toContain('#/challenge/')

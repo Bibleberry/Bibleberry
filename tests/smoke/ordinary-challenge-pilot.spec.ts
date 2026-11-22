@@ -78,7 +78,7 @@ test.describe('Ordinary-Shell ChallengePlayer Controlled Pilot (A2)', () => {
     const progressbar = page.getByRole('progressbar', { name: 'Challenge screen position' });
     await expect(progressbar).toHaveAttribute('aria-valuenow', '1');
     await expect(progressbar).toHaveAttribute('aria-valuemax', '2');
-    await expect(progressbar).toHaveAttribute('aria-valuetext', '1 of 2');
+    await expect(progressbar).toHaveAttribute('aria-valuetext', 'Screen 1 of 2');
 
     const primaryScripture = page.locator('section[aria-label="Primary Scripture"]');
     await expect(primaryScripture).toContainText('Primary Scripture · WEBP');
@@ -92,10 +92,10 @@ test.describe('Ordinary-Shell ChallengePlayer Controlled Pilot (A2)', () => {
     expect(readerText).not.toContain('CMS memorization practice');
     expect(readerText).not.toContain('Memorization practice not configured');
 
-    // Non-final screen guards completion; Back is disabled
+    // Non-final screen guards completion; Previous is disabled
     const nav = page.getByRole('navigation', { name: 'Challenge screen navigation' });
-    await expect(nav.getByRole('button', { name: 'Back' })).toBeDisabled();
-    await expect(nav.getByRole('button', { name: 'Continue' })).toBeEnabled();
+    await expect(nav.getByRole('button', { name: 'Previous' })).toBeDisabled();
+    await expect(nav.getByRole('button', { name: 'Next' })).toBeEnabled();
     await expect(nav.getByRole('button', { name: /Complete Challenge|Finish/i })).toHaveCount(0);
 
     // Save Challenge and Save Scripture remain separate from completion
@@ -112,15 +112,15 @@ test.describe('Ordinary-Shell ChallengePlayer Controlled Pilot (A2)', () => {
     await expect(primarySaveBtn).toHaveAttribute('aria-pressed', 'true');
     await expect(demoStatus).toContainText('Challenge saved · 1 Scripture reference saved (Psalm 23:1) · Not completed');
 
-    // Forward / Back screen navigation and heading focus
-    await nav.getByRole('button', { name: 'Continue' }).click();
+    // Forward / Previous screen navigation and heading focus
+    await nav.getByRole('button', { name: 'Next' }).click();
     await expect(page.locator('#pilot-screen-finish-title')).toHaveText('Pilot screen two: optional study and completion');
     await expect(page.locator('#pilot-screen-finish-title')).toBeFocused();
     await expect(progressbar).toHaveAttribute('aria-valuenow', '2');
 
-    await nav.getByRole('button', { name: 'Back' }).click();
+    await nav.getByRole('button', { name: 'Previous' }).click();
     await expect(page.locator('#pilot-screen-overview-title')).toBeFocused();
-    await nav.getByRole('button', { name: 'Continue' }).click();
+    await nav.getByRole('button', { name: 'Next' }).click();
     await expect(page.locator('#pilot-screen-finish-title')).toBeFocused();
 
     // Optional deeper study can be expanded/saved, collapsed, and never gates completion
@@ -246,8 +246,8 @@ test.describe('Ordinary-Shell ChallengePlayer Controlled Pilot (A2)', () => {
     expect(portraitScreen1Fits).toBe(true);
 
     // Keyboard navigation to Screen 2 and optional study toggle
-    const continueBtn = page.getByRole('navigation', { name: 'Challenge screen navigation' }).getByRole('button', { name: 'Continue' });
-    await continueBtn.focus();
+    const nextBtn = page.getByRole('navigation', { name: 'Challenge screen navigation' }).getByRole('button', { name: 'Next' });
+    await nextBtn.focus();
     await page.keyboard.press('Enter');
     await expect(page.locator('#pilot-screen-finish-title')).toBeFocused();
 

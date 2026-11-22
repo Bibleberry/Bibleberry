@@ -2,6 +2,7 @@ import type { CmsScripture } from '../../cms/sanity/types.ts'
 import {
   canCompleteChallenge,
   challengePlayerPosition,
+  resolveFirstScreenId,
   type ChallengePlayerChallenge,
 } from './challengePlayerModel.ts'
 
@@ -46,6 +47,7 @@ export type OrdinaryChallengeActions = {
   onToggleSaveScripture: (scripture: CmsScripture) => void
   onComplete: () => void
   onStartProgress?: () => void
+  onStartFromBeginning?: () => void
 }
 
 export type OrdinaryChallengeStateController =
@@ -168,8 +170,26 @@ export function setOrdinaryChallengeScreen(
   screenId: string,
 ): OrdinaryChallengeSessionState {
   if (!challenge.screens.some(screen => screen.id === screenId)) return state
-  if (state.screenId === screenId && state.isInProgress) return state
-  return { ...state, screenId, isInProgress: true }
+  const nextInProgress = state.isCompleted ? false : true
+  if (state.screenId === screenId && state.isInProgress === nextInProgress) return state
+  return { ...state, screenId, isInProgress: nextInProgress }
+}
+
+export function restartOrdinaryChallengeFromBeginning(
+  challenge: Pick<ChallengePlayerChallenge, 'screens'>,
+  state: OrdinaryChallengeSessionState,
+): OrdinaryChallengeSessionState {
+  const firstScreenId = resolveFirstScreenId(challenge.screens)
+  if (!firstScreenId) return state
+  const position = challengePlayerPosition(challenge.screens, state.screenId)
+  if (position.isFirst && (state.isCompleted || state.screenId === firstScreenId || state.screenId === undefined)) {
+    return state
+  }
+  return {
+    ...state,
+    screenId: firstScreenId,
+    isInProgress: state.isCompleted ? false : state.isInProgress,
+  }
 }
 
 export function toggleOrdinaryChallengeSaved(

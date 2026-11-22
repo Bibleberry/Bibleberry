@@ -1,5 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react'
-import { ArrowLeft, ArrowRight, Bookmark, BookmarkCheck, Check } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Bookmark, BookmarkCheck, Check, RotateCcw } from 'lucide-react'
 import type { CmsScripture } from '../../cms/sanity/types.ts'
 import {
   CmsBlockView,
@@ -9,8 +9,11 @@ import {
 } from './CmsContentBlocks.tsx'
 import {
   canCompleteChallenge,
+  canStartChallengeFromBeginning,
   challengePlayerPosition,
+  formatChallengeScreenPosition,
   resolveChallengePlayerCopy,
+  resolveFirstScreenId,
   type ChallengePlayerChallenge,
   type ChallengePlayerLabels,
 } from './challengePlayerModel.ts'
@@ -44,6 +47,11 @@ export type ChallengePlayerProps = {
   /** Called only from the final screen and only while the Challenge is not yet completed. */
   onComplete: () => void
   onStartProgress?: () => void
+  /**
+   * Optional position-only restart handler (`Start from Beginning` / `Read Again`).
+   * Moves to the first screen without deleting completions, earned Cards, or Saved Scripture.
+   */
+  onStartFromBeginning?: () => void
   /**
    * Optional exit signal. When supplied, the player renders a return control; route choice
    * remains entirely with the host.
@@ -87,8 +95,9 @@ export function ChallengePlayer({
   onToggleSaveScripture,
   onComplete,
   onStartProgress,
+  onStartFromBeginning,
   onExit,
-  exitLabel = 'Return',
+  exitLabel = 'Exit',
   eyebrow,
   diagnostics = false,
   returnOnFinish = false,
@@ -138,24 +147,56 @@ export function ChallengePlayer({
       onComplete()
     }
   }
+  const canRestartFromBeginning = canStartChallengeFromBeginning(position)
+  const firstScreenId = resolveFirstScreenId(challenge.screens)
+  const screenPositionText = formatChallengeScreenPosition(position, { diagnostics })
+  const restartFromBeginning = () => {
+    if (!canRestartFromBeginning) return
+    if (onStartFromBeginning) {
+      onStartFromBeginning()
+      return
+    }
+    if (firstScreenId) {
+      onScreenChange(firstScreenId)
+    }
+  }
 
   return (
     <>
-      {onExit && <button type="button" className="back-link challenge-player__exit" onClick={onExit}><ArrowLeft size={17} /> {exitLabel}</button>}
+      {onExit && <button type="button" className="back-link challenge-player__exit" onClick={onExit}><ArrowLeft size={17} aria-hidden="true" /> {exitLabel}</button>}
       <header className="lab-challenge-header">
         <div>{eyebrow && <p className="eyebrow">{eyebrow}</p>}<h1>{challenge.title}</h1>{challenge.summary && <p className="cms-challenge-summary">{challenge.summary}</p>}</div>
-        <button type="button" className="button button--secondary lab-save-challenge" aria-pressed={isSaved} onClick={onToggleSaveChallenge}>{isSaved ? <BookmarkCheck size={17} /> : <Bookmark size={17} />}{isSaved ? 'Remove Saved Challenge' : 'Save Challenge'}</button>
+        <button type="button" className="button button--secondary lab-save-challenge" aria-pressed={isSaved} onClick={onToggleSaveChallenge}>{isSaved ? <BookmarkCheck size={17} aria-hidden="true" /> : <Bookmark size={17} aria-hidden="true" />}{isSaved ? 'Remove Saved Challenge' : 'Save Challenge'}</button>
       </header>
       <CmsScripturePanel scripture={challenge.primaryScripture} scriptureSave={scriptureSave} diagnostics={diagnostics} primary />
       <div className="lab-progress">
-        <div><span>{copy.progressHeading}</span><strong>{position.index + 1} of {position.total}</strong></div>
-        <div className="lab-progress__segments" role="progressbar" aria-label={copy.progressAriaLabel} aria-valuemin={1} aria-valuemax={position.total} aria-valuenow={position.index + 1} aria-valuetext={`${position.index + 1} of ${position.total}`}>{challenge.screens.map((item, index) => <span key={item.id} className={index <= position.index ? 'is-filled' : ''} />)}</div>
+        <div><span>{copy.progressHeading}</span><strong>{screenPositionText}</strong></div>
+        <div className="lab-progress__segments" role="progressbar" aria-label={copy.progressAriaLabel} aria-valuemin={1} aria-valuemax={position.total} aria-valuenow={position.index + 1} aria-valuetext={screenPositionText}>{challenge.screens.map((item, index) => <span key={item.id} className={index <= position.index ? 'is-filled' : ''} />)}</div>
       </div>
       <article className="lab-screen" key={screen.id} aria-labelledby={`${screen.id}-title`}>
         <p className="eyebrow">{screen.stepLabel}</p><h2 id={`${screen.id}-title`} className="challenge-player__screen-heading" ref={screenHeading} tabIndex={-1}>{screen.title}</h2>
         <div className="lab-screen__blocks">{screen.blocks.map(block => <CmsBlockView key={block.id} block={block} scriptureSave={scriptureSave} diagnostics={diagnostics} />)}</div>
       </article>
-      {isCompleted && position.isLast && !effectiveReturnOnFinish && <section className="lab-completion" role="status" aria-live="polite"><Check size={22} aria-hidden="true" /><div><h2>Challenge complete</h2><p>{copy.completionMessage}</p></div></section>}
+      {isCompleted && position.isLast && !effectiveReturnOnFinish && (
+        <section className="lab-completion" role="status" aria-live="polite">
+          <Check size={22} aria-hidden="true" />
+          <div>
+            <h2>Challenge complete</h2>
+            <p>{copy.completionMessage}</p>
+            {!diagnostics && canRestartFromBeginning && (
+              <div className="challenge-player__completion-actions">
+                <button
+                  type="button"
+                  className="button button--secondary challenge-player__read-again"
+                  onClick={restartFromBeginning}
+                >
+                  <RotateCcw size={15} aria-hidden="true" /> {copy.readAgainButton}
+                </button>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
       <nav className="lab-screen-nav" aria-label={copy.navigationAriaLabel}>
         {position.previousScreenId ? (
           <button
@@ -163,7 +204,7 @@ export function ChallengePlayer({
             className="button button--secondary"
             onClick={() => onScreenChange(position.previousScreenId!)}
           >
-            <ArrowLeft size={17} /> Back
+            <ArrowLeft size={17} aria-hidden="true" /> {copy.previousButton}
           </button>
         ) : position.total === 1 && !isCompleted && !isInProgress && onStartProgress ? (
           <button
@@ -175,7 +216,7 @@ export function ChallengePlayer({
           </button>
         ) : (
           <button type="button" className="button button--secondary" disabled>
-            <ArrowLeft size={17} /> Back
+            <ArrowLeft size={17} aria-hidden="true" /> {copy.previousButton}
           </button>
         )}
         {position.nextScreenId ? (
@@ -184,7 +225,7 @@ export function ChallengePlayer({
             className="button button--primary"
             onClick={() => onScreenChange(position.nextScreenId!)}
           >
-            Continue <ArrowRight size={17} />
+            {copy.nextButton} <ArrowRight size={17} aria-hidden="true" />
           </button>
         ) : isCompleted && effectiveReturnOnFinish ? (
           <button
@@ -202,11 +243,23 @@ export function ChallengePlayer({
             disabled={isCompleted}
             onClick={complete}
           >
-            {isCompleted && <Check size={17} />}
+            {isCompleted && <Check size={17} aria-hidden="true" />}
             {isCompleted ? copy.completedButton : copy.finishButton}
           </button>
         )}
       </nav>
+      {!diagnostics && position.total > 1 && (
+        <div className="challenge-player__secondary-controls">
+          <button
+            type="button"
+            className="button button--text challenge-player__restart"
+            disabled={!canRestartFromBeginning}
+            onClick={restartFromBeginning}
+          >
+            <RotateCcw size={15} aria-hidden="true" /> {copy.startFromBeginningButton}
+          </button>
+        </div>
+      )}
       <p className="lab-navigation-note">{copy.navigationNote}</p>
       <CmsCompanionLinks links={challenge.companionLinks} />
     </>
