@@ -1049,7 +1049,7 @@ test.describe('Phase 05 / R06: Hub Continue on ordinary Today (Issue #233)', () 
 
     const nextBtn = page
       .getByRole('navigation', { name: 'Challenge screen navigation' })
-      .getByRole('button', { name: 'Continue' })
+      .getByRole('button', { name: 'Next' })
     await nextBtn.focus()
     await page.keyboard.press('Enter')
     const finishBtn = page.getByRole('button', { name: 'Finish' })
@@ -1233,7 +1233,7 @@ test.describe('Phase 05 / R06: Hub Continue on ordinary Today (Issue #233)', () 
     const screenNav = page.getByRole('navigation', { name: 'Challenge screen navigation' })
     const finish = page.getByRole('button', { name: 'Finish' })
     for (let step = 0; step < 10 && !(await finish.isVisible()); step += 1) {
-      await screenNav.getByRole('button', { name: 'Continue' }).click()
+      await screenNav.getByRole('button', { name: 'Next' }).click()
     }
     await finish.click()
     await expect(page.locator('#daily-teaching')).toBeVisible()
