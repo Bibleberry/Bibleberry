@@ -4,8 +4,9 @@ import {
   activeRoute,
   applyNavigationAction,
   createBrowserNavigation,
+  restoreBrowserLocation,
 } from '../../src/readerShell/navigation/index.ts'
-import { readerRouteOptions, resolveReaderLocation } from '../../src/readerShell/navigation/routeTable.ts'
+import { readerRouteOptions } from '../../src/readerShell/navigation/routeTable.ts'
 
 const options = readerRouteOptions()
 
@@ -16,26 +17,33 @@ test('opens mounted collection hashes and safely resolves malformed or unsupport
     ['#/library', { kind: 'browseMonths' }, null],
     ['#/month/2026-10', { kind: 'landing', tab: 'today' }, 'externalMonth'],
     ['#/studio', { kind: 'landing', tab: 'today' }, 'invalidRoute'],
-    ['#/challenge/unmounted?origin=month&yearMonth=2026-10', { kind: 'landing', tab: 'today' }, 'challengeUnavailable'],
+    ['#/challenge/%2F', { kind: 'landing', tab: 'today' }, 'challengeUnavailable'],
   ] as const
 
   for (const [hash, expectedRoute, problem] of cases) {
-    const { navigation: { state } } = resolveReaderLocation(navigation, { hash }, options)
+    const result = restoreBrowserLocation(navigation, { hash }, options)
+    assert.equal(result.status, 'ready')
+    const { state } = result.navigation
     assert.deepEqual(activeRoute(state), expectedRoute)
     assert.equal(state.problem, problem)
     assert.equal(state.focused, null)
   }
 })
 
-test('a matching in-session Challenge receipt cannot restore a focused reader in this increment', () => {
-  const start = resolveReaderLocation(createBrowserNavigation('shell'), { hash: '#/' }, options)
+test('shell route options require a gateway verdict and preserve the Month selection identity', () => {
+  const start = restoreBrowserLocation(createBrowserNavigation('shell'), { hash: '#/' }, options)
+  assert.equal(start.status, 'ready')
   const month = applyNavigationAction(start.navigation, { type: 'push', route: { kind: 'month', yearMonth: '2026-10' } })
-  const challenge = applyNavigationAction(month.navigation, { type: 'openChallenge', slug: 'unmounted' })
+  const selection = { slug: 'daily-reading', expectedDocumentId: 'reading-25' }
+  const challenge = applyNavigationAction(month.navigation, { type: 'openChallenge', ...selection })
   assert.equal(challenge.history.type, 'push')
-  const restored = resolveReaderLocation(challenge.navigation, {
-    hash: challenge.history.hash,
-    historyState: challenge.history.state,
-  }, options)
-  assert.equal(restored.navigation.state.focused, null)
-  assert.equal(restored.navigation.state.problem, 'challengeUnavailable')
+  const address = { hash: challenge.history.hash, historyState: challenge.history.state }
+  assert.deepEqual(restoreBrowserLocation(challenge.navigation, address, options), {
+    status: 'challengeAuthorizationRequired', ...selection,
+  })
+  const restored = restoreBrowserLocation(challenge.navigation, address, options, {
+    slug: selection.slug, documentId: selection.expectedDocumentId, status: 'authorized',
+  })
+  assert.equal(restored.status, 'ready')
+  assert.deepEqual(restored.navigation.state.focused, challenge.navigation.state.focused)
 })

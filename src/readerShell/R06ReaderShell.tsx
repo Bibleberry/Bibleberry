@@ -16,15 +16,15 @@ export default function R06ReaderShell() {
   const captureRestoration = useCallback(() => (
     viewport.current ? captureScreenRestoration(viewport.current, lastFocused.current) : undefined
   ), [])
-  const { navigation, revision, dispatch } = useReaderNavigation(routeOptions, captureRestoration)
+  const { navigation, revision, dispatch, pending, challengeProvider } = useReaderNavigation(routeOptions, captureRestoration)
   const { state } = navigation
 
   useLayoutEffect(() => {
-    if (!viewport.current) return
+    if (!viewport.current || pending) return
     lastFocused.current = null
     const restoration = state.problem || state.focused ? undefined : activeRestoration(state)
     return restoreScreen(viewport.current, restoration, revision > 0)
-  }, [state, revision])
+  }, [state, revision, pending])
 
   return (
     <div className="r06-shell">
@@ -32,12 +32,21 @@ export default function R06ReaderShell() {
         className="r06-viewport"
         ref={viewport}
         onFocusCapture={event => {
-          if (event.target instanceof HTMLElement) lastFocused.current = event.target
+          if (!(event.target instanceof HTMLElement)) return
+          lastFocused.current = event.target
+          if (state.focused?.kind === 'challenge' && event.target.matches('.challenge-player__screen-heading')) {
+            event.currentTarget.scrollTop = 0
+          }
         }}
       >
-        <ReaderScreens state={state} send={action => dispatch(action, revision)} />
+        <ReaderScreens
+          state={state}
+          send={action => dispatch(action, revision)}
+          pending={pending}
+          challengeProvider={challengeProvider}
+        />
       </div>
-      {globalNavigation(state) !== 'hidden' && (
+      {!pending && globalNavigation(state) !== 'hidden' && (
         <ReaderNavigation activeTab={state.activeTab} onSelectTab={tab => dispatch({ type: 'selectTab', tab })} />
       )}
     </div>

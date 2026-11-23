@@ -1,7 +1,10 @@
 import { useCallback, useLayoutEffect, useRef, useState } from 'react'
+import { defaultGatewayChallengeProvider, type ChallengeDetailProvider } from '../../cms/reader/challengeDetailProvider.ts'
+import { deriveReleasedChallengeDetailState } from '../../cms/reader/releasedChallengeHostModel.ts'
 import {
   applyNavigationAction,
   createBrowserNavigation,
+  restoreBrowserLocation,
   serializeBrowserNavigation,
   type BrowserNavigation,
   type NavigationAction,
@@ -9,7 +12,6 @@ import {
   type NavigationUpdate,
   type RouteRestoration,
 } from '../navigation/index.ts'
-import { resolveReaderLocation } from '../navigation/routeTable.ts'
 
 const sessionKey = 'bibleberry-r06-navigation-v1'
 
@@ -29,11 +31,6 @@ function writeSession(navigation: BrowserNavigation) {
   }
 }
 
-function readLocation(navigation: BrowserNavigation, options: NavigationRouteOptions): NavigationUpdate {
-  const address = { hash: window.location.hash, historyState: window.history.state }
-  return resolveReaderLocation(navigation, address, options)
-}
-
 function applyHistoryUpdate({ history }: NavigationUpdate) {
   switch (history.type) {
     case 'push':
@@ -48,24 +45,37 @@ function applyHistoryUpdate({ history }: NavigationUpdate) {
   }
 }
 
+function browserAddress() {
+  return { hash: window.location.hash, historyState: window.history.state }
+}
+
+// Browsers can emit popstate and hashchange for the same traversal. Two entries
+// with the same hash may still have different trusted return contexts.
+function sameAddress(a: ReturnType<typeof browserAddress>, b: ReturnType<typeof browserAddress>) {
+  return a.hash === b.hash &&
+    a.historyState?.r06Navigation?.sessionId === b.historyState?.r06Navigation?.sessionId &&
+    a.historyState?.r06Navigation?.navId === b.historyState?.r06Navigation?.navId
+}
+
 interface ReaderNavigationView {
   readonly navigation: BrowserNavigation
   readonly revision: number
+  readonly pending: boolean
+  readonly challengeProvider?: ChallengeDetailProvider
 }
 
 export function useReaderNavigation(
   options: NavigationRouteOptions,
   captureRestoration: () => RouteRestoration | undefined,
 ) {
-  const [initial] = useState(() => {
+  const [view, setView] = useState<ReaderNavigationView>(() => {
     const sessionId = crypto.randomUUID?.() ?? crypto.getRandomValues(new Uint32Array(4)).join('-')
-    return readLocation(createBrowserNavigation(sessionId, readSession()), options)
+    return { navigation: createBrowserNavigation(sessionId, readSession()), revision: 0, pending: true }
   })
-  const [view, setView] = useState<ReaderNavigationView>({ navigation: initial.navigation, revision: 0 })
-  const current = useRef(initial.navigation)
+  const current = useRef(view.navigation)
   const revision = useRef(0)
-  const initialized = useRef(false)
   const awaitingBack = useRef(false)
+  const pending = useRef<AbortController | null>(null)
 
   const rememberScreen = useCallback(() => {
     const restoration = captureRestoration()
@@ -77,20 +87,20 @@ export function useReaderNavigation(
     }
   }, [captureRestoration])
 
-  const commit = useCallback((update: NavigationUpdate) => {
+  const commit = useCallback((update: NavigationUpdate, challengeProvider?: ChallengeDetailProvider) => {
     current.current = update.navigation
     writeSession(update.navigation)
     if (update.history.type === 'back') {
       awaitingBack.current = true
     } else {
       revision.current += 1
-      setView({ navigation: update.navigation, revision: revision.current })
+      setView({ navigation: update.navigation, revision: revision.current, pending: false, challengeProvider })
     }
     applyHistoryUpdate(update)
   }, [])
 
   const dispatch = useCallback((action: NavigationAction, sourceRevision?: number) => {
-    if (awaitingBack.current || (sourceRevision !== undefined && sourceRevision !== revision.current)) return
+    if (pending.current || awaitingBack.current || (sourceRevision !== undefined && sourceRevision !== revision.current)) return
     rememberScreen()
     const update = applyNavigationAction(current.current, action)
     if (update.history.type !== 'none' || action.type === 'selectTab') commit(update)
@@ -99,36 +109,75 @@ export function useReaderNavigation(
   useLayoutEffect(() => {
     const previousScrollRestoration = window.history.scrollRestoration
     window.history.scrollRestoration = 'manual'
-    if (!initialized.current) {
-      initialized.current = true
-      writeSession(initial.navigation)
-      applyHistoryUpdate(initial)
+
+    function restoreLocation(captureOutgoing = false) {
+      const address = browserAddress()
+      if (captureOutgoing && !pending.current) rememberScreen()
+      pending.current?.abort()
+      pending.current = null
+      awaitingBack.current = false
+      const result = restoreBrowserLocation(current.current, address, options)
+      if (result.status === 'ready') {
+        commit(result)
+        return
+      }
+
+      const controller = new AbortController()
+      pending.current = controller
+      revision.current += 1
+      setView({ navigation: current.current, revision: revision.current, pending: true })
+      const { slug } = result
+      void defaultGatewayChallengeProvider.loadChallenge(slug, { signal: controller.signal })
+        .catch(() => ({ status: 'requestError', message: 'Content gateway unavailable' } as const))
+        .then(detail => {
+          if (controller.signal.aborted || !sameAddress(address, browserAddress())) return
+          const admitted = deriveReleasedChallengeDetailState(detail, slug, new Date())
+          const authorization = detail.status === 'ready' && detail.source === 'gateway' && admitted.status === 'ready'
+            ? { slug, status: 'authorized', documentId: admitted.challenge.documentId } as const
+            : { slug, status: 'unavailable' } as const
+          const update = restoreBrowserLocation(current.current, address, options, authorization)
+          pending.current = null
+          if (update.status === 'ready') {
+            // Reuse the verified response only for this visit. History stores no teaching.
+            const provider = update.navigation.state.focused ? { loadChallenge: async () => detail } : undefined
+            commit(update, provider)
+          }
+        })
     }
 
-    function onLocationChange() {
-      const result = readLocation(current.current, options)
-      awaitingBack.current = false
-      // A single traversal can emit both popstate and hashchange.
-      if (result.history.type === 'none' && result.navigation.currentId === current.current.currentId) return
-      rememberScreen()
-      commit(readLocation(current.current, options))
+    let lastPop: ReturnType<typeof browserAddress> | undefined
+    function onPop() {
+      restoreLocation(true)
+      lastPop = browserAddress()
+    }
+    function onHashChange() {
+      if (!lastPop || !sameAddress(lastPop, browserAddress())) restoreLocation(true)
+      lastPop = undefined
     }
 
     function onPageHide() {
-      rememberScreen()
+      if (!pending.current) rememberScreen()
       writeSession(current.current)
     }
 
-    window.addEventListener('popstate', onLocationChange)
-    window.addEventListener('hashchange', onLocationChange)
-    window.addEventListener('pagehide', onPageHide)
-    return () => {
-      window.history.scrollRestoration = previousScrollRestoration
-      window.removeEventListener('popstate', onLocationChange)
-      window.removeEventListener('hashchange', onLocationChange)
-      window.removeEventListener('pagehide', onPageHide)
+    function onPageShow(event: PageTransitionEvent) {
+      if (event.persisted) restoreLocation()
     }
-  }, [commit, initial, options, rememberScreen])
+
+    restoreLocation()
+    window.addEventListener('popstate', onPop)
+    window.addEventListener('hashchange', onHashChange)
+    window.addEventListener('pagehide', onPageHide)
+    window.addEventListener('pageshow', onPageShow)
+    return () => {
+      pending.current?.abort()
+      window.history.scrollRestoration = previousScrollRestoration
+      window.removeEventListener('popstate', onPop)
+      window.removeEventListener('hashchange', onHashChange)
+      window.removeEventListener('pagehide', onPageHide)
+      window.removeEventListener('pageshow', onPageShow)
+    }
+  }, [commit, options, rememberScreen])
 
   return { ...view, dispatch }
 }

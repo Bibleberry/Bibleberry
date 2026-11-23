@@ -3,6 +3,7 @@ import { ArrowLeft, RotateCcw } from 'lucide-react'
 import { defaultGuestParticipationStore } from '../../participation/defaultGuestStore.ts'
 import { PersistedChallengeHost } from '../../participation/PersistedChallengeHost.tsx'
 import type { ReaderParticipationStore } from '../../participation/store.ts'
+import { loadChallengeDetailForSummary } from './releasedCatalogProvider.ts'
 import type { ChallengeCatalogProvider } from './catalogProvider.ts'
 import {
   formatChallengeOriginLabel,
@@ -28,6 +29,8 @@ import {
 
 export type ReleasedChallengeHostProps = {
   slug: string
+  expectedDocumentId?: string
+  onFinish?: () => void
   challengeProvider?: ChallengeDetailProvider
   catalogProvider?: ChallengeCatalogProvider
   monthProvider?: MonthGatewayProvider
@@ -61,6 +64,8 @@ export type ReleasedChallengeHostProps = {
  */
 export function ReleasedChallengeHost({
   slug,
+  expectedDocumentId,
+  onFinish,
   challengeProvider,
   catalogProvider,
   monthProvider = defaultGatewayMonthProvider,
@@ -108,11 +113,16 @@ export function ReleasedChallengeHost({
     // Immediately reset to null on slug or provider change to show loading state
     setDetailResult(null)
 
-    effectiveProvider
-      .loadChallenge(slug, { signal: controller.signal })
+    const options = { signal: controller.signal }
+    const detail = expectedDocumentId === undefined
+      ? effectiveProvider.loadChallenge(slug, options)
+      : loadChallengeDetailForSummary({ slug, documentId: expectedDocumentId }, effectiveProvider, options)
+    detail
       .then(result => {
         if (!ignore) {
-          setDetailResult(result)
+          setDetailResult(requireGatewayAuthorization && result.status === 'ready' && result.source !== 'gateway'
+            ? { status: 'notFound' }
+            : result)
         }
       })
       .catch(err => {
@@ -131,7 +141,7 @@ export function ReleasedChallengeHost({
       ignore = true
       controller.abort()
     }
-  }, [effectiveProvider, slug, loadAttempt])
+  }, [effectiveProvider, slug, expectedDocumentId, requireGatewayAuthorization, loadAttempt])
 
   const state = deriveReleasedChallengeDetailState(detailResult, slug, getNow())
 
@@ -271,7 +281,8 @@ export function ReleasedChallengeHost({
         }).catch(() => undefined)
       }}
       onExit={onExit}
-      returnOnFinish={Boolean(onReturn || onExit)}
+      onFinish={onFinish}
+      returnOnFinish={Boolean(onReturn || onExit || onFinish)}
       readAgain={readAgain}
       rereadSessionKey={rereadSessionKey}
       exitLabel={effectiveExitLabel}
