@@ -174,6 +174,7 @@ function ReadyPersistedChallengeHost({
     <OrdinaryChallengeHost
       challengeKey={challengeId}
       challenge={challenge}
+      onFinishReread={onFinish}
       onExit={invokeReturnOnce}
       exitLabel={exitLabel}
       returnOnFinish={effectiveReturnOnFinish}

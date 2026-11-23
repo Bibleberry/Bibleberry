@@ -32,7 +32,11 @@ export default function R06ReaderShell() {
         className="r06-viewport"
         ref={viewport}
         onFocusCapture={event => {
-          if (event.target instanceof HTMLElement) lastFocused.current = event.target
+          if (!(event.target instanceof HTMLElement)) return
+          lastFocused.current = event.target
+          if (state.focused?.kind === 'challenge' && event.target.matches('.challenge-player__screen-heading')) {
+            event.currentTarget.scrollTop = 0
+          }
         }}
       >
         <ReaderScreens

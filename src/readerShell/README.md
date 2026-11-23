@@ -9,9 +9,11 @@ Set `VITE_ENABLE_R06_SHELL=true` when starting Vite or building the reader. `src
 | Month | `#/month/:yearMonth` | `MonthScreenHost` opens from an in-session Today, Shelf, catalogue, or News action. It owns calendar, introduction, progress and earned Cards. A cold Month hash without a matching session receipt follows Maple Meridian’s unavailable path. |
 | Collections | `#/collections`, `#/notebook`, `#/saved-scripture` | `FieldNotebookHost` and `SavedScriptureHost` use the accepted guest participation store. Cross-tab visits retain their host views. |
 | More | `#/more`, `#/news` | `NewsReaderHost` uses the existing gateway feed and supports category hashes and authorized Month destinations. The remaining More features are pending. |
-| Challenge | `#/challenge/:slug` | Neutral unavailable state for browser ingress, with Return to Today. Month actions open a session-only unavailable screen with Back to Month. Focused Challenge, gateway authorization for Challenge ingress, and native ingress integration are pending. |
+| Challenge | `#/challenge/:slug` | Focused `ReleasedChallengeHost` requires gateway detail and hides the global navigation. Month selections bind the selected document ID. Reload and browser traversal reauthorize before displaying teaching. A verified external Challenge returns to Today on Exit or Finish. |
 
 The Maple Meridian adapter owns all R06 history effects, including browser traversal and restoration. Its tab session uses `bibleberry-r06-navigation-v1` in sessionStorage. Hosts own their persistence and nested interactions. The shell hides primary navigation while the Month host shows its Introduction or an active host shows a modal.
+
+An in-session host, including the planned Today host, opens authorized selections with `send({ type: 'openChallenge', slug, expectedDocumentId })`. Supply the base document ID from the gateway projection. The reducer derives the origin from the active screen. Exit preserves unfinished progress. An explicit first Finish returns after the completion write succeeds. A completed reread uses the existing credit. Browser receipts restore the Month, scroll, and focus when available. Native ingress integration is pending.
 
 The Shell Integrator owns `tests/readerShell/playwright.config.ts` for scoped WP-02b browser checks. It exercises the actual Vite entry with the R06 flag enabled and disabled, and intercepts gateway calls with synthetic test fixtures. Live gateway, M1a, and G09 acceptance are pending.
 

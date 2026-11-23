@@ -128,22 +128,20 @@ export function useReaderNavigation(
       setView({ navigation: current.current, revision: revision.current, pending: true })
       const { slug } = result
       void defaultGatewayChallengeProvider.loadChallenge(slug, { signal: controller.signal })
+        .catch(() => ({ status: 'requestError', message: 'Content gateway unavailable' } as const))
         .then(detail => {
           if (controller.signal.aborted || !sameAddress(address, browserAddress())) return
-          const state = deriveReleasedChallengeDetailState(detail, slug, new Date())
-          const authorization = state.status === 'ready' && detail.source === 'gateway'
-            ? { slug, status: 'authorized', documentId: state.challenge.documentId } as const
+          const admitted = deriveReleasedChallengeDetailState(detail, slug, new Date())
+          const authorization = detail.status === 'ready' && detail.source === 'gateway' && admitted.status === 'ready'
+            ? { slug, status: 'authorized', documentId: admitted.challenge.documentId } as const
             : { slug, status: 'unavailable' } as const
           const update = restoreBrowserLocation(current.current, address, options, authorization)
           pending.current = null
-          // Share only this traversal's result with its host. Never persist teaching in history.
-          if (update.status === 'ready') commit(update, { loadChallenge: async () => detail })
-        })
-        .catch(() => {
-          if (controller.signal.aborted || !sameAddress(address, browserAddress())) return
-          pending.current = null
-          const update = restoreBrowserLocation(current.current, address, options, { slug, status: 'unavailable' })
-          if (update.status === 'ready') commit(update)
+          if (update.status === 'ready') {
+            // Reuse the verified response only for this visit. History stores no teaching.
+            const provider = update.navigation.state.focused ? { loadChallenge: async () => detail } : undefined
+            commit(update, provider)
+          }
         })
     }
 

@@ -57,6 +57,7 @@ export type ChallengePlayerProps = {
    * remains entirely with the host.
    */
   onExit?: () => void
+  onFinishReread?: () => void
   exitLabel?: string
   /** Host-supplied header context, such as series, sequence, and release metadata. */
   eyebrow?: ReactNode
@@ -97,6 +98,7 @@ export function ChallengePlayer({
   onStartProgress,
   onStartFromBeginning,
   onExit,
+  onFinishReread = onExit,
   exitLabel = 'Exit',
   eyebrow,
   diagnostics = false,
@@ -231,8 +233,8 @@ export function ChallengePlayer({
           <button
             type="button"
             className="button button--primary"
-            disabled={!onExit}
-            onClick={onExit}
+            disabled={!onFinishReread}
+            onClick={onFinishReread}
           >
             {copy.completedButton}
           </button>
