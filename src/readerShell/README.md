@@ -4,7 +4,7 @@ Set `VITE_ENABLE_R06_SHELL=true` when starting Vite or building the reader. `src
 
 | Destination | Route | Mounted behavior |
 | --- | --- | --- |
-| Today | `#/` | Minimal landing. Open this month sends the browser’s civil year and month as a lookup key to Month Screen. The gateway still determines availability. The WP-04 Today projection is pending. |
+| Today | `#/` | `TodayHost` loads the gateway-authorized current Month (`loadAuthorizedTodayMonth`, bounded month-boundary recovery), subscribes to durable guest participation and Shelf state, and projects primary teaching, a compact Current Month link, and at most one secondary historical continuation via `deriveTodayPrimaryAction` and `deriveHubContinueSuggestion`. |
 | Library | `#/shelf`, `#/library` | The existing durable Shelf and historical catalogue via `AppLibraryShelfHost` → `LibraryShelfHost`. Foundations opens an unavailable screen while its reader and the WP-05b Library landing are pending. |
 | Month | `#/month/:yearMonth` | `MonthScreenHost` opens from an in-session Today, Shelf, catalogue, or News action. It owns calendar, introduction, progress and earned Cards. A cold Month hash without a matching session receipt follows Maple Meridian’s unavailable path. |
 | Collections | `#/collections`, `#/notebook`, `#/saved-scripture` | `FieldNotebookHost` and `SavedScriptureHost` use the accepted guest participation store. Cross-tab visits retain their host views. |

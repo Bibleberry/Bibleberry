@@ -35,6 +35,120 @@
   gap: 0.75rem;
 }
 
+.r06-today {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.r06-today__header .eyebrow {
+  margin-bottom: 0.375rem;
+}
+
+.r06-today__header h1 {
+  margin-bottom: 0;
+}
+
+.r06-today__primary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: clamp(1rem, 3vw, 1.5rem);
+  border: 1px solid var(--rule);
+  border-radius: 0.375rem;
+  background: var(--surface);
+}
+
+.r06-today__eyebrow-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.r06-today__eyebrow-row .eyebrow,
+.r06-today__primary > .eyebrow,
+.r06-today__state > .eyebrow {
+  margin-bottom: 0;
+}
+
+.r06-today__status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-height: 1.5rem;
+  padding: 0.125rem 0.625rem;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--selected);
+}
+
+.r06-today__title {
+  margin: 0;
+  font-size: clamp(1.25rem, 2.5vw, 1.75rem);
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.r06-today__meta {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.r06-today__state {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.r06-today__month-link {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.875rem 1.125rem;
+  border: 1px solid var(--rule);
+  border-radius: 0.375rem;
+  background: var(--surface);
+  color: var(--ink);
+  text-align: start;
+  cursor: pointer;
+}
+
+.r06-today__month-link:hover {
+  border-color: var(--accent);
+  background: var(--selected);
+}
+
+.r06-today__month-link-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.r06-today__month-link-body .eyebrow {
+  margin-bottom: 0;
+}
+
+.r06-today__month-link-title {
+  font-family: 'Lora', Georgia, serif;
+  font-size: 1rem;
+  font-weight: 500;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 .r06-primary-nav {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

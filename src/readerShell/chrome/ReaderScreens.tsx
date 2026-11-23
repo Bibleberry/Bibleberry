@@ -3,12 +3,12 @@ import { AppLibraryShelfHost } from '../../appIntegration/AppLibraryShelfHost.ts
 import { ReleasedChallengeHost } from '../../cms/reader/ReleasedChallengeHost.tsx'
 import type { ChallengeDetailProvider } from '../../cms/reader/challengeDetailProvider.ts'
 import { MonthScreenHost } from '../../components/month/MonthScreenHost.tsx'
-import { formatCivilYearMonthFromDate } from '../../components/month/monthScreenModel.ts'
 import { FieldNotebookHost } from '../../components/notebook/FieldNotebookHost.tsx'
 import { SavedScriptureHost } from '../../components/savedScripture/SavedScriptureHost.tsx'
 import { NewsReaderHost } from '../../components/news/NewsReaderHost.tsx'
 import { activeRoute, type NavigationAction, type NavigationState } from '../navigation/index.ts'
 import { activeScreenKey } from '../navigation/routeTable.ts'
+import { TodayHost } from '../today/TodayHost.tsx'
 
 type Send = (action: NavigationAction) => void
 
@@ -29,12 +29,17 @@ function Landing({ title, children }: { title: string; children: ReactNode }) {
 }
 
 function TodayLanding({ send }: { send: Send }) {
-  // WP-04 will supply the authorized Today projection at this boundary.
   return (
-    <Landing title="Today">
-      <p>Today’s teaching is unavailable in this reader.</p>
-      <Action onClick={() => openMonth(send, formatCivilYearMonthFromDate())}>Open this month</Action>
-    </Landing>
+    <TodayHost
+      onOpenChallenge={intent => {
+        send({
+          type: 'openChallenge',
+          slug: intent.slug,
+          expectedDocumentId: intent.expectedDocumentId,
+        })
+      }}
+      onOpenMonth={intent => openMonth(send, intent.yearMonth)}
+    />
   )
 }
 
