@@ -2,7 +2,6 @@
 
 **Document type:** Cross-department advisory review procedure  
 **Repository path:** `docs/ai-operations/three-families-protocol.md`  
-**Status:** Proposed; pending review and Aaron-authorized merge  
 **Authority:** Aaron Waid, Project Owner  
 **Procedure steward:** General Administration  
 
