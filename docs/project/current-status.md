@@ -1,8 +1,22 @@
 # Bibleberry — Current Project Status
 
-> **CURRENT RECONCILIATION CHECKPOINT — November 22, 2026:** The new R06 integration and governance checkpoint below supersedes the November 19 and earlier engineering snapshots for current execution state. Preserve earlier sections as dated historical evidence, not an executable queue. Use the [canonical roadmap](../product/application-development-roadmap.md) for dependencies, [Internal Alpha Readiness](internal-alpha-readiness.md) for acceptance gates, and current GitHub Issues/PRs/code for volatile facts. No hosted-service or product-release acceptance is implied.
+> **CURRENT RECONCILIATION CHECKPOINT — November 22, 2026 (later post-Olive Compass audit):** This checkpoint supersedes the earlier November 22 Cobalt Ledger snapshot and November 19 and older engineering snapshots **for present assignment planning**. Those older sections are retained as dated historical evidence, not executable instructions. Confirm volatile facts against current GitHub Issues/PRs/source; use the [canonical roadmap](../product/application-development-roadmap.md) for dependencies and [Internal Alpha Readiness](internal-alpha-readiness.md) for acceptance gates. This document does not auto-refresh.
 
-## November 22, 2026 — accepted R06 foundations and remaining integration
+## November 22, 2026 — later accepted-merge and scope clarification
+
+**Verified accepted `main` checkpoint:** `f5ec3ba256bb607db02feba51b713002b649b8f0`, including merged [Juniper Signal PR #291](https://github.com/Bibleberry/Bibleberry/pull/291), [Cobalt Ledger PR #296](https://github.com/Bibleberry/Bibleberry/pull/296), and [Olive Compass PR #299](https://github.com/Bibleberry/Bibleberry/pull/299). The older November 22 checkpoint below was accurate at its earlier SHA, but its references to #291/#296 as open are no longer current. Open PR states must be rechecked rather than copied from either snapshot.
+
+**Already implemented, do not recommission:** [Cedar Bridge PR #281](https://github.com/Bibleberry/Bibleberry/pull/281) delivered the atomic D4 Shelf Put Away/replacement Active Focus choice and confirmation behavior. [Juniper Signal PR #291](https://github.com/Bibleberry/Bibleberry/pull/291) delivered a standalone `R06LibraryLanding` component. [R08A-1 PR #68](https://github.com/Bibleberry/Bibleberry/pull/68) completed its consumer-compatibility scope; the November 9 instruction describing it as the next candidate is historical.
+
+**Still requires integration:** On the checked `main`, `src/main.tsx` selects the R06 shell only behind `VITE_ENABLE_R06_SHELL=true`. `src/readerShell/chrome/ReaderScreens.tsx` still renders Today teaching as unavailable, routes Challenge entry to an unavailable destination, leaves Foundations unavailable, and uses the earlier `AppLibraryShelfHost` rather than mounting the accepted Juniper Signal landing. The separate components' merges do **not** establish a connected Today → Challenge → Finish → return journey, full M1/G09 acceptance, or M2 private-alpha readiness.
+
+**Correct test-work sequencing:** The authoritative [Ivory Sextant package matrix](r06-production-implementation-audit.md) assigns **WP-09a** to the connected-test **harness** (flag-on build, deterministic synthetic gateway fixtures and browser configuration) and **WP-09b** to **G09 J1–J7 connected-suite execution and evidence** on the integrated candidate. Planning and Dev should not treat WP-09a harness existence as full G09 acceptance. The immediate integration sequence remains WP-03a focused Reader → remaining WP-04 Today mounting → M1a walkthrough, with WP-09a preparatory harness work possible in parallel; WP-09b connected acceptance follows relevant integrated packages. G02 and residual Shelf/Library/Foundations integration remain separate; [Silver Relay #293](https://github.com/Bibleberry/Bibleberry/issues/293) remains an outstanding hosted-CI unit-test wiring Issue.
+
+**Acceptance limits:** This is a documentation reconciliation only, not new evidence of live staged monthly publication, hosted accounts, physical-device qualification, actual connected G09/M1 acceptance, M2 GO or release readiness. No engineering Issue creation/dispatch, service mutation or merge is authorized by this checkpoint.
+
+---
+
+## November 22, 2026 — earlier Cobalt Ledger R06 checkpoint (historical)
 
 **Verified repository checkpoint:** [Bibleberry/Bibleberry](https://github.com/Bibleberry/Bibleberry) `main` at `52228290748d2e76970f6aedee3fcbc523e52cab`, following merged [governance PR #294](https://github.com/Bibleberry/Bibleberry/pull/294) and [Dependabot setup-java PR #295](https://github.com/Bibleberry/Bibleberry/pull/295). At this inspection [Juniper Signal PR #291](https://github.com/Bibleberry/Bibleberry/pull/291) and [Cobalt Ledger governance PR #296](https://github.com/Bibleberry/Bibleberry/pull/296) are open. These are dated observations, not automatically refreshed counts or permission to merge.
 
