@@ -55,6 +55,10 @@ jobs:
         if: steps.scope.outputs.should_run == 'true'
         run: npm run test:reader-profile
 
+      - name: Run reader shell unit tests
+        if: steps.scope.outputs.should_run == 'true'
+        run: npm run test:reader-shell
+
       - name: Run hermetic regression tests
         if: steps.scope.outputs.should_run == 'true'
         run: >-
