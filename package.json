@@ -16,6 +16,7 @@
     "test:native-participation": "node --experimental-strip-types --test tests/participation/*.test.ts",
     "test:shelf-persistence": "node --experimental-strip-types --test tests/shelfPersistence/*.test.ts",
     "test:reader-profile": "node --experimental-strip-types --test tests/readerProfile/*.test.ts",
+    "test:reader-shell": "node --experimental-strip-types --test tests/readerShell/*.test.ts",
     "test:library-shelf": "node --experimental-strip-types --test tests/libraryShelf/libraryShelfModel.test.ts && playwright test --config tests/libraryShelf/playwright.config.ts",
     "test:performance": "node --experimental-strip-types --test tests/performance/*.test.ts",
     "test:collections": "node scripts/testing/run-collections-browser-tests.mjs",
