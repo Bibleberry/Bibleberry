@@ -1,7 +1,7 @@
 # Bibleberry | Convening The Three Families
 
 **Document type:** Cross-department advisory review procedure  
-**Repository path:** \`docs/ai-operations/three-families-protocol.md\`  
+**Repository path:** `docs/ai-operations/three-families-protocol.md`  
 **Status:** Proposed; pending review and Aaron-authorized merge  
 **Authority:** Aaron Waid, Project Owner  
 **Procedure steward:** General Administration  
@@ -42,7 +42,7 @@ A Convocation is **not** normally justified for routine Issue creation, ordinary
 Before inviting the three models to a Convocation, the coordinating person prepares **one identical primary brief**, including:
 
 1. A precise decision or assessment question and what outcome would be useful.
-2. Repository and relevant systems, current \`main\` SHA, and assessment date. If the repository changes during the Convocation, the synthesizer must identify the delta and reverify affected claims.
+2. Repository and relevant systems, current `main` SHA, and assessment date. If the repository changes during the Convocation, the synthesizer must identify the delta and reverify affected claims.
 3. The accepted documents, Issues, PRs, source areas, test/CI evidence, and constraints that each assessor must examine.
 4. Clear separation of approved requirements, current implementation, unverified claims, open decisions, and proposed work.
 5. Required questions, deliverable structure, evidence expectations, and explicit treatment of risks and alternatives.
@@ -56,7 +56,7 @@ Keep the decision brief stable across all three assessments. If one assessor req
 
 - Give each selected model the same brief in a **separate conversation/context** with access to the same permissible sources, as far as practical.
 - Do **not** share any assessor's response, interim recommendation, or reasoning with another assessor before all three have submitted their independent reports.
-- Require each report to name the exact inspected \`main\` SHA; distinguish verified facts, inferences, assumptions, incomplete access, and recommended actions; link to relevant evidence.
+- Require each report to name the exact inspected `main` SHA; distinguish verified facts, inferences, assumptions, incomplete access, and recommended actions; link to relevant evidence.
 - Require a direct answer, a dependency-aware recommendation, meaningful alternatives, uncertainties, and the strongest objection to its own recommendation.
 - Preserve all three responses substantially unedited, with provider, exact model, configuration, date, and material tool/access limitations. If a model lacks independent repository access, mark the assessment as access-limited rather than treating it as fully corroborating source claims.
 - If a selected provider cannot be represented, record the missing family. Do not describe the exercise as a completed three-family independent Convocation.
