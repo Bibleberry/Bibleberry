@@ -33,7 +33,7 @@ export type MonthScreenViewProps = {
   progressLoading?: boolean
   progressError?: string | null
   onRetryProgress?: () => void
-  onOpenChallenge: (slug: string) => void
+  onOpenChallenge: (slug: string, expectedDocumentId: string) => void
   onOpenIntro: () => void
   onSelectYearMonth: (yearMonth: string) => void
   onExit?: () => void
@@ -238,14 +238,16 @@ export function MonthScreenView({
                         </div>
                       )
 
-                      if (slot.interactive && slot.slug) {
+                      if (slot.interactive && slot.slug && slot.challengeId?.startsWith('cms:')) {
+                        const slug = slot.slug
+                        const documentId = slot.challengeId.slice('cms:'.length)
                         return (
                           <li key={slot.date} className="month-week__item">
                             <button
                               type="button"
                               className={`month-day month-day--${slot.status}`}
                               aria-label={`${fullDateLabel}: ${displayTitle}, ${slot.statusLabel}`}
-                              onClick={() => onOpenChallenge(slot.slug!)}
+                              onClick={() => onOpenChallenge(slug, documentId)}
                             >
                               {rowContent}
                               <ChevronRight

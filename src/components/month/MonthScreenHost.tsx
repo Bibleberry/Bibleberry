@@ -39,7 +39,7 @@ export type MonthScreenHostProps = {
   monthProvider?: MonthGatewayProvider
   store?: ReaderParticipationStore
   introStore?: MonthIntroStore
-  onOpenChallenge: (slug: string, yearMonth: string) => void
+  onOpenChallenge: (slug: string, yearMonth: string, expectedDocumentId: string) => void
   onSelectYearMonth: (yearMonth: string) => void
   onExit?: () => void
   exitLabel?: string
@@ -531,7 +531,7 @@ export function MonthScreenHost({
         weeks={weeks}
         completionSummary={null}
         discoveries={[]}
-        onOpenChallenge={slug => onOpenChallenge(slug, monthState.month.monthId)}
+        onOpenChallenge={(slug, documentId) => onOpenChallenge(slug, monthState.month.monthId, documentId)}
         onOpenIntro={handleOpenIntroManually}
         onSelectYearMonth={onSelectYearMonth}
         onExit={onExit}
@@ -582,7 +582,7 @@ export function MonthScreenHost({
       progressLoading={progressLoading}
       progressError={progressError}
       onRetryProgress={retryProgress}
-      onOpenChallenge={slug => onOpenChallenge(slug, monthState.month.monthId)}
+      onOpenChallenge={(slug, documentId) => onOpenChallenge(slug, monthState.month.monthId, documentId)}
       onOpenIntro={handleOpenIntroManually}
       onSelectYearMonth={onSelectYearMonth}
       onExit={onExit}

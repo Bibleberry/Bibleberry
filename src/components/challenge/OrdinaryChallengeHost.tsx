@@ -37,6 +37,7 @@ type OrdinaryChallengeHostBaseProps = {
   challengeKey: string
   challenge: ChallengePlayerChallenge
   onExit?: () => void
+  onFinishReread?: () => void
   exitLabel?: string
   returnOnFinish?: boolean
   eyebrow?: ReactNode
@@ -80,6 +81,7 @@ function OrdinaryChallengeHostFrame({
   challenge,
   viewState,
   actions,
+  onFinishReread,
   onExit,
   exitLabel,
   returnOnFinish,
@@ -105,6 +107,7 @@ function OrdinaryChallengeHostFrame({
         onComplete={actions.onComplete}
         onStartProgress={actions.onStartProgress}
         onStartFromBeginning={actions.onStartFromBeginning}
+        onFinishReread={onFinishReread}
         onExit={onExit}
         exitLabel={exitLabel}
         returnOnFinish={returnOnFinish}
