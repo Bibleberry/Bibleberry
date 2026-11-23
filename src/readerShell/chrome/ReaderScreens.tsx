@@ -1,5 +1,7 @@
 import { Activity, useState, type ReactNode } from 'react'
 import { AppLibraryShelfHost } from '../../appIntegration/AppLibraryShelfHost.tsx'
+import { ReleasedChallengeHost } from '../../cms/reader/ReleasedChallengeHost.tsx'
+import type { ChallengeDetailProvider } from '../../cms/reader/challengeDetailProvider.ts'
 import { MonthScreenHost } from '../../components/month/MonthScreenHost.tsx'
 import { formatCivilYearMonthFromDate } from '../../components/month/monthScreenModel.ts'
 import { FieldNotebookHost } from '../../components/notebook/FieldNotebookHost.tsx'
@@ -64,11 +66,14 @@ function LibraryWorkspace({ browse, send }: { browse: boolean; send: Send }) {
 
 function RouteProblem({ state, send }: { state: NavigationState; send: Send }) {
   const challenge = state.problem === 'challengeUnavailable' || state.focused?.kind === 'challenge'
+  const returnToContext = challenge && (activeRoute(state).kind !== 'landing' || state.activeTab !== 'today')
   const month = state.problem === 'externalMonth'
   const title = challenge ? 'Challenge unavailable' : month ? 'Month unavailable' : 'Page unavailable'
   return (
     <Landing title={title}>
-      <Action onClick={() => send({ type: 'returnToToday' })}>Return to Today</Action>
+      <Action onClick={() => send(returnToContext ? back : { type: 'returnToToday' })}>
+        {returnToContext ? 'Back' : 'Return to Today'}
+      </Action>
     </Landing>
   )
 }
@@ -84,8 +89,29 @@ function UnavailableDetail({ screen, send }: { screen: string; send: Send }) {
   )
 }
 
-function CurrentScreen({ state, send }: { state: NavigationState; send: Send }) {
-  if (state.problem || state.focused) return <RouteProblem state={state} send={send} />
+interface ScreenProps {
+  state: NavigationState
+  send: Send
+  challengeProvider?: ChallengeDetailProvider
+}
+
+function CurrentScreen({ state, send, challengeProvider }: ScreenProps) {
+  const focus = state.focused
+  if (!state.problem && focus?.kind === 'challenge') {
+    return (
+      <ReleasedChallengeHost
+        slug={focus.slug}
+        origin={focus.origin}
+        expectedDocumentId={focus.expectedDocumentId}
+        requireGatewayAuthorization
+        challengeProvider={challengeProvider}
+        exitLabel="Exit"
+        onExit={() => send({ type: 'exitChallenge' })}
+        onFinish={() => send({ type: 'finishChallenge' })}
+      />
+    )
+  }
+  if (state.problem || focus) return <RouteProblem state={state} send={send} />
 
   const route = activeRoute(state)
   if (route.kind === 'landing') {
@@ -116,7 +142,9 @@ function CurrentScreen({ state, send }: { state: NavigationState; send: Send }) 
         <MonthScreenHost
           yearMonth={route.yearMonth}
           onSelectYearMonth={yearMonth => openMonth(send, yearMonth)}
-          onOpenChallenge={() => send({ type: 'push', route: { kind: 'detail', screen: 'challengeUnavailable' } })}
+          onOpenChallenge={(slug, yearMonth, expectedDocumentId) => {
+            if (yearMonth === route.yearMonth) send({ type: 'openChallenge', slug, expectedDocumentId })
+          }}
           onExit={() => send(back)}
           exitLabel="Back"
         />
@@ -152,8 +180,8 @@ function keepScreen(key: RetainedScreen, state: NavigationState) {
   }
 }
 
-export function ReaderScreens({ state, send }: { state: NavigationState; send: Send }) {
-  const activeKey = activeScreenKey(state)
+export function ReaderScreens({ state, send, challengeProvider, pending }: ScreenProps & { pending: boolean }) {
+  const activeKey = pending ? 'pending' : activeScreenKey(state)
   const activeRetained = retainedScreen(activeKey)
   const [visited, setVisited] = useState<readonly RetainedScreen[]>([])
   // Preserve host-owned filters and galleries across tabs, and discard nested
@@ -188,8 +216,10 @@ export function ReaderScreens({ state, send }: { state: NavigationState; send: S
         )
       })}
       {!activeRetained && (
-        <div key={activeKey} className="r06-screen" tabIndex={-1} role={hostHasMain ? undefined : 'main'}>
-          <CurrentScreen state={state} send={send} />
+        <div key={activeKey} className="r06-screen" tabIndex={-1} role={!pending && hostHasMain ? undefined : 'main'}>
+          {pending
+            ? <p role="status">Opening Bibleberry…</p>
+            : <CurrentScreen state={state} send={send} challengeProvider={challengeProvider} />}
         </div>
       )}
     </>

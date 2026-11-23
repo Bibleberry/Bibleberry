@@ -49,6 +49,8 @@ export type PersistedChallengeHostProps = {
   getToday?: () => LocalCalendarDate
   origin?: ChallengeOrigin
   onReturn?: (origin: ChallengeOrigin) => void
+  /** When supplied, return only after the explicit completion is durable. */
+  onFinish?: () => void
   onCompletionDispatched?: (completionWrite: Promise<void>) => void
   returnOnFinish?: boolean
   /**
@@ -80,6 +82,7 @@ function ReadyPersistedChallengeHost({
   challenge,
   getToday,
   effectiveReturnOnFinish,
+  onFinish,
   onCompletionDispatched,
   onExit,
   exitLabel = 'Exit',
@@ -90,6 +93,7 @@ function ReadyPersistedChallengeHost({
 }: ReadyPersistedChallengeHostProps) {
   const snapshot = useReaderParticipation(store)
   const [rereadScreenId, setRereadScreenId] = useState<string | undefined>(undefined)
+  const [finishStatus, setFinishStatus] = useState<'saving' | 'failed' | null>(null)
   const recordedOpenKey = useRef<string>('')
   const finishControllerRef = useRef(createPersistedChallengeFinishController())
 
@@ -135,6 +139,36 @@ function ReadyPersistedChallengeHost({
         finishControllerRef.current.triggerExit(onExit, effectiveReturnOnFinish)
       }
     : undefined
+
+  async function returnAfterWrite(write: Promise<void>) {
+    setFinishStatus('saving')
+    try {
+      await write
+      const saved = store.getSnapshot()
+      if (saved.health === 'ok' && !saved.hasPendingWrites && saved.data.completedChallenges[challengeId]) {
+        onCompletionDispatched?.(write)
+        onFinish?.()
+        return
+      }
+    } catch {
+      // A failed write remains retryable through the store's pending command queue.
+    }
+    setFinishStatus('failed')
+  }
+
+  if (finishStatus) {
+    return (
+      <div className="standard-page challenge-reader-page">
+        <p role="status">{finishStatus === 'saving' ? 'Saving completion…' : 'Unable to save completion.'}</p>
+        {finishStatus === 'failed' && (
+          <>
+            <button type="button" onClick={() => void returnAfterWrite(store.flushPending())}>Retry Finish</button>
+            <button type="button" onClick={invokeReturnOnce}>{exitLabel}</button>
+          </>
+        )}
+      </div>
+    )
+  }
 
   return (
     <OrdinaryChallengeHost
@@ -228,9 +262,10 @@ function ReadyPersistedChallengeHost({
                 challengeId,
                 completedOn: getToday(),
               })
-              onCompletionDispatched?.(completionWrite)
+              if (onFinish) void returnAfterWrite(completionWrite)
+              else onCompletionDispatched?.(completionWrite)
             },
-            onExit,
+            onExit: onFinish ? undefined : onExit,
           })
         },
       }}
@@ -246,6 +281,7 @@ export function PersistedChallengeHost({
   getToday = formatLocalCalendarDate,
   origin,
   onReturn,
+  onFinish,
   onCompletionDispatched,
   returnOnFinish,
   readAgain = false,
@@ -305,6 +341,7 @@ export function PersistedChallengeHost({
       challenge={challenge}
       getToday={getToday}
       effectiveReturnOnFinish={effectiveReturnOnFinish}
+      onFinish={onFinish}
       onCompletionDispatched={onCompletionDispatched}
       onExit={handleExit}
       exitLabel={effectiveExitLabel}
