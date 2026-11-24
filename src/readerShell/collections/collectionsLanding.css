@@ -1,0 +1,44 @@
+.r06-collections {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.r06-collections h1 {
+  margin: 0;
+}
+
+.r06-collections h2 {
+  margin-bottom: 0.75rem;
+  font-size: 1.25rem;
+}
+
+.r06-collections__preview {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
+}
+
+.r06-collections__discoveries {
+  align-self: center;
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  background: var(--selected);
+  color: var(--selected-ink);
+  font-size: 0.8rem;
+}
+
+.r06-collections .notebook-card__media {
+  display: block;
+  aspect-ratio: auto;
+}
+
+.r06-collections .notebook-card__media img {
+  aspect-ratio: 4 / 3;
+}
+
+.r06-collections .notebook-card__new-badge {
+  position: static;
+  justify-self: start;
+}
+
+.r06-collections .notebook-card__button:focus-visible {
+  outline-offset: -3px;
+}

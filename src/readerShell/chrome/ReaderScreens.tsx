@@ -10,6 +10,7 @@ import { activeRoute, type NavigationAction, type NavigationState } from '../nav
 import { activeScreenKey } from '../navigation/routeTable.ts'
 import { MoreLanding } from './MoreLanding.tsx'
 import { MoreIntroductionReplay } from './MoreIntroductionReplay.tsx'
+import { CollectionsLanding } from '../collections/CollectionsLanding.tsx'
 import { TodayHost } from '../today/TodayHost.tsx'
 
 type Send = (action: NavigationAction) => void
@@ -127,12 +128,10 @@ function CurrentScreen({ state, send, challengeProvider, captureReplayReturn }: 
         return <TodayLanding send={send} />
       case 'collections':
         return (
-          <Landing title="Collections">
-            <div className="r06-actions">
-              <Action onClick={() => send({ type: 'push', route: { kind: 'notebook' } })}>Field Notebook</Action>
-              <Action onClick={() => send({ type: 'push', route: { kind: 'savedScripture' } })}>Saved Scripture</Action>
-            </div>
-          </Landing>
+          <CollectionsLanding
+            onOpenNotebook={() => send({ type: 'push', route: { kind: 'notebook' } })}
+            onOpenSavedScripture={() => send({ type: 'push', route: { kind: 'savedScripture' } })}
+          />
         )
       case 'more':
         return (
