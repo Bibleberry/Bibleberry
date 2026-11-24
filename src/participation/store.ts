@@ -62,10 +62,9 @@ export interface ReaderParticipationStore {
 export function acknowledgeNotebookEntry(store: ReaderParticipationStore): Promise<void> {
   const snapshot = store.getSnapshot()
   if (snapshot.status !== 'ready') return Promise.resolve()
-  return store.dispatch({
-    type: 'acknowledgeNotebookEntry',
-    awardIds: selectNewDiscoveryAwardIds(snapshot.data),
-  })
+  const awardIds = selectNewDiscoveryAwardIds(snapshot.data)
+  if (awardIds.length === 0) return Promise.resolve()
+  return store.dispatch({ type: 'acknowledgeNotebookEntry', awardIds })
 }
 
 export interface CreateReaderParticipationStoreOptions {

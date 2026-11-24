@@ -545,6 +545,10 @@ test('never overwrites newer versions, structurally invalid envelopes, corrupt J
     await store.whenReady()
     assert.equal(store.getSnapshot().health, testCase.expectedHealth, testCase.label)
 
+    await acknowledgeNotebookEntry(store)
+    assert.equal(store.getSnapshot().hasPendingWrites, false)
+    assert.equal(backing.get(STORAGE_KEY), testCase.raw)
+
     await store.dispatch({
       type: 'recordEarnedAwards',
       awards: [
