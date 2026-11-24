@@ -23,7 +23,11 @@ export const routeSchema = z.discriminatedUnion('kind', [
 export type NestedRoute = Readonly<z.infer<typeof routeSchema>>
 export type ReaderRoute = NestedRoute | { readonly kind: 'landing'; readonly tab: ReaderTab }
 
-export const restorationSchema = z.object({ scrollTop: z.number().nonnegative(), focusId: z.string().optional() })
+export const restorationSchema = z.object({
+  scrollTop: z.number().nonnegative(),
+  focusId: z.string().optional(),
+  monthPreview: z.literal(true).optional(),
+})
 export type RouteRestoration = Readonly<z.infer<typeof restorationSchema>>
 
 const challengeOriginSchema = z.discriminatedUnion('kind', [

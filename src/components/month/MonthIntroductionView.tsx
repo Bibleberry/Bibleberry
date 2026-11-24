@@ -14,6 +14,9 @@ export type MonthIntroductionViewProps = {
   canSkipToWelcome?: boolean
   onComplete: () => void
   onClose?: () => void
+  closeLabel?: string
+  saving?: boolean
+  saveFailed?: boolean
 }
 
 function mapIntroBlockToCmsBlock(rawBlock: Record<string, unknown>, fallbackId: string): CmsBlock | null {
@@ -87,6 +90,9 @@ export function MonthIntroductionView({
   canSkipToWelcome = false,
   onComplete,
   onClose,
+  closeLabel,
+  saving = false,
+  saveFailed = false,
 }: MonthIntroductionViewProps) {
   const screens: readonly MonthIntroductionScreen[] =
     mode === 'active' && welcomeScreen ? [...previewScreens, welcomeScreen] : previewScreens
@@ -123,15 +129,15 @@ export function MonthIntroductionView({
   }
 
   const goPrevious = () => {
-    if (!isFirst) setIndex(prev => Math.max(0, prev - 1))
+    if (!saving && !isFirst) setIndex(prev => Math.max(0, prev - 1))
   }
 
   const goNext = () => {
-    if (!isLast) setIndex(prev => Math.min(screens.length - 1, prev + 1))
+    if (!saving && !isLast) setIndex(prev => Math.min(screens.length - 1, prev + 1))
   }
 
   const skipToWelcome = () => {
-    if (showSkipToWelcome) {
+    if (!saving && showSkipToWelcome) {
       setIndex(screens.length - 1)
     }
   }
@@ -145,16 +151,11 @@ export function MonthIntroductionView({
     mode === 'preview'
       ? 'View Preview Calendar'
       : currentScreen.ctaLabel || 'Open Calendar'
-  const returnFocusToMonth = (callback: () => void) => {
-    callback()
-    requestAnimationFrame(() => {
-      document.getElementById(`month-screen-heading-${yearMonth}`)?.focus({ preventScroll: true })
-    })
-  }
 
   return (
     <section
       className="standard-page month-intro"
+      aria-busy={saving}
       aria-labelledby={`month-intro-title-${currentScreen.id}`}
       onKeyDown={event => {
         const tag = (event.target as HTMLElement | null)?.tagName
@@ -206,10 +207,11 @@ export function MonthIntroductionView({
             <button
               type="button"
               className="button button--text month-intro__close"
-              onClick={() => onClose && returnFocusToMonth(onClose)}
-              aria-label="Close introduction"
+              onClick={onClose}
+              aria-label={closeLabel ?? 'Close introduction'}
+              disabled={saving}
             >
-              <X size={16} aria-hidden="true" /> Close
+              <X size={16} aria-hidden="true" /> {closeLabel ?? 'Close'}
             </button>
           )}
         </div>
@@ -251,11 +253,12 @@ export function MonthIntroductionView({
         </div>
       </article>
 
+      {saveFailed && <p role="alert">Unable to save Monthly Introduction status. Try again or go back.</p>}
       <nav className="lab-screen-nav month-intro__nav" aria-label="Monthly introduction navigation">
         <button
           type="button"
           className="button button--secondary"
-          disabled={isFirst}
+          disabled={isFirst || saving}
           onClick={goPrevious}
         >
           <ArrowLeft size={17} aria-hidden="true" /> Back
@@ -269,9 +272,10 @@ export function MonthIntroductionView({
           <button
             type="button"
             className="button button--primary"
-            onClick={() => returnFocusToMonth(onComplete)}
+            onClick={onComplete}
+            disabled={saving}
           >
-            {finalCtaLabel} <ArrowRight size={17} aria-hidden="true" />
+            {saveFailed ? 'Retry' : finalCtaLabel} <ArrowRight size={17} aria-hidden="true" />
           </button>
         )}
       </nav>

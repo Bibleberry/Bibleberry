@@ -88,9 +88,10 @@ interface ScreenProps {
   state: NavigationState
   send: Send
   challengeProvider?: ChallengeDetailProvider
+  captureReplayReturn: () => (() => void) | undefined
 }
 
-function CurrentScreen({ state, send, challengeProvider }: ScreenProps) {
+function CurrentScreen({ state, send, challengeProvider, captureReplayReturn }: ScreenProps) {
   const focus = state.focused
   if (!state.problem && focus?.kind === 'challenge') {
     return (
@@ -136,7 +137,8 @@ function CurrentScreen({ state, send, challengeProvider }: ScreenProps) {
       return (
         <MonthScreenHost
           yearMonth={route.yearMonth}
-          connected
+          inReaderShell
+          captureReplayReturn={captureReplayReturn}
           onSelectYearMonth={yearMonth => openMonth(send, yearMonth)}
           onOpenChallenge={(slug, yearMonth, expectedDocumentId) => {
             if (yearMonth === route.yearMonth) send({ type: 'openChallenge', slug, expectedDocumentId })
@@ -176,7 +178,7 @@ function keepScreen(key: RetainedScreen, state: NavigationState) {
   }
 }
 
-export function ReaderScreens({ state, send, challengeProvider, pending }: ScreenProps & { pending: boolean }) {
+export function ReaderScreens({ state, send, challengeProvider, captureReplayReturn, pending }: ScreenProps & { pending: boolean }) {
   const activeKey = pending ? 'pending' : activeScreenKey(state)
   const activeRetained = retainedScreen(activeKey)
   const [visited, setVisited] = useState<readonly RetainedScreen[]>([])
@@ -187,6 +189,7 @@ export function ReaderScreens({ state, send, challengeProvider, pending }: Scree
   if (kept.length !== visited.length || kept.some((key, index) => key !== visited[index])) setVisited(kept)
 
   const route = activeRoute(state)
+  const monthScreen = !pending && !state.problem && !state.focused && route.kind === 'month'
   const hostHasMain = !state.problem && !state.focused && route.kind === 'news'
   return (
     <>
@@ -212,10 +215,16 @@ export function ReaderScreens({ state, send, challengeProvider, pending }: Scree
         )
       })}
       {!activeRetained && (
-        <div key={activeKey} className="r06-screen" tabIndex={-1} data-month-screen={!pending && !state.problem && !state.focused && route.kind === 'month' || undefined} role={!pending && hostHasMain ? undefined : 'main'}>
+        <div
+          key={activeKey}
+          className="r06-screen"
+          tabIndex={-1}
+          data-month-screen={monthScreen || undefined}
+          role={!pending && hostHasMain ? undefined : 'main'}
+        >
           {pending
             ? <p role="status">Opening Bibleberry…</p>
-            : <CurrentScreen state={state} send={send} challengeProvider={challengeProvider} />}
+            : <CurrentScreen state={state} send={send} challengeProvider={challengeProvider} captureReplayReturn={captureReplayReturn} />}
         </div>
       )}
     </>

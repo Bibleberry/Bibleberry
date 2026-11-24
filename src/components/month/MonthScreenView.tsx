@@ -182,7 +182,7 @@ export function MonthScreenView({
         )}
       </header>
 
-      <section data-month-agenda className="month-calendar" aria-labelledby="month-calendar-heading">
+      <section data-month-agenda={mode} className="month-calendar" aria-labelledby="month-calendar-heading">
         <div className="month-calendar__header">
           <h2 id="month-calendar-heading">Daily Challenges</h2>
           <span>
@@ -195,15 +195,16 @@ export function MonthScreenView({
         ) : (
           <div className="month-weeks">
             {weeks.map(week => {
+              const currentWeek = week.slots.some(slot => slot.date === currentDate)
               const weekHeadingId = `month-week-${month.monthId}-${week.weekNumber}`
               return (
                 <section
                   key={week.weekNumber}
                   className="month-week"
-                  data-current-week={week.slots.some(slot => slot.date === currentDate) || undefined}
+                  data-current-week={currentWeek || undefined}
                   aria-labelledby={weekHeadingId}
                 >
-                  <h3 id={weekHeadingId} className="month-week__title">
+                  <h3 id={weekHeadingId} className="month-week__title" tabIndex={currentWeek ? -1 : undefined}>
                     Week {week.weekNumber} · {week.label}
                   </h3>
 

@@ -1,5 +1,7 @@
 import { createServer, type ViteDevServer } from 'vite'
 import type { Page } from '@playwright/test'
+import { handleGatewayRequest } from '../../src/gateway/handler.ts'
+import { toDereferencedMonthlyDetailDoc, toDereferencedMonthlyPreviewDoc } from '../../src/gateway/fixtures/r08aMonthlyFixtures.ts'
 import { expect, test } from '../smoke/helpers/frameSafeTest.ts'
 import {
   RESTRICTED_CARD_ART_SENTINEL,
@@ -10,6 +12,7 @@ import {
   buildCurrentMonthProgressPayload,
   buildDefaultCurrentMonthPayload,
   buildDefaultHistoricalMonthPayload,
+  buildGuestParticipationStorageValue,
   buildHistoricalMonthProgressPayload,
   buildLibraryMonthsPayload,
   buildMonthPayload,
@@ -29,6 +32,7 @@ import {
   currentThematicEarnedCard,
   documentId,
   monthId,
+  monthIntroKey,
   monthTitle,
   navigationKey,
   participationKey,
@@ -260,6 +264,7 @@ test('opens a Month teaching, restores scroll and unfinished progress, and prese
   await expect(primaryNav(page)).toBeVisible()
 
   const viewport = page.locator('.r06-viewport')
+  await expect.poll(() => viewport.evaluate(element => element.scrollTop)).toBe(0)
   const challenge = page.getByRole('button', { name: /Test Challenge 25/ })
   await challenge.scrollIntoViewIfNeeded()
   await challenge.focus()
@@ -385,6 +390,7 @@ test('authorized external Exit and Finish return to Today despite a URL-supplied
     await expect(page.getByRole('heading', { name: 'Today', exact: true })).toBeVisible()
     expect(Object.keys((await participation(page)).completedChallenges)).toHaveLength(action === 'Exit' ? 0 : 1)
   }
+  expect(await page.evaluate(key => localStorage.getItem(key), monthIntroKey)).toBeNull()
 })
 
 test('an available Month selection rejects a different document at the same slug', async ({ page }) => {
@@ -562,6 +568,7 @@ test('connects Today → Challenge → explicit Finish → Today, resumes unfini
   await currentMonthLink.click()
   await expect(page).toHaveURL(new RegExp(`#/month/${currentMonthId}$`))
   await expect(page.getByRole('heading', { name: 'Test month overview' })).toBeVisible()
+  expect(await page.evaluate(key => localStorage.getItem(key), monthIntroKey)).toBeNull()
 })
 
 test('recovers Today across gateway month boundaries (ready wrong-month and 404 → News context) and fails closed on unpublished, mismatched, or errored responses', async ({ page }) => {
@@ -966,6 +973,7 @@ test('verifies 3-screen Today persistence across reload, non-completion on the f
 test('completes the connected M1a current-Month walkthrough with context restoration, multi-tab switching, and browser Back/Forward without stranding on unavailable', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 640 })
   await mockGateway(page)
+  await page.clock.setFixedTime(new Date('2026-11-03T12:00:00Z'))
   await page.goto(readerUrl())
 
   // Enter the dedicated current Month Screen from Today's compact month link
@@ -982,6 +990,16 @@ test('completes the connected M1a current-Month walkthrough with context restora
   await expect(page.getByRole('heading', { name: currentMonthTitle, exact: true })).toBeVisible()
   await expect(primaryNav(page)).toBeVisible()
 
+  const viewport = page.locator('.r06-viewport')
+  // The gateway authorizes November 15 while the device clock says November 3.
+  const currentWeek = page.getByRole('heading', { name: /^Week 3 ·/ })
+  await expect(currentWeek).toBeFocused()
+  await expect.poll(() => currentWeek.evaluate(heading => {
+    const week = heading.closest('section')!
+    const scroller = week.closest('.r06-viewport')!
+    return Math.abs(week.getBoundingClientRect().top - scroller.getBoundingClientRect().top)
+  })).toBeLessThanOrEqual(1)
+
   // Before finishing: ticker is 0 of 30, unearned discoveries show title + progress only with zero Card art, and Coming Soon is locked
   const ticker = page.getByLabel('Monthly completion progress')
   await expect(ticker).toContainText('0 of 30')
@@ -992,7 +1010,6 @@ test('completes the connected M1a current-Month walkthrough with context restora
   await expect(page.getByRole('button', { name: /Upcoming November Challenge 16/ })).toHaveCount(0)
 
   // Scroll to an available 3-screen current-month Challenge (Day 14), open it, and explicitly Finish
-  const viewport = page.locator('.r06-viewport')
   const day14Challenge = page.getByRole('button', { name: /November Challenge 14/ })
   await day14Challenge.scrollIntoViewIfNeeded()
   await day14Challenge.focus()
@@ -1003,6 +1020,12 @@ test('completes the connected M1a current-Month walkthrough with context restora
   const position = page.getByRole('progressbar', { name: 'Challenge screen position' })
   await expect(position).toHaveAttribute('aria-valuetext', 'Screen 1 of 3')
   await expect(primaryNav(page)).toBeHidden()
+  await page.goBack()
+  await expect(day14Challenge).toBeFocused()
+  await expect.poll(() => viewport.evaluate(element => element.scrollTop)).toBe(scrollTop)
+
+  await day14Challenge.press('Enter')
+  await expect(position).toHaveAttribute('aria-valuetext', 'Screen 1 of 3')
   await page.getByRole('button', { name: 'Next', exact: true }).click()
   await expect(position).toHaveAttribute('aria-valuetext', 'Screen 2 of 3')
   await page.getByRole('button', { name: 'Next', exact: true }).click()
@@ -1161,4 +1184,187 @@ test('fails closed on withdrawn and unauthorized Today or Month Challenges witho
   const stored = await participation(page)
   expect(stored?.completedChallenges ?? {}).toEqual({})
   expect(stored?.earnedAwards ?? {}).toEqual({})
+})
+
+for (const { target, before, opens } of [
+  { target: '2098-01', before: '2097-12-27', opens: '2097-12-28' },
+  { target: '2098-03', before: '2098-02-26', opens: '2098-02-27' },
+  { target: '2096-03', before: '2096-02-26', opens: '2096-02-27' },
+]) {
+  test(`G09 J3 opens ${target} preview on ${opens} and withholds Welcome and discoveries until month start`, async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 640 })
+    await mockGateway(page)
+    let authorizedDate = before
+    const syntheticMonth = (preview: boolean) => {
+      // January and March have the same 31-day roster shape.
+      const source = preview
+        ? toDereferencedMonthlyPreviewDoc('2098-03')
+        : toDereferencedMonthlyDetailDoc('2098-03')
+      if (target === '2098-03') return source
+      return {
+        ...JSON.parse(JSON.stringify(source).replaceAll('2098-03', target)),
+        year: Number(target.slice(0, 4)),
+        month: Number(target.slice(5, 7)),
+        title: `Synthetic theme for ${target}`,
+      }
+    }
+    const projectedStatuses = new Map<string, number>()
+    await page.route(`**/api/months/${target}**`, async route => {
+      const request = route.request()
+      const path = new URL(request.url()).pathname
+      const response = await handleGatewayRequest(
+        new Request(request.url(), {
+          method: request.method(),
+          headers: request.headers(),
+          body: request.postData(),
+        }),
+        {
+          SANITY_PROJECT_ID: '80016lrq',
+          SANITY_DATASET: 'staging',
+          SANITY_READ_TOKEN: 'synthetic-test-token',
+          ALLOWED_ORIGINS: new URL(readerUrl()).origin,
+        },
+        {
+          getNow: () => new Date(`${authorizedDate}T12:00:00Z`),
+          fetchImpl: async () => Response.json({
+            result: syntheticMonth(path.endsWith('/preview')),
+          }),
+        },
+      )
+      projectedStatuses.set(path, response.status)
+      await route.fulfill({ status: response.status, body: await response.text(), contentType: 'application/json' })
+    })
+
+    await page.goto(readerUrl())
+    await page.getByTestId('today-current-month-link').click()
+    await page.getByRole('button', { name: 'Continue', exact: true }).click()
+    await page.getByRole('button', { name: 'Begin the Month' }).click()
+    await page.getByLabel('Jump to month').fill(target)
+    await page.getByRole('button', { name: 'Go', exact: true }).click()
+
+    const viewport = page.locator('.r06-viewport')
+    const overview = page.getByRole('heading', { name: `Previewing ${target}` })
+    const welcome = page.getByRole('heading', { name: `Welcome to ${target}` })
+    await expect(page.getByRole('status').filter({ hasText: 'Month unavailable' })).toBeVisible()
+    expect(projectedStatuses.get(`/api/months/${target}`)).toBe(404)
+    expect(projectedStatuses.get(`/api/months/${target}/preview`)).toBe(404)
+
+    authorizedDate = opens
+    await page.getByRole('button', { name: 'Try Again' }).click()
+    await expect(overview).toBeVisible()
+    await expect(welcome).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Skip to Welcome' })).toHaveCount(0)
+    await page.getByRole('button', { name: 'View Preview Calendar' }).click()
+
+    const agenda = page.locator('[data-month-agenda]')
+    await expect(agenda).toHaveAttribute('data-month-agenda', 'preview')
+    await expect(agenda.getByText('Coming Soon', { exact: true })).toHaveCount(31)
+    await expect(agenda.getByRole('button')).toHaveCount(0)
+    await expect(page.getByRole('region', { name: 'Thematic & Full-Month Goals' })).toHaveCount(0)
+    await expect(page.locator('.month-discovery__earned-card')).toHaveCount(0)
+    await expect(page.getByText('Synthetic Welcome', { exact: true })).toHaveCount(0)
+    const introProgress = () => page.evaluate(({ key, month }) => JSON.parse(localStorage.getItem(key)!).months[month],
+      { key: monthIntroKey, month: target })
+    expect(await introProgress()).toMatchObject({ previewSeen: true, welcomeSeen: false })
+
+    // Visit again after month start. The prior preview offset must yield to the active week.
+    await viewport.evaluate(element => { element.scrollTop = 500 })
+    await page.goBack()
+    await expect(page).toHaveURL(new RegExp(`#/month/${currentMonthId}$`))
+    authorizedDate = `${target}-08`
+    await page.goForward()
+    await expect(overview).toBeVisible()
+    await page.getByRole('button', { name: 'Skip to Welcome' }).click()
+    await expect(welcome).toBeVisible()
+    await page.getByRole('button', { name: 'Open Calendar' }).click()
+    await expect(agenda).toHaveAttribute('data-month-agenda', 'detail')
+    await expect(agenda.getByRole('button')).toHaveCount(8)
+    await expect(page.getByRole('region', { name: 'Thematic & Full-Month Goals' })).toBeVisible()
+    await expect(agenda.locator('[data-current-week] h3')).toBeFocused()
+    expect(await introProgress()).toMatchObject({ previewSeen: true, welcomeSeen: true })
+  })
+}
+
+test('retries Month and Introduction failures and replays without erasing scroll or saved state', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 640 })
+  await mockGateway(page)
+  let detail: 'ready' | 'withdrawn' | 'invalid' = 'ready'
+  await page.route(`**/api/months/${monthId}`, route => {
+    if (detail === 'withdrawn') return route.fulfill({ status: 404, json: { ok: false } })
+    return route.fulfill({ json: detail === 'ready' ? buildDefaultHistoricalMonthPayload() : { ok: true } })
+  })
+  await page.route(`**/api/months/${monthId}/preview`, route => route.fulfill({ status: 404, json: { ok: false } }))
+  await page.addInitScript(({ key, data }) => localStorage.setItem(key, data), {
+    key: participationKey,
+    data: buildGuestParticipationStorageValue({
+      completedChallenges: { 'cms:previous-study': { completedOn: '2026-09-20' } },
+    }),
+  })
+  await page.goto(readerUrl())
+  const currentMonth = page.getByTestId('today-current-month-link')
+  await expect(currentMonth).toBeVisible({ timeout: 15_000 })
+  const completedBeforeFailures = (await participation(page)).completedChallenges
+  await page.evaluate(key => {
+    document.documentElement.dataset.introReadBlocked = 'true'
+    const originalSetItem = Storage.prototype.setItem
+    const originalGetItem = Storage.prototype.getItem
+    Storage.prototype.getItem = function (name) {
+      if (name === key && document.documentElement.dataset.introReadBlocked) throw new Error('Read unavailable')
+      return originalGetItem.call(this, name)
+    }
+    Storage.prototype.setItem = function (name, value) {
+      if (name === key && document.documentElement.dataset.introWriteBlocked) throw new Error('Write unavailable')
+      return originalSetItem.call(this, name, value)
+    }
+  }, monthIntroKey)
+  await currentMonth.click()
+  await expect(page.getByRole('alert')).toHaveText(/Unable to load Monthly Introduction status/)
+  await expect(page.locator('[data-month-agenda]')).toHaveCount(0)
+  await page.evaluate(() => { delete document.documentElement.dataset.introReadBlocked })
+  await page.getByRole('button', { name: 'Retry' }).click()
+
+  const introHeading = page.getByRole('heading', { name: 'Test month overview' })
+  await expect(introHeading).toBeFocused()
+  await page.getByRole('button', { name: 'Return to previous screen' }).click()
+  await expect(currentMonth).toBeVisible()
+  expect(await page.evaluate(key => localStorage.getItem(key), monthIntroKey)).toBeNull()
+
+  await currentMonth.click()
+  await expect(introHeading).toBeFocused()
+  await page.getByRole('button', { name: 'Continue', exact: true }).click()
+  await page.evaluate(() => { document.documentElement.dataset.introWriteBlocked = 'true' })
+  await page.getByRole('button', { name: 'Begin the Month' }).click()
+  await expect(page.getByRole('alert')).toHaveText(/Unable to save Monthly Introduction status/)
+  await expect(page.locator('[data-month-agenda]')).toHaveCount(0)
+  expect(await page.evaluate(key => localStorage.getItem(key), monthIntroKey)).toBeNull()
+  await page.evaluate(() => { delete document.documentElement.dataset.introWriteBlocked })
+  await page.getByRole('button', { name: 'Retry' }).click()
+
+  const replay = page.getByRole('button', { name: 'Read Monthly Introduction' })
+  const viewport = page.locator('.r06-viewport')
+  await expect(replay).toBeVisible()
+  await replay.focus()
+  await viewport.evaluate(element => { element.scrollTop = 450 })
+  const storedIntro = await page.evaluate(key => localStorage.getItem(key), monthIntroKey)
+  await replay.press('Enter')
+  await expect(introHeading).toBeFocused()
+  await page.getByRole('button', { name: 'Close introduction' }).click()
+  await expect(replay).toBeFocused()
+  await expect.poll(() => viewport.evaluate(element => element.scrollTop)).toBe(450)
+  expect(await page.evaluate(key => localStorage.getItem(key), monthIntroKey)).toBe(storedIntro)
+
+  const previousMonth = page.getByRole('button', { name: monthId, exact: true })
+  detail = 'withdrawn'
+  await previousMonth.click()
+  await expect(page.getByRole('status').filter({ hasText: 'Month unavailable' })).toBeVisible()
+  detail = 'invalid'
+  await page.getByRole('button', { name: 'Try Again' }).click()
+  await expect(page.getByRole('alert')).toHaveText(/Month content unavailable/)
+  detail = 'ready'
+  await page.getByRole('button', { name: 'Retry' }).click()
+  await expect(introHeading).toBeVisible()
+  await page.getByRole('button', { name: 'Return to previous screen' }).click()
+  await expect(replay).toBeVisible()
+  expect(await page.evaluate(key => localStorage.getItem(key), monthIntroKey)).toBe(storedIntro)
+  expect((await participation(page)).completedChallenges).toEqual(completedBeforeFailures)
 })

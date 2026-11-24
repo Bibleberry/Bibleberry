@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, ArrowRight, RotateCcw } from 'lucide-react'
 import {
   defaultGatewayMonthProvider,
@@ -16,8 +16,9 @@ import { MonthIntroductionView } from './MonthIntroductionView.tsx'
 import { MonthScreenView } from './MonthScreenView.tsx'
 import {
   defaultMonthIntroStore,
+  emptyMonthIntroEnvelope,
   resolveMonthIntroDecision,
-  type MonthIntroEnvelopeV1,
+  type MonthIntroLoadResult,
   type MonthIntroStore,
 } from './monthIntroStorage.ts'
 import {
@@ -36,7 +37,8 @@ import './monthScreen.css'
 
 export type MonthScreenHostProps = {
   yearMonth: string
-  connected?: boolean
+  inReaderShell?: boolean
+  captureReplayReturn?: () => (() => void) | undefined
   monthProvider?: MonthGatewayProvider
   store?: ReaderParticipationStore
   introStore?: MonthIntroStore
@@ -61,9 +63,14 @@ type LoadedMonthState =
  * stateless `POST /api/months/:yearMonth/progress` calculation from `ReaderParticipationStore`,
  * and UI-only `bibleberry-month-intro-v1` introduction/Welcome presentation state.
  */
-export function MonthScreenHost({
+export function MonthScreenHost(props: MonthScreenHostProps) {
+  return <MonthScreen key={props.yearMonth.trim()} {...props} />
+}
+
+function MonthScreen({
   yearMonth,
-  connected = false,
+  inReaderShell = false,
+  captureReplayReturn,
   monthProvider = defaultGatewayMonthProvider,
   store = defaultGuestParticipationStore,
   introStore = defaultMonthIntroStore,
@@ -78,10 +85,12 @@ export function MonthScreenHost({
   const [monthState, setMonthState] = useState<LoadedMonthState>({ status: 'loading' })
   const [loadAttempt, setLoadAttempt] = useState(0)
 
-  const [introEnvelope, setIntroEnvelope] = useState<MonthIntroEnvelopeV1 | null>(null)
-  const [showIntro, setShowIntro] = useState(false)
-  const [introCanSkip, setIntroCanSkip] = useState(false)
-  const autoIntroHandledRef = useRef<string>('')
+  const [introState, setIntroState] = useState<MonthIntroLoadResult | null>(null)
+  const [introAttempt, setIntroAttempt] = useState(0)
+  const [introPresentation, setIntroPresentation] = useState<'automatic' | 'replay' | 'dismissed'>('automatic')
+  const [introSaving, setIntroSaving] = useState(false)
+  const [introSaveFailed, setIntroSaveFailed] = useState(false)
+  const returnFromIntro = useRef<(() => void) | undefined>(undefined)
 
   const [progressData, setProgressData] = useState<MonthProgressData | null>(null)
   const [progressLoading, setProgressLoading] = useState(false)
@@ -93,9 +102,6 @@ export function MonthScreenHost({
   } | null>(null)
 
   const [jumpInput, setJumpInput] = useState(cleanYearMonth)
-  useEffect(() => {
-    setJumpInput(cleanYearMonth)
-  }, [cleanYearMonth])
 
   const retryLoad = useCallback(() => {
     setMonthState({ status: 'loading' })
@@ -120,8 +126,6 @@ export function MonthScreenHost({
     setMonthState({ status: 'loading' })
     setProgressData(null)
     setProgressError(null)
-    setShowIntro(false)
-
     async function load() {
       const detailResult = await monthProvider.loadMonth(cleanYearMonth, {
         signal: controller.signal,
@@ -180,42 +184,33 @@ export function MonthScreenHost({
     }
   }, [cleanYearMonth, monthProvider, loadAttempt])
 
-  // Load local UI intro state (`bibleberry-month-intro-v1`)
   useEffect(() => {
     let ignore = false
-    introStore
-      .load()
+    void Promise.resolve()
+      .then(() => introStore.load())
+      .catch(() => ({ envelope: emptyMonthIntroEnvelope(), health: 'storageUnavailable' } as const))
       .then(result => {
-        if (!ignore) {
-          setIntroEnvelope(result.envelope)
-        }
+        if (!ignore) setIntroState(result)
       })
-      .catch(() => {
-        // Ignore unavailable intro storage gracefully
-      })
-    return () => {
-      ignore = true
+    return () => { ignore = true }
+  }, [introStore, introAttempt])
+
+  const monthReady = monthState.status === 'readyPreview' || monthState.status === 'readyDetail'
+  const introRecord = introState?.envelope.months[cleanYearMonth]
+  const introDecision = monthReady && introState
+    ? resolveMonthIntroDecision(monthState.month.phase, monthState.month.introduction.version, introRecord)
+    : undefined
+  const introLoadFailed = introState?.health === 'storageUnavailable' || introState?.health === 'unsupportedNewerSchema'
+  const showAutomatically = introDecision?.showAutomatically
+    && !(inReaderShell && monthState.status === 'readyDetail' && introRecord?.welcomeSeen)
+  const showIntro = introPresentation === 'replay' || (introPresentation === 'automatic' && showAutomatically)
+
+  useLayoutEffect(() => {
+    if (!showIntro && monthReady) {
+      returnFromIntro.current?.()
+      returnFromIntro.current = undefined
     }
-  }, [introStore, cleanYearMonth])
-
-  // Decide whether to automatically show Introduction / Welcome on first arrival or rollover
-  useEffect(() => {
-    if (!introEnvelope) return
-    if (monthState.status !== 'readyPreview' && monthState.status !== 'readyDetail') return
-
-    const phase = monthState.status === 'readyPreview' ? 'advancePreview' : monthState.month.phase
-    const version = monthState.month.introduction.version
-    const handleKey = `${cleanYearMonth}:${phase}:${version}`
-    if (autoIntroHandledRef.current === handleKey) return
-    autoIntroHandledRef.current = handleKey
-
-    const record = introEnvelope.months[cleanYearMonth]
-    const decision = resolveMonthIntroDecision(phase, version, record)
-    setIntroCanSkip(decision.canSkipToWelcome)
-    if (decision.showAutomatically) {
-      setShowIntro(true)
-    }
-  }, [cleanYearMonth, introEnvelope, monthState])
+  }, [monthReady, showIntro])
 
   const activeSlots = useMemo(
     () => (monthState.status === 'readyDetail' ? monthState.month.slots : undefined),
@@ -274,38 +269,44 @@ export function MonthScreenHost({
     }
   }, [cleanYearMonth, monthProvider, monthState.status, participationSnapshot.status, completedKey, progressAttempt, store])
 
-  const handleIntroComplete = () => {
-    if (monthState.status === 'readyPreview') {
-      const version = monthState.month.introduction.version
-      setShowIntro(false)
-      void introStore.markPreviewSeen(cleanYearMonth, version).then(res => {
-        setIntroEnvelope(res.envelope)
-      })
-      return
+  const returnToCalendar = () => {
+    returnFromIntro.current ??= () => {
+      document.getElementById(`month-screen-heading-${cleanYearMonth}`)?.focus({ preventScroll: true })
     }
-    if (monthState.status === 'readyDetail') {
-      const version = monthState.month.introduction.version
-      setShowIntro(false)
-      void introStore.markWelcomeSeen(cleanYearMonth, version).then(res => {
-        setIntroEnvelope(res.envelope)
-      })
-    }
+    setIntroSaveFailed(false)
+    setIntroPresentation('dismissed')
   }
 
-  // Closing early dismisses the overlay for this view without recording preview or Welcome completion.
-  const handleIntroClose = () => {
-    setShowIntro(false)
+  const handleIntroComplete = async () => {
+    if (!monthReady || introSaving) return
+    if (introPresentation === 'replay' && !showAutomatically) {
+      returnToCalendar()
+      return
+    }
+    setIntroSaving(true)
+    setIntroSaveFailed(false)
+    const version = monthState.month.introduction.version
+    try {
+      const result = monthState.status === 'readyPreview'
+        ? await introStore.markPreviewSeen(cleanYearMonth, version)
+        : await introStore.markWelcomeSeen(cleanYearMonth, version)
+      if (result.health !== 'ok') {
+        setIntroSaveFailed(true)
+        return
+      }
+      setIntroState(result)
+      returnToCalendar()
+    } catch {
+      setIntroSaveFailed(true)
+    } finally {
+      setIntroSaving(false)
+    }
   }
 
   const handleOpenIntroManually = () => {
     setViewerState(null)
-    if (monthState.status === 'readyDetail') {
-      const record = introEnvelope?.months[cleanYearMonth]
-      setIntroCanSkip(Boolean(record?.previewSeen))
-    } else {
-      setIntroCanSkip(false)
-    }
-    setShowIntro(true)
+    returnFromIntro.current = captureReplayReturn?.()
+    setIntroPresentation('replay')
   }
 
   const handleOpenEarnedCard = useCallback(
@@ -461,6 +462,9 @@ export function MonthScreenHost({
         <div className="error-panel" role="alert">
           <h2>Month content unavailable</h2>
           <p>This monthly publication response could not be verified safely.</p>
+          <button type="button" className="button button--secondary" onClick={retryLoad}>
+            <RotateCcw size={16} aria-hidden="true" /> Retry
+          </button>
         </div>
       </div>
     )
@@ -477,7 +481,7 @@ export function MonthScreenHost({
           )}
           {renderFallbackSwitcher()}
         </div>
-        <div className="empty-state">
+        <div className="empty-state" role="status">
           <h2>Month unavailable</h2>
           <p>
             {isValidYearMonth(cleanYearMonth)
@@ -492,29 +496,45 @@ export function MonthScreenHost({
     )
   }
 
+  if (!introState || introLoadFailed) {
+    return (
+      <div className="standard-page month-screen">
+        {onExit && (
+          <button type="button" className="back-link" onClick={onExit}>
+            <ArrowLeft size={17} aria-hidden="true" /> {exitLabel}
+          </button>
+        )}
+        {introLoadFailed ? (
+          <div className="error-panel" role="alert">
+            <h2>Unable to load Monthly Introduction status</h2>
+            <button type="button" className="button button--secondary" onClick={() => {
+              setIntroState(null)
+              setIntroAttempt(attempt => attempt + 1)
+            }}>
+              <RotateCcw size={16} aria-hidden="true" /> Retry
+            </button>
+          </div>
+        ) : <p role="status">Loading Monthly Introduction status…</p>}
+      </div>
+    )
+  }
+
   if (showIntro) {
-    if (monthState.status === 'readyPreview') {
-      return (
-        <MonthIntroductionView
-          yearMonth={monthState.month.monthId}
-          monthTitle={monthState.month.title}
-          mode="preview"
-          previewScreens={monthState.month.introduction.previewScreens}
-          onComplete={handleIntroComplete}
-          onClose={handleIntroClose}
-        />
-      )
-    }
+    const preview = monthState.status === 'readyPreview'
+    const mandatory = inReaderShell && !preview && introPresentation === 'automatic'
     return (
       <MonthIntroductionView
         yearMonth={monthState.month.monthId}
         monthTitle={monthState.month.title}
-        mode="active"
+        mode={preview ? 'preview' : 'active'}
         previewScreens={monthState.month.introduction.previewScreens}
-        welcomeScreen={monthState.month.introduction.welcomeScreen}
-        canSkipToWelcome={introCanSkip}
+        welcomeScreen={preview ? undefined : monthState.month.introduction.welcomeScreen}
+        canSkipToWelcome={introDecision?.canSkipToWelcome}
         onComplete={handleIntroComplete}
-        onClose={handleIntroClose}
+        onClose={mandatory ? onExit : returnToCalendar}
+        closeLabel={mandatory ? 'Return to previous screen' : undefined}
+        saving={introSaving}
+        saveFailed={introSaveFailed}
       />
     )
   }
@@ -581,7 +601,7 @@ export function MonthScreenHost({
   return (
     <MonthScreenView
       mode="detail"
-      currentDate={connected && monthState.month.phase === 'active' ? monthState.authorizedLocalDate : undefined}
+      currentDate={inReaderShell && monthState.month.phase === 'active' ? monthState.authorizedLocalDate : undefined}
       month={monthState.month}
       weeks={weeks}
       completionSummary={completionSummary}

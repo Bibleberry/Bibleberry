@@ -8,7 +8,9 @@ export function captureScreenRestoration(
   lastFocused: HTMLElement | null,
 ): RouteRestoration | undefined {
   const screen = viewport.querySelector<HTMLElement>(activeScreenSelector)
-  if (!screen || (screen.hasAttribute('data-month-screen') && !screen.querySelector(monthAgendaSelector))) return
+  if (!screen) return
+  const agenda = screen.querySelector(monthAgendaSelector)
+  if (screen.hasAttribute('data-month-screen') && !agenda) return
 
   // Record an element's position in this screen without storing labels, text,
   // or form values from the reader. Check the element type again on return.
@@ -20,7 +22,11 @@ export function captureScreenRestoration(
       steps.unshift(`${node.localName}:${index}`)
     }
   }
-  return { scrollTop: viewport.scrollTop, focusId: steps.length ? steps.join('/') : undefined }
+  return {
+    scrollTop: viewport.scrollTop,
+    focusId: steps.length ? steps.join('/') : undefined,
+    ...(agenda?.getAttribute('data-month-agenda') === 'preview' ? { monthPreview: true } : {}),
+  }
 }
 
 function findSavedFocus(screen: HTMLElement, focusId: string): HTMLElement | null {
@@ -50,11 +56,17 @@ export function restoreScreen(
   if (focusScreen && !screen.contains(document.activeElement)) screen.focus({ preventScroll: true })
 
   const restore = () => {
-    if (month && !screen.querySelector(monthAgendaSelector)) return false
-    const currentWeek = restoration ? null : screen.querySelector('[data-current-week]')
+    const agenda = month ? screen.querySelector(monthAgendaSelector) : null
+    if (month && !agenda) return false
+    const preview = agenda?.getAttribute('data-month-agenda') === 'preview'
+    const saved = restoration && (!month || Boolean(restoration.monthPreview) === preview)
+      ? restoration
+      : undefined
+    if (!saved) focusId = undefined
+    const currentWeek = saved ? null : agenda?.querySelector('[data-current-week]')
     const targetScroll = currentWeek
       ? viewport.scrollTop + currentWeek.getBoundingClientRect().top - viewport.getBoundingClientRect().top
-      : restoration?.scrollTop ?? 0
+      : saved?.scrollTop ?? 0
     viewport.scrollTop = targetScroll
     if (focusId) {
       const target = findSavedFocus(screen, focusId)
@@ -63,7 +75,11 @@ export function restoreScreen(
         if (document.activeElement === target) focusId = undefined
       }
     }
-    return viewport.scrollTop >= targetScroll - 1 && !focusId
+    if (currentWeek && focusScreen) {
+      currentWeek.querySelector<HTMLElement>('h3')?.focus({ preventScroll: true })
+    }
+    const cover = currentWeek && screen.querySelector<HTMLImageElement>('.month-header__cover img')
+    return (!cover || cover.complete) && viewport.scrollTop >= targetScroll - 1 && !focusId
   }
 
   if (restore()) return
@@ -79,9 +95,15 @@ export function restoreScreen(
   // calendar mounting after the reader finishes the Introduction.
   const contentObserver = month ? new MutationObserver(restoreWhenReady) : undefined
   contentObserver?.observe(screen, { childList: true, subtree: true })
+  if (month) {
+    screen.addEventListener('load', restoreWhenReady, true)
+    screen.addEventListener('error', restoreWhenReady, true)
+  }
   function stop() {
     observer.disconnect()
     contentObserver?.disconnect()
+    screen?.removeEventListener('load', restoreWhenReady, true)
+    screen?.removeEventListener('error', restoreWhenReady, true)
     viewport.removeEventListener('pointerdown', cancelRestore)
     viewport.removeEventListener('keydown', cancelRestore)
     viewport.removeEventListener('wheel', cancelRestore)
