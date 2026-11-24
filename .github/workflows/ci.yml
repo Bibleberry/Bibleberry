@@ -98,6 +98,10 @@ jobs:
         if: steps.scope.outputs.should_run == 'true'
         run: npx playwright install chromium
 
+      - name: Run R06 reader shell Playwright acceptance suite
+        if: steps.scope.outputs.should_run == 'true'
+        run: npx playwright test --config tests/readerShell/playwright.config.ts
+
       - name: Run Library-to-Shelf unit and browser coverage
         if: steps.scope.outputs.should_run == 'true'
         run: npm run test:library-shelf
