@@ -48,7 +48,7 @@ import type {
  *   (iOS/Android Capacitor Preferences).
  * - `getSnapshot()` returns an `Object.is`-cached immutable reference compatible with React 19
  *   `useSyncExternalStore`.
- * - Commands dispatched before async hydration finishes or during transient write failures remain
+ * - By default, commands dispatched before async hydration finishes or during transient write failures remain
  *   in `pendingCommands`, rebasing cleanly onto committed storage without losing reader choices.
  * - Action result contract: `ok: true` means the command was accepted by Shelf policy against the
  *   hydrated/rebased state (and is reflected in `getSnapshot()`). On healthy storage, durability
@@ -56,7 +56,9 @@ import type {
  *   or `'storageUnavailable'`), the command remains queued in `pendingCommands` (`hasPendingWrites: true`)
  *   for retry via `flushPending()` while the Promise resolves with the policy-replay outcome; callers
  *   should inspect `getSnapshot().health` / `hasPendingWrites` to distinguish durable commits from
- *   pending-retry writes. Commands canceled by `clearLocalData()` or `dispose()` resolve `ok: false`.
+ *   pending-retry writes. A durable-only applyState waits for a confirmed write before publishing,
+ *   reports failure directly, and is discarded on failure. Commands canceled by
+ *   `clearLocalData()` or `dispose()` resolve `ok: false`.
  * - All adapter I/O is serialized on a strict FIFO queue combined with a monotonic reset epoch and
  *   `AbortSignal`, guaranteeing that a user-initiated `clearLocalData()` can NEVER be undone in
  *   memory or in storage by an earlier delayed read or write completing afterward.
@@ -100,11 +102,14 @@ export interface GuestShelfStore {
     updatedOn?: LocalCalendarDate,
   ): Promise<ShelfActionResult<'focusUpdated'>>
   evaluateMonthlyRollover(params: MonthlyRolloverParams): Promise<RolloverResult>
-  /** Supply the state the reader confirmed to guard against a newer persisted Shelf during replay. */
+  /** Guard the confirmed state against a newer persisted Shelf during replay.
+   * With requireDurable, publish only after persistence succeeds and discard failed writes.
+   */
   applyState(
     state: ShelfState,
     referenceCurrentMonth?: PublicationYearMonth | string,
     expectedState?: ShelfState,
+    options?: { readonly requireDurable?: boolean },
   ): Promise<ShelfActionResult<'stateApplied'>>
   flushPending(): Promise<void>
   clearLocalData(): Promise<void>
@@ -115,6 +120,7 @@ interface TaggedShelfCommand {
   readonly id: number
   readonly epoch: number
   readonly command: ShelfCommand
+  readonly requireDurable: boolean
 }
 
 function stabilizeShelfState(prev: ShelfState, next: ShelfState): ShelfState {
@@ -166,7 +172,7 @@ export function createGuestShelfStore(
   let nextCommandId = 1
   let activeAbortController = new AbortController()
   let disposed = false
-  const commandOutcomesById = new Map<number, ReduceShelfCommandOutcome>()
+  const commandOutcomesById = new Map<number, ReduceShelfCommandOutcome | null>()
 
   const listeners = new Set<() => void>()
 
@@ -219,7 +225,7 @@ export function createGuestShelfStore(
     }
     return replayShelfCommands(
       committedPayload,
-      pendingCommands.map(entry => entry.command),
+      pendingCommands.filter(entry => !entry.requireDurable).map(entry => entry.command),
     )
   }
 
@@ -388,7 +394,7 @@ export function createGuestShelfStore(
           for (let i = 0; i < batch.length; i += 1) {
             const entry = batch[i]!
             const outcome = outcomes[i]!
-            commandOutcomesById.set(entry.id, outcome)
+            commandOutcomesById.set(entry.id, !result.ok && entry.requireDurable ? null : outcome)
           }
 
           if (result.ok) {
@@ -399,6 +405,9 @@ export function createGuestShelfStore(
             if (result.committedPayload !== null) {
               committedPayload = result.committedPayload
             }
+            pendingCommands = pendingCommands.filter(
+              entry => !entry.requireDurable || !flushedIds.has(entry.id),
+            )
             health = result.health
           }
           updateSnapshot(true)
@@ -504,14 +513,17 @@ export function createGuestShelfStore(
     command: ShelfCommand,
     extractResult: (outcome: ReturnType<typeof reduceShelfCommand>) => TResult,
     canceledResult: (reason: 'disposed' | 'cleared') => TResult,
+    writeFailureResult?: () => TResult,
   ): Promise<TResult> {
     if (disposed) {
       return Promise.resolve(canceledResult('disposed'))
     }
 
+    const requireDurable = writeFailureResult !== undefined
     const previewOutcome = reduceShelfCommand(computeEffectivePayload(), command)
     if (
-      status === 'ready'
+      !requireDurable
+      && status === 'ready'
       && pendingCommands.length === 0
       && health === 'ok'
       && inFlightCount === 0
@@ -525,6 +537,7 @@ export function createGuestShelfStore(
       id: nextCommandId,
       epoch: commandEpoch,
       command,
+      requireDurable,
     }
     nextCommandId += 1
     pendingCommands = [...pendingCommands, tagged]
@@ -541,6 +554,12 @@ export function createGuestShelfStore(
       }
       if (committedOutcome) {
         return extractResult(committedOutcome)
+      }
+      if (writeFailureResult) {
+        // A failed pending clear can prevent this command from reaching the adapter.
+        pendingCommands = pendingCommands.filter(entry => entry.id !== tagged.id)
+        updateSnapshot(true)
+        return writeFailureResult()
       }
       return extractResult(reduceShelfCommand(committedPayload, command))
     })
@@ -664,11 +683,19 @@ export function createGuestShelfStore(
       )
     },
 
-    applyState(state, referenceCurrentMonth, expectedState) {
+    applyState(state, referenceCurrentMonth, expectedState, options) {
       return dispatchCommand(
         { type: 'applyValidatedState', state, referenceCurrentMonth, expectedState },
         outcome => outcome.actionResult as ShelfActionResult<'stateApplied'>,
         reason => createCanceledActionResult(reason),
+        options?.requireDurable
+          ? () => ({
+              ok: false,
+              state: committedPayload.state,
+              error: 'shelfWriteFailed',
+              message: 'Unable to save your Shelf to this device.',
+            })
+          : undefined,
       )
     },
 

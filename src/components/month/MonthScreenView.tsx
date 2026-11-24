@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import {
   ArrowLeft,
   ArrowRight,
@@ -30,6 +30,7 @@ export type MonthScreenViewProps = {
   weeks: readonly MonthCalendarWeek[]
   currentDate?: string
   showProvisionalNotice?: boolean
+  shelfAction?: ReactNode
   completionSummary: MonthCompletionSummary | null
   discoveries: readonly MonthDiscoveryPresentation[]
   progressLoading?: boolean
@@ -75,6 +76,7 @@ export function MonthScreenView({
   weeks,
   currentDate,
   showProvisionalNotice = true,
+  shelfAction,
   completionSummary,
   discoveries,
   progressLoading = false,
@@ -169,6 +171,7 @@ export function MonthScreenView({
               <BookOpen size={16} aria-hidden="true" />{' '}
               {mode === 'preview' ? 'Read Monthly Preview' : 'Read Monthly Introduction'}
             </button>
+            {shelfAction}
             {completionSummary && (
               <div className="month-ticker" aria-label="Monthly completion progress">
                 <strong>{completionSummary.label}</strong>

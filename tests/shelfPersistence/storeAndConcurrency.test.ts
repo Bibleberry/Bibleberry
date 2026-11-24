@@ -652,3 +652,48 @@ test('confirmed Shelf update cannot overwrite a storage change that arrived befo
   assert.equal(store.getSnapshot().hasPendingWrites, false)
   store.dispose()
 })
+
+test('a durable Shelf replacement is published only after a successful write and never retried after failure', async () => {
+  const { proxy, setFailNextSet } = createCapacitorPreferencesProxyDouble(new Map(), { delayMs: 5 })
+  const options = {
+    isNativePlatform: () => true,
+    nativePreferences: proxy,
+    referenceCurrentMonth: '2026-11',
+  }
+  const store = createPlatformGuestShelfStore(options)
+  await store.whenReady()
+  for (const yearMonth of ['2026-07', '2026-08', '2026-09']) {
+    await store.select({ yearMonth, referenceCurrentYearMonth: '2026-11' })
+  }
+  await store.setFocus('2026-07')
+  const before = store.getSnapshot().state
+  const replacement = {
+    months: [
+      ...before.months.filter(month => month.yearMonth !== '2026-07'),
+      { yearMonth: '2026-10', admissionKind: 'readerSelected', isProtected: true } as const,
+    ],
+    activeFocusMonth: '2026-08' as const,
+  }
+  const commit = () => store.applyState(replacement, '2026-11', before, { requireDurable: true })
+
+  setFailNextSet(true)
+  const rejected = commit()
+  assert.equal(store.getSnapshot().hasPendingWrites, true)
+  assert.deepEqual(store.getSnapshot().state, before)
+  const failure = await rejected
+  assert.equal(failure.ok, false)
+  if (!failure.ok) assert.equal(failure.error, 'shelfWriteFailed')
+  assert.equal(store.getSnapshot().hasPendingWrites, false)
+  await store.flushPending()
+  assert.deepEqual(store.getSnapshot().state, before)
+
+  const accepted = commit()
+  assert.deepEqual(store.getSnapshot().state, before)
+  assert.equal((await accepted).ok, true)
+  const reloaded = createPlatformGuestShelfStore(options)
+  await reloaded.whenReady()
+  assert.deepEqual(reloaded.getSnapshot().state.months, replacement.months)
+  assert.equal(reloaded.getSnapshot().state.activeFocusMonth, replacement.activeFocusMonth)
+  store.dispose()
+  reloaded.dispose()
+})

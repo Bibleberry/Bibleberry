@@ -123,6 +123,19 @@ body:has(.month-screen) {
   max-width: 100%;
 }
 
+.month-shelf-action {
+  min-inline-size: min(9rem, 100%);
+}
+
+.month-shelf-action[aria-disabled="true"] {
+  cursor: default;
+}
+
+.month-shelf-error {
+  flex-basis: 100%;
+  margin: 0;
+}
+
 .month-ticker {
   display: inline-flex;
   flex-wrap: wrap;
