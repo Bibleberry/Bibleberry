@@ -511,6 +511,8 @@ export function reduceParticipationCommand(
     }
 
     case 'acknowledgeNotebookEntry': {
+      if (!Array.isArray(command.awardIds) || command.awardIds.length === 0) return data
+
       const acknowledged = new Set(data.notebookAcknowledgedAwardIds)
       const previousSize = acknowledged.size
       for (const rawId of command.awardIds) {

@@ -451,6 +451,7 @@ test('V2 Notebook entry migrates to V3 and replays only the awards known at entr
   assert.equal(store.getSnapshot().health, 'writeFailed')
   assert.equal(store.getSnapshot().hasPendingWrites, true)
   assert.equal(backing.get(STORAGE_KEY), v2)
+  assert.deepEqual(selectNewDiscoveryAwardIds(store.getSnapshot().data), [thematicAwardId])
 
   const other = createStore(createCapacitorPreferencesDriver({ preferences: createPreferences(backing) }))
   await other.whenReady()

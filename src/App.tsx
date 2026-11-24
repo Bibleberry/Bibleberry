@@ -21,6 +21,7 @@ import {
 } from './cms/reader/challengeOrigin'
 import { defaultGuestParticipationStore } from './participation/defaultGuestStore'
 import { formatCanonicalChallengeId } from './participation/identity'
+import { selectNewDiscoveryAwardIds } from './participation/model'
 import { useReaderParticipation } from './participation/useReaderParticipation'
 import { SaveScriptureControl } from './components/scriptureCapture/SaveScriptureControl'
 import { getTeachingScriptureCapture } from './appIntegration/teachingScripture'
@@ -985,21 +986,13 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
   const [pilotSession, setPilotSession] = useState<OrdinaryChallengeSessionState | undefined>(undefined)
   const [toast, setToast] = useState('')
   const [resetConfirm, setResetConfirm] = useState(false)
-  const [clearedAwardIds, setClearedAwardIds] = useState<ReadonlySet<string>>(() => new Set())
   const participationSnapshot = useReaderParticipation(defaultGuestParticipationStore)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const recordedOpening = useRef('')
   const reviewIntroductionRef = useRef<HTMLButtonElement>(null)
   const wasReviewingIntroduction = useRef(false)
 
-  const hasNewDiscoveries = Object.entries(participationSnapshot.data?.earnedAwards ?? {}).some(
-    ([id, award]) => !award.cardViewed && !clearedAwardIds.has(id),
-  )
-
-  const handleNotebookOpened = () => {
-    const currentAwards = participationSnapshot.data?.earnedAwards ?? {}
-    setClearedAwardIds(new Set(Object.keys(currentAwards)))
-  }
+  const hasNewDiscoveries = selectNewDiscoveryAwardIds(participationSnapshot.data).length > 0
 
   useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)) }, [state])
 
@@ -2023,7 +2016,6 @@ export default function App({ onReleasedChallengeReturn }: AppProps = {}) {
         <FieldNotebookHost
           onExit={exitFieldNotebook}
           exitLabel={`Return to ${primaryViewLabel(view)}`}
-          onNotebookOpened={handleNotebookOpened}
         />
       </Suspense>
     )

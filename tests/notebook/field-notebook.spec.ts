@@ -62,7 +62,6 @@ test.describe('R14-7 Field Notebook Earned-Only Collection', () => {
   test('renders empty collection state, neutral Coming Soon months, Year/Month & Jan/Dec & leap-year browsing, search, and viewer focus/flag isolation', async ({ page }) => {
     await page.goto(`${baseUrl}?refMonth=2026-11`)
     await expect(page.getByRole('heading', { name: 'Earned Scripture Cards', exact: true })).toBeVisible()
-    await expect(page.getByTestId('opened-signal-count')).toContainText('1')
 
     // 1. Empty collection state
     await expect(page.getByRole('heading', { name: '0 Distinct Challenges Completed' })).toBeVisible()
@@ -79,7 +78,7 @@ test.describe('R14-7 Field Notebook Earned-Only Collection', () => {
     await page.getByRole('button', { name: 'All Earned Cards' }).click()
     await expect(page.getByRole('heading', { name: 'No Earned Scripture Cards Yet' })).toBeVisible()
 
-    // 2. Seed V2 durable awards & distinct completions
+    // 2. Earn awards while the Notebook is already open.
     await page.getByRole('button', { name: 'Seed Earned Awards & Completions' }).click()
     await expect(page.getByRole('heading', { name: '2 Distinct Challenges Completed' })).toBeVisible()
     await expect(page.locator('.notebook-lifetime__stat-pill', { hasText: '5 Earned Scripture Cards' })).toBeVisible()
@@ -164,13 +163,19 @@ test.describe('R14-7 Field Notebook Earned-Only Collection', () => {
     expect(storedAwards['card:monthly:2026-11:light-path'].earnedOn).toBe('2026-11-08')
     expect(storedAwards['card:monthly:2024-02:living-water'].cardViewed).toBe(false)
     expect(storedAwards['card:monthly:2024-02:living-water'].hubAnnouncementAcked).toBe(false)
+    const readNotebookAcknowledgements = () => page.evaluate(storageKey =>
+      JSON.parse(localStorage.getItem(storageKey) ?? 'null')?.data?.notebookAcknowledgedAwardIds ?? [],
+    PARTICIPATION_STORAGE_KEY)
+    expect(await readNotebookAcknowledgements()).toEqual([])
 
-    // 7. Reload persistence
+    // 7. Reentering acknowledges the awards globally and preserves each Card's marker.
     await page.reload()
     await expect(page.getByRole('heading', { name: '2 Distinct Challenges Completed' })).toBeVisible()
+    await expect.poll(readNotebookAcknowledgements).toEqual(Object.keys(storedAwards).sort())
     await page.getByRole('button', { name: 'All Earned Cards' }).click()
     await expect(page.locator('.notebook-card__title')).toHaveCount(5)
     await expect(page.getByRole('button', { name: /Open Scripture Card: A Light for the Path/i })).not.toContainText('New')
+    await expect(page.getByRole('button', { name: /Open Scripture Card: Spring of Living Water/i })).toContainText('New')
   })
 
   test('handles inaccessible Card images cleanly and avoids overflow at 375px large-text reduced-motion', async ({ page }) => {

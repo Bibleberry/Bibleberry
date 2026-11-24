@@ -357,7 +357,10 @@ export function createReaderParticipationStore(
     }
     return replayParticipationCommands(
       committedData,
-      pendingCommands.map(entry => entry.command),
+      // The global badge reflects durable acknowledgement, including after a failed write.
+      pendingCommands
+        .map(entry => entry.command)
+        .filter(command => command.type !== 'acknowledgeNotebookEntry'),
       allowedNamespace,
     )
   }

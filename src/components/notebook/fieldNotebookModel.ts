@@ -102,23 +102,6 @@ export interface NotebookCollectionProjection {
   readonly lifetime: NotebookLifetimeDisplay
 }
 
-/**
- * Minimal future participation state contract needed to clear the approved Hub
- * "New Discoveries" indicator upon opening the Field Notebook, independently of
- * `cardViewed` and `hubAnnouncementAcked` (deferred outside R14-7 V2 schema).
- */
-export interface NotebookOpenAcknowledgmentContract {
-  readonly schemaExtensionRequired: 'ReaderParticipationData.notebookOpenedMarker (deferred)'
-  readonly clearedBy: 'FieldNotebookHost open event (not cardViewed, not hubAnnouncementAcked)'
-  readonly preservedFlags: readonly ['cardViewed', 'hubAnnouncementAcked', 'earnedOn']
-}
-
-export const FIELD_NOTEBOOK_FUTURE_CONTRACT: NotebookOpenAcknowledgmentContract = Object.freeze({
-  schemaExtensionRequired: 'ReaderParticipationData.notebookOpenedMarker (deferred)',
-  clearedBy: 'FieldNotebookHost open event (not cardViewed, not hubAnnouncementAcked)',
-  preservedFlags: Object.freeze(['cardViewed', 'hubAnnouncementAcked', 'earnedOn'] as const),
-})
-
 const MONTH_NAME_FORMATTER = new Intl.DateTimeFormat('en', {
   month: 'long',
   timeZone: 'UTC',

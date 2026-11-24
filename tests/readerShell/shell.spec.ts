@@ -52,6 +52,7 @@ let disabledServer: ViteDevServer
 
 async function startReader(enabled: boolean) {
   const server = await createServer({
+    cacheDir: enabled ? 'node_modules/.vite/reader-shell-enabled' : 'node_modules/.vite/reader-shell-disabled',
     define: {
       'import.meta.env.VITE_ENABLE_R06_SHELL': JSON.stringify(String(enabled)),
       'import.meta.env.VITE_RELEASE_GATEWAY_ORIGIN': JSON.stringify(''),
@@ -199,6 +200,36 @@ test('uses one responsive and keyboard-accessible set of four primary controls',
   expect(wide?.width).toBeLessThan(260)
   await expect(page.getByRole('main')).toHaveCount(1)
   expect(await page.evaluate(() => localStorage.getItem('bibleberry-prototype-v1'))).toBeNull()
+})
+
+test('acknowledges Discoveries when returning to the retained Notebook after earning a Card on Today', async ({ page }) => {
+  await mockGateway(page)
+  await page.goto(readerUrl())
+  await selectTab(page, 'Collections')
+  await page.getByRole('button', { name: 'Field Notebook' }).click()
+  await page.getByRole('button', { name: 'All Earned Cards' }).click()
+  await expect(page.getByRole('heading', { name: 'No Earned Scripture Cards Yet' })).toBeVisible()
+
+  await selectTab(page, 'Today')
+  await page.getByTestId('today-primary-cta').click()
+  await page.getByRole('button', { name: 'Next', exact: true }).click()
+  await page.getByRole('button', { name: 'Finish', exact: true }).click()
+  await expect.poll(async () => (await participation(page))?.earnedAwards[currentThematicAwardId]).toMatchObject({
+    hubAnnouncementAcked: false,
+    cardViewed: false,
+  })
+  expect((await participation(page)).notebookAcknowledgedAwardIds).toBeUndefined()
+
+  await selectTab(page, 'Collections')
+  await expect(page.getByRole('button', { name: 'All Earned Cards' })).toHaveAttribute('aria-pressed', 'true')
+  const card = page.getByRole('button', { name: new RegExp(currentThematicEarnedCard.title) })
+  await expect(card.getByText('New', { exact: true })).toBeVisible()
+  await expect.poll(async () => (await participation(page))?.notebookAcknowledgedAwardIds)
+    .toEqual([currentThematicAwardId])
+  expect((await participation(page)).earnedAwards[currentThematicAwardId]).toMatchObject({
+    hubAnnouncementAcked: false,
+    cardViewed: false,
+  })
 })
 
 test('retains each tab’s screen, scroll, and focus and resets the selected tab on reselection', async ({ page }) => {
