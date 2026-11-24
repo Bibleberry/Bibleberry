@@ -3,7 +3,6 @@ import {
   ArrowLeft,
   ArrowRight,
   BookOpen,
-  Calendar,
   Check,
   ChevronRight,
   Clock3,
@@ -28,6 +27,7 @@ export type MonthScreenViewProps = {
   mode: 'preview' | 'detail'
   month: MonthPreviewData | MonthDetailData
   weeks: readonly MonthCalendarWeek[]
+  currentDate?: string
   completionSummary: MonthCompletionSummary | null
   discoveries: readonly MonthDiscoveryPresentation[]
   progressLoading?: boolean
@@ -71,6 +71,7 @@ export function MonthScreenView({
   mode,
   month,
   weeks,
+  currentDate,
   completionSummary,
   discoveries,
   progressLoading = false,
@@ -172,9 +173,7 @@ export function MonthScreenView({
               </div>
             )}
           </div>
-          <p className="month-provisional-note">
-            <Calendar size={14} aria-hidden="true" /> Provisional calendar layout — pending final design review.
-          </p>
+
         </div>
         {month.coverImage && (
           <figure className="month-header__cover">
@@ -183,7 +182,7 @@ export function MonthScreenView({
         )}
       </header>
 
-      <section className="month-calendar" aria-labelledby="month-calendar-heading">
+      <section data-month-agenda className="month-calendar" aria-labelledby="month-calendar-heading">
         <div className="month-calendar__header">
           <h2 id="month-calendar-heading">Daily Challenges</h2>
           <span>
@@ -201,6 +200,7 @@ export function MonthScreenView({
                 <section
                   key={week.weekNumber}
                   className="month-week"
+                  data-current-week={week.slots.some(slot => slot.date === currentDate) || undefined}
                   aria-labelledby={weekHeadingId}
                 >
                   <h3 id={weekHeadingId} className="month-week__title">

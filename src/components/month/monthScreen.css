@@ -145,15 +145,6 @@ body:has(.month-screen) {
   color: var(--muted);
 }
 
-.month-provisional-note {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin: 14px 0 0;
-  color: var(--muted);
-  font-size: 11px;
-}
-
 .month-header__cover {
   margin: 0;
   max-width: 220px;

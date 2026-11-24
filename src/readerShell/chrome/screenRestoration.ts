@@ -1,13 +1,14 @@
 import type { RouteRestoration } from '../navigation/index.ts'
 
 const activeScreenSelector = '.r06-screen:not([hidden])'
+const monthAgendaSelector = '[data-month-agenda]'
 
 export function captureScreenRestoration(
   viewport: HTMLElement,
   lastFocused: HTMLElement | null,
 ): RouteRestoration | undefined {
   const screen = viewport.querySelector<HTMLElement>(activeScreenSelector)
-  if (!screen) return
+  if (!screen || (screen.hasAttribute('data-month-screen') && !screen.querySelector(monthAgendaSelector))) return
 
   // Record an element's position in this screen without storing labels, text,
   // or form values from the reader. Check the element type again on return.
@@ -41,14 +42,19 @@ export function restoreScreen(
 ) {
   const screen = viewport.querySelector<HTMLElement>(activeScreenSelector)
   if (!screen) return
-  const targetScroll = restoration?.scrollTop ?? 0
+  const month = screen.hasAttribute('data-month-screen')
+  if (month) viewport.scrollTop = 0
   let focusId = restoration?.focusId
 
   // A focused host owns its initial focus (for example, the Monthly Introduction).
   if (focusScreen && !screen.contains(document.activeElement)) screen.focus({ preventScroll: true })
 
   const restore = () => {
-    if (screen.querySelector('.month-intro')) return false
+    if (month && !screen.querySelector(monthAgendaSelector)) return false
+    const currentWeek = restoration ? null : screen.querySelector('[data-current-week]')
+    const targetScroll = currentWeek
+      ? viewport.scrollTop + currentWeek.getBoundingClientRect().top - viewport.getBoundingClientRect().top
+      : restoration?.scrollTop ?? 0
     viewport.scrollTop = targetScroll
     if (focusId) {
       const target = findSavedFocus(screen, focusId)
@@ -64,20 +70,29 @@ export function restoreScreen(
 
   // Gateway-backed hosts can grow after their loading state. Give their content
   // a chance to return before restoring a deeper offset or focus target.
-  const observer = new ResizeObserver(() => {
+  const restoreWhenReady = () => {
     if (restore()) stop()
-  })
+  }
+  const observer = new ResizeObserver(restoreWhenReady)
   observer.observe(screen)
+  // Introduction and calendar can have the same height, so also observe the
+  // calendar mounting after the reader finishes the Introduction.
+  const contentObserver = month ? new MutationObserver(restoreWhenReady) : undefined
+  contentObserver?.observe(screen, { childList: true, subtree: true })
   function stop() {
     observer.disconnect()
-    viewport.removeEventListener('pointerdown', stop)
-    viewport.removeEventListener('keydown', stop)
-    viewport.removeEventListener('wheel', stop)
-    viewport.removeEventListener('touchstart', stop)
+    contentObserver?.disconnect()
+    viewport.removeEventListener('pointerdown', cancelRestore)
+    viewport.removeEventListener('keydown', cancelRestore)
+    viewport.removeEventListener('wheel', cancelRestore)
+    viewport.removeEventListener('touchstart', cancelRestore)
   }
-  viewport.addEventListener('pointerdown', stop)
-  viewport.addEventListener('keydown', stop)
-  viewport.addEventListener('wheel', stop, { passive: true })
-  viewport.addEventListener('touchstart', stop, { passive: true })
+  function cancelRestore() {
+    if (!month || screen?.querySelector(monthAgendaSelector)) stop()
+  }
+  viewport.addEventListener('pointerdown', cancelRestore)
+  viewport.addEventListener('keydown', cancelRestore)
+  viewport.addEventListener('wheel', cancelRestore, { passive: true })
+  viewport.addEventListener('touchstart', cancelRestore, { passive: true })
   return stop
 }

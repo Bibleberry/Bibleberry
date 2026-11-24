@@ -36,6 +36,7 @@ import './monthScreen.css'
 
 export type MonthScreenHostProps = {
   yearMonth: string
+  connected?: boolean
   monthProvider?: MonthGatewayProvider
   store?: ReaderParticipationStore
   introStore?: MonthIntroStore
@@ -51,7 +52,7 @@ type LoadedMonthState =
   | { readonly status: 'requestError'; readonly message: string }
   | { readonly status: 'validationError'; readonly message: string }
   | { readonly status: 'readyPreview'; readonly month: MonthPreviewData }
-  | { readonly status: 'readyDetail'; readonly month: MonthDetailData }
+  | { readonly status: 'readyDetail'; readonly month: MonthDetailData; readonly authorizedLocalDate: string }
 
 /**
  * Connected container for the feature-gated Month Screen (R08A-6 / Phase 03C).
@@ -62,6 +63,7 @@ type LoadedMonthState =
  */
 export function MonthScreenHost({
   yearMonth,
+  connected = false,
   monthProvider = defaultGatewayMonthProvider,
   store = defaultGuestParticipationStore,
   introStore = defaultMonthIntroStore,
@@ -127,7 +129,11 @@ export function MonthScreenHost({
       if (ignore) return
 
       if (detailResult.status === 'ready') {
-        setMonthState({ status: 'readyDetail', month: detailResult.month })
+        setMonthState({
+          status: 'readyDetail',
+          month: detailResult.month,
+          authorizedLocalDate: detailResult.serverContext.authorizedLocalDate,
+        })
         return
       }
 
@@ -575,6 +581,7 @@ export function MonthScreenHost({
   return (
     <MonthScreenView
       mode="detail"
+      currentDate={connected && monthState.month.phase === 'active' ? monthState.authorizedLocalDate : undefined}
       month={monthState.month}
       weeks={weeks}
       completionSummary={completionSummary}

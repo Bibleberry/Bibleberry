@@ -136,6 +136,7 @@ function CurrentScreen({ state, send, challengeProvider }: ScreenProps) {
       return (
         <MonthScreenHost
           yearMonth={route.yearMonth}
+          connected
           onSelectYearMonth={yearMonth => openMonth(send, yearMonth)}
           onOpenChallenge={(slug, yearMonth, expectedDocumentId) => {
             if (yearMonth === route.yearMonth) send({ type: 'openChallenge', slug, expectedDocumentId })
@@ -211,7 +212,7 @@ export function ReaderScreens({ state, send, challengeProvider, pending }: Scree
         )
       })}
       {!activeRetained && (
-        <div key={activeKey} className="r06-screen" tabIndex={-1} role={!pending && hostHasMain ? undefined : 'main'}>
+        <div key={activeKey} className="r06-screen" tabIndex={-1} data-month-screen={!pending && !state.problem && !state.focused && route.kind === 'month' || undefined} role={!pending && hostHasMain ? undefined : 'main'}>
           {pending
             ? <p role="status">Opening Bibleberry…</p>
             : <CurrentScreen state={state} send={send} challengeProvider={challengeProvider} />}
