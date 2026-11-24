@@ -48,7 +48,7 @@ import type {
  *   (iOS/Android Capacitor Preferences).
  * - `getSnapshot()` returns an `Object.is`-cached immutable reference compatible with React 19
  *   `useSyncExternalStore`.
- * - Commands dispatched before async hydration finishes or during transient write failures remain
+ * - By default, commands dispatched before async hydration finishes or during transient write failures remain
  *   in `pendingCommands`, rebasing cleanly onto committed storage without losing reader choices.
  * - Action result contract: `ok: true` means the command was accepted by Shelf policy against the
  *   hydrated/rebased state (and is reflected in `getSnapshot()`). On healthy storage, durability
@@ -56,7 +56,9 @@ import type {
  *   or `'storageUnavailable'`), the command remains queued in `pendingCommands` (`hasPendingWrites: true`)
  *   for retry via `flushPending()` while the Promise resolves with the policy-replay outcome; callers
  *   should inspect `getSnapshot().health` / `hasPendingWrites` to distinguish durable commits from
- *   pending-retry writes. Commands canceled by `clearLocalData()` or `dispose()` resolve `ok: false`.
+ *   pending-retry writes. A durable-only applyState waits for a confirmed write before publishing,
+ *   reports failure directly, and is discarded on failure. Commands canceled by
+ *   `clearLocalData()` or `dispose()` resolve `ok: false`.
  * - All adapter I/O is serialized on a strict FIFO queue combined with a monotonic reset epoch and
  *   `AbortSignal`, guaranteeing that a user-initiated `clearLocalData()` can NEVER be undone in
  *   memory or in storage by an earlier delayed read or write completing afterward.

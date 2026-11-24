@@ -1,5 +1,4 @@
 import { mkdtemp, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { createServer, type ViteDevServer } from 'vite'
@@ -25,7 +24,7 @@ let enabledServer: ViteDevServer
 const cacheDirs: string[] = []
 
 async function startReader(enabled: boolean) {
-  const cacheDir = await mkdtemp(join(tmpdir(), 'bibleberry-month-shelf-'))
+  const cacheDir = await mkdtemp(join(process.cwd(), 'node_modules', '.vite-month-shelf-'))
   cacheDirs.push(cacheDir)
   const server = await createServer({
     cacheDir,
@@ -188,9 +187,10 @@ test('J5 confirms replacement and Active Focus in place while preserving study r
   const shelfBefore = await storedShelf(page)
   const add = page.getByRole('button', { name: 'Add to Shelf', exact: true })
   const viewport = page.locator('.r06-viewport')
-  await add.scrollIntoViewIfNeeded()
   await add.focus()
+  await viewport.evaluate(element => { element.scrollTop = 120 })
   const scrollTop = await viewport.evaluate(element => element.scrollTop)
+  expect(scrollTop).toBeGreaterThan(0)
   const monthUrl = page.url()
   await add.press('Enter')
 
@@ -240,7 +240,12 @@ for (const failure of ['stale', 'unwritable', 'corrupt'] as const) {
     await enterCatalogue(page)
     await openOctoberFromCatalogue(page)
     const add = page.getByRole('button', { name: 'Add to Shelf', exact: true })
-    await add.click()
+    const viewport = page.locator('.r06-viewport')
+    await add.focus()
+    await viewport.evaluate(element => { element.scrollTop = 120 })
+    const scrollTop = await viewport.evaluate(element => element.scrollTop)
+    expect(scrollTop).toBeGreaterThan(0)
+    await add.press('Enter')
     const chooser = page.getByRole('dialog', { name: 'Choose a Month to Replace' })
     await chooser.getByRole('radio', { name: /September 2026/ }).check()
     const rawBefore = await page.evaluate(({ key, failure }) => {
@@ -268,6 +273,7 @@ for (const failure of ['stale', 'unwritable', 'corrupt'] as const) {
     await expect(add).toBeFocused()
     await expect(page.getByRole('button', { name: 'Kept on Shelf' })).toHaveCount(0)
     await expect(page).toHaveURL(monthUrl)
+    await expect.poll(() => viewport.evaluate(element => element.scrollTop)).toBe(scrollTop)
     expect(await page.evaluate(key => localStorage.getItem(key), shelfKey)).toBe(rawBefore)
   })
 }

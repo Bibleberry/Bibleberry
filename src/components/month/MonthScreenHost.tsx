@@ -12,8 +12,8 @@ import { defaultGuestParticipationStore } from '../../participation/defaultGuest
 import type { ReaderParticipationStore } from '../../participation/store.ts'
 import type { CanonicalAwardId } from '../../participation/types.ts'
 import { useReaderParticipation } from '../../participation/useReaderParticipation.ts'
-import { MonthIntroductionView } from './MonthIntroductionView.tsx'
 import { isHistoricalPublicationYearMonth, parseValidPublicationYearMonth } from '../../shelf/validation.ts'
+import { MonthIntroductionView } from './MonthIntroductionView.tsx'
 import { MonthShelfAction } from './MonthShelfAction.tsx'
 import { MonthScreenView } from './MonthScreenView.tsx'
 import {
