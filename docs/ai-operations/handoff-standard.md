@@ -224,50 +224,13 @@ The system exists primarily to help Aaron recognize, remember, and coordinate as
 
 Codenames are not decorative labels. They are a core part of Bibleberry's operational coordination system.
 
-### 6.1 Codename structure
+### 6.1 Registry allocation
 
-Every new engineering candidate Issue and every new Issue for a human-directed PR-producing assignment must receive a unique, permanent two-word codename.
+Use the accepted [Codename Registry](codename-registry.md) for every authorized new codenamed Issue. It governs allocation, availability and historical recycling.
 
-Codenames follow a **Descriptor + Noun** pattern.
+### 6.2 Assignment continuity
 
-Examples of established Bibleberry codenames include:
-
-- **Steady Finch**
-- **Copper Meadow**
-- **Ivory Sextant**
-- **Maple Meridian**
-- **Tidal Hearth**
-- **Moss Ledger**
-- **Amber Causeway**
-- **Juniper Signal**
-
-The first word is generally an adjective or a noun used descriptively.
-
-The second word is a recognizable, concrete noun, such as an animal, object, place, or natural feature.
-
-Both words use title case.
-
-The words do not need to describe the engineering task. Their purpose is to create a distinctive, memorable identity.
-
-Names should be:
-
-- Easy to remember and pronounce.
-- Clearly distinguishable from existing assignment names.
-- Composed of two ordinary, recognizable words.
-- Appropriate for professional collaboration.
-- Consistent with Bibleberry's established naming style.
-
-Avoid overly technical phrases, lengthy names, confusing combinations, offensive language, or names that are difficult to communicate between agents.
-
-### 6.2 Codename uniqueness
-
-**A codename may never be reused.**
-
-Before creating any new codenamed Issue, the responsible department must check the complete history of Bibleberry Issues, including open and closed, to ensure the name has not previously been assigned.
-
-Treat capitalization, spaces, and hyphens as equivalent when checking uniqueness.
-
-Once assigned, a codename is permanent.
+An assignment retains its original codename. When a codename is recycled, the originating Issue number distinguishes the new assignment from earlier ones. Include that Issue number in every formal handoff.
 
 ### 6.3 Relationship between codenames and GitHub Issues
 
@@ -311,7 +274,7 @@ A corresponding PR, including documentation and administrative PRs, must preserv
 
 Branches and formal handoffs should also follow the naming requirements in the AI Development Protocol.
 
-**Cross-department preflight:** Before any department or agent creates a new branch, edits repository files or opens a PR, verify the authorized Issue, codename, ownership and scope; create the originating Issue first if authorized and none exists. Never exempt a request merely because it came from Planning, Admin or an informal conversation. Read-only advice does not by itself require a new assignment. Reuse an existing Issue/codename for follow-up work, and do not invent a second tracking record. Automated dependency PRs from the expressly named bot senders are exempt from human-assignment identity, but not review/merge controls. The required PR check is described in [AI Development Protocol §2B](../ai-development-protocol.md).
+**Cross-department preflight:** Before any department or agent creates a new branch, edits repository files or opens a PR, verify the authorized Issue, codename, ownership and scope; create the originating Issue first under the [Codename Registry](codename-registry.md) if authorized and none exists. Never exempt a request merely because it came from Planning, Admin or an informal conversation. Read-only advice does not by itself require a new assignment. Reuse an existing Issue/codename for follow-up work, and do not invent a second tracking record. Automated dependency PRs from the expressly named bot senders are exempt from human-assignment identity, but not review/merge controls. The required PR check is described in [AI Development Protocol §2B](../ai-development-protocol.md).
 
 ### 6.5 Codenames survive agent and conversation changes
 

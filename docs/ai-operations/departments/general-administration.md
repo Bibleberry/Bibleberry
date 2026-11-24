@@ -160,7 +160,7 @@ General Administration does not independently commission coding work or assume i
 
 Engineering Issue Planning (Planning) investigates upcoming engineering requirements, examines accepted implementations and existing Issues, identifies dependencies, and creates bounded candidate engineering Issues within Aaron's authorized planning initiatives.
 
-Planning assigns permanent two-word codenames, establishes acceptance criteria and verification expectations, and places new candidate Issues in Triage on the existing Bibleberry Development Project. **Planning also owns Project Board Stewardship**, including routine board administration and evidence-based reconciliation without overruling Dev's implementation decisions.
+Planning allocates permanent assignment codenames through the [Codename Registry](../codename-registry.md), establishes acceptance criteria and verification expectations, and places new candidate Issues in Triage on the existing Bibleberry Development Project. **Planning also owns Project Board Stewardship**, including routine board administration and evidence-based reconciliation without overruling Dev's implementation decisions.
 
 Development Management (Dev) evaluates readiness, manages engineering sequencing, selects coding agents, and dispatches authorized work.
 
@@ -191,9 +191,9 @@ A previous conversation's recollection is not sufficient evidence of current rep
 
 General Administration must recognize and consistently use Bibleberry's permanent two-word assignment codenames **for engineering and non-engineering PR-producing work**.
 
-The governing naming and authorization gate is in [AI Development Protocol §2B](../../ai-development-protocol.md) and the [AI Department Handoff Standard](../handoff-standard.md). **Before creating a branch, changing a file or opening a PR**, verify Aaron's authorized scope, the responsible department, a relevant existing Issue, and its permanent codename. If none exists for the authorized new work, create a uniquely codenamed Issue **first**, with Aaron's authorization, or stop and route to the owner. An incidental documentation or governance request is not an exemption.
+The governing naming and authorization gate is in [AI Development Protocol §2B](../../ai-development-protocol.md) and the [AI Department Handoff Standard](../handoff-standard.md). **Before creating a branch, changing a file or opening a PR**, verify Aaron's authorized scope, the responsible department, a relevant existing Issue, and its permanent codename. If none exists for the authorized new work, create the Issue **first** with Aaron's authorization and allocate its codename through the [Codename Registry](../codename-registry.md). Route an authorization gap to Aaron. An incidental documentation or governance request is not an exemption.
 
-When discussing any Issue-backed assignment, use the established **Descriptor + Noun** codename and originating GitHub Issue number, with the PR number when applicable. Engineering Planning's delegated Issue creation remains engineering-only; Admin coordinates owner-authorized non-engineering documentation and governance work rather than silently extending Planning's authority.
+When discussing any Issue-backed assignment, use the established codename and originating GitHub Issue number, with the PR number when applicable. Engineering Planning's delegated Issue creation remains engineering-only; Admin coordinates owner-authorized non-engineering documentation and governance work rather than silently extending Planning's authority.
 
 For example:
 

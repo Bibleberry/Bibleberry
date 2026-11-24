@@ -482,4 +482,4 @@ Items below **cannot be resolved unilaterally from recorded owner authority** an
 | **G08** — Single brief post-verified guest-to-account merge confirmation (conditional Shelf-conflict sentence) | [G08](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7058577267) | §9.3, §11 |
 | **G09** — Consolidated empty/loading/error state matrix, 8 whole-application acceptance journeys, cross-cutting criteria & evidence disposition | [G09](https://github.com/Bibleberry/Bibleberry/issues/22#issuecomment-7058590005) | §1.2, §10.1–§10.4 |
 
-**Change control:** Amend this specification only through reviewed documentation PRs approved by Aaron Waid. Implementation requires separately scoped, uniquely codenamed Issues, branches, verification evidence, independent review, and explicit owner merge authorization.
+**Change control:** Amend this specification only through reviewed documentation PRs approved by Aaron Waid. Implementation requires separately scoped Issues with codenames allocated through the [Codename Registry](../ai-operations/codename-registry.md), branches, verification evidence, independent review, and explicit owner merge authorization.

@@ -2,7 +2,7 @@
 
 The permanent two-word codename is the primary human-facing name for a new assignment; its originating GitHub Issue remains the authoritative record and technical anchor. This page is only a finding aid. **Live GitHub Issue/PR status overrides this dated index.**
 
-For a **new** development Issue, its creator must first search the entire Bibleberry development Issue history, including closed work, for an existing codename. Compare case-insensitively and treat spaces, capitalization, and hyphens as equivalent. Assign a unique, permanent two-word codename before handing the Issue to a coding agent, and put it in the Issue title (for example, `[Blue Fox] Preserve Shelf Protection`). Use the same codename through every PR, transfer, review, correction, and replacement PR. A codename does not replace the Issue number or direct link.
+Use the [Codename Registry](../ai-operations/codename-registry.md) before creating any authorized new codenamed Issue. Use the originating Issue number and link with its codename through every PR, transfer, review, correction, and replacement PR.
 
 At assignment or handoff, start from the Issue: verify its number/title/codename, assignee, scope, acceptance criteria, latest ownership record, linked PR(s), their base/head/SHA and checks, and any conflicting work. Confirm the current branch before editing. If identity or ownership does not match, stop and ask Aaron; never guess or switch assignments. Keep one active implementing owner per Issue. Record assignment, PR transitions, current evidence, and next action on that Issue.
 
@@ -38,7 +38,7 @@ Next required action: <concrete action>
 Last verified: <YYYY-MM-DD>
 ```
 
-For an existing Issue with no codename, write `Codename: not assigned (existing work; do not invent)` and continue to identify it by its Issue number/link. New Issues must not be assigned to an agent until a unique codename is recorded.
+For an existing Issue with no codename, write `Codename: not assigned (existing work; do not invent)` and continue to identify it by its Issue number/link. Record the allocated codename before assigning a new Issue to an agent.
 
 ## Copy/paste implementation handoff
 
@@ -69,7 +69,7 @@ Next action: <specific action>
 ## Copy/paste Checks and Merge handoff
 
 ```text
-<Codename> | PR #<N> | Checks and Merge
+<Codename> | Issue #<N> | PR #<N> | Checks and Merge
 Issue: <direct Issue URL>
 PR: <direct PR URL> | SHA <checked SHA> | base <base branch>
 Review disposition: <independent review state>
