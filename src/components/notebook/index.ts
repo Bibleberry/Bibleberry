@@ -7,7 +7,6 @@ export {
   collectAvailableCuratedThemes,
   collectRelevantNotebookYears,
   daysInCivilMonth,
-  FIELD_NOTEBOOK_FUTURE_CONTRACT,
   filterNotebookCards,
   formatNotebookEarnedDate,
   formatPublicationMonthHeading,
@@ -23,7 +22,6 @@ export {
   type NotebookLifetimeDisplay,
   type NotebookMonthEntry,
   type NotebookMonthStatus,
-  type NotebookOpenAcknowledgmentContract,
   type NotebookSearchFilter,
   type NotebookYearBuildOptions,
 } from './fieldNotebookModel.ts'

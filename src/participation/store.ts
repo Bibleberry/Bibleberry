@@ -3,6 +3,7 @@ import {
   emptyReaderParticipationData,
   reduceParticipationCommand,
   replayParticipationCommands,
+  selectNewDiscoveryAwardIds,
 } from './model.ts'
 import {
   isPromiseLike,
@@ -55,6 +56,15 @@ export interface ReaderParticipationStore {
   flushPending(): Promise<void>
   clearLocalData(): Promise<void>
   dispose(): void
+}
+
+/** Call when the full Notebook or its focused View Discoveries gallery is entered. */
+export function acknowledgeNotebookEntry(store: ReaderParticipationStore): Promise<void> {
+  const snapshot = store.getSnapshot()
+  if (snapshot.status !== 'ready') return Promise.resolve()
+  const awardIds = selectNewDiscoveryAwardIds(snapshot.data)
+  if (awardIds.length === 0) return Promise.resolve()
+  return store.dispatch({ type: 'acknowledgeNotebookEntry', awardIds })
 }
 
 export interface CreateReaderParticipationStoreOptions {
@@ -199,6 +209,7 @@ export function areParticipationDataEqual(
     )
     && areSavedScripturesEqual(left.savedScriptures, right.savedScriptures)
     && areRecordMapsEqual(left.earnedAwards, right.earnedAwards, areEarnedAwardRecordsEqual)
+    && areOptionalStringArraysEqual(left.notebookAcknowledgedAwardIds, right.notebookAcknowledgedAwardIds)
   )
 }
 
@@ -248,6 +259,13 @@ function stabilizeParticipationData(
     ? prev.earnedAwards
     : next.earnedAwards
 
+  const notebookAcknowledgedAwardIds = areOptionalStringArraysEqual(
+    prev.notebookAcknowledgedAwardIds,
+    next.notebookAcknowledgedAwardIds,
+  )
+    ? prev.notebookAcknowledgedAwardIds
+    : next.notebookAcknowledgedAwardIds
+
   if (
     completedChallenges === prev.completedChallenges
     && inProgressChallenges === prev.inProgressChallenges
@@ -255,6 +273,7 @@ function stabilizeParticipationData(
     && savedScriptures === prev.savedScriptures
     && lastOpenedChallenge === prev.lastOpenedChallenge
     && earnedAwards === prev.earnedAwards
+    && notebookAcknowledgedAwardIds === prev.notebookAcknowledgedAwardIds
   ) {
     return prev
   }
@@ -266,6 +285,7 @@ function stabilizeParticipationData(
     savedScriptures,
     lastOpenedChallenge,
     earnedAwards,
+    ...(notebookAcknowledgedAwardIds ? { notebookAcknowledgedAwardIds } : {}),
   })
 }
 
@@ -336,7 +356,10 @@ export function createReaderParticipationStore(
     }
     return replayParticipationCommands(
       committedData,
-      pendingCommands.map(entry => entry.command),
+      // The global badge reflects durable acknowledgement, including after a failed write.
+      pendingCommands
+        .map(entry => entry.command)
+        .filter(command => command.type !== 'acknowledgeNotebookEntry'),
       allowedNamespace,
     )
   }

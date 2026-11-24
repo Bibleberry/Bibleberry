@@ -173,6 +173,37 @@ describe('R13-1 Guest-to-Account Sync Orchestration', () => {
     assert.ok(stored.data.earnedAwards[awardThematic])
   })
 
+  test('V3 transfers participation to account V1 and retains device-local Notebook acknowledgements', async () => {
+    for (const notebookAcknowledgedAwardIds of [undefined, [awardThematic]]) {
+      const transport = createMockAuthorizedAccountTransport()
+      const v2 = makeGuestWithRecords()
+      const accessor = new TestGuestStorageAccessor({
+        envelope: { schemaVersion: 3, data: { ...v2.data, notebookAcknowledgedAwardIds } },
+      })
+
+      const outcome = await coordinateGuestSync(transport, {
+        session: { accountId: ACCT_A },
+        guest: accessor,
+        mode: 'newAccountTransfer',
+      })
+
+      assert.equal(outcome.status, 'committed')
+      assert.equal(accessor.clearCount, notebookAcknowledgedAwardIds ? 0 : 1)
+      assert.equal(outcome.guestClearanceDecision?.reason, notebookAcknowledgedAwardIds
+        ? 'reconciliationRequiresRetention'
+        : 'verifiedDurableCommit')
+      const stored = transport.getStoredAccount(ACCT_A)
+      assert.ok(stored)
+      assert.equal(stored.schemaVersion, 1)
+      assert.ok(stored.data.completedChallenges[c1])
+      assert.ok(stored.data.inProgressChallenges[c2])
+      assert.equal(stored.data.savedScriptures.length, 1)
+      assert.equal(stored.data.earnedAwards[awardThematic]?.cardViewed, true)
+      assert.equal(stored.data.earnedAwards[awardThematic]?.hubAnnouncementAcked, false)
+      assert.equal(Object.hasOwn(stored.data, 'notebookAcknowledgedAwardIds'), false)
+    }
+  })
+
   test('coordinator preserves both explicit protection values for each Shelf admission kind', async () => {
     const cases = [
       { yearMonth: '2026-10', admissionKind: 'readerSelected', isProtected: true },

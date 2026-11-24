@@ -141,8 +141,13 @@ export interface ReaderParticipationDataV1 {
   readonly lastOpenedChallenge: LastOpenedChallengePointer | null
 }
 
-export interface ReaderParticipationData extends ReaderParticipationDataV1 {
+export interface ReaderParticipationDataV2 extends ReaderParticipationDataV1 {
   readonly earnedAwards: Readonly<Record<string, EarnedAwardRecord>>
+}
+
+export interface ReaderParticipationData extends ReaderParticipationDataV2 {
+  /** Award IDs acknowledged by entering the Field Notebook. Absence means none. */
+  readonly notebookAcknowledgedAwardIds?: readonly CanonicalAwardId[]
 }
 
 export interface GuestParticipationEnvelopeV1 {
@@ -152,6 +157,11 @@ export interface GuestParticipationEnvelopeV1 {
 
 export interface GuestParticipationEnvelopeV2 {
   readonly schemaVersion: 2
+  readonly data: ReaderParticipationDataV2
+}
+
+export interface GuestParticipationEnvelopeV3 {
+  readonly schemaVersion: 3
   readonly data: ReaderParticipationData
 }
 
@@ -218,5 +228,10 @@ export type ParticipationCommand =
     }
   | {
       readonly type: 'acknowledgeAwardAnnouncements'
+      readonly awardIds: readonly CanonicalAwardId[]
+    }
+  | {
+      readonly type: 'acknowledgeNotebookEntry'
+      /** Capture the award IDs at entry so persistence replay cannot acknowledge later awards. */
       readonly awardIds: readonly CanonicalAwardId[]
     }
