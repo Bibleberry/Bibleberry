@@ -168,6 +168,7 @@ export type ShelfActionError =
   | 'requiresFocusDecision'
   | 'invalidFocusDecision'
   | 'staleShelfConfirmation'
+  | 'shelfWriteFailed'
   | 'invalidStateShape'
 
 export type ShelfActionResult<TAction extends string = string> =

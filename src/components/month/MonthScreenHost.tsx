@@ -12,7 +12,9 @@ import { defaultGuestParticipationStore } from '../../participation/defaultGuest
 import type { ReaderParticipationStore } from '../../participation/store.ts'
 import type { CanonicalAwardId } from '../../participation/types.ts'
 import { useReaderParticipation } from '../../participation/useReaderParticipation.ts'
+import { isHistoricalPublicationYearMonth, parseValidPublicationYearMonth } from '../../shelf/validation.ts'
 import { MonthIntroductionView } from './MonthIntroductionView.tsx'
+import { MonthShelfAction } from './MonthShelfAction.tsx'
 import { MonthScreenView } from './MonthScreenView.tsx'
 import {
   defaultMonthIntroStore,
@@ -599,9 +601,22 @@ function MonthScreen({
       ) ?? null)
     : null
 
+  const historicalMonth = parseValidPublicationYearMonth(monthState.month.monthId)
+  const referenceMonth = parseValidPublicationYearMonth(monthState.authorizedLocalDate.slice(0, 7))
+  const shelfAction = inReaderShell && monthState.month.phase === 'historical'
+    && historicalMonth && referenceMonth && isHistoricalPublicationYearMonth(historicalMonth, referenceMonth)
+    ? <MonthShelfAction
+        yearMonth={historicalMonth}
+        title={monthState.month.title}
+        referenceMonth={referenceMonth}
+        authorizedLocalDate={monthState.authorizedLocalDate}
+      />
+    : undefined
+
   return (
     <MonthScreenView
       mode="detail"
+      shelfAction={shelfAction}
       showProvisionalNotice={!inReaderShell}
       currentDate={inReaderShell && monthState.month.phase === 'active' ? monthState.authorizedLocalDate : undefined}
       month={monthState.month}
