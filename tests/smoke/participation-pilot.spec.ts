@@ -110,7 +110,7 @@ test.describe('Participation Persistence Reload Pilot (A3 / Issue #46)', () => {
       const raw = localStorage.getItem(pilotKey);
       return raw ? JSON.parse(raw) : null;
     }, PARTICIPATION_PILOT_KEY);
-    expect(storedEnvelopeAfterSave.schemaVersion).toBe(2);
+    expect(storedEnvelopeAfterSave.schemaVersion).toBe(3);
     expect(storedEnvelopeAfterSave.data.earnedAwards).toEqual({});
     expect(storedEnvelopeAfterSave.data.savedScriptures).toEqual([
       {
@@ -187,7 +187,7 @@ test.describe('Participation Persistence Reload Pilot (A3 / Issue #46)', () => {
 
   test('never overwrites unsupportedNewerSchema in browser storage until explicit local data reset', async ({ page }) => {
     const newerSchemaPayload = JSON.stringify({
-      schemaVersion: 3,
+      schemaVersion: 4,
       futureData: 'do-not-clobber',
       data: { completedChallenges: {} },
     });
@@ -219,7 +219,7 @@ test.describe('Participation Persistence Reload Pilot (A3 / Issue #46)', () => {
     const statusLine = page.locator('.pilot-disclosure__status');
     await expect(statusLine).toContainText('Store: ready (unsupportedNewerSchema)');
 
-    // Reader can still bookmark in-session without clobbering `schemaVersion: 3` in localStorage
+    // Reader can still bookmark in-session without clobbering `schemaVersion: 4` in localStorage
     await page.locator('button.lab-save-challenge').click();
     await expect(statusLine).toContainText('Challenge saved');
     const rawStillIntact = await page.evaluate(pilotKey => localStorage.getItem(pilotKey), PARTICIPATION_PILOT_KEY);

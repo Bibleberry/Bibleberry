@@ -100,6 +100,7 @@ test.beforeAll(async () => {
   enabledServer = await createServer({
     configFile: resolve(repositoryRoot, 'vite.config.ts'),
     root: repositoryRoot,
+    cacheDir: 'node_modules/.vite/app-integration-enabled',
     define: {
       'import.meta.env.VITE_ENABLE_FIELD_NOTEBOOK': JSON.stringify('true'),
       'import.meta.env.VITE_ENABLE_SAVED_SCRIPTURE': JSON.stringify('true'),
@@ -123,6 +124,7 @@ test.beforeAll(async () => {
   disabledServer = await createServer({
     configFile: resolve(repositoryRoot, 'vite.config.ts'),
     root: repositoryRoot,
+    cacheDir: 'node_modules/.vite/app-integration-disabled',
     define: {
       'import.meta.env.VITE_ENABLE_FIELD_NOTEBOOK': JSON.stringify('false'),
       'import.meta.env.VITE_ENABLE_SAVED_SCRIPTURE': JSON.stringify('false'),
@@ -171,7 +173,9 @@ test.describe('Issue #132: Controlled App-Shell Integration', () => {
     await page.addInitScript(
       ({ protoKey, partKey, protoState, partData }) => {
         window.localStorage.setItem(protoKey, JSON.stringify(protoState))
-        window.localStorage.setItem(partKey, JSON.stringify(partData))
+        if (window.localStorage.getItem(partKey) === null) {
+          window.localStorage.setItem(partKey, JSON.stringify(partData))
+        }
       },
       {
         protoKey: PROTOTYPE_STORAGE_KEY,
@@ -199,6 +203,13 @@ test.describe('Issue #132: Controlled App-Shell Integration', () => {
     // Verify route and Field Notebook view rendered
     await expect(page).toHaveURL(/#\/notebook/)
     await expect(page.getByRole('heading', { name: 'Earned Scripture Cards', exact: true })).toBeVisible()
+
+    await page.getByRole('button', { name: /Return to Today/i }).click()
+    await expect(notebookBtn.getByText('New')).not.toBeVisible()
+    await page.reload()
+    await expect(notebookBtn).toBeVisible()
+    await expect(notebookBtn.getByText('New')).not.toBeVisible()
+    await notebookBtn.click()
 
     // Switch to All Earned Cards
     await page.getByRole('button', { name: 'All Earned Cards' }).click()
@@ -235,6 +246,7 @@ test.describe('Issue #132: Controlled App-Shell Integration', () => {
       return raw ? JSON.parse(raw) : null
     }, PARTICIPATION_STORAGE_KEY)
     expect(updatedStore.data.earnedAwards['card:monthly:2026-11:light-path'].cardViewed).toBe(true)
+    expect(updatedStore.data.notebookAcknowledgedAwardIds).toEqual(['card:monthly:2026-11:light-path'])
   })
 
   test('Saved Scripture route, provisional entry bar, removal, persistence, and return navigation', async ({
@@ -342,6 +354,8 @@ test.describe('Issue #132: Controlled App-Shell Integration', () => {
     expect(updatedStore.data.earnedAwards['card:monthly:2026-11:light-path'].hubAnnouncementAcked).toBe(
       true,
     )
+    expect(updatedStore.data.earnedAwards['card:monthly:2026-11:light-path'].cardViewed).toBe(false)
+    expect(updatedStore.data.notebookAcknowledgedAwardIds).toEqual(['card:monthly:2026-11:light-path'])
 
     // Return to Today -> announcement dialog should NOT appear again
     await page.getByRole('button', { name: /Return to Today/i }).click()
@@ -392,6 +406,39 @@ test.describe('Issue #132: Controlled App-Shell Integration', () => {
     // Return to Today (Hub) -> With announcements toggled off, NO dialog opens!
     await page.getByRole('button', { name: 'Today' }).click()
     await expect(announcementDialog).not.toBeVisible()
+  })
+
+  test('dismissing a legacy Hub announcement leaves New Discoveries visible after reload', async ({ page }) => {
+    await page.addInitScript(
+      ({ protoKey, partKey, protoState, partData }) => {
+        localStorage.setItem(protoKey, JSON.stringify(protoState))
+        if (localStorage.getItem(partKey) === null) {
+          localStorage.setItem(partKey, JSON.stringify(partData))
+        }
+      },
+      {
+        protoKey: PROTOTYPE_STORAGE_KEY,
+        partKey: PARTICIPATION_STORAGE_KEY,
+        protoState: makeOnboardedState(),
+        partData: makeSampleParticipationEnvelope(),
+      },
+    )
+
+    await page.goto(enabledBaseUrl)
+    const dialog = page.getByRole('dialog', { name: /New Scripture Card Earned/i })
+    await dialog.getByRole('button', { name: 'Dismiss', exact: true }).click()
+    await expect(dialog).toBeHidden()
+    const badge = page.getByRole('link', { name: /Field Notebook/i }).getByText('New')
+    await expect(badge).toBeVisible()
+    await page.reload()
+    await expect(badge).toBeVisible()
+    await expect(dialog).toBeHidden()
+    const data = await page.evaluate(key => JSON.parse(localStorage.getItem(key) ?? '{}').data, PARTICIPATION_STORAGE_KEY)
+    expect(data.notebookAcknowledgedAwardIds).toBeUndefined()
+    expect(data.earnedAwards['card:monthly:2026-11:light-path']).toMatchObject({
+      hubAnnouncementAcked: true,
+      cardViewed: false,
+    })
   })
 
   test('Feature gates disabled: direct routes fail closed and no provisional bar renders', async ({

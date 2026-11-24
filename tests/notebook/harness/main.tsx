@@ -140,7 +140,6 @@ function makeFixtureAwards(): readonly EarnedAwardInput[] {
 export function FieldNotebookTestHarness() {
   const [largeText] = useState(() => readQueryFlag('large'))
   const [referenceYearMonth] = useState(() => readReferenceYearMonth())
-  const [openedSignalCount, setOpenedSignalCount] = useState(0)
   const snapshot = useReaderParticipation(defaultGuestParticipationStore)
 
   const seedFixtures = async () => {
@@ -175,7 +174,6 @@ export function FieldNotebookTestHarness() {
     <main className={`standard-page ${largeText ? 'reading-large' : ''}`}>
       <header style={{ marginBottom: '20px', borderBottom: '1px solid var(--rule)', paddingBottom: '14px' }}>
         <h1>Field Notebook Integration Harness</h1>
-        <p data-testid="opened-signal-count">Notebook opened signal count: {openedSignalCount}</p>
         <p data-testid="store-distinct-count">
           Store distinct completed count: {snapshot.distinctCompletedCount}
         </p>
@@ -204,9 +202,6 @@ export function FieldNotebookTestHarness() {
       <FieldNotebookHost
         store={defaultGuestParticipationStore}
         referenceYearMonth={referenceYearMonth}
-        onNotebookOpened={() => {
-          setOpenedSignalCount(c => c + 1)
-        }}
       />
     </main>
   )

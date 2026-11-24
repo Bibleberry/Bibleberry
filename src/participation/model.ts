@@ -10,6 +10,7 @@ import {
   parseStoredChallengeId,
 } from './identity.ts'
 import type {
+  CanonicalAwardId,
   CanonicalChallengeId,
   ChallengeIdentityNamespace,
   ChallengeParticipationView,
@@ -46,6 +47,13 @@ export function emptyReaderParticipationData(): ReaderParticipationData {
 
 export function distinctCompletedChallengeCount(data: ReaderParticipationData): number {
   return Object.keys(data.completedChallenges).length
+}
+
+export function selectNewDiscoveryAwardIds(data: ReaderParticipationData): readonly CanonicalAwardId[] {
+  const acknowledged = new Set(data.notebookAcknowledgedAwardIds)
+  return Object.values(data.earnedAwards)
+    .map(award => award.awardId)
+    .filter(awardId => !acknowledged.has(awardId))
 }
 
 function earlierDate(left: LocalCalendarDate, right: LocalCalendarDate): LocalCalendarDate {
@@ -186,12 +194,12 @@ export function reconcileChallengeAliases(
   if (!changed && !scripturesChanged) return data
 
   return Object.freeze({
+    ...data,
     completedChallenges: changed ? Object.freeze(nextCompleted) : data.completedChallenges,
     inProgressChallenges: changed ? Object.freeze(nextInProgress) : data.inProgressChallenges,
     savedChallenges: changed ? Object.freeze(nextSaved) : data.savedChallenges,
     savedScriptures: scripturesChanged ? Object.freeze(nextScriptures) : data.savedScriptures,
     lastOpenedChallenge: nextLastOpened,
-    earnedAwards: data.earnedAwards,
   })
 }
 
@@ -499,6 +507,25 @@ export function reduceParticipationCommand(
       return Object.freeze({
         ...data,
         earnedAwards: Object.freeze(nextAwards),
+      })
+    }
+
+    case 'acknowledgeNotebookEntry': {
+      if (!Array.isArray(command.awardIds) || command.awardIds.length === 0) return data
+
+      const acknowledged = new Set(data.notebookAcknowledgedAwardIds)
+      const previousSize = acknowledged.size
+      for (const rawId of command.awardIds) {
+        const awardId = parseCanonicalMonthlyAwardId(rawId)
+        if (awardId && Object.hasOwn(data.earnedAwards, awardId)) {
+          acknowledged.add(awardId)
+        }
+      }
+      if (acknowledged.size === previousSize) return data
+
+      return Object.freeze({
+        ...data,
+        notebookAcknowledgedAwardIds: Object.freeze([...acknowledged].sort()),
       })
     }
   }

@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ArrowLeft } from 'lucide-react'
 import { defaultGuestParticipationStore } from '../../participation/defaultGuestStore.ts'
 import { parsePublicationYearMonth } from '../../participation/identity.ts'
-import type { ReaderParticipationStore } from '../../participation/store.ts'
+import { acknowledgeNotebookEntry, type ReaderParticipationStore } from '../../participation/store.ts'
 import type { CanonicalAwardId } from '../../participation/types.ts'
 import { useReaderParticipation } from '../../participation/useReaderParticipation.ts'
 import { FieldNotebookView } from './FieldNotebookView.tsx'
@@ -21,12 +21,6 @@ export interface FieldNotebookHostProps {
   readonly initialSelectedYearMonth?: string | null
   readonly referenceYearMonth?: string
   readonly publishedYearMonths?: ReadonlySet<string>
-  /**
-   * Optional callback fired once after hydration when the Field Notebook opens.
-   * Reserved for clearing a future Hub "New Discoveries" indicator without
-   * mutating `cardViewed` or `hubAnnouncementAcked`.
-   */
-  readonly onNotebookOpened?: () => void
   readonly onExit?: () => void
   readonly exitLabel?: string
 }
@@ -46,7 +40,6 @@ export function FieldNotebookHost({
   initialSelectedYearMonth = null,
   referenceYearMonth,
   publishedYearMonths,
-  onNotebookOpened,
   onExit,
   exitLabel = 'Return',
 }: FieldNotebookHostProps) {
@@ -77,18 +70,14 @@ export function FieldNotebookHost({
   const [selectedTheme, setSelectedTheme] = useState<string | null>(null)
   const [activeAwardId, setActiveAwardId] = useState<CanonicalAwardId | null>(null)
 
-  const openedNotifiedRef = useRef(false)
-  const onNotebookOpenedRef = useRef(onNotebookOpened)
+  // The R06 shell retains this host inside Activity, which reconnects effects
+  // when the Notebook becomes visible again. Award updates within a visit
+  // leave this effect alone.
   useEffect(() => {
-    onNotebookOpenedRef.current = onNotebookOpened
-  }, [onNotebookOpened])
-
-  useEffect(() => {
-    if (participationSnapshot.status === 'ready' && !openedNotifiedRef.current) {
-      openedNotifiedRef.current = true
-      onNotebookOpenedRef.current?.()
+    if (participationSnapshot.status === 'ready') {
+      void acknowledgeNotebookEntry(store)
     }
-  }, [participationSnapshot.status])
+  }, [store, participationSnapshot.status])
 
   const projection = useMemo(
     () =>

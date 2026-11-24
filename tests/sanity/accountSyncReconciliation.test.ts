@@ -1365,7 +1365,7 @@ test('fails closed on future unsupported guest and account schema versions', () 
     mode: 'newAccountTransfer',
     guest: {
       envelope: {
-        schemaVersion: 3,
+        schemaVersion: 4,
         data: makeEmptyGuestV2().data,
       },
     },
