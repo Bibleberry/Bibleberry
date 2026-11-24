@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, type ReactNode } from 'react'
 import { ArrowLeft, Library } from 'lucide-react'
 import type { LibraryMonthIndexProvider } from '../cms/reader/libraryMonthIndexProvider.ts'
 import { HistoricalLibraryHost } from '../components/library/HistoricalLibraryHost.tsx'
@@ -7,6 +7,7 @@ import type {
   LibraryShelfSurface,
   OpenMonthContext,
 } from '../components/libraryShelf/libraryShelfModel.ts'
+import { R06LibraryLanding } from '../components/r06Library/index.ts'
 import type { PersistenceHealth } from '../participation/persistence.ts'
 import type { PublicationYearMonth } from '../participation/types.ts'
 import type { ShelfState } from '../shelf/types.ts'
@@ -20,6 +21,7 @@ export interface AppLibraryShelfHostProps {
   readonly onOpenMonth: (yearMonth: PublicationYearMonth, context: OpenMonthContext) => void
   readonly onExit?: () => void
   readonly exitLabel?: string
+  readonly onOpenFoundations?: () => void
   readonly shelfStore?: GuestShelfStore
   readonly libraryProvider?: LibraryMonthIndexProvider
 }
@@ -44,11 +46,16 @@ export function AppLibraryShelfHost({
   onOpenMonth,
   onExit,
   exitLabel = 'Return',
+  onOpenFoundations,
   shelfStore = defaultGuestShelfStore,
   libraryProvider,
 }: AppLibraryShelfHostProps) {
   const shelfSnapshot = useGuestShelfStore(shelfStore)
-  const readBlocked = isShelfReadBlocked(shelfSnapshot.health)
+  const readBlocked = isShelfReadBlocked(shelfSnapshot.health) || (
+    Boolean(onOpenFoundations) &&
+    shelfSnapshot.health === 'storageUnavailable' &&
+    !shelfSnapshot.hasPendingWrites
+  )
   const writeWarning =
     shelfSnapshot.health === 'writeFailed' ||
     shelfSnapshot.health === 'storageUnavailable'
@@ -64,8 +71,49 @@ export function AppLibraryShelfHost({
     [readBlocked, shelfStore],
   )
 
-  if (shelfSnapshot.status === 'hydrating') {
+  const hostProps = {
+    libraryProvider,
+    surface,
+    initialSurface: surface,
+    onSurfaceChange,
+    onOpenMonth,
+    onExit,
+    exitLabel,
+  }
+
+  function renderSurface(shelfFallback: ReactNode, catalogueNotice?: string) {
+    const notice = !shelfFallback && writeWarning
+      ? 'Shelf changes could not be saved to device storage yet and will retry when storage is available.'
+      : surface === 'library' ? catalogueNotice : undefined
     return (
+      <>
+        {notice && (
+          <aside className="provisional-collections-bar" role="status" aria-live="polite">
+            <p className="provisional-collections-bar__description">{notice}</p>
+          </aside>
+        )}
+        {onOpenFoundations ? (
+          <R06LibraryLanding
+            {...hostProps}
+            shelfState={shelfSnapshot.state}
+            onShelfStateChange={handleShelfStateChange}
+            onOpenFoundations={onOpenFoundations}
+            shelfFallback={shelfFallback}
+            shellOwnsNavigation
+          />
+        ) : shelfFallback ?? (
+          <LibraryShelfHost
+            {...hostProps}
+            shelfState={shelfSnapshot.state}
+            onShelfStateChange={handleShelfStateChange}
+          />
+        )}
+      </>
+    )
+  }
+
+  if (shelfSnapshot.status === 'hydrating') {
+    return renderSurface(
       <main
         className="standard-page shelf-page"
         role="main"
@@ -91,12 +139,14 @@ export function AppLibraryShelfHost({
           <div className="library-spinner" aria-hidden="true" />
           <p className="library-loading-text">Preparing your Shelf…</p>
         </section>
-      </main>
+      </main>,
+      onOpenFoundations ? 'Preparing your Shelf…' : undefined,
     )
   }
 
-  if (readBlocked && surface === 'shelf') {
-    return (
+  const readBlockedNotice = 'Saved Shelf data could not be read safely; Shelf actions are paused to protect existing device storage. You can still browse and open historical months from the Library.'
+  if (readBlocked && (onOpenFoundations || surface === 'shelf')) {
+    return renderSurface(
       <main
         className="standard-page shelf-page"
         role="main"
@@ -120,23 +170,26 @@ export function AppLibraryShelfHost({
             Saved Shelf data could not be read safely from this device, so your
             existing Shelf was left untouched.
           </p>
-          <div className="provisional-collections-bar__actions">
-            <button
-              type="button"
-              className="button button--secondary provisional-collections-btn"
-              onClick={() => onSurfaceChange('library')}
-            >
-              <Library size={16} aria-hidden="true" />
-              <span>Browse Historical Library</span>
-            </button>
-          </div>
+          {!onOpenFoundations && (
+            <div className="provisional-collections-bar__actions">
+              <button
+                type="button"
+                className="button button--secondary provisional-collections-btn"
+                onClick={() => onSurfaceChange('library')}
+              >
+                <Library size={16} aria-hidden="true" />
+                <span>Browse Historical Library</span>
+              </button>
+            </div>
+          )}
         </section>
-      </main>
+      </main>,
+      onOpenFoundations ? readBlockedNotice : undefined,
     )
   }
 
-  if (readBlocked && surface === 'library') {
-    return (
+  if (readBlocked) {
+    return renderSurface(
       <>
         <aside
           className="provisional-collections-bar"
@@ -144,9 +197,7 @@ export function AppLibraryShelfHost({
           aria-live="polite"
         >
           <p className="provisional-collections-bar__description">
-            Saved Shelf data could not be read safely; Shelf actions are paused to
-            protect existing device storage. You can still browse and open
-            historical months from the Library.
+            {readBlockedNotice}
           </p>
         </aside>
         <HistoricalLibraryHost
@@ -161,31 +212,5 @@ export function AppLibraryShelfHost({
     )
   }
 
-  return (
-    <>
-      {writeWarning ? (
-        <aside
-          className="provisional-collections-bar"
-          role="status"
-          aria-live="polite"
-        >
-          <p className="provisional-collections-bar__description">
-            Shelf changes could not be saved to device storage yet and will retry
-            when storage is available.
-          </p>
-        </aside>
-      ) : null}
-      <LibraryShelfHost
-        shelfState={shelfSnapshot.state}
-        onShelfStateChange={handleShelfStateChange}
-        libraryProvider={libraryProvider}
-        surface={surface}
-        initialSurface={surface}
-        onSurfaceChange={onSurfaceChange}
-        onOpenMonth={onOpenMonth}
-        onExit={onExit}
-        exitLabel={exitLabel}
-      />
-    </>
-  )
+  return renderSurface(null)
 }

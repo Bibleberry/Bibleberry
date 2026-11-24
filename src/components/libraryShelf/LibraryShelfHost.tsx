@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   DEFAULT_LIBRARY_PAGE_SIZE,
   defaultGatewayLibraryMonthIndexProvider,
@@ -117,6 +117,10 @@ export interface LibraryShelfHostProps {
    * Accessible label for the outer exit action. Defaults to 'Return'.
    */
   readonly exitLabel?: string
+  /** Replace the Shelf panel and suspend Shelf actions while storage is unreadable. */
+  readonly shelfFallback?: ReactNode
+  /** Delegate Back to the enclosing route stack. */
+  readonly shellOwnsNavigation?: boolean
 }
 
 /**
@@ -141,6 +145,8 @@ export function LibraryShelfHost({
   onOpenMonth,
   onExit,
   exitLabel = 'Return',
+  shelfFallback,
+  shellOwnsNavigation = false,
 }: LibraryShelfHostProps) {
   const [internalShelfState, setInternalShelfState] = useState<ShelfState>(
     () => initialShelfState ?? createEmptyShelfState(),
@@ -382,7 +388,7 @@ export function LibraryShelfHost({
   }, [mergedMonthMetadata, pendingReplace])
 
   const shelfOnExit =
-    returnSurface === 'library'
+    shellOwnsNavigation ? undefined : returnSurface === 'library'
       ? handleShelfBack
       : onExit
         ? handleShelfBack
@@ -390,19 +396,20 @@ export function LibraryShelfHost({
 
   const shelfExitLabel = returnSurface === 'library' ? 'Back to Library' : exitLabel
 
-  const libraryHasBackToShelf = returnSurface === 'shelf' || initialSurface === 'shelf'
-  const libraryOnExit = libraryHasBackToShelf || onExit ? handleLibraryBack : undefined
+  const libraryHasBackToShelf = !shellOwnsNavigation && (returnSurface === 'shelf' || initialSurface === 'shelf')
+  const libraryOnExit = shellOwnsNavigation ? onExit : libraryHasBackToShelf || onExit ? handleLibraryBack : undefined
   const libraryExitLabel = libraryHasBackToShelf ? 'Back to Shelf' : exitLabel
   const needsGatewayCalendarContext =
-    activeSurface === 'shelf' && !resolvedCurrentYearMonth
+    activeSurface === 'shelf' && !shelfFallback && !resolvedCurrentYearMonth
   const calendarContextFailed =
     libraryState.status === 'request-error' || libraryState.status === 'validation-error'
   const showLibrary =
     activeSurface === 'library' || (needsGatewayCalendarContext && calendarContextFailed)
-  const showShelf = activeSurface === 'shelf' && Boolean(resolvedCurrentYearMonth)
+  const showShelf = activeSurface === 'shelf' && !shelfFallback && Boolean(resolvedCurrentYearMonth)
 
   return (
     <>
+      {activeSurface === 'shelf' && shelfFallback}
       {showShelf ? (
         <ShelfHost
           referenceCurrentYearMonth={resolvedCurrentYearMonth ?? ''}
@@ -437,10 +444,10 @@ export function LibraryShelfHost({
           onOpenMonth={handleOpenFromLibrary}
           onExit={libraryOnExit}
           exitLabel={libraryExitLabel}
-          shelfEntries={activeShelfState.months}
+          shelfEntries={shelfFallback ? undefined : activeShelfState.months}
           selectedMonthYearMonth={selectedMonthYearMonth}
-          onSelectForShelf={handleSelectForShelfFromLibrary}
-          onViewShelf={handleViewShelfFromLibrary}
+          onSelectForShelf={shelfFallback ? undefined : handleSelectForShelfFromLibrary}
+          onViewShelf={shelfFallback ? undefined : handleViewShelfFromLibrary}
           shelfMaxCapacity={MAX_SHELF_CAPACITY}
           shelfAnnouncement={libraryAnnouncement}
           preservedState={libraryState}
@@ -449,7 +456,7 @@ export function LibraryShelfHost({
       </div>
 
       <ShelfReplaceDialog
-        isOpen={showLibrary && pendingReplace !== null}
+        isOpen={showLibrary && !shelfFallback && pendingReplace !== null}
         incomingYearMonth={pendingReplace?.yearMonth ?? null}
         incomingTitle={pendingReplaceTitle}
         currentEntries={pendingReplace?.entries ?? []}

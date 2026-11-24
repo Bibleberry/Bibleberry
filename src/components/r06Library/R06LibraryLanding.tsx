@@ -22,6 +22,8 @@ export interface R06LibraryLandingProps extends LibraryShelfHostProps {
    * entrance. Supplied by the outer R06 shell so Foundations opens its overview first.
    */
   readonly onOpenFoundations: () => void
+  /** The shell owns Back and focus restoration when mounted in its route stack. */
+  readonly shellOwnsNavigation?: boolean
 }
 
 function focusVisibleSurfaceHeading(container: HTMLElement): boolean {
@@ -75,6 +77,8 @@ export function R06LibraryLanding({
   onSurfaceChange,
   onOpenMonth,
   onOpenFoundations,
+  shelfFallback,
+  shellOwnsNavigation = false,
   onExit,
   exitLabel,
 }: R06LibraryLandingProps) {
@@ -155,18 +159,18 @@ export function R06LibraryLanding({
     if (!container) {
       return
     }
-    focusVisibleSurfaceHeading(container)
-  }, [activeSurface])
+    if (!shellOwnsNavigation) focusVisibleSurfaceHeading(container)
+  }, [activeSurface, shellOwnsNavigation])
 
   const hostBackAction = useMemo(
     () =>
       resolveR06LibraryHostBackAction({
         activeSurface,
-        returnSurface,
+        returnSurface: shellOwnsNavigation ? null : returnSurface,
         hasOuterExit: Boolean(onExit),
         exitLabel,
       }),
-    [activeSurface, exitLabel, onExit, returnSurface],
+    [activeSurface, exitLabel, onExit, returnSurface, shellOwnsNavigation],
   )
 
   const handleHostExit = useCallback(() => {
@@ -201,7 +205,7 @@ export function R06LibraryLanding({
       ref={containerRef}
       className="r06-library-landing"
       data-r06-library-surface={activeSurface}
-      data-r06-shelf-count={viewModel.shelfCount}
+      data-r06-shelf-count={shelfFallback ? undefined : viewModel.shelfCount}
     >
       <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
         {surfaceAnnouncement}
@@ -223,6 +227,8 @@ export function R06LibraryLanding({
         onOpenMonth={onOpenMonth}
         onExit={hostOnExit}
         exitLabel={hostBackAction.label}
+        shellOwnsNavigation={shellOwnsNavigation}
+        shelfFallback={shelfFallback}
       />
 
       <section
@@ -246,6 +252,8 @@ export function R06LibraryLanding({
                 type="button"
                 className="r06-library-entrance-btn"
                 data-testid={`r06-library-entrance-${entrance.id}`}
+                aria-labelledby={`${entrancesHeadingId}-${entrance.id}-label`}
+                aria-describedby={`${entrancesHeadingId}-${entrance.id}-description`}
                 onClick={() => handleEntranceAction(entrance.action)}
               >
                 <span className="r06-library-entrance-btn__icon" aria-hidden="true">
@@ -258,8 +266,14 @@ export function R06LibraryLanding({
                   )}
                 </span>
                 <span className="r06-library-entrance-btn__body">
-                  <span className="r06-library-entrance-btn__label">{entrance.label}</span>
-                  <span className="r06-library-entrance-btn__desc">{entrance.description}</span>
+                  <span id={`${entrancesHeadingId}-${entrance.id}-label`} className="r06-library-entrance-btn__label">
+                    {entrance.label}
+                  </span>
+                  <span id={`${entrancesHeadingId}-${entrance.id}-description`} className="r06-library-entrance-btn__desc">
+                    {shelfFallback && entrance.id === 'shelf-overview'
+                      ? 'Return to the Shelf overview.'
+                      : entrance.description}
+                  </span>
                 </span>
                 <ChevronRight
                   size={18}
