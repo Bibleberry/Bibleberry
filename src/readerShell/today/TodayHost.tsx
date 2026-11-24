@@ -430,6 +430,12 @@ export function TodayHost({
         </div>
       )}
 
+      {onOpenNews && (
+        <div className="r06-actions">
+          <button type="button" className="button button--secondary" onClick={onOpenNews}>Ministry News</button>
+        </div>
+      )}
+
       {currentMonthLink && context && (
         <section
           className="r06-today__current-month"
@@ -451,9 +457,6 @@ export function TodayHost({
             <ArrowRight size={16} aria-hidden="true" />
           </button>
         </section>
-      )}
-      {onOpenNews && (
-        <button type="button" className="button button--secondary" onClick={onOpenNews}>Ministry News</button>
       )}
     </div>
   )
