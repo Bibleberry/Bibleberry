@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Bookmark, BookOpen, ChevronRight, Library } from 'lucide-react'
 import {
   LibraryShelfHost,
@@ -22,8 +22,6 @@ export interface R06LibraryLandingProps extends LibraryShelfHostProps {
    * entrance. Supplied by the outer R06 shell so Foundations opens its overview first.
    */
   readonly onOpenFoundations: () => void
-  /** Loading or read-only fallback supplied by the durable host. */
-  readonly unavailableSurface?: ReactNode
   /** The shell owns Back and focus restoration when mounted in its route stack. */
   readonly shellOwnsNavigation?: boolean
 }
@@ -79,7 +77,7 @@ export function R06LibraryLanding({
   onSurfaceChange,
   onOpenMonth,
   onOpenFoundations,
-  unavailableSurface,
+  shelfFallback,
   shellOwnsNavigation = false,
   onExit,
   exitLabel,
@@ -207,32 +205,31 @@ export function R06LibraryLanding({
       ref={containerRef}
       className="r06-library-landing"
       data-r06-library-surface={activeSurface}
-      data-r06-shelf-count={unavailableSurface ? undefined : viewModel.shelfCount}
+      data-r06-shelf-count={shelfFallback ? undefined : viewModel.shelfCount}
     >
       <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
         {surfaceAnnouncement}
       </div>
 
-      {unavailableSurface ?? (
-        <LibraryShelfHost
-          referenceCurrentYearMonth={referenceCurrentYearMonth}
-          shelfState={shelfState}
-          initialShelfState={initialShelfState}
-          onShelfStateChange={shelfState === undefined ? handleShelfStateChange : onShelfStateChange}
-          currentLocalDate={currentLocalDate}
-          libraryProvider={libraryProvider}
-          libraryPageSize={libraryPageSize}
-          timeZone={timeZone}
-          monthMetadata={monthMetadata}
-          surface={activeSurface}
-          initialSurface={mountedInitialSurface}
-          onSurfaceChange={handleSurfaceChange}
-          onOpenMonth={onOpenMonth}
-          onExit={hostOnExit}
-          exitLabel={hostBackAction.label}
-          shellOwnsNavigation={shellOwnsNavigation}
-        />
-      )}
+      <LibraryShelfHost
+        referenceCurrentYearMonth={referenceCurrentYearMonth}
+        shelfState={shelfState}
+        initialShelfState={initialShelfState}
+        onShelfStateChange={shelfState === undefined ? handleShelfStateChange : onShelfStateChange}
+        currentLocalDate={currentLocalDate}
+        libraryProvider={libraryProvider}
+        libraryPageSize={libraryPageSize}
+        timeZone={timeZone}
+        monthMetadata={monthMetadata}
+        surface={activeSurface}
+        initialSurface={mountedInitialSurface}
+        onSurfaceChange={handleSurfaceChange}
+        onOpenMonth={onOpenMonth}
+        onExit={hostOnExit}
+        exitLabel={hostBackAction.label}
+        shellOwnsNavigation={shellOwnsNavigation}
+        shelfFallback={shelfFallback}
+      />
 
       <section
         className="r06-library-entrances"
@@ -273,7 +270,7 @@ export function R06LibraryLanding({
                     {entrance.label}
                   </span>
                   <span id={`${entrancesHeadingId}-${entrance.id}-description`} className="r06-library-entrance-btn__desc">
-                    {unavailableSurface && entrance.id === 'shelf-overview'
+                    {shelfFallback && entrance.id === 'shelf-overview'
                       ? 'Return to the Shelf overview.'
                       : entrance.description}
                   </span>

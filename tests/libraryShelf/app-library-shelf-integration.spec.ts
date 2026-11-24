@@ -824,7 +824,27 @@ test.describe('Marble Harbor (#312): flag-on R06 Library and durable Shelf', () 
     })
   }
 
-  test('keeps catalogue and Foundations available during asynchronous Shelf hydration', async ({ page }) => {
+  test('preserves active catalogue pages, focus and scroll when Shelf hydration completes', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 580 })
+    const catalogueCursors: Array<string | null> = []
+    await page.route('**/api/library/months**', route => {
+      const cursor = new URL(route.request().url()).searchParams.get('cursor')
+      catalogueCursors.push(cursor)
+      const items = cursor === '2026-08' ? LIBRARY_ITEMS.slice(3)
+        : cursor === '2026-09' ? LIBRARY_ITEMS.slice(2, 3) : LIBRARY_ITEMS.slice(0, 2)
+      return route.fulfill({
+        json: {
+          ok: true,
+          serverContext: { authorizedLocalDate: '2026-11-15', effectiveTimeZone: 'America/New_York' },
+          items,
+          page: {
+            limit: 12,
+            hasMore: cursor !== '2026-08',
+            nextCursor: cursor === '2026-08' ? null : items.at(-1)!.yearMonth,
+          },
+        },
+      })
+    })
     await page.addInitScript(({ key, raw }) => {
       const shelfLoad = new Promise(resolve => {
         Object.assign(window, { finishShelfHydration: () => resolve({ value: raw }) })
@@ -850,9 +870,49 @@ test.describe('Marble Harbor (#312): flag-on R06 Library and durable Shelf', () 
     await entrance(page, 'browse-all-months').click()
     await expect(page.getByRole('button', { name: 'Open October 2026' })).toBeEnabled()
     await expect(page.getByRole('button', { name: /Add .* to Shelf/ })).toHaveCount(0)
+    const loadMore = page.getByRole('button', { name: 'Load more past months' })
+    await loadMore.click()
+    const august = page.getByRole('button', { name: 'Open August 2026' })
+    await august.scrollIntoViewIfNeeded()
+    await august.focus()
+    const scrollTop = () => page.locator('.r06-viewport').evaluate(element => element.scrollTop)
+    const browsingScroll = await scrollTop()
+    expect(browsingScroll).toBeGreaterThan(0)
+    expect(catalogueCursors.at(-1)).toBe('2026-09')
+    const requestsBeforeHydration = [...catalogueCursors]
+
     await page.evaluate(() => (window as unknown as { finishShelfHydration: () => void }).finishShelfHydration())
+    await expect(page.getByRole('button', { name: 'Add August 2026 to Shelf' })).toBeEnabled()
+    await expect(page.getByRole('list', { name: 'Historical Months' }).getByRole('listitem')).toHaveCount(3)
+    await expect(august).toBeFocused()
+    await expect.poll(scrollTop).toBe(browsingScroll)
+    expect(catalogueCursors).toEqual(requestsBeforeHydration)
+
+    await loadMore.click()
+    await expect(page.getByRole('button', { name: 'Open July 2026' })).toBeVisible()
+    expect(catalogueCursors).toEqual([...requestsBeforeHydration, '2026-08'])
+
     await entrance(page, 'shelf-overview').click()
     await expect(page.getByRole('main', { name: 'Shelf', exact: true }).locator('.shelf-card')).toHaveCount(1)
+  })
+
+  test('keeps the active catalogue when unreadable Shelf storage becomes valid', async ({ page }) => {
+    await openShelf(page, '{malformed-json')
+    await entrance(page, 'browse-all-months').click()
+    await expect(page.getByText(/Shelf actions are paused/)).toBeVisible()
+    const july = page.getByRole('button', { name: 'Open July 2026' })
+    await july.focus()
+
+    const raw = shelfRecord(1)
+    await page.evaluate(({ key, raw }) => {
+      localStorage.setItem(key, raw)
+      window.dispatchEvent(new StorageEvent('storage', { key, newValue: raw, storageArea: localStorage }))
+    }, { key: SHELF_STORAGE_KEY, raw })
+
+    await expect(page.getByRole('button', { name: 'Add July 2026 to Shelf' })).toBeEnabled()
+    await expect(july).toBeFocused()
+    await expect(page.getByText(/Shelf actions are paused/)).toHaveCount(0)
+    expect(await savedShelf(page)).toBe(raw)
   })
 
   test('warns when a Shelf write fails and the previous durable state survives reload', async ({ page }) => {
