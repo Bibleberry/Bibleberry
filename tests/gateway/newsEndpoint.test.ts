@@ -169,10 +169,15 @@ test('GET /api/news serves reviewed general articles and monthlyPreview strictly
       { getNow: () => new Date('2098-02-26T18:00:00Z'), fetchImpl: mockFetch },
     )
     assert.equal(res.status, 200)
-    const body = (await res.json()) as { articles: Array<{ documentId: string }> }
+    assert.equal(res.headers.get('Cache-Control'), 'no-store')
+    assert.equal(res.headers.get('ETag'), null)
+    assert.equal(res.headers.get('Last-Modified'), null)
+    const text = await res.text()
+    assert.doesNotMatch(text, /SECRET_|news-preview-2098-03|INTERNAL_NEWS_NOTE_DO_NOT_LEAK/)
+    const body = JSON.parse(text) as { articles: Array<{ documentId: string }> }
     assert.deepEqual(
       body.articles.map(a => a.documentId),
-      ['news-ministry-update-1', 'news-announcement-1'],
+      ['news-announcement-1', 'news-ministry-update-1'],
     )
   }
 
