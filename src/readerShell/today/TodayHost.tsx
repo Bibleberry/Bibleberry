@@ -35,6 +35,8 @@ import {
   type TodayMonthSource,
 } from './primaryActionModel.ts'
 import { loadAuthorizedTodayMonth } from './todayMonthLoader.ts'
+import type { TodayRolloverContext } from './todayShelfRollover.ts'
+import { useTodayShelfRollover } from './useTodayShelfRollover.ts'
 
 export interface TodayHostProps {
   readonly onOpenChallenge: (intent: OpenChallengeIntent) => void
@@ -48,9 +50,12 @@ export interface TodayHostProps {
   readonly getNow?: () => Date
 }
 
+const LOADING_TODAY_MONTH: TodayMonthSource = { status: 'loading' }
+
 interface FetchedTodayMonthData {
   readonly key: string
   readonly result: MonthDetailResult
+  readonly unpublishedMonthDate?: TodayRolloverContext
 }
 
 interface FetchedHubContinueGatewayData {
@@ -133,6 +138,7 @@ export function TodayHost({
   useEffect(() => {
     const controller = new AbortController()
     const requestId = ++requestIdRef.current
+    let unpublishedMonthDate: TodayRolloverContext | undefined
 
     void loadAuthorizedTodayMonth({
       monthProvider,
@@ -140,10 +146,11 @@ export function TodayHost({
       timeZone: effectiveTimeZone,
       bootstrapYearMonth,
       getNow,
+      onUnpublishedMonthDate: date => { unpublishedMonthDate = date },
     })
       .then(result => {
         if (controller.signal.aborted || requestId !== requestIdRef.current) return
-        setFetchedMonth({ key: monthLoadKey, result })
+        setFetchedMonth({ key: monthLoadKey, result, unpublishedMonthDate })
       })
       .catch((err: unknown) => {
         if (
@@ -169,8 +176,8 @@ export function TodayHost({
     }
   }, [monthProvider, effectiveTimeZone, bootstrapYearMonth, getNow, monthLoadKey])
 
-  const currentMonth: TodayMonthSource =
-    fetchedMonth?.key === monthLoadKey ? fetchedMonth.result : { status: 'loading' }
+  const authorizedLoad = fetchedMonth?.key === monthLoadKey ? fetchedMonth : null
+  const currentMonth = authorizedLoad?.result ?? LOADING_TODAY_MONTH
 
   const focusMonth = resolveHubContinueFocusMonth(participationSnapshot, shelfSnapshot)
   const continueLoadKey = focusMonth ? `${focusMonth}:${effectiveTimeZone}:${reloadNonce}` : ''
@@ -249,6 +256,15 @@ export function TodayHost({
   )
 
   const { context, primary, currentMonthLink, secondary } = model
+  useTodayShelfRollover(
+    context ?? authorizedLoad?.unpublishedMonthDate ?? null,
+    participationSnapshot,
+    shelfSnapshot,
+    participationStore,
+    shelfStore,
+    monthProvider,
+  )
+
   const monthHeading = context ? formatYearMonthHeading(context.yearMonth) : null
   const participationUnavailable =
     primary.status === 'loading' &&

@@ -283,13 +283,19 @@ export function reduceShelfCommand(
         && endingYm
         && isHistoricalPublicationYearMonth(endingYm, newCurrentYm)
         && payload.rolloverWatermark
-        && payload.rolloverWatermark.lastNewCurrentYearMonth === newCurrentYm
-        && payload.rolloverWatermark.lastEndingYearMonth === endingYm
+        && (
+          newCurrentYm < payload.rolloverWatermark.lastNewCurrentYearMonth
+          || (
+            newCurrentYm === payload.rolloverWatermark.lastNewCurrentYearMonth
+            && endingYm === payload.rolloverWatermark.lastEndingYearMonth
+          )
+        )
       ) {
         const isStillOnShelf = payload.state.months.some(m => m.yearMonth === endingYm)
-        const disposition: RolloverDisposition = isStillOnShelf
-          ? 'alreadyOnShelf'
-          : payload.rolloverWatermark.lastDisposition
+        const isOlder = newCurrentYm < payload.rolloverWatermark.lastNewCurrentYearMonth
+        const disposition: RolloverDisposition = isOlder
+          ? 'ignoredOlderTransition'
+          : isStillOnShelf ? 'alreadyOnShelf' : payload.rolloverWatermark.lastDisposition
         const idempotentResult: RolloverResult = {
           ok: true,
           state: payload.state,
@@ -301,7 +307,9 @@ export function reduceShelfCommand(
             endingYearMonth: endingYm,
             extension: command.params.resumeExtension,
           }),
-          message: `Rollover for ${endingYm} -> ${newCurrentYm} was already evaluated (idempotent watermark).`,
+          message: isOlder
+            ? 'A newer rollover has already been evaluated.'
+            : `Rollover for ${endingYm} -> ${newCurrentYm} was already evaluated (idempotent watermark).`,
         }
         return { payload, changed: false, rolloverResult: idempotentResult }
       }

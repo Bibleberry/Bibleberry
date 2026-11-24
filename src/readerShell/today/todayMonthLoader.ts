@@ -7,6 +7,7 @@ import {
 import { formatCivilYearMonthFromDate } from '../../components/month/monthScreenModel.ts'
 import { parseLocalCalendarDate, parsePublicationYearMonth } from '../../participation/identity.ts'
 import type { PublicationYearMonth } from '../../participation/types.ts'
+import type { TodayRolloverContext } from './todayShelfRollover.ts'
 
 /**
  * Opal Lantern (Issue #307): Bounded, fail-closed current-Month bootstrap and recovery
@@ -36,13 +37,15 @@ export interface LoadAuthorizedTodayMonthOptions {
   readonly timeZone?: string
   readonly bootstrapYearMonth?: string
   readonly getNow?: () => Date
+  /** A gateway-confirmed date for rollover when the current publication is absent. */
+  readonly onUnpublishedMonthDate?: (context: TodayRolloverContext) => void
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function extractAuthorizedYearMonth(serverContext: unknown): PublicationYearMonth | null {
+function extractAuthorizedDateContext(serverContext: unknown): TodayRolloverContext | null {
   if (!isPlainObject(serverContext)) return null
   const authorizedLocalDate = parseLocalCalendarDate(serverContext.authorizedLocalDate)
   const effectiveTimeZone =
@@ -50,7 +53,8 @@ function extractAuthorizedYearMonth(serverContext: unknown): PublicationYearMont
       ? serverContext.effectiveTimeZone.trim()
       : ''
   if (!authorizedLocalDate || !effectiveTimeZone) return null
-  return parsePublicationYearMonth(authorizedLocalDate.slice(0, 7))
+  const yearMonth = parsePublicationYearMonth(authorizedLocalDate.slice(0, 7))
+  return yearMonth ? { yearMonth, authorizedLocalDate, effectiveTimeZone } : null
 }
 
 function isAbortError(err: unknown): boolean {
@@ -98,7 +102,7 @@ function isAuthoritativeReadyMonthFor(
 ): boolean {
   if (result.status !== 'ready' || result.source !== 'gateway') return false
   if (!isPlainObject(result.month) || !isPlainObject(result.serverContext)) return false
-  const authoritativeYearMonth = extractAuthorizedYearMonth(result.serverContext)
+  const authoritativeYearMonth = extractAuthorizedDateContext(result.serverContext)?.yearMonth
   if (!authoritativeYearMonth || authoritativeYearMonth !== expectedYearMonth) return false
   const monthId = parsePublicationYearMonth(result.month.monthId)
   if (!monthId || monthId !== expectedYearMonth) return false
@@ -143,8 +147,8 @@ export async function loadAuthorizedTodayMonth(
   }
 
   if (initialResult.status === 'ready') {
-    const authoritativeYearMonth = extractAuthorizedYearMonth(initialResult.serverContext)
-    if (!authoritativeYearMonth) {
+    const initialContext = extractAuthorizedDateContext(initialResult.serverContext)
+    if (!initialContext) {
       return unauthorizedMonthResult(bootstrapYearMonth)
     }
 
@@ -155,6 +159,7 @@ export async function loadAuthorizedTodayMonth(
       return unauthorizedMonthResult(bootstrapYearMonth)
     }
 
+    const { yearMonth: authoritativeYearMonth } = initialContext
     if (authoritativeYearMonth === bootstrapYearMonth) {
       return initialResult
     }
@@ -180,11 +185,11 @@ export async function loadAuthorizedTodayMonth(
       return unauthorizedMonthResult(authoritativeYearMonth)
     }
 
-    if (
-      retryResult.status === 'notFound' ||
-      retryResult.status === 'requestError' ||
-      retryResult.status === 'validationError'
-    ) {
+    if (retryResult.status === 'notFound') {
+      options.onUnpublishedMonthDate?.(initialContext)
+      return retryResult
+    }
+    if (retryResult.status === 'requestError' || retryResult.status === 'validationError') {
       return retryResult
     }
 
@@ -225,12 +230,14 @@ export async function loadAuthorizedTodayMonth(
       return initialResult
     }
 
-    const authoritativeYearMonth = extractAuthorizedYearMonth(newsResult.serverContext)
-    if (!authoritativeYearMonth) {
+    const newsContext = extractAuthorizedDateContext(newsResult.serverContext)
+    if (!newsContext) {
       return unauthorizedMonthResult(bootstrapYearMonth)
     }
 
+    const { yearMonth: authoritativeYearMonth } = newsContext
     if (authoritativeYearMonth === bootstrapYearMonth) {
+      options.onUnpublishedMonthDate?.(newsContext)
       // Genuine unpublished Month: News reports the same unavailable YYYY-MM -> leave unavailable, no retry loop.
       return initialResult
     }
@@ -256,11 +263,11 @@ export async function loadAuthorizedTodayMonth(
       return unauthorizedMonthResult(authoritativeYearMonth)
     }
 
-    if (
-      retryResult.status === 'notFound' ||
-      retryResult.status === 'requestError' ||
-      retryResult.status === 'validationError'
-    ) {
+    if (retryResult.status === 'notFound') {
+      options.onUnpublishedMonthDate?.(newsContext)
+      return retryResult
+    }
+    if (retryResult.status === 'requestError' || retryResult.status === 'validationError') {
       return retryResult
     }
 

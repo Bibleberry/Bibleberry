@@ -1368,3 +1368,167 @@ test('fails closed on withdrawn and unauthorized Today or Month Challenges witho
   expect(stored?.completedChallenges ?? {}).toEqual({})
   expect(stored?.earnedAwards ?? {}).toEqual({})
 })
+
+async function seedRolloverProgress(page: Page, completed: boolean) {
+  await page.addInitScript(({ key, id, completed }) => {
+    if (localStorage.getItem(key)) return
+    localStorage.setItem(key, JSON.stringify({
+      schemaVersion: 2,
+      data: {
+        // Completion date belongs to a different month. Publication slot identity controls admission.
+        completedChallenges: completed ? { [`cms:${id}`]: { completedOn: '2026-11-01' } } : {},
+        inProgressChallenges: {
+          'cms:unfinished-october': { updatedOn: '2026-10-31', screenId: 'step-2' },
+        },
+        savedChallenges: {},
+        savedScriptures: [],
+        lastOpenedChallenge: null,
+        earnedAwards: {},
+      },
+    }))
+  }, { key: participationKey, id: documentId, completed })
+}
+
+async function storedRolloverShelf(page: Page) {
+  return page.evaluate(key => JSON.parse(localStorage.getItem(key) ?? 'null'), shelfKey)
+}
+
+test('J4 G03 admits the ended month on gateway time and preserves a subsequent Put Away across visits', async ({ page }) => {
+  await mockGateway(page)
+  await seedRolloverProgress(page, true)
+  await page.clock.setFixedTime(new Date('2026-10-31T12:00:00Z'))
+  await page.goto(readerUrl())
+  await expect(page.getByTestId('r06-today-authorized-date')).toHaveText(serverContext.authorizedLocalDate)
+  await expect(page.getByTestId('today-continue-study')).toHaveCount(0)
+  await expect.poll(() => storedRolloverShelf(page)).toMatchObject({
+    state: {
+      activeFocusMonth: null,
+      months: [{ yearMonth: monthId, admissionKind: 'autoAdmitted', isProtected: false }],
+    },
+    rolloverWatermark: {
+      lastEndingYearMonth: monthId,
+      lastNewCurrentYearMonth: currentMonthId,
+      lastDisposition: 'admittedToOpenSlot',
+    },
+  })
+
+  const progressBefore = await participation(page)
+  await selectTab(page, 'Library')
+  await expect(page.getByRole('heading', { name: 'Shelf', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: /put away October 2026 from Shelf/i }).click()
+  await expect.poll(() => storedRolloverShelf(page)).toMatchObject({ state: { months: [] } })
+  await page.reload()
+  await selectTab(page, 'Today')
+  await expect(page.getByTestId('r06-today-authorized-date')).toBeVisible()
+  await selectTab(page, 'More')
+  await selectTab(page, 'Today')
+  await expect(page.getByTestId('r06-today-authorized-date')).toBeVisible()
+  expect((await storedRolloverShelf(page)).state.months).toEqual([])
+  expect(await participation(page)).toEqual(progressBefore)
+})
+
+for (const allProtected of [false, true]) {
+  test(`J4 G03 ${allProtected ? 'retains an entirely protected Shelf' : 'replaces only the eligible auto-admitted month'}`, async ({ page }) => {
+    await mockGateway(page)
+    await seedRolloverProgress(page, true)
+    await page.addInitScript(({ key, allProtected }) => {
+      localStorage.setItem(key, JSON.stringify({
+        schemaVersion: 1,
+        state: {
+          activeFocusMonth: '2026-07',
+          months: [
+            { yearMonth: '2026-07', admissionKind: 'autoAdmitted', isProtected: false },
+            { yearMonth: '2026-08', admissionKind: 'readerSelected', isProtected: true },
+            { yearMonth: '2026-09', admissionKind: 'autoAdmitted', isProtected: allProtected },
+          ],
+        },
+      }))
+    }, { key: shelfKey, allProtected })
+    await page.goto(readerUrl())
+    await expect.poll(() => storedRolloverShelf(page)).toMatchObject({
+      state: {
+        activeFocusMonth: '2026-07',
+        months: [
+          { yearMonth: '2026-07', admissionKind: 'autoAdmitted', isProtected: false },
+          { yearMonth: '2026-08', admissionKind: 'readerSelected', isProtected: true },
+          { yearMonth: allProtected ? '2026-09' : monthId, isProtected: allProtected },
+        ],
+      },
+      rolloverWatermark: {
+        lastDisposition: allProtected ? 'retainedInLibraryAllProtected' : 'replacedOldestAutoAdmitted',
+      },
+    })
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+  })
+}
+
+test('J4 G03 retries a qualifying Shelf admission on the next Today visit without interrupting reading', async ({ page }) => {
+  await mockGateway(page)
+  await seedRolloverProgress(page, true)
+  await page.addInitScript(key => {
+    const setItem = Storage.prototype.setItem
+    Storage.prototype.setItem = function (name, value) {
+      if (name === key && !sessionStorage.getItem('rollover-write-failed')) {
+        sessionStorage.setItem('rollover-write-failed', 'yes')
+        throw new DOMException('Test Shelf quota failure', 'QuotaExceededError')
+      }
+      return setItem.call(this, name, value)
+    }
+  }, shelfKey)
+  await page.goto(readerUrl())
+  await expect(page.getByTestId('today-primary-cta')).toBeVisible()
+  await expect.poll(() => page.evaluate(() => sessionStorage.getItem('rollover-write-failed'))).toBe('yes')
+  expect(await storedRolloverShelf(page)).toBeNull()
+  const before = await participation(page)
+  await selectTab(page, 'More')
+  await selectTab(page, 'Today')
+  await expect.poll(() => storedRolloverShelf(page)).toMatchObject({
+    state: { months: [{ yearMonth: monthId }], activeFocusMonth: null },
+    rolloverWatermark: { lastDisposition: 'admittedToOpenSlot' },
+  })
+  await page.reload()
+  await expect(page.getByTestId('today-primary-cta')).toBeVisible()
+  await expect(page.getByTestId('today-continue-study')).toHaveCount(0)
+  expect((await storedRolloverShelf(page)).state.months).toHaveLength(1)
+  expect(await participation(page)).toEqual(before)
+})
+
+test('J4 G03 preserves unfinished prior-month progress without auto-admission or a G02 suggestion', async ({ page }) => {
+  await mockGateway(page)
+  await seedRolloverProgress(page, false)
+  await page.goto(readerUrl())
+  await expect.poll(() => storedRolloverShelf(page)).toMatchObject({
+    state: { months: [], activeFocusMonth: null },
+    rolloverWatermark: { lastDisposition: 'retainedInLibraryNoCompletions' },
+  })
+  await expect(page.getByTestId('today-continue-study')).toHaveCount(0)
+  expect((await participation(page)).inProgressChallenges['cms:unfinished-october']).toEqual({
+    updatedOn: '2026-10-31',
+    screenId: 'step-2',
+  })
+})
+
+test('J4 G03 uses the confirmed gateway date when the current publication is absent', async ({ page }) => {
+  await mockGateway(page)
+  await seedRolloverProgress(page, true)
+  await page.route(`**/api/months/${currentMonthId}`, route => route.fulfill({
+    status: 404,
+    json: { ok: false },
+  }))
+  await page.goto(readerUrl())
+  await expect(page.getByRole('heading', { name: 'Today’s teaching is unavailable' })).toBeVisible()
+  await expect(page.getByTestId('today-current-month-link')).toHaveCount(0)
+  await expect.poll(() => storedRolloverShelf(page)).toMatchObject({
+    state: { months: [{ yearMonth: monthId }], activeFocusMonth: null },
+    rolloverWatermark: { lastNewCurrentYearMonth: currentMonthId },
+  })
+})
+
+test('J4 G03 leaves corrupt Shelf data intact while Today remains readable', async ({ page }) => {
+  await mockGateway(page)
+  await seedRolloverProgress(page, true)
+  await page.addInitScript(key => localStorage.setItem(key, '{unreadable-shelf'), shelfKey)
+  await page.goto(readerUrl())
+  await expect(page.getByTestId('today-primary-cta')).toBeVisible()
+  expect(await page.evaluate(key => localStorage.getItem(key), shelfKey)).toBe('{unreadable-shelf')
+})
