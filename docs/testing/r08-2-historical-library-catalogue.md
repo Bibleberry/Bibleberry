@@ -80,7 +80,7 @@ perspective, historical date, review, finalized roster and withdrawal checks
 precede matching. Only the projected English month/year and published Month title
 (the ministry-authored theme) participate. Search filters each authorized browse
 window, so cursor boundaries and upstream work are independent of the text typed.
-A sparse result can continue even when it contains zero matches. Only a terminal
+A bounded scan that ends on rejected candidates continues from a returned authorized month or a request-derived civil-calendar boundary. A sparse result can continue even when it contains zero matches. Only a terminal
 page ends the search. Changing the query restarts at the newest window.
 
 The reader keeps query, year expansion and requested depth in memory. Returning

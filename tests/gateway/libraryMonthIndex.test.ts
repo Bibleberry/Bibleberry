@@ -1319,3 +1319,23 @@ test('month/theme search filters authorized windows without changing their curso
   assert.equal(last.page.hasMore, false)
   assert.equal((await page('q=octo')).items[0].yearMonth, '2026-10')
 })
+
+test('sparse search continuation does not disclose the last rejected publication date', async () => {
+  const docs = Array.from({ length: 20 }, (_, i) =>
+    makeMonthlyPublicationDoc(`${2025 - i}-03`, {
+      editorialReview: { reviewerRole: 'technical_synthetic' }, title: 'Private theme',
+    }))
+  const fetchImpl = createMockFetch(url => {
+    const upper = JSON.parse(url.searchParams.get('$upperBoundYearMonth')!)
+    const limit = JSON.parse(url.searchParams.get('$fetchLimit')!)
+    return Response.json({ result: docs.filter(doc => doc.yearMonth < upper).slice(0, limit) })
+  })
+  const response = await handleGatewayRequest(
+    new Request('http://localhost/api/library/months?limit=2&q=priv'), TEST_ENV,
+    { getNow: () => new Date('2026-12-10T12:00:00Z'), fetchImpl },
+  )
+  assert.equal(response.status, 200)
+  const payload = await response.json()
+  assert.deepEqual(payload.items, [])
+  assert.deepEqual(payload.page, { limit: 2, hasMore: true, nextCursor: '2025-04' })
+})

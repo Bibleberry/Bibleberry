@@ -925,6 +925,16 @@ function parseLibraryMonthsQueryParams(
   return { ok: true, limit, cursor, query: terms[0]?.trim() ?? '' }
 }
 
+// A bounded scan can end on a rejected document. Its private publication key
+// must not become the public cursor. Step through the inspected calendar range
+// using a boundary derived from the request, even when the catalogue has gaps.
+function calendarMonthsBefore(upperBound: string, months: number): string {
+  const ordinal = Math.max(0, Number(upperBound.slice(0, 4)) * 12 + Number(upperBound.slice(5)) - 1 - months)
+  const year = String(Math.floor(ordinal / 12)).padStart(4, '0')
+  const month = String(ordinal % 12 + 1).padStart(2, '0')
+  return `${year}-${month}`
+}
+
 async function handleLibraryMonthsRequest(
   request: Request,
   url: URL,
@@ -1072,7 +1082,11 @@ async function handleLibraryMonthsRequest(
       )
     }
     hasMore = true
-    nextCursor = scanUpperBound
+    const boundary = calendarMonthsBefore(upperBoundYearMonth, batchSize * MAX_LIBRARY_SCAN_ROUNDS)
+    // Malformed candidates can consume scan slots within a single month.
+    // The preceding civil month is always safe once a canonical older key was scanned.
+    const inspectedBoundary = boundary >= scanUpperBound ? boundary : calendarMonthsBefore(upperBoundYearMonth, 1)
+    nextCursor = items.at(-1)?.yearMonth ?? inspectedBoundary
   }
 
   return jsonResponse(
