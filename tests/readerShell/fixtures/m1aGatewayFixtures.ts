@@ -243,27 +243,28 @@ export const currentMonthMultiScreenChallenge = buildChallengeFixture({
   screenCount: 3,
 })
 
-export function buildEmbargoedChallengeFixture(overrides?: {
+export function buildUnauthorizedChallengeFixture(overrides?: {
   readonly slug?: string
   readonly documentId?: string
   readonly dayOfMonth?: number
 }) {
-  const dayOfMonth = overrides?.dayOfMonth ?? unreleasedFutureDay
+  const dayOfMonth = overrides?.dayOfMonth ?? currentMonthMultiScreenDay
   return buildChallengeFixture({
     yearMonth: currentMonthId,
     dayOfMonth,
-    documentId: overrides?.documentId ?? unreleasedFutureDocumentId,
-    slug: overrides?.slug ?? unreleasedFutureSlug,
-    title: `Upcoming November Challenge ${dayOfMonth}`,
+    documentId: overrides?.documentId ?? currentMonthMultiScreenDocumentId,
+    slug: overrides?.slug ?? currentMonthMultiScreenSlug,
+    title: `November Challenge ${dayOfMonth}`,
     seriesId: 'november-series',
     seriesTitle: 'November series',
     scriptureReference: 'Psalm 23:1',
-    releaseAt: '2099-01-01T00:00:00Z',
+    releaseAt: '2026-11-14T00:00:00Z',
     reviewedAt: '2026-11-01T12:00:00Z',
-    screenKeyPrefix: 'embargo-step',
-    screenHeadingPrefix: 'Embargoed screen',
+    screenKeyPrefix: 'unreviewed-step',
+    screenHeadingPrefix: 'Unreviewed screen',
     bodyText: RESTRICTED_MANUSCRIPT_SENTINEL,
     screenCount: 2,
+    adaptationReviewed: false,
   })
 }
 

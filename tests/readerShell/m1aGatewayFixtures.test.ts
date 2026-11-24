@@ -15,10 +15,10 @@ import {
   buildCurrentMonthProgressPayload,
   buildDefaultCurrentMonthPayload,
   buildDefaultHistoricalMonthPayload,
-  buildEmbargoedChallengeFixture,
   buildHistoricalMonthProgressPayload,
   buildLibraryMonthsPayload,
   buildNewsPayload,
+  buildUnauthorizedChallengeFixture,
   challenge,
   currentFullMonthAwardId,
   currentMonthId,
@@ -181,8 +181,8 @@ describe('Clover Compass — M1a synthetic gateway fixture schema & trust-bounda
     const catalogLoaded = await catalogProvider.loadReleasedCatalog()
     assert.equal(catalogLoaded.status, 'ready')
 
-    const embargoed = buildEmbargoedChallengeFixture()
-    assert.equal(embargoed.releaseAt, '2099-01-01T00:00:00Z')
-    assert.equal(embargoed.screens[0]?.blocks[0]?.text, RESTRICTED_MANUSCRIPT_SENTINEL)
+    const unauthorized = buildUnauthorizedChallengeFixture()
+    assert.equal(unauthorized.editorialEligibility.adaptationReviewed, false)
+    assert.equal(unauthorized.screens[0]?.blocks[0]?.text, RESTRICTED_MANUSCRIPT_SENTINEL)
   })
 })
