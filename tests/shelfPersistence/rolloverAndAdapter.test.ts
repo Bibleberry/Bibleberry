@@ -219,3 +219,28 @@ test('buildShelfHostPropsFromGuestStore bridges GuestShelfStore to ShelfHostProp
   store.dispose()
   storeReloaded.dispose()
 })
+
+test('duplicate store bootstraps and a stale month cannot overwrite the newest transition', async () => {
+  const storage = createWebStorageDouble()
+  const stores = [createWebGuestShelfStore({ storage }), createWebGuestShelfStore({ storage })]
+  await Promise.all(stores.map(store => store.whenReady()))
+  const december = {
+    newCurrentYearMonth: '2027-01',
+    completedChallengeIdsInEndingMonth: ['cms:december-completion'],
+    rolloverDate: '2027-01-01',
+  }
+  await Promise.all(stores.map(store => store.evaluateMonthlyRollover(december)))
+  await stores[0].putAway('2026-12')
+  const stale = await stores[1].evaluateMonthlyRollover({
+    newCurrentYearMonth: '2026-12',
+    completedChallengeIdsInEndingMonth: ['cms:november-completion'],
+  })
+  assert.equal(stale.disposition, 'ignoredOlderTransition')
+
+  const reloaded = createWebGuestShelfStore({ storage })
+  await reloaded.whenReady()
+  await reloaded.evaluateMonthlyRollover(december)
+  assert.deepEqual(reloaded.getSnapshot().state.months, [])
+  assert.equal(reloaded.getSnapshot().rolloverWatermark?.lastNewCurrentYearMonth, '2027-01')
+  for (const store of [...stores, reloaded]) store.dispose()
+})

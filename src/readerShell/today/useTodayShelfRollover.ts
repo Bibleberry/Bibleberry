@@ -1,14 +1,14 @@
 import { useEffect } from 'react'
 import type { MonthGatewayProvider } from '../../cms/reader/monthProvider.ts'
-import type { ReaderParticipationSnapshot } from '../../participation/store.ts'
+import type { ReaderParticipationSnapshot, ReaderParticipationStore } from '../../participation/store.ts'
 import type { GuestShelfSnapshot, GuestShelfStore } from '../../shelfPersistence/store.ts'
-import type { TodayAuthorizedContext } from './primaryActionModel.ts'
-import { loadTodayShelfRollover } from './todayShelfRollover.ts'
+import { loadTodayShelfRollover, type TodayRolloverContext } from './todayShelfRollover.ts'
 
 export function useTodayShelfRollover(
-  context: TodayAuthorizedContext | null,
+  context: TodayRolloverContext | null,
   participation: ReaderParticipationSnapshot,
   shelf: GuestShelfSnapshot,
+  participationStore: Pick<ReaderParticipationStore, 'getSnapshot'>,
   shelfStore: GuestShelfStore,
   monthProvider: Pick<MonthGatewayProvider, 'loadMonth'>,
 ) {
@@ -39,6 +39,9 @@ export function useTodayShelfRollover(
       controller.signal,
     ).then(params => {
       if (controller.signal.aborted || !params) return
+      const latestParticipation = participationStore.getSnapshot()
+      if (latestParticipation.status !== 'ready' || latestParticipation.health !== 'ok' ||
+        latestParticipation.hasPendingWrites || latestParticipation.data !== participationData) return
       const latest = shelfStore.getSnapshot()
       if (latest.health !== 'ok' || latest.hasPendingWrites ||
         (latest.rolloverWatermark && latest.rolloverWatermark.lastNewCurrentYearMonth >= yearMonth)) return
@@ -47,5 +50,5 @@ export function useTodayShelfRollover(
       // The optional Shelf update must not interrupt Today or consume an unverified transition.
     })
     return () => controller.abort()
-  }, [authorizedLocalDate, yearMonth, effectiveTimeZone, participationData, canEvaluate, shelfStore, monthProvider])
+  }, [authorizedLocalDate, yearMonth, effectiveTimeZone, participationData, canEvaluate, participationStore, shelfStore, monthProvider])
 }

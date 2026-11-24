@@ -9,11 +9,11 @@ import type { MonthlyRolloverParams } from '../../shelf/types.ts'
 import { getPreviousPublicationYearMonth } from '../../shelf/validation.ts'
 import type { TodayAuthorizedContext } from './primaryActionModel.ts'
 
-type RolloverContext = Pick<TodayAuthorizedContext, 'yearMonth' | 'authorizedLocalDate' | 'effectiveTimeZone'>
+export type TodayRolloverContext = Pick<TodayAuthorizedContext, 'yearMonth' | 'authorizedLocalDate' | 'effectiveTimeZone'>
 
 /** Qualify saved completions by publication slot identity. A completion's date can be much later. */
 export async function loadTodayShelfRollover(
-  context: RolloverContext,
+  context: TodayRolloverContext,
   participation: ReaderParticipationData,
   monthProvider: Pick<MonthGatewayProvider, 'loadMonth'>,
   signal: AbortSignal,
