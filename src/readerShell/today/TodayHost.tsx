@@ -35,6 +35,7 @@ import {
   type TodayMonthSource,
 } from './primaryActionModel.ts'
 import { loadAuthorizedTodayMonth } from './todayMonthLoader.ts'
+import { useTodayShelfRollover } from './useTodayShelfRollover.ts'
 
 export interface TodayHostProps {
   readonly onOpenChallenge: (intent: OpenChallengeIntent) => void
@@ -249,6 +250,8 @@ export function TodayHost({
   )
 
   const { context, primary, currentMonthLink, secondary } = model
+  useTodayShelfRollover(context, participationSnapshot, shelfSnapshot, shelfStore, monthProvider)
+
   const monthHeading = context ? formatYearMonthHeading(context.yearMonth) : null
   const participationUnavailable =
     primary.status === 'loading' &&

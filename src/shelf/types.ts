@@ -190,6 +190,7 @@ export type RolloverDisposition =
   | 'retainedInLibraryAllProtected'
   | 'retainedInLibraryNoCompletions'
   | 'alreadyOnShelf'
+  | 'ignoredOlderTransition'
   | 'rejectedNotHistorical'
   | 'rejectedInvalidMonth'
 
