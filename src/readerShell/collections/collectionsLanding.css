@@ -1,5 +1,6 @@
 .r06-collections {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 1.25rem;
 }
 
@@ -13,7 +14,8 @@
 }
 
 .r06-collections__preview {
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
+  max-inline-size: 40rem;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 11rem), 1fr));
 }
 
 .r06-collections__discoveries {
@@ -25,20 +27,7 @@
   font-size: 0.8rem;
 }
 
-.r06-collections .notebook-card__media {
-  display: block;
-  aspect-ratio: auto;
-}
-
-.r06-collections .notebook-card__media img {
-  aspect-ratio: 4 / 3;
-}
-
-.r06-collections .notebook-card__new-badge {
-  position: static;
-  justify-self: start;
-}
-
-.r06-collections .notebook-card__button:focus-visible {
-  outline-offset: -3px;
+.r06-collections .button {
+  flex-wrap: wrap;
+  font-size: 0.875rem;
 }

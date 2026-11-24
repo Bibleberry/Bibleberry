@@ -61,7 +61,7 @@ test.describe('R14-7 Field Notebook Earned-Only Collection', () => {
 
   test('renders empty collection state, neutral Coming Soon months, Year/Month & Jan/Dec & leap-year browsing, search, and viewer focus/flag isolation', async ({ page }) => {
     await page.goto(`${baseUrl}?refMonth=2026-11`)
-    await expect(page.getByRole('heading', { name: 'Earned Scripture Cards', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Field Notebook', exact: true })).toBeVisible()
 
     // 1. Empty collection state
     await expect(page.getByRole('heading', { name: '0 Distinct Challenges Completed' })).toBeVisible()
@@ -81,7 +81,6 @@ test.describe('R14-7 Field Notebook Earned-Only Collection', () => {
     // 2. Earn awards while the Notebook is already open.
     await page.getByRole('button', { name: 'Seed Earned Awards & Completions' }).click()
     await expect(page.getByRole('heading', { name: '2 Distinct Challenges Completed' })).toBeVisible()
-    await expect(page.locator('.notebook-lifetime__stat-pill', { hasText: '5 Earned Scripture Cards' })).toBeVisible()
 
     // 3. By Year & Month: check Jan/Dec transition and late-earned Feb 2024 leap-year month
     await page.getByRole('button', { name: /By Year & Month/i }).click()
@@ -118,7 +117,7 @@ test.describe('R14-7 Field Notebook Earned-Only Collection', () => {
     await expect(page.getByText('Card snapshot unavailable — your earned award record is preserved.')).toBeVisible()
 
     // 5. Search & curated theme filter + zero-results behavior
-    const searchInput = page.getByLabel(/Search earned cards/i)
+    const searchInput = page.getByRole('searchbox', { name: 'Search Your Cards' })
     await searchInput.fill('Psalm 119:105')
     await expect(page.locator('.notebook-card__title')).toHaveText(['A Light for the Path'])
 

@@ -202,7 +202,7 @@ test.describe('Issue #132: Controlled App-Shell Integration', () => {
 
     // Verify route and Field Notebook view rendered
     await expect(page).toHaveURL(/#\/notebook/)
-    await expect(page.getByRole('heading', { name: 'Earned Scripture Cards', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Field Notebook', exact: true })).toBeVisible()
 
     await page.getByRole('button', { name: /Return to Today/i }).click()
     await expect(notebookBtn.getByText('New')).not.toBeVisible()
@@ -344,7 +344,7 @@ test.describe('Issue #132: Controlled App-Shell Integration', () => {
     // Dialog closes and navigates to Notebook
     await expect(announcementDialog).not.toBeVisible()
     await expect(page).toHaveURL(/#\/notebook/)
-    await expect(page.getByRole('heading', { name: 'Earned Scripture Cards', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Field Notebook', exact: true })).toBeVisible()
 
     // Verify announcement is now acknowledged in store
     const updatedStore = await page.evaluate(key => {
@@ -461,7 +461,7 @@ test.describe('Issue #132: Controlled App-Shell Integration', () => {
     await page.goto(`${disabledBaseUrl}#/notebook`)
 
     // Should NOT show Field Notebook heading; stays on standard Today page
-    await expect(page.getByRole('heading', { name: 'Earned Scripture Cards' })).not.toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Field Notebook' })).not.toBeVisible()
     await expect(
       page.getByRole('complementary', { name: 'Provisional collections integration' }),
     ).not.toBeVisible()
@@ -489,11 +489,11 @@ test.describe('Issue #132: Controlled App-Shell Integration', () => {
 
     // Direct reload on #/notebook
     await page.goto(`${enabledBaseUrl}#/notebook`)
-    await expect(page.getByRole('heading', { name: 'Earned Scripture Cards', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Field Notebook', exact: true })).toBeVisible()
 
     // Reload page
     await page.reload()
-    await expect(page.getByRole('heading', { name: 'Earned Scripture Cards', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Field Notebook', exact: true })).toBeVisible()
 
     // Navigate to Saved Scripture via hash change
     await page.evaluate(() => {
@@ -503,7 +503,7 @@ test.describe('Issue #132: Controlled App-Shell Integration', () => {
 
     // Browser back button -> restores Field Notebook
     await page.goBack()
-    await expect(page.getByRole('heading', { name: 'Earned Scripture Cards', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Field Notebook', exact: true })).toBeVisible()
 
     // Browser forward button -> restores Saved Scripture
     await page.goForward()
@@ -526,7 +526,7 @@ test.describe('Issue #132: Controlled App-Shell Integration', () => {
     )
 
     await page.goto(`${enabledBaseUrl}#/notebook`)
-    await expect(page.getByRole('heading', { name: 'Earned Scripture Cards', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Field Notebook', exact: true })).toBeVisible()
 
     // Focus return button and press Enter
     const returnBtn = page.getByRole('button', { name: /Return to Today/i })

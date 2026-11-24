@@ -23,11 +23,9 @@ export function CollectionsLanding({
   const triggerRef = useRef<HTMLButtonElement>(null)
   const [activeAwardId, setActiveAwardId] = useState<CanonicalAwardId | null>(null)
 
-  const preview = useMemo(
-    () => projectValidatedEarnedAwards(committedData).slice(0, previewLimit),
-    [committedData],
-  )
-  const activeCard = preview.find(item => item.awardId === activeAwardId)
+  const cards = useMemo(() => projectValidatedEarnedAwards(committedData), [committedData])
+  const preview = cards.slice(0, previewLimit)
+  const activeCard = cards.find(item => item.awardId === activeAwardId)
   const hasNewDiscoveries = status === 'ready' && selectNewDiscoveryAwardIds(committedData).length > 0
 
   function openCard(item: NotebookEarnedCardItem, trigger: HTMLButtonElement) {
@@ -56,7 +54,7 @@ export function CollectionsLanding({
         ) : (
           <p role="status">
             {health === 'ok'
-              ? 'You haven’t earned any Scripture Cards yet. Cards you earn through monthly discoveries will appear here.'
+              ? 'There are no Scripture Cards in your collection yet. Cards you earn through monthly discoveries will appear here.'
               : 'Earned Scripture Cards are unavailable right now.'}
           </p>
         )}
@@ -66,16 +64,17 @@ export function CollectionsLanding({
           type="button"
           className="button button--secondary"
           onClick={onOpenNotebook}
+          aria-label="Field Notebook"
           aria-describedby={hasNewDiscoveries ? newDiscoveriesId : undefined}
         >
           Field Notebook
+          {hasNewDiscoveries && (
+            <span className="r06-collections__discoveries" id={newDiscoveriesId}>New Discoveries</span>
+          )}
         </button>
         <button type="button" className="button button--secondary" onClick={onOpenSavedScripture}>
           Saved Scripture
         </button>
-        {hasNewDiscoveries && (
-          <span className="r06-collections__discoveries" id={newDiscoveriesId}>New Discoveries</span>
-        )}
       </div>
       {activeCard?.earnedCard && (
         <EarnedScriptureCardViewer

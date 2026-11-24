@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import type { NotebookEarnedCardItem } from './fieldNotebookModel.ts'
 import './fieldNotebook.css'
 
@@ -12,6 +12,7 @@ export function EarnedCardThumbnail({
   readonly onOpen: (item: NotebookEarnedCardItem, trigger: HTMLButtonElement) => void
 }) {
   const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null)
+  const fallbackId = useId()
   const card = item.earnedCard
   const dates = (
     <p className="notebook-card__dates">
@@ -32,6 +33,7 @@ export function EarnedCardThumbnail({
     )
   }
 
+  const imageFailed = failedImageUrl === card.imageUrl
   const isNew = !item.cardViewed
   const label = `Open Scripture Card: ${card.title}, ${card.scripture.reference}${isNew ? ', New' : ''}`
   return (
@@ -41,10 +43,11 @@ export function EarnedCardThumbnail({
         className="notebook-card__button"
         onClick={event => onOpen(item, event.currentTarget)}
         aria-label={label}
+        aria-describedby={imageFailed ? fallbackId : undefined}
       >
         <span className="notebook-card__media">
-          {failedImageUrl === card.imageUrl ? (
-            <span className="notebook-card__media-fallback">Illustration unavailable right now.</span>
+          {imageFailed ? (
+            <span className="notebook-card__media-fallback" id={fallbackId}>Illustration unavailable right now.</span>
           ) : (
             <img
               src={card.imageUrl}

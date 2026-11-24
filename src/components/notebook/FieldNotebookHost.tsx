@@ -81,11 +81,11 @@ export function FieldNotebookHost({
 
   const projection = useMemo(
     () =>
-      buildNotebookCollectionProjection(participationSnapshot.data, {
+      buildNotebookCollectionProjection(participationSnapshot.committedData, {
         referenceYearMonth: resolvedReferenceMonth,
         publishedYearMonths,
       }),
-    [participationSnapshot.data, resolvedReferenceMonth, publishedYearMonths],
+    [participationSnapshot.committedData, resolvedReferenceMonth, publishedYearMonths],
   )
 
   const monthEntries = useMemo(
@@ -136,9 +136,13 @@ export function FieldNotebookHost({
     setActiveAwardId(null)
   }, [])
 
-  if (participationSnapshot.status === 'hydrating') {
+  const loading = participationSnapshot.status === 'hydrating'
+  const unavailable = participationSnapshot.health !== 'ok'
+    && projection.allEarnedCards.length === 0
+    && projection.lifetime.distinctCompletedChallenges === 0
+  if (loading || unavailable) {
     return (
-      <div className="standard-page notebook-page" role="status" aria-live="polite">
+      <div className="standard-page notebook-page">
         {onExit && (
           <div className="notebook-topbar">
             <button type="button" className="back-link" onClick={onExit}>
@@ -146,7 +150,8 @@ export function FieldNotebookHost({
             </button>
           </div>
         )}
-        <p>Loading Field Notebook…</p>
+        <h1>Field Notebook</h1>
+        <p role="status">{loading ? 'Loading Field Notebook…' : 'Your Field Notebook is unavailable right now.'}</p>
       </div>
     )
   }
