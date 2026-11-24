@@ -143,6 +143,24 @@ test.describe('R12-3: Replayable First-Use Onboarding Foundation', () => {
     expect(afterReaderState).toEqual(beforeReaderState)
   })
 
+  test('explicit replay reminder save reports the selected preference through onComplete', async ({ page }) => {
+    await page.goto(`${baseUrl}?scenario=replay`)
+    await page.getByTestId('launch-replay-saved-scripture').click()
+    await page.getByTestId('onboarding-continue-button').click()
+    await page.getByTestId('onboarding-continue-button').click()
+    await page.getByLabel('Suggested reminder time').fill('06:45')
+    await page.getByTestId('onboarding-save-reminder-replay-button').click()
+
+    await expect(page.getByTestId('harness-active-destination')).toHaveText('Active destination: Saved Scripture')
+    const snapshot = await page.getByTestId('harness-reader-state').textContent()
+    expect(JSON.parse(snapshot ?? '{}').lastResult).toMatchObject({
+      mode: 'replay',
+      reason: 'finish',
+      reminderEnabled: true,
+      reminderTime: '06:45',
+    })
+  })
+
   test('interrupted replay and page reload never resets onboarded or erases reader data', async ({
     page,
   }) => {

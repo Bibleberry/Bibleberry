@@ -563,6 +563,7 @@ export function createNewsGatewayProvider(config: NewsProviderConfig = {}): News
         try {
           response = await fetchImpl(pathAndQuery, {
             method: 'GET',
+            cache: 'no-store',
             headers: {
               Accept: 'application/json',
               'X-Bibleberry-Timezone': effectiveTimeZone,

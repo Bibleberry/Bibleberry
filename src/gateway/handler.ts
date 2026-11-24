@@ -826,6 +826,12 @@ async function handleNewsRequest(
     }
   }
 
+  articles.sort((a, b) => {
+    if (a.publishedOn !== b.publishedOn) return a.publishedOn < b.publishedOn ? 1 : -1
+    if (a.documentId === b.documentId) return 0
+    return a.documentId < b.documentId ? -1 : 1
+  })
+
   return jsonResponse(
     {
       ok: true,

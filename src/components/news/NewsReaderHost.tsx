@@ -7,7 +7,8 @@ import {
 } from '../../cms/reader/newsProvider.ts'
 import { filterNewsArticles, type NewsFilterCategory } from './newsModel.ts'
 import { NewsErrorBoundary } from './NewsErrorBoundary.tsx'
-import { NewsReaderView } from './NewsReaderView.tsx'
+import { NewsArticleCard } from './NewsArticleCard.tsx'
+import { NewsBackButton, NewsReaderView } from './NewsReaderView.tsx'
 import './news.css'
 
 export interface NewsReaderHostProps {
@@ -16,6 +17,9 @@ export interface NewsReaderHostProps {
   readonly onCategoryChange?: (category: NewsFilterCategory) => void
   readonly onNavigate?: (destination: { kind: 'month'; monthId: string }) => void
   readonly onBack?: () => void
+  readonly onOpenFeatured?: (documentId: string) => void
+  readonly articleDocumentId?: string
+  readonly onOpenArticle?: (documentId: string) => void
 }
 
 /**
@@ -30,6 +34,9 @@ export function NewsReaderHost({
   onCategoryChange,
   onNavigate,
   onBack,
+  onOpenFeatured,
+  articleDocumentId,
+  onOpenArticle,
 }: NewsReaderHostProps) {
   const [prevInitialCategory, setPrevInitialCategory] = useState<NewsFilterCategory>(initialCategory)
   const [activeCategory, setActiveCategory] = useState<NewsFilterCategory>(initialCategory)
@@ -48,11 +55,12 @@ export function NewsReaderHost({
   }
 
   const handleSelectCategory = useCallback((category: NewsFilterCategory) => {
+    if (activeCategory === category) return
     setActiveCategory(category)
     setStatus('loading')
     setErrorMessage(undefined)
     onCategoryChange?.(category)
-  }, [onCategoryChange])
+  }, [activeCategory, onCategoryChange])
 
   const handleRetry = useCallback(() => {
     setStatus('loading')
@@ -109,17 +117,73 @@ export function NewsReaderHost({
 
   const displayedArticles = filterNewsArticles(articles, activeCategory)
 
+  const article = articleDocumentId
+    ? articles.find(item => item.documentId === articleDocumentId)
+    : articles[0]
+  const unavailable = status === 'offline' || status === 'error'
+
+  if (onOpenFeatured) {
+    return (
+      <section className="r06-more__feature" aria-labelledby="r06-featured-news">
+        <h2 id="r06-featured-news">Latest Ministry News</h2>
+        {status === 'loading' && <p role="status">Checking for ministry news…</p>}
+        {status === 'empty' && <p role="status">No ministry news has been published yet.</p>}
+        {unavailable && (
+          <>
+            <p role="alert">Unable to load ministry news.</p>
+            <button type="button" className="button button--secondary" onClick={handleRetry}>Retry</button>
+          </>
+        )}
+        {status === 'ready' && article && (
+          <button
+            type="button"
+            className="button button--secondary"
+            onClick={() => onOpenFeatured(article.documentId)}
+          >
+            {article.title}
+          </button>
+        )}
+      </section>
+    )
+  }
+
+  if (articleDocumentId) {
+    return (
+      <main className="news-reader news-reader--r06">
+        {onBack && <NewsBackButton onBack={onBack} />}
+        <NewsErrorBoundary onReset={handleRetry}>
+          {status === 'ready' && article ? (
+            <NewsArticleCard article={article} onNavigate={onNavigate} detail />
+          ) : (
+            <>
+              <h1 className="news-reader__heading">Ministry News</h1>
+              {status === 'loading' && <p role="status">Checking for this article…</p>}
+              {(status === 'ready' || status === 'empty') && <p role="status">This article is unavailable.</p>}
+              {unavailable && (
+                <>
+                  <p role="alert">Unable to load this article.</p>
+                  <button type="button" className="button button--secondary" onClick={handleRetry}>Retry</button>
+                </>
+              )}
+            </>
+          )}
+        </NewsErrorBoundary>
+      </main>
+    )
+  }
+
   return (
     <NewsErrorBoundary onReset={handleRetry}>
       <NewsReaderView
         articles={displayedArticles}
         status={status}
         activeCategory={activeCategory}
-        errorMessage={errorMessage}
+        errorMessage={onOpenArticle ? undefined : errorMessage}
         onSelectCategory={handleSelectCategory}
         onRetry={handleRetry}
         onNavigate={onNavigate}
         onBack={onBack}
+        onOpenArticle={onOpenArticle}
       />
     </NewsErrorBoundary>
   )

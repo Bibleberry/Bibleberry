@@ -27,6 +27,7 @@ export interface ReplayableOnboardingProps extends OnboardingFlowCallbacks {
   origin?: OnboardingOriginContext | null
   initialReminderTime?: string
   initialStepIndex?: number
+  onSaveReplayReminder?: (time: string) => Promise<boolean>
   /**
    * When true, pressing Escape skips/exits onboarding.
    * Defaults to true in `replay` mode and false in `first-use` mode.
@@ -79,6 +80,7 @@ export function ReplayableOnboarding({
   onReturnToOrigin,
   onStepChange,
   onReminderPreferenceChange,
+  onSaveReplayReminder,
 }: ReplayableOnboardingProps) {
   const [flow, setFlow] = useState<OnboardingFlowState>(() =>
     createInitialOnboardingFlowState({
@@ -88,6 +90,8 @@ export function ReplayableOnboarding({
       initialStepIndex,
     }),
   )
+
+  const [reminderSave, setReminderSave] = useState<'idle' | 'saving' | 'failed'>('idle')
 
   const headingId = useId()
   const timeInputId = useId()
@@ -148,6 +152,28 @@ export function ReplayableOnboarding({
         nextState.mode,
       )
     }
+  }
+
+  const handleSaveReplayReminder = async () => {
+    if (onSaveReplayReminder) {
+      setReminderSave('saving')
+      const saved = await onSaveReplayReminder(flow.draftReminderTime).catch(() => false)
+      if (!saved) {
+        setReminderSave('failed')
+        return
+      }
+    } else {
+      onReminderPreferenceChange?.({
+        reminderEnabled: true,
+        reminderTime: flow.draftReminderTime,
+      })
+    }
+    handleFinish({
+      destination: 'foundations',
+      reason: 'finish',
+      reminderEnabled: true,
+      includeReminderTime: true,
+    })
   }
 
   const handleBack = () => {
@@ -398,21 +424,12 @@ export function ReplayableOnboarding({
                     type="button"
                     className="r12-button r12-button--text"
                     data-testid="onboarding-save-reminder-replay-button"
-                    onClick={() => {
-                      onReminderPreferenceChange?.({
-                        reminderEnabled: true,
-                        reminderTime: flow.draftReminderTime,
-                      })
-                      handleFinish({
-                        destination: 'foundations',
-                        reason: 'finish',
-                        reminderEnabled: true,
-                        includeReminderTime: true,
-                      })
-                    }}
+                    disabled={reminderSave === 'saving'}
+                    onClick={() => void handleSaveReplayReminder()}
                   >
                     {step.primaryActionLabel}
                   </button>
+                  {reminderSave === 'failed' && <p role="alert">Unable to save the reminder preference.</p>}
                 </div>
               )}
 
