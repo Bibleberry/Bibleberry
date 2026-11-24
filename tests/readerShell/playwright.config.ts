@@ -10,6 +10,7 @@ export default defineConfig({
   reporter: process.env.CI ? [['list'], ['github']] : [['list']],
   use: {
     ...devices['Desktop Chrome'],
+    timezoneId: 'America/New_York',
     headless: true,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',

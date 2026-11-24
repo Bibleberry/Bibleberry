@@ -16,6 +16,8 @@
 | **Deterministic R06 Node unit & fixture-schema suite (`45` cases)** | `npm run test:reader-shell` | Node `--experimental-strip-types --test tests/readerShell/*.test.ts` (including `m1aGatewayFixtures.test.ts` validating synthetic payloads through `createGatewayMonthProvider`, `createGatewayChallengeProvider`, `createGatewayCatalogProvider`, `admitGatewayMonthProgressAwards`, and `deriveTodayPrimaryAction`). |
 | **Flag-on & default production builds** | `VITE_ENABLE_R06_SHELL=true npm run build && npm run build` | Verifies TypeScript project references (`tsc -b`) and Vite production bundles for both flag states. |
 
+Before navigation, the browser suite fixes the device clock at `2026-11-10T12:00:00Z` (November 10 at 7:00 a.m. in `America/New_York`). Today uses that device date to bootstrap its November Month request. The default synthetic gateway authorizes November 15, 2026 in `America/New_York`. The month-boundary test supplies December 1 in `Pacific/Auckland` and October 25 in `Pacific/Honolulu` to exercise recovery from the initial November request.
+
 ## 3. Synthetic Gateway Fixture Inventory (`tests/readerShell/fixtures/m1aGatewayFixtures.ts`)
 
 - **Authoritative date context:** `serverContext = { authorizedLocalDate: '2026-11-15', effectiveTimeZone: 'America/New_York' }`.
