@@ -1208,7 +1208,7 @@ test('J4 G03 admits the ended month on gateway time and preserves a subsequent P
 
   const progressBefore = await participation(page)
   await selectTab(page, 'Library')
-  await expect(page.getByRole('heading', { name: 'Library', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Shelf', exact: true })).toBeVisible()
   await page.getByRole('button', { name: /put away October 2026 from Shelf/i }).click()
   await expect.poll(() => storedRolloverShelf(page)).toMatchObject({ state: { months: [] } })
   await page.reload()
