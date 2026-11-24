@@ -22,6 +22,7 @@ const MONTH_METADATA: Record<string, ShelfMonthMetadata> = {
     yearMonth: '2026-10',
     title: 'Walk in Gratitude',
     subtitle: 'Thirty-one studies on thankfulness.',
+    completionProgress: { completedChallengeCount: 14, totalChallengeCount: 31 },
   },
   '2026-09': {
     yearMonth: '2026-09',

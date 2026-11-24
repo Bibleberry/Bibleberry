@@ -4,15 +4,22 @@ import type {
   LibraryMonthIndexProvider,
   LibraryMonthSummary,
 } from '../../src/cms/reader/libraryMonthIndexProvider.ts'
+import type { MonthGatewayProvider } from '../../src/cms/reader/monthProvider.ts'
 import { getLibraryMonthShelfStatus } from '../../src/components/library/historicalLibraryModel.ts'
 import {
   attemptSelectLibraryMonthForShelf,
   buildShelfMonthMetadataMap,
   isGatewayAuthorizedHistoricalMonth,
+  loadShelfCompletionProgress,
   resolveReferenceCurrentYearMonth,
   validateAuthorizedMonthOpen,
 } from '../../src/components/libraryShelf/libraryShelfModel.ts'
-import type { LocalCalendarDate, PublicationYearMonth } from '../../src/participation/types.ts'
+import { emptyReaderParticipationData } from '../../src/participation/model.ts'
+import type {
+  LocalCalendarDate,
+  PublicationYearMonth,
+  ReaderParticipationData,
+} from '../../src/participation/types.ts'
 import { createEmptyShelfState } from '../../src/shelf/policy.ts'
 import type { ShelfState } from '../../src/shelf/types.ts'
 
@@ -25,6 +32,86 @@ const APPROVED_LIBRARY_ITEMS: readonly LibraryMonthSummary[] = [
   { yearMonth: '2026-08', year: 2026, month: 8, title: 'Abiding Peace' },
   { yearMonth: '2026-07', year: 2026, month: 7, title: 'Living Word' },
 ]
+
+test('loadShelfCompletionProgress uses the month roster and authoritative gateway counts', async () => {
+  const participationData: ReaderParticipationData = {
+    ...emptyReaderParticipationData(),
+    completedChallenges: {
+      'cms:october-challenge': { completedOn: LOCAL_DATE },
+      'cms:another-month-challenge': { completedOn: LOCAL_DATE },
+    },
+  }
+  let requestedCompletionIds: readonly string[] = []
+  const provider = {
+    async loadMonth() {
+      return {
+        status: 'ready',
+        month: {
+          monthId: '2026-10',
+          slots: [
+            { availability: 'available', challengeId: 'cms:october-challenge' },
+            { availability: 'available', challengeId: 'cms:unfinished-challenge' },
+          ],
+        },
+      }
+    },
+    async loadMonthProgress(_yearMonth: string, completedChallengeIds: readonly string[]) {
+      requestedCompletionIds = completedChallengeIds
+      return {
+        status: 'ready',
+        progress: {
+          monthId: '2026-10',
+          completedInMonthCount: 1,
+          totalChallenges: 2,
+        },
+      }
+    },
+  } as unknown as MonthGatewayProvider
+
+  const progress = await loadShelfCompletionProgress({
+    yearMonths: ['2026-10', '2026-10'],
+    participationData,
+    monthProvider: provider,
+  })
+
+  assert.deepEqual(requestedCompletionIds, ['cms:october-challenge'])
+  assert.deepEqual(progress.get('2026-10'), {
+    completedChallengeCount: 1,
+    totalChallengeCount: 2,
+  })
+})
+
+test('loadShelfCompletionProgress omits mismatched or invalid gateway progress', async () => {
+  const provider = {
+    async loadMonth() {
+      return {
+        status: 'ready',
+        month: {
+          monthId: '2026-10',
+          slots: [{ availability: 'available', challengeId: 'cms:october-challenge' }],
+        },
+      }
+    },
+    async loadMonthProgress() {
+      return {
+        status: 'ready',
+        progress: {
+          monthId: '2026-10',
+          completedInMonthCount: 3,
+          totalChallenges: 2,
+        },
+      }
+    },
+  } as unknown as MonthGatewayProvider
+
+  const progress = await loadShelfCompletionProgress({
+    yearMonths: ['2026-10'],
+    participationData: emptyReaderParticipationData(),
+    monthProvider: provider,
+  })
+
+  assert.equal(progress.has('2026-10'), false)
+})
 
 test('gateway authorization scans older pages beyond the currently loaded Library window', async () => {
   const requestedCursors: (string | undefined)[] = []

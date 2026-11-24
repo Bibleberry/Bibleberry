@@ -4,9 +4,11 @@ import {
   type LibraryMonthIndexProvider,
   type LibraryMonthSummary,
 } from '../../cms/reader/libraryMonthIndexProvider.ts'
+import type { MonthGatewayProvider } from '../../cms/reader/monthProvider.ts'
 import type {
   LocalCalendarDate,
   PublicationYearMonth,
+  ReaderParticipationData,
 } from '../../participation/types.ts'
 import { selectShelfMonth } from '../../shelf/policy.ts'
 import type { ShelfState } from '../../shelf/types.ts'
@@ -18,8 +20,10 @@ import { isValidYearMonth } from '../library/historicalLibraryModel.ts'
 import {
   formatPublicationMonthHeading,
   validateOpenShelfMonthTarget,
+  type ShelfCompletionProgress,
   type ShelfMonthMetadata,
 } from '../shelf/shelfModel.ts'
+import { extractCompletedCmsChallengeIdsForMonth } from '../month/monthScreenModel.ts'
 
 export type LibraryShelfSurface = 'shelf' | 'library'
 
@@ -27,6 +31,70 @@ export type MonthOpenOrigin = 'shelf' | 'library'
 
 export interface OpenMonthContext {
   readonly origin: MonthOpenOrigin
+}
+
+export async function loadShelfCompletionProgress(params: {
+  readonly yearMonths: readonly string[]
+  readonly participationData: ReaderParticipationData
+  readonly monthProvider: MonthGatewayProvider
+  readonly signal?: AbortSignal
+  readonly timeZone?: string
+}): Promise<ReadonlyMap<string, ShelfCompletionProgress>> {
+  const yearMonths = [
+    ...new Set(
+      params.yearMonths
+        .map(yearMonth => parseValidPublicationYearMonth(yearMonth))
+        .filter((yearMonth): yearMonth is PublicationYearMonth => yearMonth !== null),
+    ),
+  ]
+  const results = await Promise.all(
+    yearMonths.map(async yearMonth => {
+      try {
+        const monthResult = await params.monthProvider.loadMonth(yearMonth, {
+          signal: params.signal,
+          timeZone: params.timeZone,
+        })
+        if (monthResult.status !== 'ready' || monthResult.month.monthId !== yearMonth) {
+          return null
+        }
+
+        const completedChallengeIds = extractCompletedCmsChallengeIdsForMonth(
+          params.participationData,
+          monthResult.month.slots,
+        )
+        const progressResult = await params.monthProvider.loadMonthProgress(
+          yearMonth,
+          completedChallengeIds,
+          { signal: params.signal, timeZone: params.timeZone },
+        )
+        if (
+          progressResult.status !== 'ready'
+          || progressResult.progress.monthId !== yearMonth
+          || !Number.isSafeInteger(progressResult.progress.completedInMonthCount)
+          || !Number.isSafeInteger(progressResult.progress.totalChallenges)
+          || progressResult.progress.completedInMonthCount < 0
+          || progressResult.progress.totalChallenges < progressResult.progress.completedInMonthCount
+        ) {
+          return null
+        }
+
+        return [
+          yearMonth,
+          {
+            completedChallengeCount: progressResult.progress.completedInMonthCount,
+            totalChallengeCount: progressResult.progress.totalChallenges,
+          },
+        ] as const
+      } catch {
+        if (params.signal?.aborted) throw new Error('Shelf progress request aborted')
+        return null
+      }
+    }),
+  )
+
+  return new Map(
+    results.filter((result): result is NonNullable<typeof result> => result !== null),
+  )
 }
 
 /**

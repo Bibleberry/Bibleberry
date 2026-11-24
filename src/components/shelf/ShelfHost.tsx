@@ -357,7 +357,7 @@ export function ShelfHost({
       setErrorMessage(null)
       commitState(result.state)
       const heading = formatPublicationMonthHeading(yearMonth)
-      setLiveAnnouncement(`${heading} set as active study focus.`)
+      setLiveAnnouncement(`${heading} set as Active Focus.`)
     },
     [commitState, currentLocalDate, currentState],
   )
@@ -366,7 +366,7 @@ export function ShelfHost({
     const nextState = clearActiveFocusMonth(currentState, currentLocalDate)
     setErrorMessage(null)
     commitState(nextState)
-    setLiveAnnouncement('Active study focus cleared.')
+    setLiveAnnouncement('Active Focus cleared.')
   }, [commitState, currentLocalDate, currentState])
 
   const pendingTitle = useMemo(() => {

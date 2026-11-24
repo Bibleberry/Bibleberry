@@ -73,7 +73,7 @@ test.describe('Phase 05 / R08-4: Standalone Shelf Reader Surface', () => {
     await page.getByRole('button', { name: 'Add October 2026 to Shelf' }).click()
     await expect(page.locator('.shelf-card')).toHaveCount(1)
     await expect(page.getByText('1 of 3 month on Shelf')).toBeVisible()
-    await expect(page.getByText('Saved to Shelf · Protected')).toBeVisible()
+    await expect(page.getByText('Kept on Shelf')).toBeVisible()
   })
 
   test('1- and 2-month states show protected vs auto-admitted status and allow protecting auto-admitted month', async ({ page }) => {
@@ -91,13 +91,36 @@ test.describe('Phase 05 / R08-4: Standalone Shelf Reader Surface', () => {
 
     await expect(sepCard).toHaveAttribute('data-admission-kind', 'readerSelected')
     await expect(sepCard).toHaveAttribute('data-protected', 'true')
-    await expect(sepCard.getByText('Saved to Shelf · Protected')).toBeVisible()
-    await expect(sepCard.getByText('Active Study Focus')).toBeVisible()
+    await expect(sepCard.getByText('Kept on Shelf')).toBeVisible()
+    await expect(sepCard.getByText('Active Focus', { exact: true })).toBeVisible()
 
     // Protect the auto-admitted October 2026 month
-    await octCard.getByRole('button', { name: 'Keep October 2026 on Shelf (protect from rollover)' }).click()
+    await octCard.getByRole('button', { name: 'Keep October 2026 on Shelf' }).click()
     await expect(octCard).toHaveAttribute('data-protected', 'true')
-    await expect(octCard.getByText('Added at rollover · Protected')).toBeVisible()
+    await expect(octCard.getByText('Kept on Shelf')).toBeVisible()
+    await expect(octCard.getByRole('button', { name: /Keep|Remove Protection/ })).toHaveCount(0)
+  })
+
+  test('Active Focus sorts first and can be changed or cleared without changing Keep status or membership', async ({ page }) => {
+    await page.goto(`${harnessRootUrl}?scenario=two-months`)
+
+    const cards = page.locator('.shelf-card')
+    await expect(cards.nth(0)).toHaveAttribute('data-year-month', '2026-09')
+    await expect(cards.nth(1)).toHaveAttribute('data-year-month', '2026-10')
+
+    const october = page.locator('.shelf-card[data-year-month="2026-10"]')
+    await october.getByRole('button', { name: 'Keep October 2026 on Shelf' }).click()
+    await expect(october.getByText('Kept on Shelf')).toBeVisible()
+
+    await october.getByRole('button', { name: 'Set October 2026 as Active Focus' }).click()
+    await expect(cards.nth(0)).toHaveAttribute('data-year-month', '2026-10')
+    await expect(october.getByText('Active Focus', { exact: true })).toBeVisible()
+
+    await october.getByRole('button', { name: 'Clear Active Focus from October 2026' }).click()
+    await expect(october.getByText('Kept on Shelf')).toBeVisible()
+    await expect(october).toBeVisible()
+    await expect(cards).toHaveCount(2)
+    await expect(page.getByRole('button', { name: /Remove Protection/ })).toHaveCount(0)
   })
 
   test('capacity overflow requires explicit replacement choice and never silently evicts protected months', async ({ page }) => {
@@ -159,7 +182,7 @@ test.describe('Phase 05 / R08-4: Standalone Shelf Reader Surface', () => {
     await expect(dialog).toBeHidden()
     await expect(trigger).toBeFocused()
     await expect(page.locator('.shelf-card')).toHaveCount(3)
-    await expect(page.locator('.shelf-card[data-year-month="2026-10"]').getByText('Active Study Focus')).toBeVisible()
+    await expect(page.locator('.shelf-card[data-year-month="2026-10"]').getByText('Active Focus', { exact: true })).toBeVisible()
 
     await page.keyboard.press('Enter')
     await expect(close).toBeFocused()
@@ -174,7 +197,7 @@ test.describe('Phase 05 / R08-4: Standalone Shelf Reader Surface', () => {
     await expect(dialog).toBeHidden()
     await expect(page.locator('.shelf-card')).toHaveCount(2)
     await expect(page.locator('.shelf-card[data-year-month="2026-10"]')).toHaveCount(0)
-    await expect(page.locator('.shelf-card[data-year-month="2026-09"]').getByText('Active Study Focus')).toBeVisible()
+    await expect(page.locator('.shelf-card[data-year-month="2026-09"]').getByText('Active Focus', { exact: true })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Shelf', level: 1 })).toBeFocused()
 
     // Exit callback works
@@ -207,7 +230,7 @@ test.describe('Phase 05 / R08-4: Standalone Shelf Reader Surface', () => {
     await focus.getByRole('radio', { name: 'No focus for now' }).check()
     await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
     await expect(trigger).toBeFocused()
-    await expect(page.locator('.shelf-card[data-year-month="2026-10"]').getByText('Active Study Focus')).toBeVisible()
+    await expect(page.locator('.shelf-card[data-year-month="2026-10"]').getByText('Active Focus', { exact: true })).toBeVisible()
     await expect(page.locator('.shelf-card[data-year-month="2026-07"]')).toHaveCount(0)
 
     await trigger.click()
@@ -218,12 +241,12 @@ test.describe('Phase 05 / R08-4: Standalone Shelf Reader Surface', () => {
     await expect(page.locator('.shelf-card')).toHaveCount(3)
     await expect(page.locator('.shelf-card[data-year-month="2026-10"]')).toHaveCount(0)
     await expect(page.locator('.shelf-card[data-year-month="2026-07"]')).toHaveAttribute('data-protected', 'true')
-    await expect(page.getByText('Active Study Focus', { exact: true })).toHaveCount(0)
+    await expect(page.getByText('Active Focus', { exact: true })).toHaveCount(0)
   })
 
   test('putting away the last Shelf month requires explicitly clearing Active Focus', async ({ page }) => {
     await page.goto(`${harnessRootUrl}?scenario=one-month`)
-    await page.getByRole('button', { name: /Set October 2026 as active study focus/i }).click()
+    await page.getByRole('button', { name: 'Set October 2026 as Active Focus' }).click()
     await page.getByRole('button', { name: 'Put away October 2026 from Shelf' }).click()
 
     const dialog = page.getByRole('dialog', { name: 'Put Away Active Focus' })
@@ -235,15 +258,15 @@ test.describe('Phase 05 / R08-4: Standalone Shelf Reader Surface', () => {
 
     await expect(dialog).toBeHidden()
     await expect(page.getByRole('heading', { name: 'Your Shelf is Empty' })).toBeVisible()
-    await expect(page.getByRole('region', { name: 'Active study focus outside Shelf' })).toHaveCount(0)
+    await expect(page.getByRole('region', { name: 'Active Focus outside Shelf' })).toHaveCount(0)
   })
 
   test('focus outside Shelf can be cleared and mobile reflow has no horizontal overflow or undersized targets', async ({ page }) => {
     await page.goto(`${harnessRootUrl}?scenario=focus-outside-shelf`)
 
-    const focusBanner = page.getByRole('region', { name: 'Active study focus outside Shelf' })
+    const focusBanner = page.getByRole('region', { name: 'Active Focus outside Shelf' })
     await expect(focusBanner).toBeVisible()
-    await focusBanner.getByRole('button', { name: 'Clear Focus' }).click()
+    await focusBanner.getByRole('button', { name: 'Clear Active Focus' }).click()
     await expect(focusBanner).not.toBeVisible()
 
     // Check no horizontal overflow on current viewport (covers Pixel 5 mobile project too)
@@ -261,5 +284,15 @@ test.describe('Phase 05 / R08-4: Standalone Shelf Reader Surface', () => {
     for (const h of buttonHeights) {
       expect(h).toBeGreaterThanOrEqual(44)
     }
+  })
+
+  test('shows an accessible completed/total Challenge count and true progress bar when supplied', async ({ page }) => {
+    await page.goto(`${harnessRootUrl}?scenario=one-month`)
+
+    const card = page.locator('.shelf-card[data-year-month="2026-10"]')
+    await expect(card.getByText('14 of 31 Challenges')).toBeVisible()
+    const progress = card.getByRole('progressbar', { name: 'Completion progress for October 2026' })
+    await expect(progress).toHaveAttribute('value', '14')
+    await expect(progress).toHaveAttribute('max', '31')
   })
 })

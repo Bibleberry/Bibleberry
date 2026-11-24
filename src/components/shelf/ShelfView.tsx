@@ -104,12 +104,12 @@ export function ShelfView({
         <section
           className="shelf-focus-banner"
           role="region"
-          aria-label="Active study focus outside Shelf"
+          aria-label="Active Focus outside Shelf"
         >
           <div className="shelf-focus-banner__content">
             <Compass size={18} aria-hidden="true" />
             <p className="shelf-focus-banner__text">
-              <strong>Active Study Focus:</strong> {activeFocusHeading} (studying in Library, not on
+              <strong>Active Focus:</strong> {activeFocusHeading} (studying in Library, not on
               Shelf)
             </p>
           </div>
@@ -118,7 +118,7 @@ export function ShelfView({
             className="shelf-btn shelf-btn--secondary"
             onClick={onClearFocus}
           >
-            Clear Focus
+            Clear Active Focus
           </button>
         </section>
       )}

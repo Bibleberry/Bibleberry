@@ -30,6 +30,13 @@ export interface ShelfMonthMetadata {
   readonly yearMonth: PublicationYearMonth | string
   readonly title?: string
   readonly subtitle?: string
+  readonly completionProgress?: ShelfCompletionProgress
+  readonly progressStatus?: 'loading' | 'unavailable'
+}
+
+export interface ShelfCompletionProgress {
+  readonly completedChallengeCount: number
+  readonly totalChallengeCount: number
 }
 
 export interface ShelfEntryViewModel {
@@ -43,6 +50,8 @@ export interface ShelfEntryViewModel {
   readonly isActiveFocus: boolean
   readonly statusLabel: string
   readonly protectionExplanation: string
+  readonly completionProgress: ShelfCompletionProgress | null
+  readonly progressStatus?: 'loading' | 'unavailable'
 }
 
 export interface ShelfViewModel {
@@ -119,26 +128,18 @@ function getStatusCopy(
   admissionKind: ShelfAdmissionKind,
   isProtected: boolean,
 ): { readonly statusLabel: string; readonly protectionExplanation: string } {
-  if (admissionKind === 'readerSelected') {
-    if (isProtected) {
-      return {
-        statusLabel: 'Saved to Shelf · Protected',
-        protectionExplanation:
-          'Chosen by you and protected from automatic rollover replacement.',
-      }
-    }
+  if (isProtected) {
     return {
-      statusLabel: 'Saved to Shelf',
-      protectionExplanation:
-        'Chosen by you. Rollover protection is currently off.',
+      statusLabel: 'Kept on Shelf',
+      protectionExplanation: 'Protected from automatic rollover replacement.',
     }
   }
 
-  if (isProtected) {
+  if (admissionKind === 'readerSelected') {
     return {
-      statusLabel: 'Added at rollover · Protected',
+      statusLabel: 'On Shelf',
       protectionExplanation:
-        'Automatically added at month rollover and protected by your choice.',
+        'Not kept yet. Keep it on Shelf to protect it from automatic rollover replacement.',
     }
   }
 
@@ -191,6 +192,13 @@ export function projectShelfViewModel(
         rawEntry.admissionKind,
         isProtected,
       )
+      const completionProgress = meta?.completionProgress
+      const hasValidCompletionProgress =
+        completionProgress !== undefined
+        && Number.isSafeInteger(completionProgress.completedChallengeCount)
+        && Number.isSafeInteger(completionProgress.totalChallengeCount)
+        && completionProgress.completedChallengeCount >= 0
+        && completionProgress.totalChallengeCount >= completionProgress.completedChallengeCount
 
       entries.push({
         yearMonth: ym,
@@ -203,9 +211,19 @@ export function projectShelfViewModel(
         isActiveFocus: validFocus === ym,
         statusLabel,
         protectionExplanation,
+        completionProgress: hasValidCompletionProgress ? completionProgress : null,
+        progressStatus: meta?.progressStatus,
       })
     }
   }
+
+  entries.sort((left, right) => {
+    if (left.isActiveFocus !== right.isActiveFocus) {
+      return left.isActiveFocus ? -1 : 1
+    }
+    if (left.yearMonth === right.yearMonth) return 0
+    return left.yearMonth > right.yearMonth ? -1 : 1
+  })
 
   const activeFocusOutsideShelf =
     validFocus !== null && !entries.some(entry => entry.yearMonth === validFocus)

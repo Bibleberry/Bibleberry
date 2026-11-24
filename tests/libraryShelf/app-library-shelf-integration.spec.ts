@@ -536,7 +536,7 @@ test.describe('Issue #227 [Velvet Badger]: Ordinary Reader Library & Shelf Integ
     const shelfMain = page.getByRole('main', { name: 'Shelf' })
     await expect(shelfMain.getByText('Steadfast Joy')).toBeVisible()
     await expect(shelfMain.getByText('Quiet Trust')).toHaveCount(0)
-    await expect(shelfMain.locator('[data-year-month="2026-10"]').getByText('Active Study Focus')).toBeVisible()
+    await expect(shelfMain.locator('[data-year-month="2026-10"]').getByText('Active Focus', { exact: true })).toBeVisible()
 
     // Verify 2026-09 participation and earned awards remain contract-valid and intact
     const participationAfterReplace = await page.evaluate(
@@ -555,7 +555,7 @@ test.describe('Issue #227 [Velvet Badger]: Ordinary Reader Library & Shelf Integ
 
     await page.reload({ waitUntil: 'domcontentloaded' })
     await expect(shelfMain.locator('.shelf-card')).toHaveCount(2)
-    await expect(shelfMain.getByText('Active Study Focus', { exact: true })).toHaveCount(0)
+    await expect(shelfMain.getByText('Active Focus', { exact: true })).toHaveCount(0)
     const persistedShelf = await page.evaluate(key => JSON.parse(window.localStorage.getItem(key)!).state, SHELF_STORAGE_KEY)
     expect(persistedShelf.activeFocusMonth).toBeNull()
     expect(persistedShelf.months).toEqual([
@@ -773,8 +773,10 @@ test.describe('Marble Harbor (#312): flag-on R06 Library and durable Shelf', () 
       await expect(shelf).toBeVisible()
       await expect(shelf.locator('.shelf-card')).toHaveCount(count)
       if (count) {
-        await expect(shelf.getByText('Active Study Focus', { exact: true })).toBeVisible()
-        await expect(shelf.getByRole('button', { name: 'Remove rollover protection for October 2026' })).toHaveAttribute('aria-pressed', 'true')
+        await expect(shelf.getByText('Active Focus', { exact: true })).toBeVisible()
+        await expect(shelf.getByText('Kept on Shelf', { exact: true })).toBeVisible()
+        await expect(shelf.locator('.shelf-card[data-protected="true"]')).toHaveCount(1)
+        await expect(shelf.getByRole('button', { name: /Remove rollover protection/ })).toHaveCount(0)
       }
 
       const foundations = entrance(page, 'foundations')
