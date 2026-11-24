@@ -1,21 +1,48 @@
 import { createServer, type ViteDevServer } from 'vite'
 import type { Page } from '@playwright/test'
 import { expect, test } from '../smoke/helpers/frameSafeTest.ts'
+import {
+  RESTRICTED_CARD_ART_SENTINEL,
+  RESTRICTED_CARD_IMAGE_URL,
+  RESTRICTED_MANUSCRIPT_SENTINEL,
+  SYNTHETIC_CARD_SVG,
+  awardId,
+  buildCurrentMonthProgressPayload,
+  buildDefaultCurrentMonthPayload,
+  buildDefaultHistoricalMonthPayload,
+  buildHistoricalMonthProgressPayload,
+  buildLibraryMonthsPayload,
+  buildMonthPayload,
+  buildNewsPayload,
+  buildUnauthorizedChallengeFixture,
+  challenge,
+  currentFullMonthAwardId,
+  currentMonthId,
+  currentMonthMultiScreenChallenge,
+  currentMonthMultiScreenDay,
+  currentMonthMultiScreenDocumentId,
+  currentMonthMultiScreenSlug,
+  currentMonthTitle,
+  currentThematicAwardId,
+  currentThematicCardImageUrl,
+  currentThematicDiscovery,
+  currentThematicEarnedCard,
+  documentId,
+  monthId,
+  monthTitle,
+  navigationKey,
+  participationKey,
+  serverContext,
+  shelfKey,
+  teachingSlug,
+  todayChallenge,
+  todayDay,
+  todayDocumentId,
+  todayMultiScreenChallenge,
+  todaySlug,
+  unreleasedFutureSlug,
+} from './fixtures/m1aGatewayFixtures.ts'
 
-const monthId = '2026-10'
-const monthTitle = 'October test publication'
-const currentMonthId = '2026-11'
-const currentMonthTitle = 'November test publication'
-const todayDate = '2026-11-15'
-const todayDay = 15
-const todaySlug = 'november-challenge-15'
-const todayDocumentId = 'november-reading-15'
-const serverContext = {
-  authorizedLocalDate: todayDate,
-  effectiveTimeZone: 'America/New_York',
-}
-const navigationKey = 'bibleberry-r06-navigation-v1'
-const shelfKey = 'bibleberry-guest-shelf-v1'
 let enabledServer: ViteDevServer
 let disabledServer: ViteDevServer
 
@@ -49,235 +76,55 @@ function selectTab(page: Page, name: string) {
   return primaryNav(page).getByRole('button', { name, exact: true }).click()
 }
 
-const teachingSlug = 'test-challenge-25'
-const documentId = 'october-reading-25'
-const participationKey = 'bibleberry-reader-participation-v1'
-const awardId = `card:monthly:${monthId}:october-reading`
-const discovery = {
-  discoveryId: `discovery:${monthId}:october-reading`, title: 'October reading', kind: 'thematic', targetCount: 1,
-}
-const challenge = {
-  calendarSlot: { monthId, documentId: `month-${monthId}`, dayOfMonth: 25, publicationDate: `${monthId}-25` },  _id: documentId,
-  _type: 'challenge',
-  slug: teachingSlug,
-  title: 'Authorized October teaching',
-  challengeType: 'teaching',
-  series: { _id: 'october-series', title: 'October series', slug: 'october-series' },
-  sequence: 25,
-  releaseAt: '2026-10-25T00:00:00Z',
-  primaryScripture: { reference: 'John 1:1', translation: 'WEB', textStatus: 'referenceOnly', practiceStatus: 'notConfigured' },
-  screens: [1, 2].map(step => ({
-    _key: `step-${step}`,
-    _type: 'challengeScreen',
-    screenLabel: `Step ${step}`,
-    heading: `Reading screen ${step}`,
-    blocks: [{ _key: 'text', _type: 'statementBlock', text: 'Synthetic teaching body.' }],
-  })),
-  companionLinks: [],
-  editorialEligibility: { adaptationReviewed: true, reviewedAt: '2026-10-01T12:00:00Z' },
-}
-
-const todayChallenge = {
-  calendarSlot: { monthId: currentMonthId, documentId: `month-${currentMonthId}`, dayOfMonth: todayDay, publicationDate: todayDate },
-  _id: todayDocumentId,
-  _type: 'challenge',
-  slug: todaySlug,
-  title: 'Authorized November teaching',
-  challengeType: 'teaching',
-  series: { _id: 'november-series', title: 'November series', slug: 'november-series' },
-  sequence: todayDay,
-  releaseAt: '2026-11-15T00:00:00Z',
-  primaryScripture: { reference: 'Psalm 23:1', translation: 'WEB', textStatus: 'referenceOnly', practiceStatus: 'notConfigured' },
-  screens: [1, 2].map(step => ({
-    _key: `nov-step-${step}`,
-    _type: 'challengeScreen',
-    screenLabel: `Step ${step}`,
-    heading: `November screen ${step}`,
-    blocks: [{ _key: 'text', _type: 'statementBlock', text: 'Synthetic November teaching body.' }],
-  })),
-  companionLinks: [],
-  editorialEligibility: { adaptationReviewed: true, reviewedAt: '2026-11-01T12:00:00Z' },
-}
-
-function buildMonthPayload(options: {
-  yearMonth: string
-  year: number
-  month: number
-  daysInMonth: number
-  phase: 'active' | 'historical'
-  title: string
-  context?: typeof serverContext
-  slotOverride?: (dayOfMonth: number, date: string) => Record<string, unknown>
-}) {
-  const introductionScreen = (id: string, title: string) => ({
-    id,
-    title,
-    blocks: [{ _key: id, _type: 'statementBlock', text: 'Synthetic test text.' }],
-  })
-  const slots = Array.from({ length: options.daysInMonth }, (_, index) => {
-    const dayOfMonth = index + 1
-    const date = `${options.yearMonth}-${String(dayOfMonth).padStart(2, '0')}`
-    if (options.slotOverride) {
-      return options.slotOverride(dayOfMonth, date)
-    }
-    return {
-      dayOfMonth,
-      date,
-      availability: 'available',
-      title: `Test Challenge ${dayOfMonth}`,
-      slug: `test-challenge-${dayOfMonth}`,
-      challengeId: dayOfMonth === 25 && options.yearMonth === monthId ? `cms:${documentId}` : `cms:${options.yearMonth}-challenge-${dayOfMonth}`,
-      challengeType: 'teaching',
-    }
-  })
-  const activeCount = slots.filter(slot => slot.availability !== 'unavailable').length
-  return {
-    ok: true,
-    serverContext: options.context ?? serverContext,
-    month: {
-      monthId: options.yearMonth,
-      documentId: `month-${options.yearMonth}`,
-      year: options.year,
-      month: options.month,
-      daysInMonth: options.daysInMonth,
-      phase: options.phase,
-      rosterVersion: 1,
-      totalChallenges: activeCount,
-      title: options.title,
-      introduction: {
-        version: `intro-${options.yearMonth}-v1`,
-        previewScreens: [introductionScreen('overview', 'Test month overview')],
-        welcomeScreen: { ...introductionScreen('welcome', 'Test month welcome'), ctaLabel: 'Begin the Month' },
-      },
-      slots,
-      discoveries: options.yearMonth === monthId ? [discovery] : [],
-    },
-  }
-}
-
 async function participation(page: Page) {
   return page.evaluate(key => JSON.parse(localStorage.getItem(key) ?? '{}').data, participationKey)
 }
 
-async function mockGateway(page: Page) {
+async function mockGateway(
+  page: Page,
+  options?: { readonly todayChallengeVariant?: typeof todayChallenge },
+) {
+  const activeTodayChallenge = options?.todayChallengeVariant ?? todayChallenge
+  await page.route(currentThematicCardImageUrl, route =>
+    route.fulfill({
+      status: 200,
+      contentType: 'image/svg+xml',
+      body: SYNTHETIC_CARD_SVG,
+    }),
+  )
   await page.route(`**/api/challenges/${teachingSlug}`, route => route.fulfill({ json: { ok: true, challenge } }))
-  await page.route(`**/api/challenges/${todaySlug}`, route => route.fulfill({ json: { ok: true, challenge: todayChallenge } }))
+  await page.route(`**/api/challenges/${todaySlug}`, route =>
+    route.fulfill({ json: { ok: true, challenge: activeTodayChallenge } }),
+  )
+  await page.route(`**/api/challenges/${currentMonthMultiScreenSlug}`, route =>
+    route.fulfill({ json: { ok: true, challenge: currentMonthMultiScreenChallenge } }),
+  )
   await page.route('**/api/challenges', route => route.fulfill({
     json: {
       ok: true,
-      challenges: [challenge, todayChallenge],
+      challenges: [challenge, activeTodayChallenge, currentMonthMultiScreenChallenge],
     },
   }))
-  await page.route('**/api/library/months**', route => route.fulfill({
-    json: {
-      ok: true,
-      serverContext,
-      items: [{ yearMonth: monthId, year: 2026, month: 10, title: monthTitle }],
-      page: { limit: 12, hasMore: false, nextCursor: null },
-    },
-  }))
-  await page.route('**/api/news**', route => route.fulfill({
-    json: {
-      ok: true,
-      serverContext,
-      articles: [{
-        id: 'news-test',
-        documentId: 'news-test',
-        category: 'announcement',
-        title: 'Test ministry announcement',
-        summary: 'Synthetic news for the shell smoke.',
-        publishedOn: '2026-11-10',
-      }].filter(article => {
-        const category = new URL(route.request().url()).searchParams.get('category')
-        return !category || category === article.category
-      }),
-    },
-  }))
-  await page.route(`**/api/months/${monthId}`, route => route.fulfill({
-    json: buildMonthPayload({
-      yearMonth: monthId,
-      year: 2026,
-      month: 10,
-      daysInMonth: 31,
-      phase: 'historical',
-      title: monthTitle,
-    }),
-  }))
-  await page.route(`**/api/months/${currentMonthId}`, route => route.fulfill({
-    json: buildMonthPayload({
-      yearMonth: currentMonthId,
-      year: 2026,
-      month: 11,
-      daysInMonth: 30,
-      phase: 'active',
-      title: currentMonthTitle,
-      slotOverride(dayOfMonth, date) {
-        if (dayOfMonth === todayDay) {
-          return {
-            dayOfMonth,
-            date,
-            availability: 'available',
-            title: todayChallenge.title,
-            slug: todaySlug,
-            challengeId: `cms:${todayDocumentId}`,
-            challengeType: 'teaching',
-          }
-        }
-        if (dayOfMonth > todayDay) {
-          return {
-            dayOfMonth,
-            date,
-            availability: 'comingSoon',
-            title: `Upcoming November Challenge ${dayOfMonth}`,
-          }
-        }
-        return {
-          dayOfMonth,
-          date,
-          availability: 'available',
-          title: `November Challenge ${dayOfMonth}`,
-          slug: `november-challenge-${dayOfMonth}`,
-          challengeId: `cms:november-reading-${dayOfMonth}`,
-          challengeType: 'teaching',
-        }
-      },
-    }),
-  }))
+  await page.route('**/api/library/months**', route =>
+    route.fulfill({ json: buildLibraryMonthsPayload() }),
+  )
+  await page.route('**/api/news**', route => {
+    const category = new URL(route.request().url()).searchParams.get('category')
+    return route.fulfill({ json: buildNewsPayload(category) })
+  })
+  await page.route(`**/api/months/${monthId}`, route =>
+    route.fulfill({ json: buildDefaultHistoricalMonthPayload() }),
+  )
+  await page.route(`**/api/months/${currentMonthId}`, route =>
+    route.fulfill({ json: buildDefaultCurrentMonthPayload() }),
+  )
   await page.route(`**/api/months/${currentMonthId}/progress`, route => {
     const ids = route.request().postDataJSON().completedChallengeIds as string[]
-    return route.fulfill({
-      json: {
-        ok: true,
-        serverContext,
-        monthId: currentMonthId,
-        rosterVersion: 1,
-        completedInMonthCount: ids.length,
-        totalChallenges: 30,
-        thematicEarnedCount: 0,
-        thematicTotalCount: 0,
-        discoveries: [],
-      },
-    })
+    return route.fulfill({ json: buildCurrentMonthProgressPayload(ids) })
   })
   await page.route(`**/api/months/${monthId}/progress`, route => {
     const ids = route.request().postDataJSON().completedChallengeIds as string[]
-    const earned = ids.includes(`cms:${documentId}`)
-    return route.fulfill({
-      json: {
-        ok: true,
-        serverContext,
-        monthId,
-        rosterVersion: 1,
-        completedInMonthCount: ids.length,
-        totalChallenges: 31,
-        thematicEarnedCount: Number(earned),
-        thematicTotalCount: 1,
-        discoveries: [{
-          ...discovery, achievedCount: Number(earned), isEarned: earned,
-          ...(earned ? { awardId, reservedCardId: 'card-october-reading' } : {}),
-        }],
-      },
-    })
+    return route.fulfill({ json: buildHistoricalMonthProgressPayload(ids) })
   })
 }
 
@@ -291,17 +138,27 @@ test.afterAll(async () => {
 })
 
 test.beforeEach(async ({ page }) => {
+  // Keep Today’s bootstrap month deterministic while the gateway supplies the authorized date.
+  await page.clock.setFixedTime(new Date('2026-11-10T12:00:00Z'))
   await page.route('https://**', route => route.abort())
 })
 
 test('opens the legacy reader with the flag off and never initializes the R06 navigation session', async ({ page }) => {
+  const r06MonthRequests: string[] = []
+  await page.route('**/api/months/**', async route => {
+    r06MonthRequests.push(route.request().url())
+    await route.abort()
+  })
   await page.addInitScript(() => {
     localStorage.setItem('bibleberry-prototype-v1', JSON.stringify({ onboarded: true, appearance: 'system' }))
   })
   await page.goto(readerUrl(disabledServer))
+  await expect(page.getByRole('button', { name: 'Foundations', exact: true }).filter({ visible: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Archive', exact: true }).filter({ visible: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Collections', exact: true })).toHaveCount(0)
+  await expect(page.getByTestId('r06-today-landing')).toHaveCount(0)
   expect(await page.evaluate(key => sessionStorage.getItem(key), navigationKey)).toBeNull()
+  expect(r06MonthRequests).toEqual([])
 })
 
 test('uses one responsive and keyboard-accessible set of four primary controls', async ({ page }) => {
@@ -1013,3 +870,295 @@ test('prevents a stale in-flight Today gateway response from overriding a newer 
   await expect(page.getByText('Stale November response')).toHaveCount(0)
 })
 
+test('verifies 3-screen Today persistence across reload, non-completion on the final screen, Start from Beginning, and earned-card idempotence on Read Again', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 640 })
+  await mockGateway(page, { todayChallengeVariant: todayMultiScreenChallenge })
+  await page.goto(readerUrl())
+
+  const primaryCta = page.getByTestId('today-primary-cta')
+  const primaryStatus = page.getByTestId('today-primary-status')
+  const position = page.getByRole('progressbar', { name: 'Challenge screen position' })
+  const button = (name: string) => page.getByRole('button', { name, exact: true })
+
+  await expect(primaryStatus).toHaveText('Available Today')
+  await expect(primaryCta).toHaveAttribute('data-entry', 'start')
+
+  // Open 3-screen Today Challenge and advance to intermediate Screen 2 of 3
+  await primaryCta.click()
+  await expect(position).toHaveAttribute('aria-valuetext', 'Screen 1 of 3')
+  await expect(primaryNav(page)).toBeHidden()
+  await button('Next').click()
+  await expect(position).toHaveAttribute('aria-valuetext', 'Screen 2 of 3')
+  await expect(page.getByRole('heading', { name: 'November screen 2' })).toBeVisible()
+
+  // Reloading mid-Challenge reauthorizes via gateway and restores Screen 2 of 3 with zero credit
+  await page.reload()
+  await expect(position).toHaveAttribute('aria-valuetext', 'Screen 2 of 3')
+  await expect(primaryNav(page)).toBeHidden()
+  expect((await participation(page)).completedChallenges).toEqual({})
+  expect((await participation(page)).earnedAwards).toEqual({})
+
+  // Reaching the final screen (Screen 3 of 3) without tapping Finish never marks completion or awards
+  await button('Next').click()
+  await expect(position).toHaveAttribute('aria-valuetext', 'Screen 3 of 3')
+  await expect(button('Finish')).toBeVisible()
+  expect((await participation(page)).completedChallenges).toEqual({})
+  expect((await participation(page)).earnedAwards).toEqual({})
+
+  // Exiting from the final screen returns to Today In Progress, and reloading Today preserves resume at Screen 3 of 3
+  await button('Exit').click()
+  await expect(page.getByTestId('r06-today-landing')).toBeVisible()
+  await expect(primaryStatus).toHaveText('In Progress')
+  await expect(primaryCta).toHaveAttribute('data-entry', 'resume')
+  await page.reload()
+  await expect(primaryStatus).toHaveText('In Progress')
+  await expect(primaryCta).toHaveText('Resume Today’s Reading')
+  expect((await participation(page)).completedChallenges).toEqual({})
+  expect((await participation(page)).earnedAwards).toEqual({})
+
+  await primaryCta.click()
+  await expect(position).toHaveAttribute('aria-valuetext', 'Screen 3 of 3')
+
+  // Start from Beginning resets only reading position back to Screen 1 of 3
+  await button('Start from Beginning').click()
+  await expect(position).toHaveAttribute('aria-valuetext', 'Screen 1 of 3')
+  await expect.poll(async () => (await participation(page)).inProgressChallenges[`cms:${todayDocumentId}`]?.screenId).toBe('nov-step-1')
+
+  // Advance through all 3 screens and explicitly Finish -> returns to Today and reconciles the earned thematic Card
+  await button('Next').click()
+  await button('Next').click()
+  await expect(position).toHaveAttribute('aria-valuetext', 'Screen 3 of 3')
+  await button('Finish').click()
+
+  await expect(page.getByTestId('r06-today-landing')).toBeVisible()
+  await expect(primaryStatus).toHaveText('Completed')
+  await expect(primaryCta).toHaveAttribute('data-entry', 'readAgain')
+  await expect(primaryCta).toHaveText('Read Again')
+
+  await expect.poll(async () => Object.keys((await participation(page)).earnedAwards)).toEqual([currentThematicAwardId])
+  const afterFirstFinish = await participation(page)
+  expect(Object.keys(afterFirstFinish.completedChallenges)).toEqual([`cms:${todayDocumentId}`])
+  expect(afterFirstFinish.earnedAwards[currentThematicAwardId].earnedOn).toBe(serverContext.authorizedLocalDate)
+  expect(afterFirstFinish.earnedAwards[currentThematicAwardId].earnedCard?.title).toBe(currentThematicEarnedCard.title)
+  expect(afterFirstFinish.earnedAwards[currentFullMonthAwardId]).toBeUndefined()
+
+  // Partial reread + Exit preserves Completed status on Today without regression or duplicate credit
+  await primaryCta.click()
+  await expect(position).toHaveAttribute('aria-valuetext', 'Screen 1 of 3')
+  await button('Next').click()
+  await expect(position).toHaveAttribute('aria-valuetext', 'Screen 2 of 3')
+  await button('Exit').click()
+  await expect(primaryStatus).toHaveText('Completed')
+  await expect(primaryCta).toHaveAttribute('data-entry', 'readAgain')
+
+  // Full Read Again + Finish preserves unique completion and earned Card records unchanged
+  await primaryCta.click()
+  await expect(position).toHaveAttribute('aria-valuetext', 'Screen 1 of 3')
+  await button('Next').click()
+  await button('Next').click()
+  await button('Finish').click()
+  await expect(primaryStatus).toHaveText('Completed')
+  const afterReread = await participation(page)
+  expect(afterReread.completedChallenges).toEqual(afterFirstFinish.completedChallenges)
+  expect(afterReread.earnedAwards).toEqual(afterFirstFinish.earnedAwards)
+})
+
+test('completes the connected M1a current-Month walkthrough with context restoration, multi-tab switching, and browser Back/Forward without stranding on unavailable', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 640 })
+  await mockGateway(page)
+  await page.goto(readerUrl())
+
+  // Enter the dedicated current Month Screen from Today's compact month link
+  const currentMonthLink = page.getByTestId('today-current-month-link')
+  await expect(currentMonthLink).toHaveAttribute('data-year-month', currentMonthId)
+  await currentMonthLink.click()
+  await expect(page).toHaveURL(new RegExp(`#/month/${currentMonthId}$`))
+
+  // Complete the one-time Monthly Introduction on first intentional Month Screen visit
+  await expect(page.getByRole('heading', { name: 'Test month overview' })).toBeVisible()
+  await expect(primaryNav(page)).toBeHidden()
+  await page.getByRole('button', { name: 'Continue', exact: true }).click()
+  await page.getByRole('button', { name: 'Begin the Month' }).click()
+  await expect(page.getByRole('heading', { name: currentMonthTitle, exact: true })).toBeVisible()
+  await expect(primaryNav(page)).toBeVisible()
+
+  // Before finishing: ticker is 0 of 30, unearned discoveries show title + progress only with zero Card art, and Coming Soon is locked
+  const ticker = page.getByLabel('Monthly completion progress')
+  await expect(ticker).toContainText('0 of 30')
+  await expect(page.getByRole('progressbar', { name: 'November reading progress' })).toHaveAttribute('aria-valuetext', '0 of 1')
+  await expect(page.getByRole('progressbar', { name: 'Complete November Study progress' })).toHaveAttribute('aria-valuetext', '0 of 30')
+  await expect(page.locator('.month-discovery__earned-card')).toHaveCount(0)
+  await expect(page.locator('img[src*="m1a-november-card"]')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /Upcoming November Challenge 16/ })).toHaveCount(0)
+
+  // Scroll to an available 3-screen current-month Challenge (Day 14), open it, and explicitly Finish
+  const viewport = page.locator('.r06-viewport')
+  const day14Challenge = page.getByRole('button', { name: /November Challenge 14/ })
+  await day14Challenge.scrollIntoViewIfNeeded()
+  await day14Challenge.focus()
+  const scrollTop = await viewport.evaluate(element => element.scrollTop)
+  expect(scrollTop).toBeGreaterThan(200)
+
+  await day14Challenge.press('Enter')
+  const position = page.getByRole('progressbar', { name: 'Challenge screen position' })
+  await expect(position).toHaveAttribute('aria-valuetext', 'Screen 1 of 3')
+  await expect(primaryNav(page)).toBeHidden()
+  await page.getByRole('button', { name: 'Next', exact: true }).click()
+  await expect(position).toHaveAttribute('aria-valuetext', 'Screen 2 of 3')
+  await page.getByRole('button', { name: 'Next', exact: true }).click()
+  await expect(position).toHaveAttribute('aria-valuetext', 'Screen 3 of 3')
+  await page.getByRole('button', { name: 'Finish', exact: true }).click()
+
+  // Month-origin Finish returns to the same Month Screen (not Today), restores scroll & focus, and silently updates progress
+  await expect(page).toHaveURL(new RegExp(`#/month/${currentMonthId}$`))
+  await expect(page.getByRole('heading', { name: currentMonthTitle, exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Test month overview' })).toHaveCount(0)
+  await expect(day14Challenge).toBeFocused()
+  await expect(day14Challenge).toHaveAccessibleName(/Completed/)
+  await expect.poll(() => viewport.evaluate(element => element.scrollTop)).toBe(scrollTop)
+  await expect(ticker).toContainText('1 of 30')
+  await expect(page.getByRole('progressbar', { name: 'November reading progress' })).toHaveAttribute('aria-valuetext', '1 of 1')
+  await expect(page.getByRole('button', { name: /Open earned Scripture card: November Reading Card/ })).toBeVisible()
+  await expect(page.locator('.month-discovery--full .month-discovery__earned-card')).toHaveCount(0)
+
+  // Tab switching across Library, Collections (Field Notebook), More, and back to Today restores the nested Month Screen & scroll
+  await selectTab(page, 'Library')
+  await expect(page.getByRole('main', { name: 'Shelf', exact: true })).toBeVisible()
+  await selectTab(page, 'Collections')
+  await page.getByRole('button', { name: 'Field Notebook' }).click()
+  await expect(page.getByRole('heading', { name: 'Earned Scripture Cards', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '1 Distinct Challenge Completed' })).toBeVisible()
+  await page.getByRole('button', { name: 'All Earned Cards' }).click()
+  await expect(page.getByText(currentThematicEarnedCard.title)).toBeVisible()
+  await selectTab(page, 'More')
+  await expect(page.getByRole('heading', { name: 'More', exact: true })).toBeVisible()
+
+  await selectTab(page, 'Today')
+  await expect(page).toHaveURL(new RegExp(`#/month/${currentMonthId}$`))
+  await expect(page.getByRole('heading', { name: currentMonthTitle, exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /unavailable/i })).toHaveCount(0)
+  await expect.poll(() => viewport.evaluate(element => element.scrollTop)).toBe(scrollTop)
+
+  // Re-tapping the active Today tab resets to Today landing; Back/Forward and reload never strand legitimate visits on unavailable
+  await selectTab(page, 'Today')
+  await expect(page.getByTestId('r06-today-landing')).toBeVisible()
+  await expect.poll(() => viewport.evaluate(element => element.scrollTop)).toBe(0)
+
+  await page.goBack()
+  await expect(page).toHaveURL(new RegExp(`#/month/${currentMonthId}$`))
+  await expect(page.getByRole('heading', { name: currentMonthTitle, exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /unavailable/i })).toHaveCount(0)
+
+  await page.reload()
+  await expect(page.getByRole('heading', { name: currentMonthTitle, exact: true })).toBeVisible()
+  await expect(ticker).toContainText('1 of 30')
+  await expect.poll(() => viewport.evaluate(element => element.scrollTop)).toBe(scrollTop)
+
+  await page.goForward()
+  await expect(page.getByTestId('r06-today-landing')).toBeVisible()
+  await page.goBack()
+  await expect(page.getByRole('heading', { name: currentMonthTitle, exact: true })).toBeVisible()
+})
+
+test('fails closed on withdrawn and unauthorized Today or Month Challenges without leaking manuscript bodies, unearned card art, completions, or awards', async ({ page }) => {
+  await mockGateway(page)
+
+  // Today's Challenge is withdrawn (404 neutral gateway response); Day 14 returns an unreviewed payload; Day 16 is unreleased (404);
+  // progress attempts to leak unearned Card metadata and image URL on an unearned discovery
+  await page.route(`**/api/challenges/${todaySlug}`, route =>
+    route.fulfill({ status: 404, json: { ok: false, error: 'Not found' } }),
+  )
+  await page.route(`**/api/challenges/${currentMonthMultiScreenSlug}`, route =>
+    route.fulfill({
+      json: {
+        ok: true,
+        challenge: buildUnauthorizedChallengeFixture({
+          slug: currentMonthMultiScreenSlug,
+          documentId: currentMonthMultiScreenDocumentId,
+          dayOfMonth: currentMonthMultiScreenDay,
+        }),
+      },
+    }),
+  )
+  await page.route(`**/api/challenges/${unreleasedFutureSlug}`, route =>
+    route.fulfill({ status: 404, json: { ok: false, error: 'Not found' } }),
+  )
+  await page.route(`**/api/months/${currentMonthId}/progress`, route =>
+    route.fulfill({
+      json: {
+        ok: true,
+        serverContext,
+        monthId: currentMonthId,
+        rosterVersion: 1,
+        completedInMonthCount: 0,
+        totalChallenges: 30,
+        thematicEarnedCount: 0,
+        thematicTotalCount: 1,
+        discoveries: [
+          {
+            ...currentThematicDiscovery,
+            achievedCount: 0,
+            isEarned: false,
+            awardId: currentThematicAwardId,
+            earnedCard: {
+              ...currentThematicEarnedCard,
+              imageUrl: RESTRICTED_CARD_IMAGE_URL,
+              accessibleTranscription: RESTRICTED_CARD_ART_SENTINEL,
+            },
+          },
+        ],
+      },
+    }),
+  )
+
+  await page.goto(readerUrl())
+  await page.getByTestId('today-primary-cta').click()
+
+  // Withdrawn Today Challenge fails closed neutrally with zero restricted body, card art, or Finish control
+  await expect(page.getByRole('heading', { name: 'Challenge not found' })).toBeVisible()
+  await expect(page.getByText('Synthetic November teaching body.')).toHaveCount(0)
+  await expect(page.getByText(RESTRICTED_MANUSCRIPT_SENTINEL)).toHaveCount(0)
+  await expect(page.getByText(RESTRICTED_CARD_ART_SENTINEL)).toHaveCount(0)
+  await expect(page.locator('img[src*="cdn.sanity.io"]')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Finish', exact: true })).toHaveCount(0)
+
+  await page.reload()
+  await expect(page.getByRole('heading', { name: 'Challenge unavailable' })).toBeVisible()
+  await page.getByRole('button', { name: 'Return to Today' }).click()
+  await expect(page.getByTestId('r06-today-landing')).toBeVisible()
+
+  // Month Screen rejects leaked unearned Card art, and opening an unauthorized Challenge withholds restricted manuscript text
+  await page.getByTestId('today-current-month-link').click()
+  await page.getByRole('button', { name: 'Continue', exact: true }).click()
+  await page.getByRole('button', { name: 'Begin the Month' }).click()
+  await expect(page.getByText(RESTRICTED_CARD_ART_SENTINEL)).toHaveCount(0)
+  await expect(page.locator(`img[src="${RESTRICTED_CARD_IMAGE_URL}"]`)).toHaveCount(0)
+  await expect(page.locator('.month-discovery__earned-card')).toHaveCount(0)
+
+  await page.getByRole('button', { name: /November Challenge 14/ }).click()
+
+  await expect(page.getByRole('heading', { name: 'Challenge content unavailable' })).toBeVisible()
+  await expect(page.getByText(RESTRICTED_MANUSCRIPT_SENTINEL)).toHaveCount(0)
+  await expect(page.getByText(RESTRICTED_CARD_ART_SENTINEL)).toHaveCount(0)
+  await expect(page.locator('img[src*="cdn.sanity.io"]')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Finish', exact: true })).toHaveCount(0)
+
+  await page.reload()
+  await expect(page.getByRole('heading', { name: 'Challenge unavailable' })).toBeVisible()
+  await expect(page.getByText(RESTRICTED_MANUSCRIPT_SENTINEL)).toHaveCount(0)
+  await page.getByRole('button', { name: 'Back', exact: true }).click()
+  await expect(page.getByRole('heading', { name: currentMonthTitle, exact: true })).toBeVisible()
+
+  // Direct hash navigation to an unreleased comingSoon slug fails closed neutrally and returns to Today
+  await page.evaluate(slug => {
+    window.location.hash = `#/challenge/${slug}`
+  }, unreleasedFutureSlug)
+  await expect(page.getByRole('heading', { name: 'Challenge unavailable' })).toBeVisible()
+  await expect(page.getByText(RESTRICTED_MANUSCRIPT_SENTINEL)).toHaveCount(0)
+  await page.getByRole('button', { name: 'Return to Today' }).click()
+  await expect(page.getByTestId('r06-today-landing')).toBeVisible()
+
+  const stored = await participation(page)
+  expect(stored?.completedChallenges ?? {}).toEqual({})
+  expect(stored?.earnedAwards ?? {}).toEqual({})
+})
