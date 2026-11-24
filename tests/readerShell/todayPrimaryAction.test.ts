@@ -15,6 +15,7 @@ import type {
 } from '../../src/participation/types.ts'
 import {
   deriveTodayPrimaryAction,
+  loadAuthorizedTodayMonth,
   type TodayPrimaryActionInput,
 } from '../../src/readerShell/today/index.ts'
 
@@ -411,3 +412,254 @@ describe('Amber Causeway — Today primary action projection', () => {
     })
   })
 })
+
+describe('Opal Lantern — Gateway month-boundary recovery (loadAuthorizedTodayMonth)', () => {
+  const NOV_22 = monthDetail([available(21, 'nov21'), available(22, 'nov22'), comingSoon(23)], '2026-11', {
+    title: 'November Theme',
+    phase: 'active',
+  })
+  const DEC_01 = monthDetail([available(1, 'dec1', '2026-12'), comingSoon(2, '2026-12')], '2026-12', {
+    title: 'December Theme',
+    phase: 'active',
+  })
+
+  it('returns the initial Month directly when ready and its authorizedLocalDate matches the bootstrap month', async () => {
+    const monthCalls: Array<{ ym: string; tz?: string }> = []
+    let newsCalls = 0
+
+    const monthResult = await loadAuthorizedTodayMonth({
+      bootstrapYearMonth: '2026-11',
+      timeZone: 'America/New_York',
+      monthProvider: {
+        async loadMonth(yearMonth, options) {
+          monthCalls.push({ ym: yearMonth, tz: options?.timeZone })
+          return ready(NOV_22, '2026-11-22')
+        },
+        async loadNews() {
+          newsCalls += 1
+          return { status: 'notFound', source: 'gateway' }
+        },
+      },
+    })
+
+    assert.equal(monthCalls.length, 1)
+    assert.deepEqual(monthCalls[0], { ym: '2026-11', tz: 'America/New_York' })
+    assert.equal(newsCalls, 0)
+    const action = deriveTodayPrimaryAction({ currentMonth: monthResult, participationData: empty })
+    assert.equal(action.primary.status, 'challenge')
+    if (action.primary.status === 'challenge') {
+      assert.equal(action.primary.challenge.challengeId, cmsId('nov22'))
+    }
+    assert.deepEqual(action.currentMonthLink, { type: 'openMonth', yearMonth: '2026-11' })
+  })
+
+  it('issues at most one corrected Month request when initial Month is ready but authorizedLocalDate is in an adjacent month', async () => {
+    const monthCalls: Array<{ ym: string; tz?: string }> = []
+    let newsCalls = 0
+    const novHistorical = monthDetail([available(30, 'nov30', '2026-11')], '2026-11', {
+      phase: 'historical',
+      title: 'November Historical',
+    })
+
+    const monthResult = await loadAuthorizedTodayMonth({
+      bootstrapYearMonth: '2026-11',
+      timeZone: 'Pacific/Auckland',
+      monthProvider: {
+        async loadMonth(yearMonth, options) {
+          monthCalls.push({ ym: yearMonth, tz: options?.timeZone })
+          if (yearMonth === '2026-11') {
+            return {
+              status: 'ready',
+              month: novHistorical,
+              serverContext: { authorizedLocalDate: '2026-12-01', effectiveTimeZone: 'Pacific/Auckland' },
+              source: 'gateway',
+            }
+          }
+          return {
+            status: 'ready',
+            month: DEC_01,
+            serverContext: { authorizedLocalDate: '2026-12-01', effectiveTimeZone: 'Pacific/Auckland' },
+            source: 'gateway',
+          }
+        },
+        async loadNews() {
+          newsCalls += 1
+          return { status: 'notFound', source: 'gateway' }
+        },
+      },
+    })
+
+    assert.deepEqual(monthCalls, [
+      { ym: '2026-11', tz: 'Pacific/Auckland' },
+      { ym: '2026-12', tz: 'Pacific/Auckland' },
+    ])
+    assert.equal(newsCalls, 0)
+
+    const action = deriveTodayPrimaryAction({ currentMonth: monthResult, participationData: empty })
+    assert.equal(action.primary.status, 'challenge')
+    if (action.primary.status === 'challenge') {
+      assert.equal(action.primary.challenge.challengeId, cmsId('dec1'))
+      assert.equal(action.primary.challenge.publicationDate, '2026-12-01')
+    }
+    assert.deepEqual(action.currentMonthLink, { type: 'openMonth', yearMonth: '2026-12' })
+    assert.equal(JSON.stringify(action).includes('nov30'), false)
+  })
+
+  it('recovers from an initial 404 without serverContext via validated loadNews() context that identifies a different month', async () => {
+    const monthCalls: Array<{ ym: string; tz?: string }> = []
+    const newsCalls: Array<{ tz?: string }> = []
+
+    const monthResult = await loadAuthorizedTodayMonth({
+      bootstrapYearMonth: '2026-12',
+      timeZone: 'America/Los_Angeles',
+      monthProvider: {
+        async loadMonth(yearMonth, options) {
+          monthCalls.push({ ym: yearMonth, tz: options?.timeZone })
+          if (yearMonth === '2026-12') {
+            return { status: 'notFound', source: 'gateway' }
+          }
+          return {
+            status: 'ready',
+            month: NOV_22,
+            serverContext: { authorizedLocalDate: '2026-11-22', effectiveTimeZone: 'America/Los_Angeles' },
+            source: 'gateway',
+          }
+        },
+        async loadNews(options) {
+          newsCalls.push({ tz: options?.timeZone })
+          return {
+            status: 'ready',
+            articles: [],
+            serverContext: { authorizedLocalDate: '2026-11-22', effectiveTimeZone: 'America/Los_Angeles' },
+            source: 'gateway',
+          }
+        },
+      },
+    })
+
+    assert.deepEqual(monthCalls, [
+      { ym: '2026-12', tz: 'America/Los_Angeles' },
+      { ym: '2026-11', tz: 'America/Los_Angeles' },
+    ])
+    assert.deepEqual(newsCalls, [{ tz: 'America/Los_Angeles' }])
+
+    const action = deriveTodayPrimaryAction({ currentMonth: monthResult, participationData: empty })
+    assert.equal(action.primary.status, 'challenge')
+    if (action.primary.status === 'challenge') {
+      assert.equal(action.primary.challenge.challengeId, cmsId('nov22'))
+    }
+    assert.deepEqual(action.currentMonthLink, { type: 'openMonth', yearMonth: '2026-11' })
+  })
+
+  it('leaves genuine unpublished Month unavailable without a retry loop when News reports the same unavailable YYYY-MM', async () => {
+    const monthCalls: string[] = []
+    let newsCalls = 0
+
+    const monthResult = await loadAuthorizedTodayMonth({
+      bootstrapYearMonth: '2026-11',
+      timeZone: 'America/New_York',
+      monthProvider: {
+        async loadMonth(yearMonth) {
+          monthCalls.push(yearMonth)
+          return { status: 'notFound', source: 'gateway' }
+        },
+        async loadNews() {
+          newsCalls += 1
+          return {
+            status: 'ready',
+            articles: [
+              {
+                id: 'preview-dec',
+                documentId: 'news-dec',
+                category: 'monthlyPreview',
+                publishedOn: '2026-11-28',
+                title: 'December Preview',
+                summary: 'Upcoming month preview',
+                destination: { kind: 'month', monthId: '2026-12' },
+              },
+            ],
+            serverContext: { authorizedLocalDate: '2026-11-28', effectiveTimeZone: 'America/New_York' },
+            source: 'gateway',
+          }
+        },
+      },
+    })
+
+    // Must not loop on 2026-11 and must ignore News article destinations as Today release authority
+    assert.deepEqual(monthCalls, ['2026-11'])
+    assert.equal(newsCalls, 1)
+    assert.deepEqual(monthResult, { status: 'notFound', source: 'gateway' })
+    const action = deriveTodayPrimaryAction({ currentMonth: monthResult, participationData: empty })
+    assert.deepEqual(action.primary, { status: 'unavailable', reason: 'monthNotPublished', action: null })
+    assert.equal(action.currentMonthLink, null)
+  })
+
+  it('fails closed on News failure/invalid context and on unsuccessful, mismatched, or shifting corrected Month responses', async () => {
+    // 1. News fails or returns notFound after initial Month 404 -> neutral unavailable (monthNotPublished), no second Month request
+    for (const newsOutcome of [
+      { status: 'notFound', source: 'gateway' } as const,
+      { status: 'requestError', message: 'news down', source: 'gateway' } as const,
+      { status: 'validationError', message: 'bad news', source: 'gateway' } as const,
+    ]) {
+      const monthCalls: string[] = []
+      const res = await loadAuthorizedTodayMonth({
+        bootstrapYearMonth: '2026-11',
+        monthProvider: {
+          async loadMonth(ym) {
+            monthCalls.push(ym)
+            return { status: 'notFound', source: 'gateway' }
+          },
+          async loadNews() {
+            return newsOutcome
+          },
+        },
+      })
+      assert.deepEqual(monthCalls, ['2026-11'])
+      const action = deriveTodayPrimaryAction({ currentMonth: res, participationData: empty })
+      assert.equal(action.primary.status, 'unavailable')
+      assert.equal(action.currentMonthLink, null)
+    }
+
+    // 2. Authoritative month shifts again during retry (2026-11 -> 2026-12 -> serverContext says 2027-01) -> bounded to 1 retry, fails closed
+    const shiftingCalls: string[] = []
+    const shiftingRes = await loadAuthorizedTodayMonth({
+      bootstrapYearMonth: '2026-11',
+      monthProvider: {
+        async loadMonth(ym) {
+          shiftingCalls.push(ym)
+          if (ym === '2026-11') {
+            return ready(NOV_22, '2026-12-01')
+          }
+          return ready(DEC_01, '2027-01-01')
+        },
+        async loadNews() {
+          throw new Error('News should not be called on ready initial month')
+        },
+      },
+    })
+    assert.deepEqual(shiftingCalls, ['2026-11', '2026-12'])
+    const shiftingAction = deriveTodayPrimaryAction({ currentMonth: shiftingRes, participationData: empty })
+    assert.equal(shiftingAction.primary.status, 'unavailable')
+    assert.equal(shiftingAction.currentMonthLink, null)
+    assert.equal(JSON.stringify(shiftingAction).includes('dec1'), false)
+    assert.equal(JSON.stringify(shiftingAction).includes('nov22'), false)
+
+    // 3. Retried Month returns historical phase or mismatched monthId -> fails closed
+    const historicalRetryRes = await loadAuthorizedTodayMonth({
+      bootstrapYearMonth: '2026-11',
+      monthProvider: {
+        async loadMonth(ym) {
+          if (ym === '2026-11') return ready(NOV_22, '2026-12-01')
+          return ready({ ...DEC_01, phase: 'historical' }, '2026-12-01')
+        },
+        async loadNews() {
+          return { status: 'notFound', source: 'gateway' }
+        },
+      },
+    })
+    const historicalAction = deriveTodayPrimaryAction({ currentMonth: historicalRetryRes, participationData: empty })
+    assert.equal(historicalAction.primary.status, 'unavailable')
+    assert.equal(historicalAction.currentMonthLink, null)
+  })
+})
+

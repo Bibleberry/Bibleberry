@@ -16,3 +16,8 @@ export {
   type TodaySecondaryContinue,
   type TodayUnavailableReason,
 } from './primaryActionModel.ts'
+export {
+  loadAuthorizedTodayMonth,
+  type LoadAuthorizedTodayMonthOptions,
+} from './todayMonthLoader.ts'
+
