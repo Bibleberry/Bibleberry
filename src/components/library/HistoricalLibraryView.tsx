@@ -1,12 +1,17 @@
+import { useState } from 'react'
+import { MAX_LIBRARY_QUERY_LENGTH } from '../../lib/libraryMonthSearch.ts'
 import { ArrowLeft, BookOpen, AlertCircle, Bookmark, RefreshCw } from 'lucide-react'
 import type { ShelfEntry } from '../../shelf/types.ts'
 import { HistoricalLibraryCard } from './HistoricalLibraryCard.tsx'
 import {
   getLibraryMonthShelfStatus,
+  groupMonthsByYear,
   type HistoricalLibraryState,
 } from './historicalLibraryModel.ts'
 
 export interface HistoricalLibraryViewProps {
+  readonly searchText: string
+  readonly onSearchChange: (text: string) => void
   readonly state: HistoricalLibraryState
   readonly onOpenMonth: (yearMonth: string) => void
   readonly onLoadMore: () => void
@@ -33,6 +38,8 @@ export interface HistoricalLibraryViewProps {
  */
 export function HistoricalLibraryView({
   state,
+  searchText,
+  onSearchChange,
   onOpenMonth,
   onLoadMore,
   onRetry,
@@ -54,8 +61,11 @@ export function HistoricalLibraryView({
     errorKind,
   } = state
 
+  const [expandedYears, setExpandedYears] = useState<Record<number, boolean>>({})
+  const searching = Boolean(searchText.trim())
+  const years = groupMonthsByYear(items)
   const hasItems = items.length > 0
-  const isLoadingInitial = status === 'loading-initial'
+  const isLoadingInitial = status === 'loading-initial' || status === 'idle'
   const isLoadingMore = status === 'loading-more'
   const isInitialError = !hasItems && (status === 'request-error' || status === 'validation-error')
   const isLoadMoreError = hasItems && (status === 'request-error' || status === 'validation-error')
@@ -71,12 +81,34 @@ export function HistoricalLibraryView({
   } else if (isInitialError || isLoadMoreError) {
     liveAnnouncement = `Error: ${errorMessage ?? 'Failed to load Library catalogue'}`
   } else if (status === 'empty') {
-    liveAnnouncement = 'Historical Library catalogue is empty.'
+    liveAnnouncement = searching ? 'No matching months.' : 'Historical Library catalogue is empty.'
   } else if (hasItems) {
     liveAnnouncement = `${items.length} historical ${items.length === 1 ? 'month' : 'months'} available.`
   }
 
   const shelfCount = shelfEntries?.length ?? 0
+
+  function renderRows(months: typeof items) {
+    return (
+      <ul className="library-list" aria-label="Historical Months">
+        {months.map(item => (
+          <li key={item.yearMonth} className="library-list__item">
+            <HistoricalLibraryCard
+              item={item}
+              onOpenMonth={onOpenMonth}
+              shelfStatus={
+                shelfEntries
+                  ? getLibraryMonthShelfStatus(item.yearMonth, shelfEntries)
+                  : undefined
+              }
+              isSelectedContext={selectedMonthYearMonth === item.yearMonth}
+              onSelectForShelf={onSelectForShelf}
+            />
+          </li>
+        ))}
+      </ul>
+    )
+  }
 
   return (
     <main className="standard-page library-page" role="main" aria-label="Historical Library">
@@ -119,6 +151,12 @@ export function HistoricalLibraryView({
           Browse and study past monthly teachings at your own pace.
         </p>
       </header>
+
+      <label className="library-search">
+        Search months and themes
+        <input type="search" maxLength={MAX_LIBRARY_QUERY_LENGTH}
+          value={searchText} onChange={event => onSearchChange(event.target.value)} />
+      </label>
 
       {/* Initial Loading View */}
       {isLoadingInitial && (
@@ -172,17 +210,16 @@ export function HistoricalLibraryView({
         >
           <BookOpen size={44} className="library-empty-icon" aria-hidden="true" />
           <h2 id="library-empty-title" className="library-empty-title">
-            No Historical Months Yet
+            {searching ? 'No matching months' : 'No Historical Months Yet'}
           </h2>
           <p className="library-empty-message">
-            As each monthly study concludes, it will be preserved here in the Library for
-            ongoing study and reflection.
+            {searching ? 'Try another month or theme.' : 'As each monthly study concludes, it will be preserved here in the Library for ongoing study and reflection.'}
           </p>
         </section>
       )}
 
       {/* Sparse Continuation Notice (Initial window had items=[] but hasMore=true) */}
-      {!hasItems && isSparseContinuation && !isLoadingInitial && (
+      {!hasItems && isSparseContinuation && !isLoadingInitial && !isInitialError && (
         <section
           className="library-state-panel library-sparse-panel"
           role="region"
@@ -190,11 +227,10 @@ export function HistoricalLibraryView({
         >
           <BookOpen size={36} className="library-sparse-icon" aria-hidden="true" />
           <h2 id="library-sparse-title" className="library-sparse-title">
-            Past Studies Available
+            {searching ? 'No matches in this interval' : 'Past Studies Available'}
           </h2>
           <p className="library-sparse-message">
-            No published studies were found in this initial interval, but earlier historical months
-            are available.
+            Continue to check earlier months.
           </p>
           <button
             type="button"
@@ -236,23 +272,20 @@ export function HistoricalLibraryView({
             </div>
           )}
 
-          <ul className="library-list" aria-label="Historical Months">
-            {items.map(item => (
-              <li key={item.yearMonth} className="library-list__item">
-                <HistoricalLibraryCard
-                  item={item}
-                  onOpenMonth={onOpenMonth}
-                  shelfStatus={
-                    shelfEntries
-                      ? getLibraryMonthShelfStatus(item.yearMonth, shelfEntries)
-                      : undefined
-                  }
-                  isSelectedContext={selectedMonthYearMonth === item.yearMonth}
-                  onSelectForShelf={onSelectForShelf}
-                />
-              </li>
-            ))}
-          </ul>
+          {searching ? renderRows(items) : Array.from(years, ([year, months]) => {
+            const expanded = expandedYears[year] ?? year === items[0]?.year
+            return (
+              <section key={year} className="library-year">
+                <h2>
+                  <button type="button" aria-expanded={expanded}
+                    onClick={() => setExpandedYears(previous => ({ ...previous, [year]: !expanded }))}>
+                    {year} <span aria-hidden="true">{expanded ? '−' : '+'}</span>
+                  </button>
+                </h2>
+                {expanded && renderRows(months)}
+              </section>
+            )
+          })}
 
           {/* Sparse continuation note for intermediate sparse pages */}
           {isSparseContinuation && (

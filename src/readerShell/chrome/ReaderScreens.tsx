@@ -1,4 +1,5 @@
 import { Activity, useState, type ReactNode } from 'react'
+import { LibraryRouteVisible } from '../../components/library/libraryRouteVisibility.ts'
 import { AppLibraryShelfHost } from '../../appIntegration/AppLibraryShelfHost.tsx'
 import { ReleasedChallengeHost } from '../../cms/reader/ReleasedChallengeHost.tsx'
 import type { ChallengeDetailProvider } from '../../cms/reader/challengeDetailProvider.ts'
@@ -236,7 +237,9 @@ export function ReaderScreens({ state, send, challengeProvider, captureReplayRet
           const browse = state.stacks.library.some(route => route.kind === 'browseMonths')
           return (
             <div key={screen} className="r06-screen" hidden={hidden} tabIndex={-1}>
-              <LibraryWorkspace browse={browse} send={sendFromHost} />
+              <LibraryRouteVisible value={!hidden}>
+                <LibraryWorkspace browse={browse} send={sendFromHost} />
+              </LibraryRouteVisible>
             </div>
           )
         }

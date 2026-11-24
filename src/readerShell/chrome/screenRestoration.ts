@@ -93,7 +93,7 @@ export function restoreScreen(
   observer.observe(screen)
   // A new Month calendar or a loaded News feed can occupy the same height as
   // its loading view. Observe their content so a returning control can receive focus.
-  const waitsForContent = month || screen.hasAttribute('data-news-screen')
+  const waitsForContent = month || screen.hasAttribute('data-news-screen') || Boolean(screen.querySelector('.library-page'))
   const contentObserver = waitsForContent ? new MutationObserver(restoreWhenReady) : undefined
   contentObserver?.observe(screen, { childList: true, subtree: true })
   if (month) {

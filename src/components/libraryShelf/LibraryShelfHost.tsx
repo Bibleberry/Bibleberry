@@ -450,7 +450,7 @@ export function LibraryShelfHost({
           onViewShelf={shelfFallback ? undefined : handleViewShelfFromLibrary}
           shelfMaxCapacity={MAX_SHELF_CAPACITY}
           shelfAnnouncement={libraryAnnouncement}
-          preservedState={libraryState}
+          browsing={activeSurface === 'library'}
           onStateChange={setLibraryState}
         />
       </div>

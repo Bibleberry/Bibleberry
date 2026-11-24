@@ -4,7 +4,7 @@
 
 Implemented the standalone, reader-facing **Historical Library** catalogue under `src/components/library/` based on the secure `GET /api/library/months` provider foundation accepted in PR #123 (Issue #121).
 
-Strictly honors write ownership boundaries:
+The original R08-2 delivery used these write ownership boundaries:
 - Created `src/components/library/**`
 - Created `tests/library/**`
 - No edits to `src/cms/reader/libraryMonthIndexProvider.ts`, `src/components/month/**`, `src/participation/**`, `src/App.tsx`, `src/gateway/**`, `src/shelf/**`, or other parallel workstreams.
@@ -20,7 +20,7 @@ Strictly honors write ownership boundaries:
   - Preserves already-loaded items on subsequent page load failures so the reader doesn't lose visible content.
   - Provides deterministic month heading formatting (`formatPublicationMonthHeading`), e.g., "October 2026".
 - **Presentation card component:** `src/components/library/HistoricalLibraryCard.tsx`
-  - Renders month/theme, safe optional cover image with alt text and fallback for missing/broken images, optional subtitle, and accessible open-month action.
+  - Renders a compact month/theme row with an accessible open-month action and the existing Shelf membership controls.
   - Theological study focus only: zero unearned cards, streak counters, or achievement promotion badges.
   - Accessible button with descriptive aria-label (`Open October 2026: Walk in Gratitude`) and minimum 44px touch targets.
 - **Presentation collection view:** `src/components/library/HistoricalLibraryView.tsx`
@@ -36,7 +36,7 @@ Strictly honors write ownership boundaries:
   - Guards `onOpenMonth(yearMonth)`: validates format (`^\d{4}-(?:0[1-9]|1[0-2])$`) and verifies `yearMonth` is present in the loaded catalogue, preventing arbitrary links or guessed unpublished month IDs.
 - **Responsive styling:** `src/components/library/library.css`
   - Conforms to Bibleberry CSS token palette (`--page`, `--surface`, `--ink`, `--muted`, `--accent`, `--rule`, `--focus`).
-  - Fluid responsive grid reflowing cleanly to a single column on phone viewports (`@media (max-width: 600px)`).
+  - Single-column rows with wrapping controls on phone viewports (`@media (max-width: 600px)`).
   - High contrast focus rings (`:focus-visible`) and large-text scaling support.
 - **Public exports:** `src/components/library/index.ts`
 
@@ -82,3 +82,9 @@ precede matching. Only the projected English month/year and published Month titl
 window, so cursor boundaries and upstream work are independent of the text typed.
 A sparse result can continue even when it contains zero matches. Only a terminal
 page ends the search. Changing the query restarts at the newest window.
+
+The reader keeps query, year expansion and requested depth in memory. Returning
+from a Month replays that depth from the newest window using fresh cursors.
+A cleared search similarly rebuilds the previous browse depth. Reader requests
+and gateway responses use no-store. Connected J5 coverage lives in
+`tests/readerShell/historical-catalogue/shell.spec.ts`.
