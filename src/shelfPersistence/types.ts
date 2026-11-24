@@ -39,6 +39,7 @@ export const GUEST_SHELF_STORAGE_KEY = 'bibleberry-guest-shelf-v1' as const
  * envelope so repeated `evaluateMonthlyRollover` calls for the same
  * `(newCurrentYearMonth, endingYearMonth)` remain idempotent even if the
  * reader later puts away an auto-admitted month or all slots were protected.
+ * Older transitions cannot replace this watermark during command replay.
  */
 export interface ShelfRolloverWatermark {
   readonly lastNewCurrentYearMonth: PublicationYearMonth
