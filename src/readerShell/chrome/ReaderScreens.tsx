@@ -222,10 +222,11 @@ export function ReaderScreens({ state, send, challengeProvider, captureReplayRet
 
   const route = activeRoute(state)
   const monthScreen = !pending && !state.problem && !state.focused && route.kind === 'month'
-  const hostHasMain = !state.problem && (
-    state.focused?.kind === 'intro' && state.activeTab === 'more' ||
-    !state.focused && (route.kind === 'news' || (route.kind === 'detail' && route.screen === 'newsArticle' && Boolean(route.id)))
+  const newsReader = !state.problem && !state.focused && (
+    route.kind === 'news' || (route.kind === 'detail' && route.screen === 'newsArticle' && Boolean(route.id))
   )
+  const moreLanding = !state.problem && !state.focused && route.kind === 'landing' && route.tab === 'more'
+  const introReplay = !state.problem && state.focused?.kind === 'intro' && state.activeTab === 'more'
   return (
     <>
       {kept.map(screen => {
@@ -255,7 +256,8 @@ export function ReaderScreens({ state, send, challengeProvider, captureReplayRet
           className="r06-screen"
           tabIndex={-1}
           data-month-screen={monthScreen || undefined}
-          role={!pending && hostHasMain ? undefined : 'main'}
+          data-news-screen={!pending && (newsReader || moreLanding) || undefined}
+          role={!pending && (newsReader || introReplay) ? undefined : 'main'}
         >
           {pending
             ? <p role="status">Opening Bibleberry…</p>

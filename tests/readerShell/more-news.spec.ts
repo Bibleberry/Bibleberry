@@ -1,8 +1,10 @@
 import type { Page } from '@playwright/test'
 import { createServer, type ViteDevServer } from 'vite'
 import { handleGatewayRequest } from '../../src/gateway/handler.ts'
+import { createDefaultReaderProfile } from '../../src/readerProfile/model.ts'
+import { READER_PROFILE_STORAGE_KEY } from '../../src/readerProfile/types.ts'
 import { expect, test } from '../smoke/helpers/frameSafeTest.ts'
-import { navigationKey, participationKey } from './fixtures/m1aGatewayFixtures.ts'
+import { buildGuestParticipationStorageValue, navigationKey, participationKey, todayDocumentId } from './fixtures/m1aGatewayFixtures.ts'
 
 const latestTitle = 'Synthetic latest ministry update'
 const olderTitle = 'Synthetic older announcement'
@@ -203,8 +205,15 @@ test('opens the same News index from Today and returns to Today after filtering'
 
 test('replays the existing Introduction from More without changing participation or onboarding status', async ({ page }) => {
   await useNewsGateway(page)
+  const profile = { ...createDefaultReaderProfile(), introStatus: 'completed', tutorialStatus: 'skipped' }
+  const profileBefore = JSON.stringify({ schemaVersion: 1, origin: 'defaults', profile })
+  const storedProgress = buildGuestParticipationStorageValue({
+    completedChallenges: { [todayDocumentId]: { completedOn: '2026-11-20' } },
+  })
+  await page.addInitScript(entries => {
+    for (const [key, value] of entries) localStorage.setItem(key, value)
+  }, [[READER_PROFILE_STORAGE_KEY, profileBefore], [participationKey, storedProgress]])
   await page.goto(url + '#/more')
-  const storedProgress = await page.evaluate(key => localStorage.getItem(key), participationKey)
   const replay = page.getByRole('button', { name: 'Review Introduction' })
 
   await replay.click()
@@ -213,12 +222,24 @@ test('replays the existing Introduction from More without changing participation
   await page.keyboard.press('Escape')
   await expect(replay).toBeFocused()
 
-  const profileBefore = await page.evaluate(() => localStorage.getItem('bibleberry-reader-profile-v1'))
   await replay.press('Enter')
   await page.getByTestId('onboarding-continue-button').click()
   await page.getByTestId('onboarding-continue-button').click()
   await page.getByTestId('onboarding-finish-button').click()
   await expect(replay).toBeFocused()
   expect(await page.evaluate(key => localStorage.getItem(key), participationKey)).toBe(storedProgress)
-  expect(await page.evaluate(() => localStorage.getItem('bibleberry-reader-profile-v1'))).toBe(profileBefore)
+  const readProfile = () => page.evaluate(key => localStorage.getItem(key), READER_PROFILE_STORAGE_KEY)
+  expect(await readProfile()).toBe(profileBefore)
+
+  await replay.press('Enter')
+  await page.getByTestId('onboarding-continue-button').click()
+  await page.getByTestId('onboarding-continue-button').click()
+  await page.getByLabel('Suggested reminder time').fill('09:30')
+  await page.getByTestId('onboarding-save-reminder-replay-button').click()
+  await expect(replay).toBeFocused()
+  expect(JSON.parse((await readProfile())!).profile).toEqual({
+    ...profile,
+    reminder: { enabled: true, time: '09:30' },
+  })
+  expect(await page.evaluate(key => localStorage.getItem(key), participationKey)).toBe(storedProgress)
 })
