@@ -634,6 +634,21 @@ test('late authorization from an abandoned visit cannot reopen the same slug', a
   expect(await participation(page)).toBeUndefined()
 })
 
+test('shows a persistence error for an authorized Today challenge when stored participation is corrupt', async ({ page }) => {
+  await page.addInitScript(key => localStorage.setItem(key, '{corrupt'), participationKey)
+  await mockGateway(page)
+  await page.goto(readerUrl())
+
+  const primary = page.getByTestId('today-primary-teaching')
+  await expect(primary).toHaveAttribute('data-primary-status', 'persistenceUnavailable')
+  await expect(primary.getByRole('alert')).toContainText('Your reading progress is unavailable')
+  await expect(primary).not.toContainText('Loading today’s teaching')
+  await expect(page.getByTestId('today-primary-status')).toHaveCount(0)
+  await expect(page.getByTestId('today-primary-cta')).toHaveCount(0)
+  await expect(page.getByTestId('today-current-month-link')).toHaveAttribute('data-year-month', currentMonthId)
+  expect(await page.evaluate(key => localStorage.getItem(key), participationKey)).toBe('{corrupt')
+})
+
 test('connects Today → Challenge → explicit Finish → Today, resumes unfinished progress, and preserves credit on Read Again without a Monthly Introduction detour', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 640 })
   await mockGateway(page)

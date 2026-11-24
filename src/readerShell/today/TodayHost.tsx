@@ -250,6 +250,10 @@ export function TodayHost({
 
   const { context, primary, currentMonthLink, secondary } = model
   const monthHeading = context ? formatYearMonthHeading(context.yearMonth) : null
+  const participationUnavailable =
+    primary.status === 'loading' &&
+    participationSnapshot.status === 'ready' &&
+    participationSnapshot.health !== 'ok'
 
   // Reconcile the raw HubContinue suggestion with `model.secondary` so `HubContinueCard`
   // renders only when `deriveTodayPrimaryAction` authorizes the secondary continuation.
@@ -271,9 +275,21 @@ export function TodayHost({
         className="r06-today__primary"
         aria-labelledby="r06-today-primary-heading"
         data-testid="today-primary-teaching"
-        data-primary-status={primary.status}
+        data-primary-status={participationUnavailable ? 'persistenceUnavailable' : primary.status}
       >
-        {primary.status === 'loading' && (
+        {participationUnavailable && (
+          <div className="r06-today__state" role="alert">
+            <p className="eyebrow">Current Teaching</p>
+            <h2 id="r06-today-primary-heading" className="r06-today__title">
+              Your reading progress is unavailable
+            </h2>
+            <p className="r06-today__meta">
+              We cannot safely read or save your progress on this device. Your existing reading data has not been changed. You can explore the current month below.
+            </p>
+          </div>
+        )}
+
+        {primary.status === 'loading' && !participationUnavailable && (
           <div className="r06-today__state" role="status" aria-live="polite">
             <h2 id="r06-today-primary-heading" className="r06-today__title">
               Loading today’s teaching…
