@@ -1,5 +1,5 @@
 import { useCallback } from 'react'
-import { BookmarkCheck, ChevronRight, Compass, Shield, ShieldOff, X } from 'lucide-react'
+import { BookmarkCheck, ChevronRight, Compass, Shield, X } from 'lucide-react'
 import type { PublicationYearMonth } from '../../participation/types.ts'
 import type { ShelfEntryViewModel } from './shelfModel.ts'
 
@@ -32,9 +32,9 @@ export function ShelfCard({
     onOpenMonth(entry.yearMonth)
   }, [entry.yearMonth, onOpenMonth])
 
-  const handleToggleProtection = useCallback(() => {
-    onSetProtection(entry.yearMonth, !entry.isProtected)
-  }, [entry.isProtected, entry.yearMonth, onSetProtection])
+  const handleKeepOnShelf = useCallback(() => {
+    onSetProtection(entry.yearMonth, true)
+  }, [entry.yearMonth, onSetProtection])
 
   const handlePutAway = useCallback(() => {
     onPutAway(entry.yearMonth)
@@ -51,10 +51,6 @@ export function ShelfCard({
   const openAriaLabel = entry.title
     ? `Open ${entry.monthHeading}: ${entry.title}`
     : `Open ${entry.monthHeading}`
-
-  const protectAriaLabel = entry.isProtected
-    ? `Remove rollover protection for ${entry.monthHeading}`
-    : `Keep ${entry.monthHeading} on Shelf (protect from rollover)`
 
   const focusAriaLabel = entry.isActiveFocus
     ? `Clear study focus from ${entry.monthHeading}`
@@ -119,16 +115,13 @@ export function ShelfCard({
           <button
             type="button"
             className="shelf-btn shelf-btn--secondary"
-            onClick={handleToggleProtection}
-            aria-label={protectAriaLabel}
+            onClick={handleKeepOnShelf}
+            aria-label={`Keep ${entry.monthHeading} on Shelf`}
             aria-pressed={entry.isProtected}
+            disabled={entry.isProtected}
           >
-            {entry.isProtected ? (
-              <ShieldOff size={15} aria-hidden="true" />
-            ) : (
-              <Shield size={15} aria-hidden="true" />
-            )}
-            <span>{entry.isProtected ? 'Remove Protection' : 'Keep on Shelf'}</span>
+            <Shield size={15} aria-hidden="true" />
+            <span>{entry.isProtected ? 'Kept on Shelf' : 'Keep on Shelf'}</span>
           </button>
 
           <button
@@ -139,7 +132,7 @@ export function ShelfCard({
             aria-pressed={entry.isActiveFocus}
           >
             <Compass size={15} aria-hidden="true" />
-            <span>{entry.isActiveFocus ? 'Clear Focus' : 'Set as Focus'}</span>
+            <span>{entry.isActiveFocus ? 'Clear Active Focus' : 'Set as Active Focus'}</span>
           </button>
 
           <button

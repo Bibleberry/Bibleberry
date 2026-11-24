@@ -207,6 +207,15 @@ export function projectShelfViewModel(
     }
   }
 
+  // Shelf order is a presentation choice. Keep persisted membership order intact,
+  // while making the selected focus prominent and remaining months chronological.
+  entries.sort((left, right) => {
+    if (left.isActiveFocus !== right.isActiveFocus) {
+      return left.isActiveFocus ? -1 : 1
+    }
+    return right.yearMonth.localeCompare(left.yearMonth)
+  })
+
   const activeFocusOutsideShelf =
     validFocus !== null && !entries.some(entry => entry.yearMonth === validFocus)
 
