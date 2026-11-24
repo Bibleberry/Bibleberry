@@ -1083,109 +1083,6 @@ test('completes the connected M1a current-Month walkthrough with context restora
   await expect(page.getByRole('heading', { name: currentMonthTitle, exact: true })).toBeVisible()
 })
 
-test('fails closed on withdrawn and unauthorized Today or Month Challenges without leaking manuscript bodies, unearned card art, completions, or awards', async ({ page }) => {
-  await mockGateway(page)
-
-  // Today's Challenge is withdrawn (404 neutral gateway response); Day 14 returns an unreviewed payload; Day 16 is unreleased (404);
-  // progress attempts to leak unearned Card metadata and image URL on an unearned discovery
-  await page.route(`**/api/challenges/${todaySlug}`, route =>
-    route.fulfill({ status: 404, json: { ok: false, error: 'Not found' } }),
-  )
-  await page.route(`**/api/challenges/${currentMonthMultiScreenSlug}`, route =>
-    route.fulfill({
-      json: {
-        ok: true,
-        challenge: buildUnauthorizedChallengeFixture({
-          slug: currentMonthMultiScreenSlug,
-          documentId: currentMonthMultiScreenDocumentId,
-          dayOfMonth: currentMonthMultiScreenDay,
-        }),
-      },
-    }),
-  )
-  await page.route(`**/api/challenges/${unreleasedFutureSlug}`, route =>
-    route.fulfill({ status: 404, json: { ok: false, error: 'Not found' } }),
-  )
-  await page.route(`**/api/months/${currentMonthId}/progress`, route =>
-    route.fulfill({
-      json: {
-        ok: true,
-        serverContext,
-        monthId: currentMonthId,
-        rosterVersion: 1,
-        completedInMonthCount: 0,
-        totalChallenges: 30,
-        thematicEarnedCount: 0,
-        thematicTotalCount: 1,
-        discoveries: [
-          {
-            ...currentThematicDiscovery,
-            achievedCount: 0,
-            isEarned: false,
-            awardId: currentThematicAwardId,
-            earnedCard: {
-              ...currentThematicEarnedCard,
-              imageUrl: RESTRICTED_CARD_IMAGE_URL,
-              accessibleTranscription: RESTRICTED_CARD_ART_SENTINEL,
-            },
-          },
-        ],
-      },
-    }),
-  )
-
-  await page.goto(readerUrl())
-  await page.getByTestId('today-primary-cta').click()
-
-  // Withdrawn Today Challenge fails closed neutrally with zero restricted body, card art, or Finish control
-  await expect(page.getByRole('heading', { name: 'Challenge not found' })).toBeVisible()
-  await expect(page.getByText('Synthetic November teaching body.')).toHaveCount(0)
-  await expect(page.getByText(RESTRICTED_MANUSCRIPT_SENTINEL)).toHaveCount(0)
-  await expect(page.getByText(RESTRICTED_CARD_ART_SENTINEL)).toHaveCount(0)
-  await expect(page.locator('img[src*="cdn.sanity.io"]')).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Finish', exact: true })).toHaveCount(0)
-
-  await page.reload()
-  await expect(page.getByRole('heading', { name: 'Challenge unavailable' })).toBeVisible()
-  await page.getByRole('button', { name: 'Return to Today' }).click()
-  await expect(page.getByTestId('r06-today-landing')).toBeVisible()
-
-  // Month Screen rejects leaked unearned Card art, and opening an unauthorized Challenge withholds restricted manuscript text
-  await page.getByTestId('today-current-month-link').click()
-  await page.getByRole('button', { name: 'Continue', exact: true }).click()
-  await page.getByRole('button', { name: 'Begin the Month' }).click()
-  await expect(page.getByText(RESTRICTED_CARD_ART_SENTINEL)).toHaveCount(0)
-  await expect(page.locator(`img[src="${RESTRICTED_CARD_IMAGE_URL}"]`)).toHaveCount(0)
-  await expect(page.locator('.month-discovery__earned-card')).toHaveCount(0)
-
-  await page.getByRole('button', { name: /November Challenge 14/ }).click()
-
-  await expect(page.getByRole('heading', { name: 'Challenge content unavailable' })).toBeVisible()
-  await expect(page.getByText(RESTRICTED_MANUSCRIPT_SENTINEL)).toHaveCount(0)
-  await expect(page.getByText(RESTRICTED_CARD_ART_SENTINEL)).toHaveCount(0)
-  await expect(page.locator('img[src*="cdn.sanity.io"]')).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Finish', exact: true })).toHaveCount(0)
-
-  await page.reload()
-  await expect(page.getByRole('heading', { name: 'Challenge unavailable' })).toBeVisible()
-  await expect(page.getByText(RESTRICTED_MANUSCRIPT_SENTINEL)).toHaveCount(0)
-  await page.getByRole('button', { name: 'Back', exact: true }).click()
-  await expect(page.getByRole('heading', { name: currentMonthTitle, exact: true })).toBeVisible()
-
-  // Direct hash navigation to an unreleased comingSoon slug fails closed neutrally and returns to Today
-  await page.evaluate(slug => {
-    window.location.hash = `#/challenge/${slug}`
-  }, unreleasedFutureSlug)
-  await expect(page.getByRole('heading', { name: 'Challenge unavailable' })).toBeVisible()
-  await expect(page.getByText(RESTRICTED_MANUSCRIPT_SENTINEL)).toHaveCount(0)
-  await page.getByRole('button', { name: 'Return to Today' }).click()
-  await expect(page.getByTestId('r06-today-landing')).toBeVisible()
-
-  const stored = await participation(page)
-  expect(stored?.completedChallenges ?? {}).toEqual({})
-  expect(stored?.earnedAwards ?? {}).toEqual({})
-})
-
 for (const { target, before, opens } of [
   { target: '2098-01', before: '2097-12-27', opens: '2097-12-28' },
   { target: '2098-03', before: '2098-02-26', opens: '2098-02-27' },
@@ -1367,4 +1264,107 @@ test('retries Month and Introduction failures and replays without erasing scroll
   await expect(replay).toBeVisible()
   expect(await page.evaluate(key => localStorage.getItem(key), monthIntroKey)).toBe(storedIntro)
   expect((await participation(page)).completedChallenges).toEqual(completedBeforeFailures)
+})
+
+test('fails closed on withdrawn and unauthorized Today or Month Challenges without leaking manuscript bodies, unearned card art, completions, or awards', async ({ page }) => {
+  await mockGateway(page)
+
+  // Today's Challenge is withdrawn (404 neutral gateway response); Day 14 returns an unreviewed payload; Day 16 is unreleased (404);
+  // progress attempts to leak unearned Card metadata and image URL on an unearned discovery
+  await page.route(`**/api/challenges/${todaySlug}`, route =>
+    route.fulfill({ status: 404, json: { ok: false, error: 'Not found' } }),
+  )
+  await page.route(`**/api/challenges/${currentMonthMultiScreenSlug}`, route =>
+    route.fulfill({
+      json: {
+        ok: true,
+        challenge: buildUnauthorizedChallengeFixture({
+          slug: currentMonthMultiScreenSlug,
+          documentId: currentMonthMultiScreenDocumentId,
+          dayOfMonth: currentMonthMultiScreenDay,
+        }),
+      },
+    }),
+  )
+  await page.route(`**/api/challenges/${unreleasedFutureSlug}`, route =>
+    route.fulfill({ status: 404, json: { ok: false, error: 'Not found' } }),
+  )
+  await page.route(`**/api/months/${currentMonthId}/progress`, route =>
+    route.fulfill({
+      json: {
+        ok: true,
+        serverContext,
+        monthId: currentMonthId,
+        rosterVersion: 1,
+        completedInMonthCount: 0,
+        totalChallenges: 30,
+        thematicEarnedCount: 0,
+        thematicTotalCount: 1,
+        discoveries: [
+          {
+            ...currentThematicDiscovery,
+            achievedCount: 0,
+            isEarned: false,
+            awardId: currentThematicAwardId,
+            earnedCard: {
+              ...currentThematicEarnedCard,
+              imageUrl: RESTRICTED_CARD_IMAGE_URL,
+              accessibleTranscription: RESTRICTED_CARD_ART_SENTINEL,
+            },
+          },
+        ],
+      },
+    }),
+  )
+
+  await page.goto(readerUrl())
+  await page.getByTestId('today-primary-cta').click()
+
+  // Withdrawn Today Challenge fails closed neutrally with zero restricted body, card art, or Finish control
+  await expect(page.getByRole('heading', { name: 'Challenge not found' })).toBeVisible()
+  await expect(page.getByText('Synthetic November teaching body.')).toHaveCount(0)
+  await expect(page.getByText(RESTRICTED_MANUSCRIPT_SENTINEL)).toHaveCount(0)
+  await expect(page.getByText(RESTRICTED_CARD_ART_SENTINEL)).toHaveCount(0)
+  await expect(page.locator('img[src*="cdn.sanity.io"]')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Finish', exact: true })).toHaveCount(0)
+
+  await page.reload()
+  await expect(page.getByRole('heading', { name: 'Challenge unavailable' })).toBeVisible()
+  await page.getByRole('button', { name: 'Return to Today' }).click()
+  await expect(page.getByTestId('r06-today-landing')).toBeVisible()
+
+  // Month Screen rejects leaked unearned Card art, and opening an unauthorized Challenge withholds restricted manuscript text
+  await page.getByTestId('today-current-month-link').click()
+  await page.getByRole('button', { name: 'Continue', exact: true }).click()
+  await page.getByRole('button', { name: 'Begin the Month' }).click()
+  await expect(page.getByText(RESTRICTED_CARD_ART_SENTINEL)).toHaveCount(0)
+  await expect(page.locator(`img[src="${RESTRICTED_CARD_IMAGE_URL}"]`)).toHaveCount(0)
+  await expect(page.locator('.month-discovery__earned-card')).toHaveCount(0)
+
+  await page.getByRole('button', { name: /November Challenge 14/ }).click()
+
+  await expect(page.getByRole('heading', { name: 'Challenge content unavailable' })).toBeVisible()
+  await expect(page.getByText(RESTRICTED_MANUSCRIPT_SENTINEL)).toHaveCount(0)
+  await expect(page.getByText(RESTRICTED_CARD_ART_SENTINEL)).toHaveCount(0)
+  await expect(page.locator('img[src*="cdn.sanity.io"]')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Finish', exact: true })).toHaveCount(0)
+
+  await page.reload()
+  await expect(page.getByRole('heading', { name: 'Challenge unavailable' })).toBeVisible()
+  await expect(page.getByText(RESTRICTED_MANUSCRIPT_SENTINEL)).toHaveCount(0)
+  await page.getByRole('button', { name: 'Back', exact: true }).click()
+  await expect(page.getByRole('heading', { name: currentMonthTitle, exact: true })).toBeVisible()
+
+  // Direct hash navigation to an unreleased comingSoon slug fails closed neutrally and returns to Today
+  await page.evaluate(slug => {
+    window.location.hash = `#/challenge/${slug}`
+  }, unreleasedFutureSlug)
+  await expect(page.getByRole('heading', { name: 'Challenge unavailable' })).toBeVisible()
+  await expect(page.getByText(RESTRICTED_MANUSCRIPT_SENTINEL)).toHaveCount(0)
+  await page.getByRole('button', { name: 'Return to Today' }).click()
+  await expect(page.getByTestId('r06-today-landing')).toBeVisible()
+
+  const stored = await participation(page)
+  expect(stored?.completedChallenges ?? {}).toEqual({})
+  expect(stored?.earnedAwards ?? {}).toEqual({})
 })

@@ -553,6 +553,7 @@ function MonthScreen({
     return (
       <MonthScreenView
         mode="preview"
+        showProvisionalNotice={!inReaderShell}
         month={monthState.month}
         weeks={weeks}
         completionSummary={null}
@@ -601,6 +602,7 @@ function MonthScreen({
   return (
     <MonthScreenView
       mode="detail"
+      showProvisionalNotice={!inReaderShell}
       currentDate={inReaderShell && monthState.month.phase === 'active' ? monthState.authorizedLocalDate : undefined}
       month={monthState.month}
       weeks={weeks}

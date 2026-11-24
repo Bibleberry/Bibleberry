@@ -3,6 +3,7 @@ import {
   ArrowLeft,
   ArrowRight,
   BookOpen,
+  Calendar,
   Check,
   ChevronRight,
   Clock3,
@@ -28,6 +29,7 @@ export type MonthScreenViewProps = {
   month: MonthPreviewData | MonthDetailData
   weeks: readonly MonthCalendarWeek[]
   currentDate?: string
+  showProvisionalNotice?: boolean
   completionSummary: MonthCompletionSummary | null
   discoveries: readonly MonthDiscoveryPresentation[]
   progressLoading?: boolean
@@ -72,6 +74,7 @@ export function MonthScreenView({
   month,
   weeks,
   currentDate,
+  showProvisionalNotice = true,
   completionSummary,
   discoveries,
   progressLoading = false,
@@ -173,7 +176,11 @@ export function MonthScreenView({
               </div>
             )}
           </div>
-
+          {showProvisionalNotice && (
+            <p className="month-provisional-note">
+              <Calendar size={14} aria-hidden="true" /> Provisional calendar layout — pending final design review.
+            </p>
+          )}
         </div>
         {month.coverImage && (
           <figure className="month-header__cover">
