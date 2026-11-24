@@ -1,6 +1,7 @@
 import { validateEarnedCardSnapshot } from './awards.ts'
 import {
   normalizeSavedScriptureInput,
+  parseCanonicalMonthlyAwardId,
   parseCardDocumentId,
   parseLocalCalendarDate,
   parseMonthlyAwardIdParts,
@@ -11,11 +12,12 @@ import {
   replayParticipationCommands,
 } from './model.ts'
 import type {
+  CanonicalAwardId,
   ChallengeIdentityNamespace,
   ChallengeResumeRecord,
   CompletedChallengeRecord,
   EarnedAwardRecord,
-  GuestParticipationEnvelopeV2,
+  GuestParticipationEnvelopeV3,
   LastOpenedChallengePointer,
   ParticipationCommand,
   ReaderParticipationData,
@@ -25,15 +27,14 @@ import type {
 
 /**
  * Platform-neutral persistence contracts and envelope adapter (Track A, A3 / Issue #46;
- * V1→V2 migration & durable awards in R14-3 / Issue #101).
+ * V1→V2 durable awards in Issue #101, V3 Notebook acknowledgements in Issue #320).
  *
  * Scope & platform invariants:
  * - Zero direct references to `window`, `document`, `localStorage`, `sessionStorage`, or `indexedDB`.
  * - Supports both synchronous drivers (web `localStorage` adapter) and asynchronous drivers
  *   (iOS/Android native storage such as Capacitor Preferences or SQLite).
- * - Reads both `GuestParticipationEnvelopeV1` (migrating in memory with `earnedAwards: {}` and
- *   preserving V1 on disk until the first successful write) and `GuestParticipationEnvelopeV2`.
- * - Never overwrites unrecognized newer schemas (`schemaVersion > 2`), corrupt JSON, or
+ * - Reads guest schemas V1–V3 and preserves the original envelope until the first successful write.
+ * - Never overwrites unrecognized newer schemas (`schemaVersion > 3`), corrupt JSON, or
  *   structurally invalid envelopes automatically; only explicit user-initiated `clear()` removes them.
  */
 
@@ -109,8 +110,8 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 }
 
 export function serializeParticipationEnvelope(data: ReaderParticipationData): string {
-  const envelope: GuestParticipationEnvelopeV2 = {
-    schemaVersion: 2,
+  const envelope: GuestParticipationEnvelopeV3 = {
+    schemaVersion: 3,
     data: {
       completedChallenges: data.completedChallenges,
       inProgressChallenges: data.inProgressChallenges,
@@ -118,6 +119,7 @@ export function serializeParticipationEnvelope(data: ReaderParticipationData): s
       savedScriptures: data.savedScriptures,
       lastOpenedChallenge: data.lastOpenedChallenge,
       earnedAwards: data.earnedAwards,
+      notebookAcknowledgedAwardIds: data.notebookAcknowledgedAwardIds,
     },
   }
   return JSON.stringify(envelope)
@@ -152,14 +154,14 @@ export function parseParticipationEnvelope(
   }
 
   const schemaVersion = parsed.schemaVersion
-  if (typeof schemaVersion === 'number' && Number.isInteger(schemaVersion) && schemaVersion > 2) {
+  if (typeof schemaVersion === 'number' && Number.isInteger(schemaVersion) && schemaVersion > 3) {
     return {
       data: emptyReaderParticipationData(),
       health: 'unsupportedNewerSchema',
     }
   }
 
-  if ((schemaVersion !== 1 && schemaVersion !== 2) || !isPlainObject(parsed.data)) {
+  if ((schemaVersion !== 1 && schemaVersion !== 2 && schemaVersion !== 3) || !isPlainObject(parsed.data)) {
     return {
       data: emptyReaderParticipationData(),
       health: 'corruptStoredData',
@@ -178,9 +180,14 @@ export function parseParticipationEnvelope(
       && !isPlainObject(rawData.lastOpenedChallenge)
     )
     || (
-      schemaVersion === 2
+      schemaVersion >= 2
       && rawData.earnedAwards !== undefined
       && !isPlainObject(rawData.earnedAwards)
+    )
+    || (
+      schemaVersion === 3
+      && rawData.notebookAcknowledgedAwardIds !== undefined
+      && !Array.isArray(rawData.notebookAcknowledgedAwardIds)
     )
   ) {
     return {
@@ -277,7 +284,7 @@ export function parseParticipationEnvelope(
   }
 
   const earnedAwards: Record<string, EarnedAwardRecord> = {}
-  if (schemaVersion === 2 && isPlainObject(rawData.earnedAwards)) {
+  if (schemaVersion >= 2 && isPlainObject(rawData.earnedAwards)) {
     for (const [rawId, value] of Object.entries(rawData.earnedAwards)) {
       const parsedId = parseMonthlyAwardIdParts(rawId)
       if (!parsedId || !isPlainObject(value)) continue
@@ -320,6 +327,16 @@ export function parseParticipationEnvelope(
     }
   }
 
+  const notebookAcknowledgedAwardIds = new Set<CanonicalAwardId>()
+  if (schemaVersion === 3 && Array.isArray(rawData.notebookAcknowledgedAwardIds)) {
+    for (const rawId of rawData.notebookAcknowledgedAwardIds) {
+      const awardId = parseCanonicalMonthlyAwardId(rawId)
+      if (awardId && Object.hasOwn(earnedAwards, awardId)) {
+        notebookAcknowledgedAwardIds.add(awardId)
+      }
+    }
+  }
+
   const isEmpty =
     Object.keys(completedChallenges).length === 0
     && Object.keys(inProgressChallenges).length === 0
@@ -338,6 +355,9 @@ export function parseParticipationEnvelope(
           savedScriptures: Object.freeze(savedScriptures),
           lastOpenedChallenge,
           earnedAwards: Object.freeze(earnedAwards),
+          ...(notebookAcknowledgedAwardIds.size > 0
+            ? { notebookAcknowledgedAwardIds: Object.freeze([...notebookAcknowledgedAwardIds].sort()) }
+            : {}),
         }),
     health: 'ok',
   }

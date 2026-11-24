@@ -9,6 +9,7 @@ import type {
   EarnedScriptureCardSnapshot,
   GuestParticipationEnvelopeV1,
   GuestParticipationEnvelopeV2,
+  GuestParticipationEnvelopeV3,
   LastOpenedChallengePointer,
   LocalCalendarDate,
   MonthlyAwardKind,
@@ -98,10 +99,13 @@ export interface ProposedAccountParticipationEnvelope {
 // Reconciliation Input & Context Contracts
 // ---------------------------------------------------------------------------
 
-export type SupportedGuestEnvelope = GuestParticipationEnvelopeV1 | GuestParticipationEnvelopeV2
+export type SupportedGuestEnvelope =
+  | GuestParticipationEnvelopeV1
+  | GuestParticipationEnvelopeV2
+  | GuestParticipationEnvelopeV3
 
 /**
- * Guest reconciliation input wrapper. Accepts an actual V2 (or legacy V1) guest envelope plus
+ * Guest reconciliation input wrapper. Accepts a V1–V3 guest envelope plus
  * optional isolated future Shelf state and explicit namespace claim for boundary verification.
  */
 export interface GuestReconciliationInput {
@@ -294,7 +298,7 @@ export interface GuestClearanceDecision {
   readonly reason: GuestClearanceBlockReason
 }
 
-// Re-exported V2 helper type aliases for consumer convenience
+// Re-exported participation types for consumer convenience
 export type {
   CanonicalAwardId,
   CanonicalChallengeId,
@@ -306,6 +310,7 @@ export type {
   EarnedScriptureCardSnapshot,
   GuestParticipationEnvelopeV1,
   GuestParticipationEnvelopeV2,
+  GuestParticipationEnvelopeV3,
   LastOpenedChallengePointer,
   LocalCalendarDate,
   MonthlyAwardKind,

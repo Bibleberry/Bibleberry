@@ -363,9 +363,9 @@ test('never overwrites corrupt JSON or unsupportedNewerSchema envelopes automati
   assert.equal(corruptStore.getSnapshot().distinctCompletedCount, 0)
   corruptStore.dispose()
 
-  // 2. Newer schema (`schemaVersion: 3`) is preserved until explicit `clearLocalData()`
+  // 2. Newer schema (`schemaVersion: 4`) is preserved until explicit `clearLocalData()`
   const futurePayload = JSON.stringify({
-    schemaVersion: 3,
+    schemaVersion: 4,
     futureField: 'keep-intact',
     data: { completedChallenges: { [c1]: { completedOn: day1 } } },
   })
