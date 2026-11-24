@@ -16,6 +16,16 @@ export interface NewsReaderViewProps {
   readonly onRetry: () => void
   readonly onNavigate?: (destination: { kind: 'month'; monthId: string }) => void
   readonly onBack?: () => void
+  readonly onOpenArticle?: (documentId: string) => void
+}
+
+export function NewsBackButton({ onBack }: { readonly onBack: () => void }) {
+  return (
+    <button type="button" className="news-reader__back-btn" onClick={onBack} aria-label="Return to previous screen">
+      <ArrowLeft size={18} aria-hidden="true" />
+      <span>Back</span>
+    </button>
+  )
 }
 
 /**
@@ -33,6 +43,7 @@ export function NewsReaderView({
   onRetry,
   onNavigate,
   onBack,
+  onOpenArticle,
 }: NewsReaderViewProps) {
   const tabListRef = useRef<HTMLDivElement>(null)
 
@@ -62,19 +73,9 @@ export function NewsReaderView({
   }
 
   return (
-    <main className="news-reader" aria-labelledby="news-main-title">
+    <main className={onOpenArticle ? "news-reader news-reader--r06" : "news-reader"} aria-labelledby="news-main-title">
       <header className="news-reader__header">
-        {onBack && (
-          <button
-            type="button"
-            className="news-reader__back-btn"
-            onClick={onBack}
-            aria-label="Return to previous screen"
-          >
-            <ArrowLeft size={18} aria-hidden="true" />
-            <span>Back</span>
-          </button>
-        )}
+        {onBack && <NewsBackButton onBack={onBack} />}
         <div className="news-reader__titles">
           <h1 id="news-main-title" className="news-reader__heading">
             Ministry News
@@ -177,6 +178,7 @@ export function NewsReaderView({
                 key={article.id}
                 article={article}
                 onNavigate={onNavigate}
+                onOpen={onOpenArticle ? () => onOpenArticle(article.documentId) : undefined}
               />
             ))}
           </div>

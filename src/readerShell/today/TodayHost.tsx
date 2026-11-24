@@ -41,6 +41,7 @@ import { useTodayShelfRollover } from './useTodayShelfRollover.ts'
 export interface TodayHostProps {
   readonly onOpenChallenge: (intent: OpenChallengeIntent) => void
   readonly onOpenMonth: (intent: OpenMonthIntent) => void
+  readonly onOpenNews?: () => void
   readonly monthProvider?: MonthGatewayProvider
   readonly catalogProvider?: ReleasedCatalogProvider
   readonly participationStore?: ReaderParticipationStore
@@ -109,6 +110,7 @@ function exploreReasonCopy(reason: TodayExploreReason): string {
 export function TodayHost({
   onOpenChallenge,
   onOpenMonth,
+  onOpenNews,
   monthProvider = defaultGatewayMonthProvider,
   catalogProvider = defaultGatewayCatalogProvider,
   participationStore = defaultGuestParticipationStore,
@@ -449,6 +451,9 @@ export function TodayHost({
             <ArrowRight size={16} aria-hidden="true" />
           </button>
         </section>
+      )}
+      {onOpenNews && (
+        <button type="button" className="button button--secondary" onClick={onOpenNews}>Ministry News</button>
       )}
     </div>
   )

@@ -1,3 +1,4 @@
+import type { NewsFilterCategory } from '../../components/news/newsModel.ts'
 import { z } from 'zod'
 import { isValidChallengeYearMonth } from '../../cms/reader/challengeOrigin.ts'
 import { buildInternalDestination } from '../../native/internalDestination.ts'
@@ -65,6 +66,8 @@ export interface NavigationState {
 export type NavigationAction =
   | { readonly type: 'selectTab'; readonly tab: ReaderTab }
   | { readonly type: 'push'; readonly route: NestedRoute }
+  | { readonly type: 'setNewsCategory'; readonly category: NewsFilterCategory }
+  | { readonly type: 'closeNews' }
   | { readonly type: 'pop' }
   | { readonly type: 'saveRestoration'; readonly value: RouteRestoration }
   // Trusted in-app selection. The Challenge host still owns content authorization.
@@ -142,6 +145,20 @@ export function navigationReducer(state: NavigationState, action: NavigationActi
       if (focused || problem || !route.success) return state
       if (JSON.stringify(stacks[activeTab].at(-1)) === JSON.stringify(route.data)) return state
       return { ...state, stacks: { ...stacks, [activeTab]: [...stacks[activeTab], route.data] } }
+    }
+    case 'setNewsCategory': {
+      const route = activeRoute(state)
+      if (focused || problem || route.kind !== 'news' || route.category === action.category) return state
+      const updated = { kind: 'news', category: action.category } as const
+      return { ...state, stacks: { ...stacks, [activeTab]: [...stacks[activeTab].slice(0, -1), updated] } }
+    }
+    case 'closeNews': {
+      if (focused || problem || activeRoute(state).kind !== 'news') return state
+      const stack = stacks[activeTab]
+      // Older navigation sessions can contain one stacked entry per filter change.
+      let length = stack.length
+      while (stack[length - 1]?.kind === 'news') length--
+      return { ...state, stacks: { ...stacks, [activeTab]: stack.slice(0, length) } }
     }
     case 'pop':
       if (focused?.kind === 'challenge' && focused.entry === 'external') return state

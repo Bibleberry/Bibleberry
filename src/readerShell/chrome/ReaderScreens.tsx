@@ -8,16 +8,23 @@ import { SavedScriptureHost } from '../../components/savedScripture/SavedScriptu
 import { NewsReaderHost } from '../../components/news/NewsReaderHost.tsx'
 import { activeRoute, type NavigationAction, type NavigationState } from '../navigation/index.ts'
 import { activeScreenKey } from '../navigation/routeTable.ts'
+import { MoreLanding } from './MoreLanding.tsx'
+import { MoreIntroductionReplay } from './MoreIntroductionReplay.tsx'
 import { TodayHost } from '../today/TodayHost.tsx'
 
 type Send = (action: NavigationAction) => void
 
 const browseMonths = { type: 'push', route: { kind: 'browseMonths' } } as const
 const foundations = { type: 'push', route: { kind: 'detail', screen: 'foundations' } } as const
+const openNews = { type: 'push', route: { kind: 'news', category: 'all' } } as const
 const back = { type: 'pop' } as const
 
 function openMonth(send: Send, yearMonth: string) {
   send({ type: 'push', route: { kind: 'month', yearMonth } })
+}
+
+function openNewsArticle(send: Send, documentId: string) {
+  send({ type: 'push', route: { kind: 'detail', screen: 'newsArticle', id: documentId } })
 }
 
 function Action({ children, onClick }: { children: ReactNode; onClick: () => void }) {
@@ -39,6 +46,7 @@ function TodayLanding({ send }: { send: Send }) {
         })
       }}
       onOpenMonth={intent => openMonth(send, intent.yearMonth)}
+      onOpenNews={() => send(openNews)}
     />
   )
 }
@@ -107,6 +115,9 @@ function CurrentScreen({ state, send, challengeProvider, captureReplayReturn }: 
       />
     )
   }
+  if (!state.problem && focus?.kind === 'intro' && state.activeTab === 'more') {
+    return <MoreIntroductionReplay onBack={() => send({ type: 'closeGuidance' })} />
+  }
   if (state.problem || focus) return <RouteProblem state={state} send={send} />
 
   const route = activeRoute(state)
@@ -125,9 +136,12 @@ function CurrentScreen({ state, send, challengeProvider, captureReplayReturn }: 
         )
       case 'more':
         return (
-          <Landing title="More">
-            <Action onClick={() => send({ type: 'push', route: { kind: 'news', category: 'all' } })}>View All News</Action>
-          </Landing>
+          <MoreLanding
+            onOpenFeatured={documentId => openNewsArticle(send, documentId)}
+            onOpenNews={() => send(openNews)}
+            onOpenAbout={() => send({ type: 'push', route: { kind: 'detail', screen: 'aboutBibleberry' } })}
+            onReplayIntroduction={() => send({ type: 'openIntro' })}
+          />
         )
     }
   }
@@ -151,12 +165,30 @@ function CurrentScreen({ state, send, challengeProvider, captureReplayReturn }: 
       return (
         <NewsReaderHost
           initialCategory={route.category}
-          onCategoryChange={category => send({ type: 'push', route: { kind: 'news', category } })}
+          onCategoryChange={category => send({ type: 'setNewsCategory', category })}
+          onOpenArticle={documentId => openNewsArticle(send, documentId)}
           onNavigate={({ monthId }) => openMonth(send, monthId)}
-          onBack={() => send(state.stacks.more.length === 1 ? back : { type: 'selectTab', tab: 'more' })}
+          onBack={() => send({ type: 'closeNews' })}
         />
       )
     case 'detail':
+      if (route.screen === 'newsArticle' && route.id) {
+        return (
+          <NewsReaderHost
+            articleDocumentId={route.id}
+            onNavigate={({ monthId }) => openMonth(send, monthId)}
+            onBack={() => send(back)}
+          />
+        )
+      }
+      if (route.screen === 'aboutBibleberry') {
+        return (
+          <Landing title="About Bibleberry">
+            <p>Bibleberry is offered by Spiritually Hungry.</p>
+            <Action onClick={() => send(back)}>Back to More</Action>
+          </Landing>
+        )
+      }
       return <UnavailableDetail screen={route.screen} send={send} />
     default:
       return <UnavailableDetail screen={route.kind} send={send} />
@@ -190,7 +222,10 @@ export function ReaderScreens({ state, send, challengeProvider, captureReplayRet
 
   const route = activeRoute(state)
   const monthScreen = !pending && !state.problem && !state.focused && route.kind === 'month'
-  const hostHasMain = !state.problem && !state.focused && route.kind === 'news'
+  const hostHasMain = !state.problem && (
+    state.focused?.kind === 'intro' && state.activeTab === 'more' ||
+    !state.focused && (route.kind === 'news' || (route.kind === 'detail' && route.screen === 'newsArticle' && Boolean(route.id)))
+  )
   return (
     <>
       {kept.map(screen => {

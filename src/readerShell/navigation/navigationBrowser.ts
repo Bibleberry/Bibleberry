@@ -138,7 +138,7 @@ function writeEntry(navigation: BrowserNavigation, state: NavigationState, type:
   }
 }
 
-const closeActions = new Set(['pop', 'exitChallenge', 'finishChallenge', 'closeGuidance'])
+const closeActions = new Set(['pop', 'closeNews', 'exitChallenge', 'finishChallenge', 'closeGuidance'])
 
 /** Apply a trusted UI intent after the shell has resolved the current browser entry. */
 export function applyNavigationAction(navigation: BrowserNavigation, action: NavigationAction): NavigationUpdate {
@@ -156,7 +156,7 @@ export function applyNavigationAction(navigation: BrowserNavigation, action: Nav
     }
     return writeEntry(navigation, state, 'replace')
   }
-  const replace = action.type === 'showTutorialTab' || action.type === 'returnToToday' || action.type === 'unavailable'
+  const replace = action.type === 'setNewsCategory' || action.type === 'showTutorialTab' || action.type === 'returnToToday' || action.type === 'unavailable'
   return writeEntry(navigation, state, replace ? 'replace' : 'push')
 }
 
