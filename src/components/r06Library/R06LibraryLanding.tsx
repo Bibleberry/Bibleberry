@@ -213,24 +213,26 @@ export function R06LibraryLanding({
         {surfaceAnnouncement}
       </div>
 
-      {unavailableSurface ?? <LibraryShelfHost
-        referenceCurrentYearMonth={referenceCurrentYearMonth}
-        shelfState={shelfState}
-        initialShelfState={initialShelfState}
-        onShelfStateChange={shelfState === undefined ? handleShelfStateChange : onShelfStateChange}
-        currentLocalDate={currentLocalDate}
-        libraryProvider={libraryProvider}
-        libraryPageSize={libraryPageSize}
-        timeZone={timeZone}
-        monthMetadata={monthMetadata}
-        surface={activeSurface}
-        initialSurface={mountedInitialSurface}
-        onSurfaceChange={handleSurfaceChange}
-        onOpenMonth={onOpenMonth}
-        onExit={hostOnExit}
-        exitLabel={hostBackAction.label}
-        shellOwnsNavigation={shellOwnsNavigation}
-      />}
+      {unavailableSurface ?? (
+        <LibraryShelfHost
+          referenceCurrentYearMonth={referenceCurrentYearMonth}
+          shelfState={shelfState}
+          initialShelfState={initialShelfState}
+          onShelfStateChange={shelfState === undefined ? handleShelfStateChange : onShelfStateChange}
+          currentLocalDate={currentLocalDate}
+          libraryProvider={libraryProvider}
+          libraryPageSize={libraryPageSize}
+          timeZone={timeZone}
+          monthMetadata={monthMetadata}
+          surface={activeSurface}
+          initialSurface={mountedInitialSurface}
+          onSurfaceChange={handleSurfaceChange}
+          onOpenMonth={onOpenMonth}
+          onExit={hostOnExit}
+          exitLabel={hostBackAction.label}
+          shellOwnsNavigation={shellOwnsNavigation}
+        />
+      )}
 
       <section
         className="r06-library-entrances"

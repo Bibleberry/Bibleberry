@@ -1,3 +1,4 @@
+import type { Page } from '@playwright/test'
 import { test, expect } from '../smoke/helpers/frameSafeTest'
 import { createServer, type ViteDevServer } from 'vite'
 import { dirname, resolve } from 'node:path'
@@ -225,7 +226,7 @@ async function startViteServer(define: Record<string, string>): Promise<{
   return { server, baseUrl: `http://127.0.0.1:${addr.port}/` }
 }
 
-async function mockGatewayRoutes(page: import('@playwright/test').Page) {
+async function mockGatewayRoutes(page: Page) {
   await page.route('**/api/library/months**', async route => {
     await route.fulfill({
       status: 200,
@@ -700,5 +701,219 @@ test.describe('Issue #227 [Velvet Badger]: Ordinary Reader Library & Shelf Integ
     await expect(page).toHaveURL(/#\/shelf$/)
     await page.goForward()
     await expect(page).toHaveURL(/#\/library$/)
+  })
+})
+
+test.describe('Marble Harbor (#312): flag-on R06 Library and durable Shelf', () => {
+  let reader: Awaited<ReturnType<typeof startViteServer>>
+
+  function shelfRecord(count: number) {
+    return JSON.stringify({
+      schemaVersion: 1,
+      state: {
+        months: LIBRARY_ITEMS.slice(0, count).map(({ yearMonth }, index) => ({
+          yearMonth,
+          admissionKind: index === 0 ? 'readerSelected' : 'autoAdmitted',
+          isProtected: index === 0,
+        })),
+        activeFocusMonth: count > 0 ? LIBRARY_ITEMS[0].yearMonth : null,
+      },
+      rolloverWatermark: null,
+    })
+  }
+
+  async function openShelf(page: Page, raw: string, failure?: 'read' | 'write') {
+    await page.addInitScript(({ key, raw, failure }) => {
+      if (localStorage.getItem(key) === null) localStorage.setItem(key, raw)
+      if (failure === 'read') {
+        const getItem = Storage.prototype.getItem
+        Storage.prototype.getItem = function (name) {
+          if (name === key) throw new Error('Synthetic Shelf read failure')
+          return getItem.call(this, name)
+        }
+      }
+      if (failure === 'write') {
+        const setItem = Storage.prototype.setItem
+        Storage.prototype.setItem = function (name, value) {
+          if (name === key) throw new Error('Synthetic Shelf write failure')
+          setItem.call(this, name, value)
+        }
+      }
+    }, { key: SHELF_STORAGE_KEY, raw, failure })
+    await page.goto(reader.baseUrl)
+    await page.getByRole('navigation', { name: 'Primary navigation' })
+      .getByRole('button', { name: 'Library', exact: true }).click()
+  }
+
+  const entrance = (page: Page, id: string) => page.getByTestId(`r06-library-entrance-${id}`)
+  const savedShelf = (page: Page) => page.evaluate(key => localStorage[key], SHELF_STORAGE_KEY)
+
+  test.beforeAll(async () => {
+    reader = await startViteServer({
+      'import.meta.env.VITE_ENABLE_R06_SHELL': JSON.stringify('true'),
+      'import.meta.env.VITE_RELEASE_GATEWAY_ORIGIN': JSON.stringify(''),
+      'import.meta.env.VITE_GATEWAY_ORIGIN': JSON.stringify(''),
+    })
+  })
+
+  test.afterAll(async () => {
+    await reader?.server.close()
+  })
+
+  test.beforeEach(async ({ page }) => {
+    await page.route('https://**', route => route.abort())
+    await mockGatewayRoutes(page)
+  })
+
+  for (const count of [0, 1, 2, 3]) {
+    test(`shows ${count} saved months with both direct entrances`, async ({ page }) => {
+      const raw = shelfRecord(count)
+      await openShelf(page, raw)
+      const shelf = page.getByRole('main', { name: 'Shelf', exact: true })
+      await expect(shelf).toBeVisible()
+      await expect(shelf.locator('.shelf-card')).toHaveCount(count)
+      if (count) {
+        await expect(shelf.getByText('Active Study Focus', { exact: true })).toBeVisible()
+        await expect(shelf.getByRole('button', { name: 'Remove rollover protection for October 2026' })).toHaveAttribute('aria-pressed', 'true')
+      }
+
+      const foundations = entrance(page, 'foundations')
+      await foundations.press('Enter')
+      await expect(page.getByRole('heading', { name: 'Foundations', exact: true })).toBeVisible()
+      await page.getByRole('button', { name: 'Back to Library', exact: true }).click()
+      await expect(foundations).toBeFocused()
+
+      const browse = entrance(page, 'browse-all-months')
+      await browse.press('Enter')
+      await expect(page.getByRole('heading', { name: 'Historical Library' })).toBeVisible()
+      await expect(foundations).toBeVisible()
+      if (count === 3) {
+        await page.getByRole('button', { name: 'Add July 2026 to Shelf' }).click()
+        await expect(page.getByRole('dialog')).toBeVisible()
+        await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click()
+        await expect(page.getByRole('dialog')).toBeHidden()
+      }
+      await page.goBack()
+      await expect(browse).toBeFocused()
+      await page.reload()
+      await expect(shelf).toBeVisible()
+      await expect(shelf.locator('.shelf-card')).toHaveCount(count)
+      expect(await savedShelf(page)).toBe(raw)
+    })
+  }
+
+  for (const [name, raw, failure] of [
+    ['malformed Shelf', '{malformed-json', undefined],
+    ['unsupported Shelf', '{"schemaVersion":99,"preserved":true}', undefined],
+    ['unavailable storage', shelfRecord(1), 'read'],
+  ] as const) {
+    test(`${name} keeps both entrances and permits read-only browsing`, async ({ page }) => {
+      await openShelf(page, raw, failure)
+      await expect(page.getByRole('heading', { name: 'Shelf Unavailable' })).toBeVisible()
+      await expect(entrance(page, 'foundations')).toBeEnabled()
+      await entrance(page, 'browse-all-months').click()
+      await expect(page.getByText(/Shelf actions are paused/)).toBeVisible()
+      await expect(page.getByRole('button', { name: /Add .* to Shelf/ })).toHaveCount(0)
+      await expect(entrance(page, 'shelf-overview')).not.toContainText(/0 of 3/)
+      await expect(entrance(page, 'foundations')).toBeEnabled()
+      await page.getByRole('button', { name: 'Open October 2026' }).click()
+      await expect(page.getByRole('heading', { name: 'Entering Walking in Wisdom' })).toBeVisible()
+      await page.goBack()
+      await expect(page.getByRole('heading', { name: 'Historical Library' })).toBeVisible()
+      expect(await savedShelf(page)).toBe(raw)
+    })
+  }
+
+  test('keeps catalogue and Foundations available during asynchronous Shelf hydration', async ({ page }) => {
+    await page.addInitScript(({ key, raw }) => {
+      const shelfLoad = new Promise(resolve => {
+        Object.assign(window, { finishShelfHydration: () => resolve({ value: raw }) })
+      })
+      Object.assign(window, {
+        androidBridge: {},
+        Capacitor: {
+          PluginHeaders: [{
+            name: 'Preferences',
+            methods: ['get', 'set', 'remove'].map(name => ({ name, rtype: 'promise' })),
+          }],
+          nativePromise: (_plugin: string, method: string, options: { key: string }) =>
+            method === 'get' && options.key === key ? shelfLoad : Promise.resolve({ value: null }),
+        },
+      })
+    }, { key: SHELF_STORAGE_KEY, raw: shelfRecord(1) })
+    await page.goto(reader.baseUrl)
+    await page.getByRole('navigation', { name: 'Primary navigation' })
+      .getByRole('button', { name: 'Library', exact: true }).click()
+    await expect(page.getByText('Preparing your Shelf…', { exact: true })).toBeVisible()
+    await expect(page.getByText('Your Shelf is Empty')).toHaveCount(0)
+    await expect(entrance(page, 'foundations')).toBeEnabled()
+    await entrance(page, 'browse-all-months').click()
+    await expect(page.getByRole('button', { name: 'Open October 2026' })).toBeEnabled()
+    await expect(page.getByRole('button', { name: /Add .* to Shelf/ })).toHaveCount(0)
+    await page.evaluate(() => (window as unknown as { finishShelfHydration: () => void }).finishShelfHydration())
+    await entrance(page, 'shelf-overview').click()
+    await expect(page.getByRole('main', { name: 'Shelf', exact: true }).locator('.shelf-card')).toHaveCount(1)
+  })
+
+  test('warns when a Shelf write fails and the previous durable state survives reload', async ({ page }) => {
+    const raw = shelfRecord(1)
+    await openShelf(page, raw, 'write')
+    await entrance(page, 'browse-all-months').click()
+    await page.getByRole('button', { name: 'Add July 2026 to Shelf' }).click()
+    await expect(page.getByText(/Shelf changes could not be saved/)).toBeVisible()
+    expect(await savedShelf(page)).toBe(raw)
+    await page.reload()
+    await entrance(page, 'shelf-overview').click()
+    await expect(page.getByRole('main', { name: 'Shelf', exact: true }).locator('.shelf-card')).toHaveCount(1)
+    expect(await savedShelf(page)).toBe(raw)
+  })
+
+  test('restores Shelf and catalogue origins after the same historical Month and Challenge', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 580 })
+    const raw = shelfRecord(3)
+    await openShelf(page, raw)
+    const viewport = page.locator('.r06-viewport')
+    const scrollTop = () => viewport.evaluate(element => element.scrollTop)
+    const button = (name: string) => page.getByRole('button', { name, exact: true })
+    const monthHeading = page.getByRole('heading', { name: MONTH_TITLES['2026-10'], exact: true })
+    const challenge = page.getByRole('button', { name: /Day 25 Meditation/ })
+
+    for (const from of ['shelf', 'library'] as const) {
+      if (from === 'library') await entrance(page, 'browse-all-months').click()
+      const main = page.getByRole('main', { name: from === 'shelf' ? 'Shelf' : 'Historical Library', exact: true })
+      const openMonth = main.getByRole('button', { name: /Open October 2026/ })
+      await openMonth.focus()
+      const libraryScroll = await scrollTop()
+      await openMonth.press('Enter')
+      if (from === 'shelf') {
+        await button('Continue').click()
+        await button('Begin the Month').click()
+      }
+      await expect(monthHeading).toBeVisible()
+      await challenge.focus()
+      const monthScroll = await scrollTop()
+      expect(monthScroll).toBeGreaterThan(0)
+      await challenge.press('Enter')
+      if (from === 'shelf') {
+        await button('Next').click()
+        await button('Exit').click()
+      } else {
+        await button('Finish').click()
+      }
+      await expect(challenge).toBeFocused()
+      await expect.poll(scrollTop).toBe(monthScroll)
+      await page.goBack()
+      await expect(openMonth).toBeFocused()
+      await expect.poll(scrollTop).toBe(libraryScroll)
+      expect(await savedShelf(page)).toBe(raw)
+
+      const participation = parseParticipationEnvelope(
+        await page.evaluate(key => localStorage.getItem(key), PARTICIPATION_STORAGE_KEY), 'cms',
+      )
+      expect(participation.health).toBe('ok')
+      expect(Object.keys(participation.data.completedChallenges)).toEqual(
+        from === 'shelf' ? [] : ['cms:2026-10-day-25-doc'],
+      )
+    }
   })
 })

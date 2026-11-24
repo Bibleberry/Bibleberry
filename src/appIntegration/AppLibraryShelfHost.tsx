@@ -170,14 +170,14 @@ export function AppLibraryShelfHost({
           </p>
           {!onOpenFoundations && (
             <div className="provisional-collections-bar__actions">
-            <button
-              type="button"
-              className="button button--secondary provisional-collections-btn"
-              onClick={() => onSurfaceChange('library')}
-            >
-              <Library size={16} aria-hidden="true" />
-              <span>Browse Historical Library</span>
-            </button>
+              <button
+                type="button"
+                className="button button--secondary provisional-collections-btn"
+                onClick={() => onSurfaceChange('library')}
+              >
+                <Library size={16} aria-hidden="true" />
+                <span>Browse Historical Library</span>
+              </button>
             </div>
           )}
         </section>
