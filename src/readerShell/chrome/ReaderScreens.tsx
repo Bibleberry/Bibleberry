@@ -44,28 +44,17 @@ function TodayLanding({ send }: { send: Send }) {
 }
 
 function LibraryWorkspace({ browse, send }: { browse: boolean; send: Send }) {
-  // WP-05b can replace the Library landing here using the same navigation intents.
   return (
-    <>
-      {!browse && (
-        <header className="r06-landing">
-          <h1>Library</h1>
-          <div className="r06-actions">
-            <Action onClick={() => send(browseMonths)}>Browse All Months</Action>
-            <Action onClick={() => send(foundations)}>Foundations</Action>
-          </div>
-        </header>
-      )}
-      <AppLibraryShelfHost
-        surface={browse ? 'library' : 'shelf'}
-        onSurfaceChange={surface => send(surface === 'shelf' ? back : browseMonths)}
-        onOpenMonth={(yearMonth, context) => {
-          if (context.origin === (browse ? 'library' : 'shelf')) openMonth(send, yearMonth)
-        }}
-        onExit={browse ? () => send(back) : undefined}
-        exitLabel="Back to Library"
-      />
-    </>
+    <AppLibraryShelfHost
+      surface={browse ? 'library' : 'shelf'}
+      onSurfaceChange={surface => send(surface === 'shelf' ? back : browseMonths)}
+      onOpenMonth={(yearMonth, context) => {
+        if (context.origin === (browse ? 'library' : 'shelf')) openMonth(send, yearMonth)
+      }}
+      onOpenFoundations={() => send(foundations)}
+      onExit={browse ? () => send(back) : undefined}
+      exitLabel="Back to Shelf"
+    />
   )
 }
 
@@ -85,10 +74,11 @@ function RouteProblem({ state, send }: { state: NavigationState; send: Send }) {
 
 function UnavailableDetail({ screen, send }: { screen: string; send: Send }) {
   const challenge = screen === 'challengeUnavailable'
-  const title = challenge ? 'Challenge unavailable' : screen === 'foundations' ? 'Foundations unavailable' : 'Page unavailable'
+  const title = challenge ? 'Challenge unavailable' : screen === 'foundations' ? 'Foundations' : 'Page unavailable'
   const backLabel = challenge ? 'Back to Month' : screen === 'foundations' ? 'Back to Library' : 'Back'
   return (
     <Landing title={title}>
+      {screen === 'foundations' && <h2>Foundations unavailable</h2>}
       <Action onClick={() => send(back)}>{backLabel}</Action>
     </Landing>
   )

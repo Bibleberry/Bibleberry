@@ -117,6 +117,8 @@ export interface LibraryShelfHostProps {
    * Accessible label for the outer exit action. Defaults to 'Return'.
    */
   readonly exitLabel?: string
+  /** Delegate Back to the enclosing route stack. */
+  readonly shellOwnsNavigation?: boolean
 }
 
 /**
@@ -141,6 +143,7 @@ export function LibraryShelfHost({
   onOpenMonth,
   onExit,
   exitLabel = 'Return',
+  shellOwnsNavigation = false,
 }: LibraryShelfHostProps) {
   const [internalShelfState, setInternalShelfState] = useState<ShelfState>(
     () => initialShelfState ?? createEmptyShelfState(),
@@ -382,7 +385,7 @@ export function LibraryShelfHost({
   }, [mergedMonthMetadata, pendingReplace])
 
   const shelfOnExit =
-    returnSurface === 'library'
+    shellOwnsNavigation ? undefined : returnSurface === 'library'
       ? handleShelfBack
       : onExit
         ? handleShelfBack
@@ -390,8 +393,8 @@ export function LibraryShelfHost({
 
   const shelfExitLabel = returnSurface === 'library' ? 'Back to Library' : exitLabel
 
-  const libraryHasBackToShelf = returnSurface === 'shelf' || initialSurface === 'shelf'
-  const libraryOnExit = libraryHasBackToShelf || onExit ? handleLibraryBack : undefined
+  const libraryHasBackToShelf = !shellOwnsNavigation && (returnSurface === 'shelf' || initialSurface === 'shelf')
+  const libraryOnExit = shellOwnsNavigation ? onExit : libraryHasBackToShelf || onExit ? handleLibraryBack : undefined
   const libraryExitLabel = libraryHasBackToShelf ? 'Back to Shelf' : exitLabel
   const needsGatewayCalendarContext =
     activeSurface === 'shelf' && !resolvedCurrentYearMonth

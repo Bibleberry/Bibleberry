@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, type ReactNode } from 'react'
 import { ArrowLeft, Library } from 'lucide-react'
 import type { LibraryMonthIndexProvider } from '../cms/reader/libraryMonthIndexProvider.ts'
 import { HistoricalLibraryHost } from '../components/library/HistoricalLibraryHost.tsx'
@@ -7,6 +7,7 @@ import type {
   LibraryShelfSurface,
   OpenMonthContext,
 } from '../components/libraryShelf/libraryShelfModel.ts'
+import { R06LibraryLanding } from '../components/r06Library/index.ts'
 import type { PersistenceHealth } from '../participation/persistence.ts'
 import type { PublicationYearMonth } from '../participation/types.ts'
 import type { ShelfState } from '../shelf/types.ts'
@@ -20,6 +21,7 @@ export interface AppLibraryShelfHostProps {
   readonly onOpenMonth: (yearMonth: PublicationYearMonth, context: OpenMonthContext) => void
   readonly onExit?: () => void
   readonly exitLabel?: string
+  readonly onOpenFoundations?: () => void
   readonly shelfStore?: GuestShelfStore
   readonly libraryProvider?: LibraryMonthIndexProvider
 }
@@ -44,11 +46,16 @@ export function AppLibraryShelfHost({
   onOpenMonth,
   onExit,
   exitLabel = 'Return',
+  onOpenFoundations,
   shelfStore = defaultGuestShelfStore,
   libraryProvider,
 }: AppLibraryShelfHostProps) {
   const shelfSnapshot = useGuestShelfStore(shelfStore)
-  const readBlocked = isShelfReadBlocked(shelfSnapshot.health)
+  const readBlocked = isShelfReadBlocked(shelfSnapshot.health) || (
+    Boolean(onOpenFoundations) &&
+    shelfSnapshot.health === 'storageUnavailable' &&
+    !shelfSnapshot.hasPendingWrites
+  )
   const writeWarning =
     shelfSnapshot.health === 'writeFailed' ||
     shelfSnapshot.health === 'storageUnavailable'
@@ -64,8 +71,49 @@ export function AppLibraryShelfHost({
     [readBlocked, shelfStore],
   )
 
-  if (shelfSnapshot.status === 'hydrating') {
+  const hostProps = {
+    libraryProvider,
+    surface,
+    initialSurface: surface,
+    onSurfaceChange,
+    onOpenMonth,
+    onExit,
+    exitLabel,
+  }
+
+  function renderSurface(unavailableSurface: ReactNode) {
     return (
+      <>
+        {!unavailableSurface && writeWarning && (
+          <aside className="provisional-collections-bar" role="status" aria-live="polite">
+            <p className="provisional-collections-bar__description">
+              Shelf changes could not be saved to device storage yet and will retry
+              when storage is available.
+            </p>
+          </aside>
+        )}
+        {onOpenFoundations ? (
+          <R06LibraryLanding
+            {...hostProps}
+            shelfState={unavailableSurface ? undefined : shelfSnapshot.state}
+            onShelfStateChange={unavailableSurface ? undefined : handleShelfStateChange}
+            onOpenFoundations={onOpenFoundations}
+            unavailableSurface={unavailableSurface}
+            shellOwnsNavigation
+          />
+        ) : unavailableSurface ?? (
+          <LibraryShelfHost
+            {...hostProps}
+            shelfState={shelfSnapshot.state}
+            onShelfStateChange={handleShelfStateChange}
+          />
+        )}
+      </>
+    )
+  }
+
+  if (shelfSnapshot.status === 'hydrating' && (!onOpenFoundations || surface === 'shelf')) {
+    return renderSurface(
       <main
         className="standard-page shelf-page"
         role="main"
@@ -96,7 +144,7 @@ export function AppLibraryShelfHost({
   }
 
   if (readBlocked && surface === 'shelf') {
-    return (
+    return renderSurface(
       <main
         className="standard-page shelf-page"
         role="main"
@@ -120,7 +168,8 @@ export function AppLibraryShelfHost({
             Saved Shelf data could not be read safely from this device, so your
             existing Shelf was left untouched.
           </p>
-          <div className="provisional-collections-bar__actions">
+          {!onOpenFoundations && (
+            <div className="provisional-collections-bar__actions">
             <button
               type="button"
               className="button button--secondary provisional-collections-btn"
@@ -129,14 +178,15 @@ export function AppLibraryShelfHost({
               <Library size={16} aria-hidden="true" />
               <span>Browse Historical Library</span>
             </button>
-          </div>
+            </div>
+          )}
         </section>
       </main>
     )
   }
 
-  if (readBlocked && surface === 'library') {
-    return (
+  if (surface === 'library' && (readBlocked || shelfSnapshot.status === 'hydrating')) {
+    return renderSurface(
       <>
         <aside
           className="provisional-collections-bar"
@@ -144,9 +194,9 @@ export function AppLibraryShelfHost({
           aria-live="polite"
         >
           <p className="provisional-collections-bar__description">
-            Saved Shelf data could not be read safely; Shelf actions are paused to
-            protect existing device storage. You can still browse and open
-            historical months from the Library.
+            {readBlocked
+              ? 'Saved Shelf data could not be read safely; Shelf actions are paused to protect existing device storage. You can still browse and open historical months from the Library.'
+              : 'Preparing your Shelf…'}
           </p>
         </aside>
         <HistoricalLibraryHost
@@ -161,31 +211,5 @@ export function AppLibraryShelfHost({
     )
   }
 
-  return (
-    <>
-      {writeWarning ? (
-        <aside
-          className="provisional-collections-bar"
-          role="status"
-          aria-live="polite"
-        >
-          <p className="provisional-collections-bar__description">
-            Shelf changes could not be saved to device storage yet and will retry
-            when storage is available.
-          </p>
-        </aside>
-      ) : null}
-      <LibraryShelfHost
-        shelfState={shelfSnapshot.state}
-        onShelfStateChange={handleShelfStateChange}
-        libraryProvider={libraryProvider}
-        surface={surface}
-        initialSurface={surface}
-        onSurfaceChange={onSurfaceChange}
-        onOpenMonth={onOpenMonth}
-        onExit={onExit}
-        exitLabel={exitLabel}
-      />
-    </>
-  )
+  return renderSurface(null)
 }
