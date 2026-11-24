@@ -681,3 +681,16 @@ button.month-day:focus-visible {
     transform: none;
   }
 }
+
+.month-shelf-action {
+  min-inline-size: 9rem;
+}
+
+.month-shelf-action[aria-disabled="true"] {
+  cursor: default;
+}
+
+.month-shelf-error {
+  flex-basis: 100%;
+  margin: 0;
+}
