@@ -1,10 +1,10 @@
 import type { Page } from '@playwright/test'
 import { createServer, type ViteDevServer } from 'vite'
-import { handleGatewayRequest } from '../../src/gateway/handler.ts'
-import { createDefaultReaderProfile } from '../../src/readerProfile/model.ts'
-import { READER_PROFILE_STORAGE_KEY } from '../../src/readerProfile/types.ts'
-import { expect as baseExpect, test } from '../smoke/helpers/frameSafeTest.ts'
-import { buildGuestParticipationStorageValue, navigationKey, participationKey, todayDocumentId } from './fixtures/m1aGatewayFixtures.ts'
+import { handleGatewayRequest } from '../../../src/gateway/handler.ts'
+import { createDefaultReaderProfile } from '../../../src/readerProfile/model.ts'
+import { READER_PROFILE_STORAGE_KEY } from '../../../src/readerProfile/types.ts'
+import { expect as baseExpect, test } from '../../smoke/helpers/frameSafeTest.ts'
+import { buildGuestParticipationStorageValue, navigationKey, participationKey, todayDocumentId } from '../fixtures/m1aGatewayFixtures.ts'
 
 const expect = baseExpect.configure({ timeout: 12_000 })
 
