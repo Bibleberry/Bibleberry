@@ -203,7 +203,7 @@ The additional CMS models (monthly publication, graphic-first cards, discoveries
 
 ## 6. Dependency-aware remaining engineering program
 
-**Work-package selection rule:** Only the **next 2–3 bounded, authorized** assignments should be active. Within an authorized planning initiative, Engineering Issue Planning (Planning) researches candidate scopes from this sequence, checks for duplicate work and codename reuse, and creates each scoped Issue with its permanent two-word codename in **Triage**. Development Management (Dev) determines readiness and priority, selects the coding agent, and dispatches the assignment once Aaron’s authorization covers implementation. A roadmap entry is **not** an Issue, branch, coding order, service-change authority, or approval to merge. Re-evaluate interfaces after each accepted PR; do not pre-open all future packages.
+**Work-package selection rule:** Only the **next 2–3 bounded, authorized** assignments should be active. Within an authorized planning initiative, Engineering Issue Planning (Planning) researches candidate scopes from this sequence, checks for duplicate work, and creates each scoped Issue in **Triage** with a codename allocated through the [Codename Registry](../ai-operations/codename-registry.md). Development Management (Dev) determines readiness and priority, selects the coding agent, and dispatches the assignment once Aaron’s authorization covers implementation. A roadmap entry is **not** an Issue, branch, coding order, service-change authority, or approval to merge. Re-evaluate interfaces after each accepted PR; do not pre-open all future packages.
 
 ### 6.1 Critical path to a connected R06 reader (M1)
 

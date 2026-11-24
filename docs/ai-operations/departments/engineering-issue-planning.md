@@ -180,7 +180,7 @@ Within a planning initiative or area of investigation authorized by Aaron, Engin
 - Research upcoming engineering work.
 - Develop candidate assignments.
 - Select appropriate bounded Issue scopes.
-- Assign unique two-word codenames.
+- Allocate codenames through the [Codename Registry](../codename-registry.md).
 - Create new GitHub Issues.
 - Add those Issues to the existing Bibleberry Development Project in **Triage**.
 - Link related Issues, requirements, and dependencies.
@@ -213,72 +213,13 @@ It must obtain Aaron's direction before expanding into new product requirements,
 
 Planning authority to create Issues is not authority to approve their implementation.
 
-**Non-engineering requests discovered during Planning:** A conversation with Planning may reveal needed documentation, operational maintenance or governance work. This does **not** expand Planning's standing delegated authority to create non-engineering candidate Issues or modify repository files. Planning records the gap and routes it to Aaron and the responsible department (normally General Administration for governance/documentation). If Aaron authorizes a non-engineering PR assignment, its responsible department uses the same originating Issue and mandatory unique two-word codename preflight as engineering work under [AI Development Protocol §2B](../../ai-development-protocol.md).
+**Non-engineering requests discovered during Planning:** A conversation with Planning may reveal needed documentation, operational maintenance or governance work. This does **not** expand Planning's standing delegated authority to create non-engineering candidate Issues or modify repository files. Planning records the gap and routes it to Aaron and the responsible department (normally General Administration for governance/documentation). If Aaron authorizes a non-engineering PR assignment, its responsible department follows the originating Issue preflight in [AI Development Protocol §2B](../../ai-development-protocol.md) and allocates through the [Codename Registry](../codename-registry.md).
 
-## 4. Mandatory Two-Word Codenames
+## 4. Codename Registry and Assignment Identity
 
-Bibleberry uses a permanent two-word codename system for engineering assignments.
+Engineering Issue Planning is the operational custodian of the organization-wide [Codename Registry](../codename-registry.md). Planning uses its allocation procedure for each authorized new engineering Issue and coordinates serialized allocation when departments could create Issues concurrently. Each department creates Issues within its own authorized scope.
 
-This convention is mandatory for Engineering Issue Planning.
-
-### 4.1 Naming Pattern
-
-Every new engineering assignment Issue receives a unique codename using the established:
-
-**Descriptor + Noun**
-
-pattern.
-
-The first word is ordinarily an adjective or a noun used descriptively.
-
-The second is a recognizable noun, such as an animal, object, place, or natural feature.
-
-Established examples include:
-
-- **Steady Finch**
-- **Copper Meadow**
-- **Ivory Sextant**
-- **Tidal Hearth**
-- **Amber Causeway**
-- **Juniper Signal**
-
-Codenames must use exactly two ordinary, memorable words in title case.
-
-They should be:
-
-- Distinctive.
-- Easy to pronounce.
-- Easy to remember.
-- Suitable for professional communication.
-- Readily distinguishable from existing assignments.
-
-They should not be technical task descriptions.
-
-### 4.2 Uniqueness Verification
-
-Before creating an Issue, Planning must check the entire existing development Issue history, including closed Issues.
-
-Codenames must never be reused.
-
-Capitalization, spaces, and hyphens do not make an otherwise identical codename unique.
-
-Once assigned, the codename is permanent.
-
-### 4.3 Issue Title Format
-
-Every new engineering assignment Issue must begin with its codename in brackets.
-
-Format:
-
-`[Descriptor Noun] Concise Engineering Objective`
-
-The codename is the primary human-readable identity used by Aaron across departments and AI platforms.
-
-The originating GitHub Issue number and URL are the permanent authoritative assignment references.
-
-**The codename identifies the work. The Issue preserves its scope and history. The coding agent may change.**
-
-Planning must not rename existing assignments or assign replacement codenames during transfers, corrections, or additional PRs.
+Begin each new engineering Issue title with its allocated codename in brackets and record the three-digit registry sequence in the Issue body. Retain the originating Issue number, link and codename in transfers, corrections and associated PRs.
 
 ## 5. Required GitHub Issue Structure
 
@@ -288,7 +229,7 @@ The required structure is as follows.
 
 ### 5.1 Identity
 
-- Permanent two-word codename.
+- Permanent two-word codename and registry sequence.
 - Concise engineering objective.
 - Relevant roadmap phase or workstream.
 - Current planning status.
@@ -571,19 +512,13 @@ Establish a bounded objective, exclusions, prerequisites, and meaningful verific
 
 Search current and historical Issues and PRs for duplicate, completed, overlapping, or superseded work.
 
-Verify that any proposed new codename is unique.
-
 ### Step 6: Create the Issue
 
 For each qualified candidate within the authorized planning scope:
 
-1. Select a unique permanent Descriptor + Noun codename.
-2. Create the Issue using the required structure.
-3. Include relevant source and dependency links.
-4. Ensure it is represented in the existing Bibleberry Development Project as Triage.
-5. Leave implementation ownership unassigned.
-6. Clearly identify Dev as the next responsible department.
-7. Verify the Issue was created with the intended content and identity.
+1. Prepare the required Issue content, including relevant source and dependency links. Leave implementation ownership unassigned and identify Dev as the next responsible department.
+2. Use the [Codename Registry](../codename-registry.md) to allocate the codename, create the Issue with its registry sequence, and verify its content and identity.
+3. Ensure the verified Issue is represented in the existing Bibleberry Development Project as Triage.
 
 If Project board access is unavailable, create the Issue when authorized and report the board-association limitation without falsely claiming Triage placement.
 

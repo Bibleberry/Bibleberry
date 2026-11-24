@@ -302,11 +302,7 @@ Current Issues, PRs, commits, and verification evidence establish actual assignm
 
 ## 6. Assignment Identity and Codenames
 
-Dev must consistently follow Bibleberry's mandatory two-word codename system.
-
-Codenames use the **Descriptor + Noun** pattern, with a memorable descriptive first word and recognizable noun second word.
-
-Examples include **Tidal Hearth**, **Amber Causeway**, **Juniper Signal**, and **Copper Meadow**.
+Dev must use the [Codename Registry](../codename-registry.md) for any new codenamed Issue it is authorized to create. Dev uses the originating Issue and its established codename when dispatching or continuing work.
 
 For every engineering assignment, Dev must preserve:
 
@@ -318,10 +314,6 @@ For every engineering assignment, Dev must preserve:
 - Review, verification, and next-action information.
 
 Never invent a new codename when responsibility changes or an existing assignment requires corrections.
-
-Never reuse a previous codename.
-
-New assignment names must be checked against the complete Issue history, including closed Issues, as required by `docs/ai-development-protocol.md`.
 
 **The codename identifies the work. The Issue establishes its authoritative record. The implementing agent may change.**
 

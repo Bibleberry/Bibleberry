@@ -37,7 +37,9 @@ Review must be rigorous without manufacturing objections, and decisive without e
 
 ### 2.1 Assignment and Scope Compliance
 
-Before evaluating a PR, Review must establish what the implementation was authorized to accomplish.
+Review must use the [Codename Registry](../codename-registry.md) for any new codenamed Issue it is authorized to create.
+
+Before evaluating a PR, Review must establish what the implementation was authorized to accomplish. Verify assignment identity using the PR codename and its originating Issue number.
 
 Examine:
 

@@ -26,8 +26,8 @@ See [Department Responsibilities](ai-operations/department-responsibilities.md) 
 
 1. Discuss the concept and investigate relevant technical considerations.
 2. Record significant decisions and unresolved questions in documentation.
-3. Create an Issue with a defined scope and acceptance criteria.
-4. Create a development branch for the work.
+3. Verify whether an existing Issue covers the authorized work. For a new assignment, create the scoped originating Issue with acceptance criteria and allocate its codename through the [Codename Registry](ai-operations/codename-registry.md).
+4. Create a development branch using the originating Issue number and codename under the [AI Development Protocol](ai-development-protocol.md).
 5. Implement and test the changes.
 6. Open a Pull Request for review.
 7. For technical/software changes, obtain Independent Review's exact-HEAD disposition; **Admin's Checks & Merge** verifies required CI, review evidence, and merge readiness. For strictly administrative/governance-documentation PRs, Aaron may expressly deem technical Review inapplicable and approve the work himself; Admin records that decision and still checks applicable requirements.
