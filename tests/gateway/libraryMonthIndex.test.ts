@@ -703,6 +703,8 @@ test('rejects malformed query parameters and cursors with 400 badRequest and saf
   })
 
   const invalidQueries = [
+    '?q=a&q=b',
+    '?q=' + 'a'.repeat(81),
     '?limit=0',
     '?limit=-1',
     '?limit=25',
@@ -1285,4 +1287,35 @@ test('simulated ordered-slice upstream with malformed non-canonical yearMonth re
   )
   assert.equal(nonStringRes.status, 502)
   assert.equal(nonStringCalls, 1)
+})
+
+test('month/theme search filters authorized windows without changing their cursor or exposing private matches', async () => {
+  const docs = [
+    makeMonthlyPublicationDoc('2026-12', { title: 'Private needle' }),
+    makeMonthlyPublicationDoc('2026-11', { title: 'Private needle' }),
+    makeMonthlyPublicationDoc('2026-10', { title: 'Autumn', subtitle: 'Private needle' }),
+    makeMonthlyPublicationDoc('2026-09', { title: 'Private needle', withdrawn: true }),
+    makeMonthlyPublicationDoc('2026-08', { title: 'Private needle', editorialStatus: 'draft' }),
+    makeMonthlyPublicationDoc('2025-12', { title: 'Published needle' }),
+  ]
+  const fetchImpl = createMockFetch(url => {
+    const upper = JSON.parse(url.searchParams.get('$upperBoundYearMonth')!)
+    const limit = JSON.parse(url.searchParams.get('$fetchLimit')!)
+    return Response.json({ result: docs.filter(doc => doc.yearMonth < upper).slice(0, limit) })
+  })
+  async function page(query: string) {
+    const response = await handleGatewayRequest(new Request('http://localhost/api/library/months?limit=1&' + query),
+      TEST_ENV, { getNow: () => new Date('2026-11-15T12:00:00Z'), fetchImpl })
+    assert.equal(response.status, 200)
+    assert.match(response.headers.get('Cache-Control') ?? '', /no-store/)
+    return response.json()
+  }
+  const first = await page('q=NeEd')
+  assert.deepEqual(first.items, [])
+  assert.deepEqual(first.page, (await page('q=Private')).page)
+  assert.deepEqual(first.page, { limit: 1, hasMore: true, nextCursor: '2026-10' })
+  const last = await page('q=NeEd&cursor=2026-10')
+  assert.deepEqual(last.items.map((item: { title: string }) => item.title), ['Published needle'])
+  assert.equal(last.page.hasMore, false)
+  assert.equal((await page('q=octo')).items[0].yearMonth, '2026-10')
 })

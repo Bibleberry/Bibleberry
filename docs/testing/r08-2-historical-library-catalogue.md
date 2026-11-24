@@ -65,3 +65,20 @@ Strictly honors write ownership boundaries:
 - Playwright E2E tests: `npx playwright test --config tests/library/playwright.config.ts`
 - Linter: `npm run lint`
 - Production Build: `npm run build`
+
+### Willow Quay search and pagination investigation (#316)
+
+At base 7d39092 the provider requests 12 months by default (maximum 24).
+Neither the publication schema nor the gateway establishes a total catalogue
+size. A terminal cursor proves exhaustion for one traversal. A short or empty
+page alone does not. No live dataset count was required or used.
+
+Search uses the existing gateway route with an optional literal, case-insensitive
+`q` (up to 80 UTF-16 code units). The gateway scans up to four batches of 25
+candidates using the existing exclusive descending civil-month cursor. Published
+perspective, historical date, review, finalized roster and withdrawal checks
+precede matching. Only the projected English month/year and published Month title
+(the ministry-authored theme) participate. Search filters each authorized browse
+window, so cursor boundaries and upstream work are independent of the text typed.
+A sparse result can continue even when it contains zero matches. Only a terminal
+page ends the search. Changing the query restarts at the newest window.

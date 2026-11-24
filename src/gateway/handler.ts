@@ -1,3 +1,4 @@
+import { matchesLibraryMonth, MAX_LIBRARY_QUERY_LENGTH } from '../lib/libraryMonthSearch.ts'
 import {
   CATALOG_GROQ_QUERY,
   CHALLENGE_BY_SLUG_GROQ_QUERY,
@@ -862,9 +863,9 @@ function validateSanityTargetEnv(env: GatewayEnv): boolean {
 function parseLibraryMonthsQueryParams(
   url: URL,
   corsHeaders: Headers,
-): { ok: true; limit: number; cursor?: string } | { ok: false; response: Response } {
+): { ok: true; limit: number; cursor?: string; query: string } | { ok: false; response: Response } {
   for (const key of url.searchParams.keys()) {
-    if (key !== 'limit' && key !== 'cursor') {
+    if (key !== 'limit' && key !== 'cursor' && key !== 'q') {
       return {
         ok: false,
         response: errorResponse('badRequest', 'Unsupported query parameter', 400, corsHeaders),
@@ -917,7 +918,11 @@ function parseLibraryMonthsQueryParams(
     cursor = rawCursor
   }
 
-  return { ok: true, limit, cursor }
+  const terms = url.searchParams.getAll('q')
+  if (terms.length > 1 || (terms[0]?.length ?? 0) > MAX_LIBRARY_QUERY_LENGTH) {
+    return { ok: false, response: errorResponse('badRequest', 'Invalid Library search', 400, corsHeaders) }
+  }
+  return { ok: true, limit, cursor, query: terms[0]?.trim() ?? '' }
 }
 
 async function handleLibraryMonthsRequest(
@@ -1074,7 +1079,9 @@ async function handleLibraryMonthsRequest(
     {
       ok: true,
       serverContext,
-      items,
+      // The cursor describes the authorized browse window. Matching never
+      // affects upstream scans, continuation metadata or the release decision.
+      items: queryParams.query ? items.filter(item => matchesLibraryMonth(item, queryParams.query)) : items,
       page: {
         limit,
         hasMore,
