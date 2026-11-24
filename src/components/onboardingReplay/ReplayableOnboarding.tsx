@@ -168,7 +168,12 @@ export function ReplayableOnboarding({
         reminderTime: flow.draftReminderTime,
       })
     }
-    handleFinish({ destination: 'foundations', reason: 'finish' })
+    handleFinish({
+      destination: 'foundations',
+      reason: 'finish',
+      reminderEnabled: true,
+      includeReminderTime: true,
+    })
   }
 
   const handleBack = () => {

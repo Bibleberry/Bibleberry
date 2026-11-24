@@ -205,7 +205,7 @@ test('opens the same News index from Today and returns to Today after filtering'
   await expect(nav(page).getByRole('button', { name: 'Today' })).toHaveAttribute('aria-current', 'page')
 })
 
-test('replays the existing Introduction from More without changing participation or onboarding status', async ({ page }) => {
+test('replays the Introduction and saves the reminder only after an explicit successful write', async ({ page }) => {
   await useNewsGateway(page)
   const profile = { ...createDefaultReaderProfile(), introStatus: 'completed', tutorialStatus: 'skipped' }
   const profileBefore = JSON.stringify({ schemaVersion: 1, origin: 'defaults', profile })
@@ -213,7 +213,9 @@ test('replays the existing Introduction from More without changing participation
     completedChallenges: { [todayDocumentId]: { completedOn: '2026-11-20' } },
   })
   await page.addInitScript(entries => {
-    for (const [key, value] of entries) localStorage.setItem(key, value)
+    for (const [key, value] of entries) {
+      if (localStorage.getItem(key) === null) localStorage.setItem(key, value)
+    }
   }, [[READER_PROFILE_STORAGE_KEY, profileBefore], [participationKey, storedProgress]])
   await page.goto(url + '#/more')
   const replay = page.getByRole('button', { name: 'Review Introduction' })
@@ -227,6 +229,8 @@ test('replays the existing Introduction from More without changing participation
   await replay.press('Enter')
   await page.getByTestId('onboarding-continue-button').click()
   await page.getByTestId('onboarding-continue-button').click()
+  const reminderTime = page.getByLabel('Suggested reminder time')
+  await reminderTime.fill('08:45')
   await page.getByTestId('onboarding-finish-button').click()
   await expect(replay).toBeFocused()
   expect(await page.evaluate(key => localStorage.getItem(key), participationKey)).toBe(storedProgress)
@@ -236,12 +240,34 @@ test('replays the existing Introduction from More without changing participation
   await replay.press('Enter')
   await page.getByTestId('onboarding-continue-button').click()
   await page.getByTestId('onboarding-continue-button').click()
-  await page.getByLabel('Suggested reminder time').fill('09:30')
-  await page.getByTestId('onboarding-save-reminder-replay-button').click()
+  await page.evaluate(profileKey => {
+    const setItem = Storage.prototype.setItem
+    Storage.prototype.setItem = function (key, value) {
+      if (this === localStorage && key === profileKey) {
+        Storage.prototype.setItem = setItem
+        throw new DOMException('Simulated reader profile write failure', 'QuotaExceededError')
+      }
+      return setItem.call(this, key, value)
+    }
+  }, READER_PROFILE_STORAGE_KEY)
+
+  const save = page.getByTestId('onboarding-save-reminder-replay-button')
+  await reminderTime.fill('09:30')
+  await save.click()
+  await expect(page.getByRole('alert')).toHaveText('Unable to save the reminder preference.')
+  await expect(reminderTime).toHaveValue('09:30')
+  await expect(save).toBeEnabled()
+  await expect(nav(page)).toBeHidden()
+  expect(await readProfile()).toBe(profileBefore)
+
+  await reminderTime.fill('10:15')
+  await save.click()
   await expect(replay).toBeFocused()
+  await page.reload()
+  await expect(replay).toBeVisible()
   expect(JSON.parse((await readProfile())!).profile).toEqual({
     ...profile,
-    reminder: { enabled: true, time: '09:30' },
+    reminder: { enabled: true, time: '10:15' },
   })
   expect(await page.evaluate(key => localStorage.getItem(key), participationKey)).toBe(storedProgress)
 })
