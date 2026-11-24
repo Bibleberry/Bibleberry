@@ -15,13 +15,14 @@ import {
   parsePublicationYearMonth,
   parseStoredChallengeId,
 } from '../../src/participation/identity.ts'
+import { selectNewDiscoveryAwardIds } from '../../src/participation/model.ts'
 import {
   createEnvelopePersistenceAdapter,
   parseParticipationEnvelope,
   serializeParticipationEnvelope,
   type KeyValueStorageDriver,
 } from '../../src/participation/persistence.ts'
-import { createReaderParticipationStore } from '../../src/participation/store.ts'
+import { acknowledgeNotebookEntry, createReaderParticipationStore } from '../../src/participation/store.ts'
 import type { EarnedScriptureCardSnapshot, ParticipationCommand } from '../../src/participation/types.ts'
 
 const STORAGE_KEY = GUEST_PARTICIPATION_STORAGE_KEY
@@ -112,10 +113,10 @@ function createDeferred<T>() {
   return { promise, resolve }
 }
 
-test('migrates V1 to V2 on first write across sync web storage and async Capacitor Preferences, preserving all legacy fields', async () => {
+test('migrates V1 to V3 on first write across sync web storage and async Capacitor Preferences, preserving all legacy fields', async () => {
   const legacyV1 = makeLegacyV1EnvelopeJson()
 
-  // 1. Sync Web Storage V1 -> read (V1 stays intact on disk) -> write -> V2 -> restart
+  // 1. Sync Web Storage V1 -> read (V1 stays intact on disk) -> write -> V3 -> restart
   const webBacking = new Map<string, string>([[STORAGE_KEY, legacyV1]])
   const webStorage: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> = {
     getItem: k => webBacking.get(k) ?? null,
@@ -171,9 +172,9 @@ test('migrates V1 to V2 on first write across sync web storage and async Capacit
     schemaVersion: number
     data: Record<string, unknown>
   }
-  assert.equal(persistedWebParsed.schemaVersion, 2)
+  assert.equal(persistedWebParsed.schemaVersion, 3)
 
-  // Reload web store from V2 payload
+  // Reload web store from V3 payload
   const webStore2 = createPlatformGuestParticipationStore({
     isNativePlatform: () => false,
     webStorage,
@@ -181,7 +182,7 @@ test('migrates V1 to V2 on first write across sync web storage and async Capacit
   await webStore2.whenReady()
   const webReloaded = webStore2.getSnapshot().data
 
-  // 2. Async Capacitor Preferences V1 -> read -> write -> V2 -> restart
+  // 2. Async Capacitor Preferences V1 -> read -> write -> V3 -> restart
   const nativeBacking = new Map<string, string>([[STORAGE_KEY, legacyV1]])
   const nativePrefs = createPreferences(nativeBacking)
   const nativeStore1 = createPlatformGuestParticipationStore({
@@ -199,7 +200,7 @@ test('migrates V1 to V2 on first write across sync web storage and async Capacit
   const persistedNativeParsed = JSON.parse(nativeBacking.get(STORAGE_KEY)!) as {
     schemaVersion: number
   }
-  assert.equal(persistedNativeParsed.schemaVersion, 2)
+  assert.equal(persistedNativeParsed.schemaVersion, 3)
 
   const nativeStore2 = createPlatformGuestParticipationStore({
     isNativePlatform: () => true,
@@ -224,7 +225,7 @@ test('migrates V1 to V2 on first write across sync web storage and async Capacit
   nativeStore2.dispose()
 })
 
-test('V1->V2 migration write failure preserves V1 on disk across restart and completes migration on retry', async () => {
+test('V1->V3 migration write failure preserves V1 on disk across restart and completes migration on retry', async () => {
   const legacyV1 = makeLegacyV1EnvelopeJson()
   const backing = new Map<string, string>([[STORAGE_KEY, legacyV1]])
   let failWrite = true
@@ -232,7 +233,7 @@ test('V1->V2 migration write failure preserves V1 on disk across restart and com
   const preferences = createPreferences(backing, {
     set: async ({ key, value }) => {
       if (failWrite) {
-        throw new Error('Disk full during V1->V2 migration')
+        throw new Error('Disk full during V1->V3 migration')
       }
       backing.set(key, value)
     },
@@ -258,18 +259,18 @@ test('V1->V2 migration write failure preserves V1 on disk across restart and com
     ],
   })
 
-  // Write failed: health is writeFailed, pending write retained, V1 on disk untouched (no partial V2!)
+  // Write failed: health is writeFailed, pending write retained, V1 on disk untouched (no partial V3!)
   assert.equal(store1.getSnapshot().health, 'writeFailed')
   assert.equal(store1.getSnapshot().hasPendingWrites, true)
   assert.equal(backing.get(STORAGE_KEY), legacyV1)
   assert.ok(store1.getSnapshot().data.earnedAwards[thematicAwardId])
 
-  // Recover via retry (`flushPending()`) -> upgrades to V2 cleanly
+  // Recover via retry (`flushPending()`) -> upgrades to V3 cleanly
   failWrite = false
   await store1.flushPending()
   assert.equal(store1.getSnapshot().health, 'ok')
   assert.equal(store1.getSnapshot().hasPendingWrites, false)
-  assert.equal(JSON.parse(backing.get(STORAGE_KEY)!).schemaVersion, 2)
+  assert.equal(JSON.parse(backing.get(STORAGE_KEY)!).schemaVersion, 3)
   store1.dispose()
 
   // Also verify cold restart after an unretried migration write failure preserves V1 intact
@@ -322,7 +323,7 @@ test('V1->V2 migration write failure preserves V1 on disk across restart and com
       },
     ],
   })
-  assert.equal(JSON.parse(backing2.get(STORAGE_KEY)!).schemaVersion, 2)
+  assert.equal(JSON.parse(backing2.get(STORAGE_KEY)!).schemaVersion, 3)
   assert.equal(restartedSession.getSnapshot().data.earnedAwards[fullMonthAwardId]?.earnedOn, day3)
   restartedSession.dispose()
 })
@@ -410,12 +411,111 @@ test('V2 parser rejects invalid award IDs, dates, mismatched fields, and invalid
   assert.equal(reserialized.includes('insecure.png'), false)
 })
 
-test('never overwrites V3+, structurally invalid V2, corrupt JSON, or storage read failures', async () => {
+test('V2 Notebook entry migrates to V3 and replays only the awards known at entry', async () => {
+  const legacy = JSON.parse(makeLegacyV1EnvelopeJson())
+  const v2 = JSON.stringify({
+    schemaVersion: 2,
+    data: {
+      ...legacy.data,
+      earnedAwards: {
+        [thematicAwardId]: {
+          earnedOn: day2,
+          cardViewed: true,
+          hubAnnouncementAcked: true,
+          earnedCard: makeValidCardSnapshot(),
+        },
+      },
+    },
+  })
+  const backing = new Map([[STORAGE_KEY, v2]])
+  let failWrites = true
+  let successfulWrites = 0
+  const createStore = (driver: KeyValueStorageDriver) => createReaderParticipationStore(
+    createEnvelopePersistenceAdapter({ storageKey: STORAGE_KEY, driver }),
+  )
+  const store = createStore(createCapacitorPreferencesDriver({
+    preferences: createPreferences(backing, {
+      set: async ({ key, value }) => {
+        if (failWrites) throw new Error('Storage write failed')
+        successfulWrites += 1
+        backing.set(key, value)
+      },
+    }),
+  }))
+  await store.whenReady()
+  const initialData = store.getSnapshot().data
+  assert.deepEqual(selectNewDiscoveryAwardIds(initialData), [thematicAwardId])
+  assert.equal(backing.get(STORAGE_KEY), v2)
+
+  await Promise.all([acknowledgeNotebookEntry(store), acknowledgeNotebookEntry(store)])
+  assert.equal(store.getSnapshot().health, 'writeFailed')
+  assert.equal(store.getSnapshot().hasPendingWrites, true)
+  assert.equal(backing.get(STORAGE_KEY), v2)
+  assert.deepEqual(selectNewDiscoveryAwardIds(store.getSnapshot().data), [thematicAwardId])
+
+  const other = createStore(createCapacitorPreferencesDriver({ preferences: createPreferences(backing) }))
+  await other.whenReady()
+  await other.dispatch({
+    type: 'recordEarnedAwards',
+    awards: [{ awardId: fullMonthAwardId, discoveryId: 'discovery:2026-11:full-month', earnedOn: day2 }],
+  })
+  other.dispose()
+  const beforeRetry = parseParticipationEnvelope(backing.get(STORAGE_KEY)!).data
+  assert.deepEqual([...selectNewDiscoveryAwardIds(beforeRetry)].sort(), [fullMonthAwardId, thematicAwardId].sort())
+
+  failWrites = false
+  await Promise.all([store.flushPending(), store.flushPending()])
+  assert.equal(store.getSnapshot().health, 'ok')
+  assert.equal(store.getSnapshot().hasPendingWrites, false)
+  assert.equal(successfulWrites, 1)
+  const restored = createStore(createCapacitorPreferencesDriver({ preferences: createPreferences(backing) }))
+  await restored.whenReady()
+  assert.deepEqual(restored.getSnapshot().data, {
+    ...beforeRetry,
+    notebookAcknowledgedAwardIds: [thematicAwardId],
+  })
+  assert.deepEqual(selectNewDiscoveryAwardIds(restored.getSnapshot().data), [fullMonthAwardId])
+  assert.equal(JSON.parse(backing.get(STORAGE_KEY)!).schemaVersion, 3)
+  assert.deepEqual(beforeRetry.earnedAwards[thematicAwardId], initialData.earnedAwards[thematicAwardId])
+
+  await restored.dispatch({ type: 'reconcileChallengeAliases', aliases: { [c1]: c2 } })
+  assert.deepEqual(restored.getSnapshot().data.notebookAcknowledgedAwardIds, [thematicAwardId])
+  await acknowledgeNotebookEntry(restored)
+  const acknowledged = restored.getSnapshot()
+  await acknowledgeNotebookEntry(restored)
+  assert.equal(restored.getSnapshot(), acknowledged)
+  assert.deepEqual(selectNewDiscoveryAwardIds(acknowledged.data), [])
+  assert.deepEqual(acknowledged.data.earnedAwards, beforeRetry.earnedAwards)
+  store.dispose()
+  restored.dispose()
+})
+
+test('V3 restore deduplicates Notebook acknowledgements and ignores IDs without earned awards', () => {
+  const raw = JSON.stringify({
+    schemaVersion: 3,
+    data: {
+      earnedAwards: { [thematicAwardId]: { earnedOn: day2 } },
+      notebookAcknowledgedAwardIds: [fullMonthAwardId, thematicAwardId, thematicAwardId, 9, '__proto__'],
+    },
+  })
+  const restored = parseParticipationEnvelope(raw)
+  assert.equal(restored.health, 'ok')
+  assert.deepEqual(restored.data.notebookAcknowledgedAwardIds, [thematicAwardId])
+  assert.deepEqual(selectNewDiscoveryAwardIds(restored.data), [])
+  assert.deepEqual(parseParticipationEnvelope(serializeParticipationEnvelope(restored.data)), restored)
+})
+
+test('never overwrites newer versions, structurally invalid envelopes, corrupt JSON, or storage read failures', async () => {
   const cases = [
     {
-      label: 'V3 future schema',
-      raw: JSON.stringify({ schemaVersion: 3, data: { earnedAwards: {} } }),
+      label: 'V4 future schema',
+      raw: JSON.stringify({ schemaVersion: 4, data: { earnedAwards: {} } }),
       expectedHealth: 'unsupportedNewerSchema' as const,
+    },
+    {
+      label: 'Invalid V3 Notebook acknowledgements',
+      raw: JSON.stringify({ schemaVersion: 3, data: { notebookAcknowledgedAwardIds: {} } }),
+      expectedHealth: 'corruptStoredData' as const,
     },
     {
       label: 'Invalid V2 earnedAwards array',
@@ -444,6 +544,10 @@ test('never overwrites V3+, structurally invalid V2, corrupt JSON, or storage re
     )
     await store.whenReady()
     assert.equal(store.getSnapshot().health, testCase.expectedHealth, testCase.label)
+
+    await acknowledgeNotebookEntry(store)
+    assert.equal(store.getSnapshot().hasPendingWrites, false)
+    assert.equal(backing.get(STORAGE_KEY), testCase.raw)
 
     await store.dispatch({
       type: 'recordEarnedAwards',

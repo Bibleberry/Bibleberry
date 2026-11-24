@@ -805,7 +805,7 @@ function normalizeSourceData(params: {
   }
 
   const earnedAwards: Record<string, ProposedAccountEarnedAwardRecord> = {}
-  const allowAwards = source === 'account' || schemaVersion === 2
+  const allowAwards = source === 'account' || schemaVersion >= 2
   if (allowAwards && isPlainObject(rawData.earnedAwards)) {
     for (const [rawId, value] of Object.entries(rawData.earnedAwards)) {
       if (!isSafeKey(rawId)) continue
@@ -1332,7 +1332,7 @@ export function reconcileGuestIntoAccount(
   if (
     typeof guestSchemaVersion !== 'number'
     || !Number.isInteger(guestSchemaVersion)
-    || (guestSchemaVersion !== 1 && guestSchemaVersion !== 2)
+    || (guestSchemaVersion !== 1 && guestSchemaVersion !== 2 && guestSchemaVersion !== 3)
   ) {
     return {
       ok: false,
@@ -1343,7 +1343,12 @@ export function reconcileGuestIntoAccount(
     }
   }
 
-  if (!isValidParticipationContainerShape(guest.envelope.data, guestSchemaVersion === 1)) {
+  const guestData = guest.envelope.data
+  if (
+    !isValidParticipationContainerShape(guestData, guestSchemaVersion === 1)
+    || (guestSchemaVersion === 3 && guestData.notebookAcknowledgedAwardIds !== undefined
+      && !Array.isArray(guestData.notebookAcknowledgedAwardIds))
+  ) {
     return {
       ok: false,
       status: 'rejected',
@@ -1391,7 +1396,7 @@ export function reconcileGuestIntoAccount(
 
   const normalizedGuest = normalizeSourceStateForMerge({
     source: 'guest',
-    rawData: guest.envelope.data,
+    rawData: guestData,
     schemaVersion: guestSchemaVersion,
     rawShelfOverride: guest.shelf,
     allowedNamespace,
@@ -1660,6 +1665,11 @@ export function reconcileGuestIntoAccount(
 
   const hasUnresolved = unresolvedItems.length > 0
   const hasRejectedGuestRecords = rejectedRecords.some(record => record.source === 'guest')
+  // Account V1 cannot restore Notebook acknowledgements. Retain the guest
+  // snapshot after a commit so clearing it cannot lose this device-local state.
+  const hasNotebookAcknowledgements = guestSchemaVersion === 3
+    && Array.isArray(guestData.notebookAcknowledgedAwardIds)
+    && guestData.notebookAcknowledgedAwardIds.length > 0
 
   return Object.freeze({
     ok: true,
@@ -1673,7 +1683,7 @@ export function reconcileGuestIntoAccount(
     shelfConflicts: Object.freeze(shelfConflicts),
     rejectedRecords: Object.freeze(rejectedRecords),
     appliedAliases: Object.freeze(appliedAliases),
-    guestClearanceEligible: !hasUnresolved && !hasRejectedGuestRecords,
+    guestClearanceEligible: !hasUnresolved && !hasRejectedGuestRecords && !hasNotebookAcknowledgements,
   })
 }
 

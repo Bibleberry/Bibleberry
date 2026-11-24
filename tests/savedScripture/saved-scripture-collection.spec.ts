@@ -178,7 +178,7 @@ test.describe('R09-1 Saved Scripture Collection with Search and Durable Removal'
     await expect(page.getByTestId('completed-count')).toContainText('Completed: 1')
     await expect(page.getByTestId('awards-count')).toContainText('Awards: 1')
 
-    // Reload browser and confirm V2 guest store persisted exact remaining 3 citations & unrelated data
+    // Reload browser and confirm the guest store persisted exact remaining 3 citations & unrelated data
     await page.reload()
     await expect(page.locator('.saved-scripture-card__reference')).toHaveCount(3)
     await expect(page.locator('.saved-scripture-card__reference').nth(0)).toHaveText('Éxodo 14:14')
@@ -188,7 +188,7 @@ test.describe('R09-1 Saved Scripture Collection with Search and Durable Removal'
     await expect(page.getByTestId('awards-count')).toContainText('Awards: 1')
 
     const stored = await page.evaluate(key => JSON.parse(window.localStorage.getItem(key) ?? 'null'), PARTICIPATION_STORAGE_KEY)
-    expect(stored?.schemaVersion).toBe(2)
+    expect(stored?.schemaVersion).toBe(3)
     expect(stored?.data?.savedScriptures).toHaveLength(3)
     expect(Object.keys(stored?.data?.earnedAwards ?? {})).toHaveLength(1)
     expect(Object.keys(stored?.data?.completedChallenges ?? {})).toHaveLength(1)

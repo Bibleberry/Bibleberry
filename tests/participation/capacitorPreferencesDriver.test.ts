@@ -193,7 +193,7 @@ test('native storage never overwrites malformed or newer-schema participation en
   const protectedPayloads = [
     { value: '{not-json', health: 'corruptStoredData' },
     {
-      value: JSON.stringify({ schemaVersion: 3, data: {} }),
+      value: JSON.stringify({ schemaVersion: 4, data: {} }),
       health: 'unsupportedNewerSchema',
     },
   ] as const

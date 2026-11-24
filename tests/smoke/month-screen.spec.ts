@@ -818,7 +818,7 @@ test.describe('R08A-6 Calendar Month Screen Integration', () => {
         award: envelope?.data?.earnedAwards?.['card:monthly:2098-03:light-discovery'],
       }
     }, PARTICIPATION_STORAGE_KEY)
-    expect(savedAward.schemaVersion).toBe(2)
+    expect(savedAward.schemaVersion).toBe(3)
     expect(savedAward.completed).toContain('cms:march-day-01-doc')
     expect(savedAward.completed).toContain('cms:march-day-02-doc')
     expect(savedAward.award.earnedOn).toBe('2098-03-02')
