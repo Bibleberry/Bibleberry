@@ -3,7 +3,7 @@ import { ReaderNavigation } from './chrome/ReaderNavigation.tsx'
 import { ReaderScreens } from './chrome/ReaderScreens.tsx'
 import { captureScreenRestoration, restoreScreen } from './chrome/screenRestoration.ts'
 import { useReaderNavigation } from './chrome/useReaderNavigation.ts'
-import { activeRestoration, globalNavigation } from './navigation/index.ts'
+import { activeRestoration, globalNavigation, type RouteRestoration } from './navigation/index.ts'
 import { readerRouteOptions } from './navigation/routeTable.ts'
 import '../App.css'
 import './readerShell.css'
@@ -12,10 +12,24 @@ const routeOptions = readerRouteOptions()
 
 export default function R06ReaderShell() {
   const viewport = useRef<HTMLDivElement>(null)
+  const replayRestoration = useRef<RouteRestoration | undefined>(undefined)
+  const stopReplayRestoration = useRef<(() => void) | undefined>(undefined)
   const lastFocused = useRef<HTMLElement | null>(null)
   const captureRestoration = useCallback(() => (
-    viewport.current ? captureScreenRestoration(viewport.current, lastFocused.current) : undefined
+    viewport.current ? captureScreenRestoration(viewport.current, lastFocused.current) ?? replayRestoration.current : undefined
   ), [])
+  const captureReplayReturn = useCallback(() => {
+    const element = viewport.current
+    const saved = captureRestoration()
+    if (!element || !saved) return
+    replayRestoration.current = saved
+    element.scrollTop = 0
+    return () => {
+      replayRestoration.current = undefined
+      stopReplayRestoration.current?.()
+      stopReplayRestoration.current = restoreScreen(element, saved, false)
+    }
+  }, [captureRestoration])
   const { navigation, revision, dispatch, pending, challengeProvider } = useReaderNavigation(routeOptions, captureRestoration)
   const { state } = navigation
 
@@ -23,7 +37,13 @@ export default function R06ReaderShell() {
     if (!viewport.current || pending) return
     lastFocused.current = null
     const restoration = state.problem || state.focused ? undefined : activeRestoration(state)
-    return restoreScreen(viewport.current, restoration, revision > 0)
+    const stop = restoreScreen(viewport.current, restoration, revision > 0)
+    return () => {
+      stop?.()
+      replayRestoration.current = undefined
+      stopReplayRestoration.current?.()
+      stopReplayRestoration.current = undefined
+    }
   }, [state, revision, pending])
 
   return (
@@ -44,6 +64,7 @@ export default function R06ReaderShell() {
           send={action => dispatch(action, revision)}
           pending={pending}
           challengeProvider={challengeProvider}
+          captureReplayReturn={captureReplayReturn}
         />
       </div>
       {!pending && globalNavigation(state) !== 'hidden' && (

@@ -28,6 +28,8 @@ export type MonthScreenViewProps = {
   mode: 'preview' | 'detail'
   month: MonthPreviewData | MonthDetailData
   weeks: readonly MonthCalendarWeek[]
+  currentDate?: string
+  showProvisionalNotice?: boolean
   completionSummary: MonthCompletionSummary | null
   discoveries: readonly MonthDiscoveryPresentation[]
   progressLoading?: boolean
@@ -71,6 +73,8 @@ export function MonthScreenView({
   mode,
   month,
   weeks,
+  currentDate,
+  showProvisionalNotice = true,
   completionSummary,
   discoveries,
   progressLoading = false,
@@ -172,9 +176,11 @@ export function MonthScreenView({
               </div>
             )}
           </div>
-          <p className="month-provisional-note">
-            <Calendar size={14} aria-hidden="true" /> Provisional calendar layout — pending final design review.
-          </p>
+          {showProvisionalNotice && (
+            <p className="month-provisional-note">
+              <Calendar size={14} aria-hidden="true" /> Provisional calendar layout — pending final design review.
+            </p>
+          )}
         </div>
         {month.coverImage && (
           <figure className="month-header__cover">
@@ -183,7 +189,7 @@ export function MonthScreenView({
         )}
       </header>
 
-      <section className="month-calendar" aria-labelledby="month-calendar-heading">
+      <section data-month-agenda={mode} className="month-calendar" aria-labelledby="month-calendar-heading">
         <div className="month-calendar__header">
           <h2 id="month-calendar-heading">Daily Challenges</h2>
           <span>
@@ -196,14 +202,16 @@ export function MonthScreenView({
         ) : (
           <div className="month-weeks">
             {weeks.map(week => {
+              const currentWeek = week.slots.some(slot => slot.date === currentDate)
               const weekHeadingId = `month-week-${month.monthId}-${week.weekNumber}`
               return (
                 <section
                   key={week.weekNumber}
                   className="month-week"
+                  data-current-week={currentWeek || undefined}
                   aria-labelledby={weekHeadingId}
                 >
-                  <h3 id={weekHeadingId} className="month-week__title">
+                  <h3 id={weekHeadingId} className="month-week__title" tabIndex={currentWeek ? -1 : undefined}>
                     Week {week.weekNumber} · {week.label}
                   </h3>
 

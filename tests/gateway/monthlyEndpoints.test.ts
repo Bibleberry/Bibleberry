@@ -270,6 +270,41 @@ test('GET /api/months/:yearMonth/preview enforces exact Dec 28 and Feb 27 previe
   }
 })
 
+test('month detail becomes available at authorized local midnight', async () => {
+  for (const [yearMonth, midnightUtc] of [
+    ['2098-01', '2098-01-01T05:00:00Z'],
+    ['2098-03', '2098-03-01T05:00:00Z'],
+    ['2096-03', '2096-03-01T05:00:00Z'],
+  ]) {
+    const fetchImpl = createMockFetch(() => Response.json({ result: makeMonthlyPublicationDoc(yearMonth) }))
+    const readerMidnight = Date.parse(midnightUtc)
+    const requestMonth = (suffix: string, millis: number) => handleGatewayRequest(
+      new Request(`http://localhost/api/months/${yearMonth}${suffix}`, {
+        headers: { 'X-Bibleberry-Timezone': 'America/New_York' },
+      }),
+      TEST_ENV,
+      { getNow: () => new Date(millis), fetchImpl },
+    )
+
+    const lastPreview = await requestMonth('/preview', readerMidnight - 1)
+    assert.equal(lastPreview.status, 200)
+    const previewBody = await lastPreview.json()
+    assert.equal(previewBody.month.introduction.welcomeScreen, undefined)
+    assert.equal(previewBody.month.discoveries, undefined)
+    assert.equal((await requestMonth('', readerMidnight - 1)).status, 404)
+
+    const firstDetail = await requestMonth('', readerMidnight)
+    assert.equal(firstDetail.status, 200)
+    const detailBody = await firstDetail.json()
+    assert.equal(detailBody.serverContext.authorizedLocalDate, `${yearMonth}-01`)
+    assert.equal(detailBody.month.phase, 'active')
+    assert.ok(detailBody.month.introduction.welcomeScreen)
+    assert.ok(detailBody.month.discoveries.length)
+    assert.equal(detailBody.month.slots[0].availability, 'available')
+    assert.equal(detailBody.month.slots[1].availability, 'comingSoon')
+  }
+})
+
 test('GET /api/months/:yearMonth/preview supports 28/29/30/31 day counts and omits welcomeScreen, slugs, IDs, Scripture, discoveries, and review notes', async () => {
   const months = [
     { ym: '2098-02', days: 28, previewDate: '2098-01-28T12:00:00Z' },
