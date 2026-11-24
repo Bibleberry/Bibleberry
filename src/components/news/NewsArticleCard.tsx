@@ -11,6 +11,8 @@ import { NewsPortableTextView } from './NewsPortableText.tsx'
 
 export interface NewsArticleCardProps {
   readonly article: NewsArticle
+  readonly detail?: boolean
+  readonly onOpen?: () => void
   readonly onNavigate?: (destination: { kind: 'month'; monthId: string }) => void
 }
 
@@ -20,11 +22,12 @@ export interface NewsArticleCardProps {
  * Presents verified headline, date, summary, media, body, and safe internal
  * navigation targets without leaking editorial fields or displaying unearned badges.
  */
-export function NewsArticleCard({ article, onNavigate }: NewsArticleCardProps) {
+export function NewsArticleCard({ article, detail, onNavigate, onOpen }: NewsArticleCardProps) {
   const [imageError, setImageError] = useState(false)
   const titleId = useId()
 
   const hasSafeDestination = isAuthorizedInternalDestination(article.destination)
+  const Heading = detail ? 'h1' : 'h2'
   const categoryLabel = formatNewsCategory(article.category)
   const formattedDate = formatNewsDate(article.publishedOn)
 
@@ -48,9 +51,11 @@ export function NewsArticleCard({ article, onNavigate }: NewsArticleCardProps) {
             {formattedDate}
           </time>
         </div>
-        <h2 id={titleId} className="news-card__title">
-          {article.title}
-        </h2>
+        <Heading id={titleId} className="news-card__title">
+          {onOpen
+            ? <button type="button" className="news-card__open" onClick={onOpen}>{article.title}</button>
+            : article.title}
+        </Heading>
       </header>
 
       {article.coverImage && !imageError && (
@@ -74,7 +79,7 @@ export function NewsArticleCard({ article, onNavigate }: NewsArticleCardProps) {
 
       <p className="news-card__summary">{article.summary}</p>
 
-      {article.body && article.body.length > 0 && (
+      {!onOpen && article.body && article.body.length > 0 && (
         <div className="news-card__body-container">
           <NewsPortableTextView value={article.body} onNavigate={onNavigate} />
         </div>

@@ -208,3 +208,41 @@
     text-align: start;
   }
 }
+
+.r06-more {
+  font-size: 1rem;
+}
+
+.r06-more__feature {
+  padding: 1rem;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+}
+
+.r06-more__feature h2 {
+  margin-block: 0 0.6rem;
+}
+
+.r06-more__feature p {
+  margin-block: 0 0.5rem;
+}
+
+.r06-more__entries {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0;
+  margin: 1rem 0 0;
+  list-style: none;
+}
+
+.r06-more__entries p {
+  margin-block: 0.25rem 0;
+  color: var(--muted);
+}
+
+.r06-more .button {
+  max-width: 100%;
+  font-size: 0.875rem;
+  white-space: normal;
+  text-align: start;
+}
