@@ -115,6 +115,7 @@ export function HistoricalLibraryHost({
   onStateChange,
 }: HistoricalLibraryHostProps) {
   const [state, dispatch] = useReducer(historicalLibraryReducer, initialHistoricalLibraryState)
+  const [restorationReady, setRestorationReady] = useState(false)
   const routeVisible = useContext(LibraryRouteVisible)
   const loadCatalogue = routeVisible || !browsing
   const [searchText, setSearchText] = useState('')
@@ -191,7 +192,10 @@ export function HistoricalLibraryHost({
           })
         }
       } finally {
-        if (controllerRef.current === controller) controllerRef.current = null
+        if (controllerRef.current === controller) {
+          controllerRef.current = null
+          if (!controller.signal.aborted) setRestorationReady(true)
+        }
       }
     },
     [provider, query, resolvedPageSize, timeZone],
@@ -208,6 +212,7 @@ export function HistoricalLibraryHost({
   }, [])
 
   useLayoutEffect(() => {
+    setRestorationReady(false)
     dispatch({ type: 'RESET' })
     if (!loadCatalogue) return
     // Coalesce keystrokes before requesting a new search window.
@@ -270,6 +275,7 @@ export function HistoricalLibraryHost({
 
   return (
     <HistoricalLibraryView
+      restorationReady={restorationReady}
       state={state}
       searchText={searchText}
       onSearchChange={changeSearch}

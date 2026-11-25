@@ -38,6 +38,7 @@ export function HistoricalLibraryCard({
           <button
             type="button"
             className="library-card__action-btn"
+            data-library-focus={`month:${item.yearMonth}:open`}
             onClick={() => onOpenMonth(item.yearMonth)}
             aria-label={`Open ${monthHeading}: ${item.title}`}
           >
@@ -67,6 +68,7 @@ export function HistoricalLibraryCard({
             <button
               type="button"
               className="library-card__shelf-btn"
+              data-library-focus={`month:${item.yearMonth}:add`}
               onClick={() => onSelectForShelf(item.yearMonth)}
               aria-label={`Add ${monthHeading} to Shelf`}
             >
@@ -79,6 +81,7 @@ export function HistoricalLibraryCard({
             <button
               type="button"
               className="library-card__shelf-btn"
+              data-library-focus={`month:${item.yearMonth}:keep`}
               onClick={() => onSelectForShelf(item.yearMonth)}
               aria-label={`Keep ${monthHeading} on Shelf (protect from rollover)`}
             >

@@ -102,3 +102,69 @@ test('J5 searches across years, retries a cursor and restores a reauthorized cat
   expect(await page.evaluate(key => JSON.parse(localStorage.getItem(key)!).data.completedChallenges, participationKey)).toEqual(completed)
   expect(await page.evaluate(key => JSON.parse(localStorage.getItem(key) ?? 'null')?.state.months ?? [], shelfKey)).toEqual([])
 })
+
+for (const scenario of [
+  { name: 'a preceding row is removed', search: false, change: 'remove' },
+  { name: 'a preceding row is inserted', search: true, change: 'insert' },
+  { name: 'the focused Month is withdrawn', search: true, change: 'withdraw' },
+] as const) {
+  test(`J5 restores catalogue focus when ${scenario.name}`, async ({ page }) => {
+    await page.clock.setFixedTime(new Date('2027-01-15T12:00:00Z'))
+    await page.route('https://**', route => route.abort())
+    await page.route('**/api/**', route => route.fulfill({ status: 404, json: { ok: false } }))
+    await page.route(`**/api/months/${monthId}`, route => route.fulfill({ json: buildDefaultHistoricalMonthPayload() }))
+    await page.route(`**/api/months/${monthId}/progress`, route => route.fulfill({
+      json: buildHistoricalMonthProgressPayload(route.request().postDataJSON().completedChallengeIds),
+    }))
+    const november = { yearMonth: '2026-11', year: 2026, month: 11, title: 'November test publication' }
+    const december = { yearMonth: '2026-12', year: 2026, month: 12, title: 'December test publication' }
+    const september = { yearMonth: '2026-09', year: 2026, month: 9, title: 'September test publication' }
+    let returning = false
+    let releaseContinuation: (() => void) | undefined
+    const continuation = new Promise<void>(resolve => { releaseContinuation = resolve })
+    let continuationRequested: (() => void) | undefined
+    const requested = new Promise<void>(resolve => { continuationRequested = resolve })
+    await page.route('**/api/library/months**', async route => {
+      const cursor = new URL(route.request().url()).searchParams.get('cursor')
+      if (returning && cursor) {
+        continuationRequested?.()
+        await continuation
+      }
+      const payload = buildLibraryMonthsPayload()
+      const first = returning && scenario.change === 'remove' ? []
+        : returning && scenario.change === 'insert' ? [december, november] : [november]
+      const second = returning && scenario.change === 'withdraw' ? [september] : [...payload.items, september]
+      return route.fulfill({ json: {
+        ...payload, serverContext: { ...payload.serverContext, authorizedLocalDate: '2027-01-15' },
+        items: cursor ? second : first,
+        page: { limit: 12, hasMore: !cursor, nextCursor: cursor ? null : '2026-11' },
+      } })
+    })
+    await page.goto(url)
+    await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Library' }).click()
+    await page.getByRole('button', { name: 'Browse All Months' }).click()
+    const search = page.getByRole('searchbox')
+    if (scenario.search) await search.fill('publication')
+    await page.getByRole('button', { name: 'Load more past months' }).click()
+    const october = page.getByRole('button', { name: /Open October 2026/ })
+    await october.focus()
+    await page.keyboard.press('Enter')
+    await page.getByRole('button', { name: 'Continue', exact: true }).click()
+    await page.getByRole('button', { name: 'Begin the Month' }).click()
+    returning = true
+    await page.getByRole('button', { name: 'Back', exact: true }).click()
+    await requested
+    await expect(search).not.toBeFocused()
+    releaseContinuation?.()
+    await expect(page.getByText('You have reached the beginning of the Library catalogue.')).toBeVisible()
+    if (scenario.change === 'withdraw') {
+      await expect(october).toHaveCount(0)
+      await expect(search).toBeFocused()
+    } else {
+      await expect(october).toBeFocused()
+    }
+    await expect(search).toHaveValue(scenario.search ? 'publication' : '')
+    if (!scenario.search) await expect(page.getByRole('button', { name: '2026', exact: true })).toHaveAttribute('aria-expanded', 'true')
+    expect(await page.evaluate(key => JSON.parse(localStorage.getItem(key) ?? 'null')?.state.months ?? [], shelfKey)).toEqual([])
+  })
+}

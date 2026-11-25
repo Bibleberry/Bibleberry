@@ -10,6 +10,7 @@ import {
 } from './historicalLibraryModel.ts'
 
 export interface HistoricalLibraryViewProps {
+  readonly restorationReady: boolean
   readonly searchText: string
   readonly onSearchChange: (text: string) => void
   readonly state: HistoricalLibraryState
@@ -37,6 +38,7 @@ export interface HistoricalLibraryViewProps {
  * - Explicit 'Load more' pagination, with correct continuation support for sparse pages.
  */
 export function HistoricalLibraryView({
+  restorationReady,
   state,
   searchText,
   onSearchChange,
@@ -111,7 +113,8 @@ export function HistoricalLibraryView({
   }
 
   return (
-    <main className="standard-page library-page" role="main" aria-label="Historical Library">
+    <main className="standard-page library-page" role="main" aria-label="Historical Library"
+      data-library-restoration-ready={restorationReady ? 'true' : 'false'}>
       {/* Hidden live region for screen reader notifications */}
       <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
         {liveAnnouncement}
@@ -120,7 +123,7 @@ export function HistoricalLibraryView({
       {(onExit || onViewShelf) && (
         <div className="library-topbar">
           {onExit ? (
-            <button type="button" className="back-link library-back-btn" onClick={onExit}>
+            <button type="button" className="back-link library-back-btn" data-library-focus="back" onClick={onExit}>
               <ArrowLeft size={17} aria-hidden="true" />
               <span>{exitLabel}</span>
             </button>
@@ -132,6 +135,7 @@ export function HistoricalLibraryView({
             <button
               type="button"
               className="library-shelf-nav-btn"
+              data-library-focus="shelf"
               onClick={onViewShelf}
               aria-label={`View Shelf (${shelfCount} of ${shelfMaxCapacity} months)`}
             >
@@ -154,7 +158,7 @@ export function HistoricalLibraryView({
 
       <label className="library-search">
         Search months and themes
-        <input type="search" maxLength={MAX_LIBRARY_QUERY_LENGTH}
+        <input type="search" maxLength={MAX_LIBRARY_QUERY_LENGTH} data-library-focus="search"
           value={searchText} onChange={event => onSearchChange(event.target.value)} />
       </label>
 
@@ -263,6 +267,7 @@ export function HistoricalLibraryView({
                   <button
                     type="button"
                     className="library-inline-retry-btn"
+                    data-library-focus="retry"
                     onClick={onRetry}
                   >
                     Retry
@@ -277,7 +282,7 @@ export function HistoricalLibraryView({
             return (
               <section key={year} className="library-year">
                 <h2>
-                  <button type="button" aria-expanded={expanded}
+                  <button type="button" aria-expanded={expanded} data-library-focus={`year:${year}`}
                     onClick={() => setExpandedYears(previous => ({ ...previous, [year]: !expanded }))}>
                     {year} <span aria-hidden="true">{expanded ? '−' : '+'}</span>
                   </button>
@@ -300,6 +305,7 @@ export function HistoricalLibraryView({
               <button
                 type="button"
                 className="library-load-more-btn"
+                data-library-focus="more"
                 onClick={onLoadMore}
                 disabled={isLoadingMore}
                 aria-busy={isLoadingMore}
