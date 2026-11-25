@@ -73,6 +73,22 @@ test('resolveFirstUseStep sequences Intro then optional Tutorial seam with indep
   const fresh = createDefaultReaderProfile()
   assert.equal(resolveFirstUseStep(fresh, { tutorialAvailable: false }), 'intro')
   assert.equal(resolveFirstUseStep(fresh, { tutorialAvailable: true }), 'intro')
+  assert.equal(
+    resolveFirstUseStep(fresh, { tutorialAvailable: true, skipIntroInSession: true }),
+    'tutorial',
+  )
+  assert.equal(
+    resolveFirstUseStep(fresh, {
+      tutorialAvailable: true,
+      skipIntroInSession: true,
+      skipTutorialInSession: true,
+    }),
+    'none',
+  )
+  assert.equal(
+    resolveFirstUseStep(fresh, { tutorialAvailable: false, skipIntroInSession: true }),
+    'none',
+  )
 
   for (const introStatus of ['completed', 'skipped'] as const) {
     const afterIntro = { ...fresh, introStatus, tutorialStatus: 'pending' as const }
@@ -462,4 +478,27 @@ test('same-origin cold browser path links validate through parser + gateway and 
   const externalAttempt = await bridge.handleExternalUrl('http://127.0.0.1:4173/challenge/october-25')
   assert.equal(externalAttempt.outcome.status, 'unavailable')
   bridge.stop()
+})
+
+test('takeVerifiedProvider retains single-visit provider until consumed and does not drop it on unrelated state', async () => {
+  const provider: ChallengeDetailProvider = {
+    async loadChallenge(slug) {
+      return {
+        status: 'ready',
+        source: 'gateway',
+        challenge: makeGatewayChallenge(slug),
+      }
+    },
+  }
+  const verified = createVerifiedChallengeIngressProvider(provider)
+  const loaded = await verified.challengeProvider.loadChallenge('released-teaching')
+  assert.equal(loaded.status, 'ready')
+
+  // Mismatched slug does not consume the verified provider
+  assert.equal(verified.takeVerifiedProvider('other-slug'), undefined)
+  // Matching slug returns single-use provider once
+  const singleUse = verified.takeVerifiedProvider('released-teaching')
+  assert.ok(singleUse)
+  assert.equal((await singleUse.loadChallenge('released-teaching')).status, 'ready')
+  assert.equal(verified.takeVerifiedProvider('released-teaching'), undefined)
 })

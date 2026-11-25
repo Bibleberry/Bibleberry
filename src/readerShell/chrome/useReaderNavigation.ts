@@ -93,6 +93,12 @@ export interface ReaderEntryConfiguration {
   readonly lifecycleEvents?: AppLifecycleEventSource
 }
 
+export interface TutorialSaveFailure {
+  readonly status: Extract<OnboardingStepStatus, 'completed' | 'skipped'>
+  readonly sourceRevision: number
+  readonly message: string
+}
+
 interface ReaderNavigationView {
   readonly navigation: BrowserNavigation
   readonly revision: number
@@ -130,6 +136,7 @@ export function useReaderNavigation(
     pending: true,
     initialReminderTime: DEFAULT_REMINDER_TIME,
   }))
+  const [tutorialSaveFailure, setTutorialSaveFailure] = useState<TutorialSaveFailure | null>(null)
   const current = useRef(view.navigation)
   const profileRef = useRef<ReaderProfile>(createDefaultReaderProfile())
   const restoredSessionRef = useRef(initialSession.restoredSession)
@@ -138,6 +145,7 @@ export function useReaderNavigation(
   const revision = useRef(0)
   const awaitingBack = useRef(false)
   const pending = useRef<AbortController | null>(null)
+  const tutorialSavingRef = useRef(false)
 
   const rememberScreen = useCallback(() => {
     const restoration = captureRestoration()
@@ -160,6 +168,7 @@ export function useReaderNavigation(
       awaitingBack.current = true
     } else {
       revision.current += 1
+      setTutorialSaveFailure(null)
       setView({
         navigation: update.navigation,
         revision: revision.current,
@@ -171,21 +180,83 @@ export function useReaderNavigation(
     applyHistoryUpdate(update)
   }, [])
 
-  const advanceFirstUse = useCallback((nextProfile: ReaderProfile) => {
-    profileRef.current = nextProfile
-    const step = resolveFirstUseStep(nextProfile, { tutorialAvailable })
-    const update = replaceFirstUseGuidance(current.current, step)
-    commit(update, undefined, nextProfile.reminder.time)
-  }, [commit, tutorialAvailable])
+  const isGuidanceFrameCurrent = useCallback(
+    (sourceRevision: number, expectedKind: 'intro' | 'tutorial') => {
+      if (pending.current || awaitingBack.current || sourceRevision !== revision.current) {
+        return false
+      }
+      const { state } = current.current
+      return (
+        state.problem === null &&
+        state.activeTab === 'today' &&
+        state.stacks.today.length === 0 &&
+        state.focused?.kind === expectedKind
+      )
+    },
+    [],
+  )
 
-  const completeFirstUseTutorial = useCallback((status: Extract<OnboardingStepStatus, 'completed' | 'skipped'>) => {
-    void profileStore.setTutorialStatus(status).then(updated => {
-      const nextProfile = updated.ok
-        ? updated.profile
-        : { ...updated.profile, tutorialStatus: status }
-      advanceFirstUse(nextProfile)
-    })
-  }, [advanceFirstUse, profileStore])
+  const advanceFirstUse = useCallback(
+    (nextProfile: ReaderProfile, sourceRevision: number, expectedKind: 'intro' | 'tutorial') => {
+      profileRef.current = nextProfile
+      if (!isGuidanceFrameCurrent(sourceRevision, expectedKind)) return
+      const step = resolveFirstUseStep(nextProfile, { tutorialAvailable })
+      const update = replaceFirstUseGuidance(current.current, step)
+      if (update.history.type === 'none') return
+      commit(update, undefined, nextProfile.reminder.time)
+    },
+    [commit, isGuidanceFrameCurrent, tutorialAvailable],
+  )
+
+  const continueFirstUseSessionOnly = useCallback(
+    (sourceRevision: number, expectedKind: 'intro' | 'tutorial') => {
+      if (!isGuidanceFrameCurrent(sourceRevision, expectedKind)) return
+      const step = resolveFirstUseStep(profileRef.current, {
+        tutorialAvailable,
+        skipIntroInSession: true,
+        skipTutorialInSession: expectedKind === 'tutorial',
+      })
+      const update = replaceFirstUseGuidance(current.current, step)
+      if (update.history.type === 'none') return
+      commit(update)
+    },
+    [commit, isGuidanceFrameCurrent, tutorialAvailable],
+  )
+
+  const completeFirstUseTutorial = useCallback(
+    (status: Extract<OnboardingStepStatus, 'completed' | 'skipped'>, sourceRevision: number) => {
+      if (tutorialSavingRef.current || !isGuidanceFrameCurrent(sourceRevision, 'tutorial')) return
+      tutorialSavingRef.current = true
+      setTutorialSaveFailure(null)
+      void profileStore
+        .setTutorialStatus(status)
+        .then(updated => {
+          tutorialSavingRef.current = false
+          if (updated.ok) {
+            advanceFirstUse(updated.profile, sourceRevision, 'tutorial')
+            return
+          }
+          if (!isGuidanceFrameCurrent(sourceRevision, 'tutorial')) return
+          setTutorialSaveFailure({
+            status,
+            sourceRevision,
+            message:
+              'Your tutorial status could not be saved on this device. You can try again or continue to Today for this session.',
+          })
+        })
+        .catch(() => {
+          tutorialSavingRef.current = false
+          if (!isGuidanceFrameCurrent(sourceRevision, 'tutorial')) return
+          setTutorialSaveFailure({
+            status,
+            sourceRevision,
+            message:
+              'Your tutorial status could not be saved on this device. You can try again or continue to Today for this session.',
+          })
+        })
+    },
+    [advanceFirstUse, isGuidanceFrameCurrent, profileStore],
+  )
 
   const dispatch = useCallback((action: NavigationAction, sourceRevision?: number) => {
     if (pending.current || awaitingBack.current || (sourceRevision !== undefined && sourceRevision !== revision.current)) return
@@ -421,8 +492,10 @@ export function useReaderNavigation(
 
   return {
     ...view,
+    tutorialSaveFailure,
     dispatch,
     advanceFirstUse,
+    continueFirstUseSessionOnly,
     completeFirstUseTutorial,
   }
 }

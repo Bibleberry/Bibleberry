@@ -554,3 +554,198 @@ test('G09 J7 More replay preserves skipped/pending statuses and all reading data
     await legacyContext.close()
   }
 })
+
+test('G09 J1/J2 delayed onboarding write cannot clobber in-flight or active external Challenge ingress and preserves valid writes', async ({
+  page,
+  context,
+}) => {
+  await mockGateway(context)
+  for (const writeOutcome of ['succeed', 'fail'] as const) {
+    let challengeFetchCount = 0
+    let releaseChallenge!: () => void
+    const challengeGate = new Promise<void>(resolve => {
+      releaseChallenge = resolve
+    })
+    let challengeRequested!: () => void
+    const challengeRequestSeen = new Promise<void>(resolve => {
+      challengeRequested = resolve
+    })
+
+    const racePage = await context.newPage()
+    await racePage.route(`**/api/challenges/${teachingSlug}`, async route => {
+      challengeFetchCount += 1
+      challengeRequested()
+      await challengeGate
+      await route.fulfill({ json: { ok: true, challenge } })
+    })
+
+    await racePage.goto(serverUrl(seamServer))
+    await expect(racePage.getByTestId('onboarding-step-heading')).toBeVisible()
+
+    // Trigger a delayed Intro Skip write, then emit a warm external Challenge while both are in flight
+    await racePage.evaluate(
+      ({ shouldFail, key }) => {
+        const w = window as unknown as {
+          __r06DelayNextProfileUpdate?: boolean
+          __r06ProfileWriteStarted?: boolean
+          __r06OnProfileUpdateStarted?: () => void
+        }
+        w.__r06DelayNextProfileUpdate = true
+        w.__r06OnProfileUpdateStarted = () => {
+          w.__r06ProfileWriteStarted = true
+        }
+        if (shouldFail) {
+          const originalSetItem = Storage.prototype.setItem
+          Storage.prototype.setItem = function (name, value) {
+            if (name === key) {
+              throw new DOMException('Simulated quota failure', 'QuotaExceededError')
+            }
+            return originalSetItem.call(this, name, value)
+          }
+        }
+      },
+      { shouldFail: writeOutcome === 'fail', key: readerProfileKey },
+    )
+
+    await racePage.getByTestId('onboarding-skip-button').click()
+    await expect
+      .poll(() =>
+        racePage.evaluate(
+          () => Boolean((window as unknown as { __r06ProfileWriteStarted?: boolean }).__r06ProfileWriteStarted),
+        ),
+      )
+      .toBe(true)
+
+    await racePage.evaluate(
+      slug => {
+        ;(window as unknown as { __r06EmitWarmExternalUrl?: (url: string) => void }).__r06EmitWarmExternalUrl?.(
+          `https://reader.example.test/challenge/${slug}?origin=month&yearMonth=2026-10`,
+        )
+      },
+      teachingSlug,
+    )
+    await challengeRequestSeen
+
+    // Resolve the delayed profile write while external Challenge authorization is still pending
+    await racePage.evaluate(() => {
+      ;(window as unknown as { __r06ReleaseProfileUpdate?: () => void }).__r06ReleaseProfileUpdate?.()
+    })
+    await racePage.waitForTimeout(50)
+
+    // External Challenge authorization completes and mounts using the single verified gateway fetch
+    releaseChallenge()
+    await expect(racePage.getByRole('heading', { name: 'Reading screen 1' })).toBeVisible()
+    await expect(primaryNav(racePage)).toBeHidden()
+    expect(challengeFetchCount).toBe(1)
+
+    await racePage.getByRole('button', { name: 'Exit', exact: true }).click()
+    await expect(racePage.getByRole('heading', { name: 'Today', exact: true })).toBeVisible()
+    expect((await storedProfile(racePage)).profile.introStatus).toBe(
+      writeOutcome === 'succeed' ? 'skipped' : 'pending',
+    )
+    await racePage.close()
+
+    // Next ordinary fresh launch honors the actual persisted status
+    const nextLaunch = await context.newPage()
+    await nextLaunch.goto(serverUrl(seamServer))
+    if (writeOutcome === 'succeed') {
+      await expect(nextLaunch.getByRole('heading', { name: 'Today', exact: true })).toBeVisible()
+    } else {
+      await expect(nextLaunch.getByTestId('onboarding-step-heading')).toBeVisible()
+    }
+    await nextLaunch.close()
+    await context.clearCookies()
+    // Reset localStorage between sub-scenarios
+    const resetPage = await context.newPage()
+    await resetPage.goto(serverUrl(seamServer))
+    await resetPage.evaluate(() => {
+      localStorage.clear()
+      sessionStorage.clear()
+    })
+    await resetPage.close()
+  }
+  await page.close()
+})
+
+test('G09 J1 communicates onboarding save failure accurately, recovers on Try Again, and supports non-trapping session continuation without overwriting corrupt data', async ({
+  page,
+  context,
+}) => {
+  await mockGateway(context)
+
+  // 1. Transient write failure on Step 3 Finish: communicates failure, recovers on Try Again, and persists durably
+  await page.goto(serverUrl())
+  await page.getByTestId('onboarding-continue-button').click()
+  await page.getByTestId('onboarding-continue-button').click()
+  await page.getByLabel('Suggested reminder time').fill('06:45')
+  await page.evaluate(key => {
+    document.documentElement.dataset.blockProfileWrite = 'true'
+    const originalSetItem = Storage.prototype.setItem
+    Storage.prototype.setItem = function (name, value) {
+      if (name === key && document.documentElement.dataset.blockProfileWrite === 'true') {
+        throw new DOMException('Simulated profile write failure', 'QuotaExceededError')
+      }
+      return originalSetItem.call(this, name, value)
+    }
+  }, readerProfileKey)
+
+  await page.getByTestId('onboarding-finish-button').click()
+  const failureAlert = page.getByTestId('first-use-save-failure')
+  await expect(failureAlert).toBeVisible()
+  await expect(failureAlert).toHaveAttribute('role', 'alert')
+  await expect(failureAlert).toContainText('introduction status and reminder preference could not be saved')
+  await expect(page.getByRole('heading', { name: 'Today', exact: true })).toHaveCount(0)
+  expect((await storedProfile(page)).profile.introStatus).toBe('pending')
+
+  await page.evaluate(() => {
+    delete document.documentElement.dataset.blockProfileWrite
+  })
+  await page.getByTestId('first-use-retry-save-button').click()
+  await expect(page.getByRole('heading', { name: 'Today', exact: true })).toBeVisible()
+  expect((await storedProfile(page)).profile).toMatchObject({
+    introStatus: 'completed',
+    tutorialStatus: 'pending',
+    reminder: { enabled: true, time: '06:45' },
+  })
+
+  // 2. Corrupt profile + Tutorial seam: Intro and Tutorial save failures never trap the reader or overwrite corrupt storage, and re-offer on next launch
+  const corruptContext = await context.browser()!.newContext()
+  try {
+    await corruptContext.clock.setFixedTime(new Date('2026-11-10T12:00:00Z'))
+    await corruptContext.route('https://**', route => route.abort())
+    await mockGateway(corruptContext)
+    const corruptPage = await corruptContext.newPage()
+    await corruptPage.addInitScript(
+      ({ key }) => {
+        if (localStorage.getItem(key) === null) localStorage.setItem(key, '{corrupt')
+        ;(window as unknown as { __r06EnableTutorialSeam?: boolean }).__r06EnableTutorialSeam = true
+      },
+      { key: readerProfileKey },
+    )
+
+    await corruptPage.goto(serverUrl(seamServer))
+    await corruptPage.getByTestId('onboarding-skip-button').click()
+    await expect(corruptPage.getByTestId('first-use-save-failure')).toContainText(
+      'introduction status could not be saved',
+    )
+    expect(await corruptPage.evaluate(key => localStorage.getItem(key), readerProfileKey)).toBe('{corrupt')
+
+    await corruptPage.getByTestId('first-use-continue-session-button').click()
+    await expect(corruptPage.getByTestId('synthetic-tutorial-seam')).toBeVisible()
+    await corruptPage.getByRole('button', { name: 'Skip Tutorial' }).click()
+    await expect(corruptPage.getByTestId('first-use-tutorial-save-failure')).toContainText(
+      'tutorial status could not be saved',
+    )
+    await corruptPage.getByTestId('first-use-tutorial-continue-session-button').click()
+    await expect(corruptPage.getByRole('heading', { name: 'Today', exact: true })).toBeVisible()
+    expect(await corruptPage.evaluate(key => localStorage.getItem(key), readerProfileKey)).toBe('{corrupt')
+
+    // Next ordinary fresh launch still sees corrupt/pending state and re-offers Introduction
+    const nextLaunch = await corruptContext.newPage()
+    await nextLaunch.goto(serverUrl(seamServer))
+    await expect(nextLaunch.getByTestId('onboarding-step-heading')).toBeVisible()
+    expect(await nextLaunch.evaluate(key => localStorage.getItem(key), readerProfileKey)).toBe('{corrupt')
+  } finally {
+    await corruptContext.close()
+  }
+})

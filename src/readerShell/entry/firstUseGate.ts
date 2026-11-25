@@ -23,16 +23,22 @@ export type GuidedTutorialRenderer = (props: GuidedTutorialStepProps) => ReactNo
 
 export interface FirstUseGateOptions {
   readonly tutorialAvailable?: boolean
+  readonly skipIntroInSession?: boolean
+  readonly skipTutorialInSession?: boolean
 }
 
 export function resolveFirstUseStep(
   profile: Pick<ReaderProfile, 'introStatus' | 'tutorialStatus'>,
   options: FirstUseGateOptions = {},
 ): FirstUseStep {
-  if (profile.introStatus === 'pending') {
+  if (profile.introStatus === 'pending' && !options.skipIntroInSession) {
     return 'intro'
   }
-  if (options.tutorialAvailable === true && profile.tutorialStatus === 'pending') {
+  if (
+    options.tutorialAvailable === true &&
+    profile.tutorialStatus === 'pending' &&
+    !options.skipTutorialInSession
+  ) {
     return 'tutorial'
   }
   return 'none'

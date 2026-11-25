@@ -61,7 +61,9 @@ export default function R06ReaderShell({
     pending,
     challengeProvider,
     initialReminderTime,
+    tutorialSaveFailure,
     advanceFirstUse,
+    continueFirstUseSessionOnly,
     completeFirstUseTutorial,
   } = useReaderNavigation(routeOptions, captureRestoration, {
     profileStore,
@@ -103,14 +105,24 @@ export default function R06ReaderShell({
       >
         <ReaderScreens
           state={state}
+          revision={revision}
           send={action => dispatch(action, revision)}
           pending={pending}
           challengeProvider={challengeProvider}
           captureReplayReturn={captureReplayReturn}
           profileStore={profileStore}
           initialReminderTime={initialReminderTime}
-          onFirstUseIntroFinished={advanceFirstUse}
+          tutorialSaveFailure={tutorialSaveFailure}
+          onFirstUseIntroFinished={(profile, sourceRevision) =>
+            advanceFirstUse(profile, sourceRevision, 'intro')
+          }
+          onFirstUseIntroContinueSessionOnly={sourceRevision =>
+            continueFirstUseSessionOnly(sourceRevision, 'intro')
+          }
           onFirstUseTutorialFinished={completeFirstUseTutorial}
+          onFirstUseTutorialContinueSessionOnly={sourceRevision =>
+            continueFirstUseSessionOnly(sourceRevision, 'tutorial')
+          }
           renderGuidedTutorial={renderGuidedTutorial}
         />
       </div>

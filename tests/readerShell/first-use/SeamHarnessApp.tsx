@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import type { ExternalDeepLinkSourceAdapter } from '../../../src/deepLinkIngress/types.ts'
+import { createPlatformReaderProfileStore } from '../../../src/readerProfile/platformStore.ts'
+import type { ReaderProfileStore } from '../../../src/readerProfile/store.ts'
 import R06ReaderShell from '../../../src/readerShell/R06ReaderShell.tsx'
 import type { GuidedTutorialStepProps } from '../../../src/readerShell/entry/index.ts'
 
@@ -7,6 +9,9 @@ interface SeamBridgeWindow {
   __r06EnableTutorialSeam?: boolean
   __r06InitialExternalUrl?: string | null
   __r06EmitWarmExternalUrl?: (url: string) => void
+  __r06DelayNextProfileUpdate?: boolean
+  __r06OnProfileUpdateStarted?: () => void
+  __r06ReleaseProfileUpdate?: () => void
 }
 
 function SyntheticTutorialSeam(props: GuidedTutorialStepProps) {
@@ -32,6 +37,25 @@ function SyntheticTutorialSeam(props: GuidedTutorialStepProps) {
 export function SeamHarnessRoot() {
   const bridgeWindow = window as unknown as SeamBridgeWindow
   const [tutorialEnabled] = useState(() => Boolean(bridgeWindow.__r06EnableTutorialSeam))
+  const [profileStore] = useState<ReaderProfileStore>(() => {
+    const base = createPlatformReaderProfileStore()
+    const wrappedUpdate: ReaderProfileStore['update'] = async updater => {
+      if (bridgeWindow.__r06DelayNextProfileUpdate) {
+        bridgeWindow.__r06DelayNextProfileUpdate = false
+        const gate = new Promise<void>(resolve => {
+          bridgeWindow.__r06ReleaseProfileUpdate = resolve
+        })
+        bridgeWindow.__r06OnProfileUpdateStarted?.()
+        await gate
+      }
+      return base.update(updater)
+    }
+    return {
+      ...base,
+      update: wrappedUpdate,
+      setTutorialStatus: status => wrappedUpdate({ tutorialStatus: status }),
+    }
+  })
   const [externalSource] = useState<ExternalDeepLinkSourceAdapter>(() => ({
     getInitialUrl: () => bridgeWindow.__r06InitialExternalUrl ?? null,
     subscribeUrlOpen(listener) {
@@ -44,6 +68,7 @@ export function SeamHarnessRoot() {
 
   return (
     <R06ReaderShell
+      profileStore={profileStore}
       externalIngressSource={externalSource}
       externalIngressPolicy={{
         allowedHttpsHosts: ['reader.example.test'],

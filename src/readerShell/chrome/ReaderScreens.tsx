@@ -11,6 +11,7 @@ import type { ReaderProfileStore } from '../../readerProfile/store.ts'
 import type { OnboardingStepStatus, ReaderProfile } from '../../readerProfile/types.ts'
 import { FirstUseIntroduction } from '../entry/FirstUseIntroduction.tsx'
 import type { GuidedTutorialRenderer } from '../entry/index.ts'
+import type { TutorialSaveFailure } from './useReaderNavigation.ts'
 import { activeRoute, type NavigationAction, type NavigationState } from '../navigation/index.ts'
 import { activeScreenKey } from '../navigation/routeTable.ts'
 import { MoreLanding } from './MoreLanding.tsx'
@@ -108,25 +109,36 @@ function UnavailableDetail({ screen, send }: { screen: string; send: Send }) {
 
 interface ScreenProps {
   state: NavigationState
+  revision: number
   send: Send
   challengeProvider?: ChallengeDetailProvider
   captureReplayReturn: () => (() => void) | undefined
   profileStore: ReaderProfileStore
   initialReminderTime: string
-  onFirstUseIntroFinished: (profile: ReaderProfile) => void
-  onFirstUseTutorialFinished: (status: Extract<OnboardingStepStatus, 'completed' | 'skipped'>) => void
+  tutorialSaveFailure: TutorialSaveFailure | null
+  onFirstUseIntroFinished: (profile: ReaderProfile, sourceRevision: number) => void
+  onFirstUseIntroContinueSessionOnly: (sourceRevision: number) => void
+  onFirstUseTutorialFinished: (
+    status: Extract<OnboardingStepStatus, 'completed' | 'skipped'>,
+    sourceRevision: number,
+  ) => void
+  onFirstUseTutorialContinueSessionOnly: (sourceRevision: number) => void
   renderGuidedTutorial?: GuidedTutorialRenderer
 }
 
 function CurrentScreen({
   state,
+  revision,
   send,
   challengeProvider,
   captureReplayReturn,
   profileStore,
   initialReminderTime,
+  tutorialSaveFailure,
   onFirstUseIntroFinished,
+  onFirstUseIntroContinueSessionOnly,
   onFirstUseTutorialFinished,
+  onFirstUseTutorialContinueSessionOnly,
   renderGuidedTutorial,
 }: ScreenProps) {
   const focus = state.focused
@@ -149,7 +161,9 @@ function CurrentScreen({
       <FirstUseIntroduction
         store={profileStore}
         initialReminderTime={initialReminderTime}
+        revision={revision}
         onFinished={onFirstUseIntroFinished}
+        onContinueSessionOnly={onFirstUseIntroContinueSessionOnly}
       />
     )
   }
@@ -163,25 +177,52 @@ function CurrentScreen({
     (state.activeTab === 'today' || state.activeTab === 'more')
   ) {
     const mode = state.activeTab === 'today' ? 'first-use' : 'replay'
-    return renderGuidedTutorial({
-      mode,
-      shownTab: focus.shownTab,
-      onShowTab: tab => send({ type: 'showTutorialTab', tab }),
-      onComplete: () => {
-        if (mode === 'first-use') {
-          onFirstUseTutorialFinished('completed')
-        } else {
-          send({ type: 'closeGuidance' })
-        }
-      },
-      onSkip: () => {
-        if (mode === 'first-use') {
-          onFirstUseTutorialFinished('skipped')
-        } else {
-          send({ type: 'closeGuidance' })
-        }
-      },
-    })
+    return (
+      <>
+        {mode === 'first-use' && tutorialSaveFailure && (
+          <div role="alert" className="r06-landing" data-testid="first-use-tutorial-save-failure">
+            <p>{tutorialSaveFailure.message}</p>
+            <div className="r06-actions">
+              <button
+                type="button"
+                className="button button--secondary"
+                data-testid="first-use-tutorial-retry-save-button"
+                onClick={() => onFirstUseTutorialFinished(tutorialSaveFailure.status, revision)}
+              >
+                Try Again
+              </button>
+              <button
+                type="button"
+                className="button button--secondary"
+                data-testid="first-use-tutorial-continue-session-button"
+                onClick={() => onFirstUseTutorialContinueSessionOnly(revision)}
+              >
+                Continue Without Saving
+              </button>
+            </div>
+          </div>
+        )}
+        {renderGuidedTutorial({
+          mode,
+          shownTab: focus.shownTab,
+          onShowTab: tab => send({ type: 'showTutorialTab', tab }),
+          onComplete: () => {
+            if (mode === 'first-use') {
+              onFirstUseTutorialFinished('completed', revision)
+            } else {
+              send({ type: 'closeGuidance' })
+            }
+          },
+          onSkip: () => {
+            if (mode === 'first-use') {
+              onFirstUseTutorialFinished('skipped', revision)
+            } else {
+              send({ type: 'closeGuidance' })
+            }
+          },
+        })}
+      </>
+    )
   }
   if (state.problem || focus) return <RouteProblem state={state} send={send} />
 
@@ -284,13 +325,17 @@ function keepScreen(key: RetainedScreen, state: NavigationState) {
 
 export function ReaderScreens({
   state,
+  revision,
   send,
   challengeProvider,
   captureReplayReturn,
   profileStore,
   initialReminderTime,
+  tutorialSaveFailure,
   onFirstUseIntroFinished,
+  onFirstUseIntroContinueSessionOnly,
   onFirstUseTutorialFinished,
+  onFirstUseTutorialContinueSessionOnly,
   renderGuidedTutorial,
   pending,
 }: ScreenProps & { pending: boolean }) {
@@ -352,13 +397,17 @@ export function ReaderScreens({
             : (
                 <CurrentScreen
                   state={state}
+                  revision={revision}
                   send={send}
                   challengeProvider={challengeProvider}
                   captureReplayReturn={captureReplayReturn}
                   profileStore={profileStore}
                   initialReminderTime={initialReminderTime}
+                  tutorialSaveFailure={tutorialSaveFailure}
                   onFirstUseIntroFinished={onFirstUseIntroFinished}
+                  onFirstUseIntroContinueSessionOnly={onFirstUseIntroContinueSessionOnly}
                   onFirstUseTutorialFinished={onFirstUseTutorialFinished}
+                  onFirstUseTutorialContinueSessionOnly={onFirstUseTutorialContinueSessionOnly}
                   renderGuidedTutorial={renderGuidedTutorial}
                 />
               )}
