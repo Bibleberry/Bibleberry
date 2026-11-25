@@ -25,6 +25,7 @@ export function EarnedCardThumbnail({
     return (
       <li className="notebook-card notebook-card--unavailable">
         <h3 className="notebook-card__title">{item.title}</h3>
+        {!item.cardViewed && <span className="notebook-card__new-badge">New</span>}
         {dates}
         <p className="notebook-card__unavailable-note">
           Card snapshot unavailable — your earned award record is preserved.

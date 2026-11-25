@@ -335,6 +335,55 @@ test('J6 Collections previews only persisted earned Cards and keeps Notebook and
   expect(cardRequests).not.toContain(RESTRICTED_CARD_IMAGE_URL)
 })
 
+test('J6 preserves unavailable Card New markers independently of Notebook entry', async ({ page }) => {
+  await mockGateway(page)
+  const unviewedId = 'card:monthly:2026-11:full-month'
+  const viewedId = 'card:monthly:2026-10:full-month'
+  const rejectedId = 'card:monthly:2026-09:full-month'
+  await page.addInitScript(({ key, unviewedId, viewedId, rejectedId }) => {
+    if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify({
+      schemaVersion: 3,
+      data: {
+        earnedAwards: {
+          [unviewedId]: { earnedOn: '2026-11-10', cardViewed: false, hubAnnouncementAcked: false },
+          [viewedId]: { earnedOn: '2026-11-09', cardViewed: true, hubAnnouncementAcked: false },
+          [rejectedId]: { awardId: unviewedId, earnedOn: '2026-11-08', cardViewed: false },
+        },
+      },
+    }))
+  }, { key: participationKey, unviewedId, viewedId, rejectedId })
+  await page.goto(readerUrl() + '#/collections')
+  const main = page.getByRole('main')
+  const preview = main.getByRole('region', { name: 'Earned Scripture Cards' })
+  const notebookEntry = main.getByRole('button', { name: 'Field Notebook', exact: true })
+  const assertUnavailableCards = async (container: typeof preview) => {
+    const cards = container.locator('.notebook-card--unavailable')
+    await expect(cards).toHaveCount(2)
+    await expect(cards.filter({ hasText: 'Published November 2026' }).getByText('New', { exact: true })).toBeVisible()
+    await expect(cards.filter({ hasText: 'Published October 2026' }).getByText('New', { exact: true })).toHaveCount(0)
+    await expect(cards.getByRole('button')).toHaveCount(0)
+    await expect(cards.getByRole('img')).toHaveCount(0)
+  }
+  await assertUnavailableCards(preview)
+  await expect(notebookEntry).toHaveAccessibleDescription('New Discoveries')
+  await notebookEntry.click()
+  await expect.poll(async () => (await participation(page))?.notebookAcknowledgedAwardIds)
+    .toEqual([viewedId, unviewedId].sort())
+  await page.getByRole('button', { name: 'All Earned Cards' }).click()
+  await assertUnavailableCards(main)
+  const awards = (await participation(page)).earnedAwards
+  expect(Object.keys(awards).sort()).toEqual([viewedId, unviewedId].sort())
+  expect(awards[unviewedId]).toMatchObject({ cardViewed: false, hubAnnouncementAcked: false })
+  expect(awards[viewedId]).toMatchObject({ cardViewed: true, hubAnnouncementAcked: false })
+  await main.getByRole('button', { name: 'Back to Collections' }).click()
+  await expect(notebookEntry).not.toHaveAccessibleDescription('New Discoveries')
+  await assertUnavailableCards(preview)
+  await page.reload()
+  await expect(notebookEntry).not.toHaveAccessibleDescription('New Discoveries')
+  await assertUnavailableCards(preview)
+  expect((await participation(page)).earnedAwards).toEqual(awards)
+})
+
 test('J6 Collections withholds corrupt art and reflows verified Cards when illustration delivery fails', async ({ page }) => {
   await mockGateway(page)
   await page.route(currentThematicCardImageUrl, route => route.fulfill({ status: 404 }))
