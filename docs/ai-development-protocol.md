@@ -123,6 +123,64 @@ Use the existing GitHub Actions checks where applicable. A successful compilatio
 
 Do not claim tests were performed unless they were actually executed.
 
+## 5A. Incidental Findings and Engineering Knowledge Preservation
+
+**Material engineering knowledge must not exist exclusively within transient agent communications.** Bibleberry's durable organizational records must preserve the information necessary to understand, evaluate, maintain, and continue development independently of the agents that produced it.
+
+### Reporting obligation
+
+All implementing agents, regardless of provider, model, execution environment, or dispatch mechanism, must report material defects, regressions, unexpected behavior, accessibility concerns, technical limitations, and other significant engineering findings discovered during implementation, debugging, verification, or subsequent review corrections.
+
+This obligation includes findings outside the authorized assignment scope, pre-existing defects, and concerns that do not cause automated tests to fail.
+
+A finding is material when it could reasonably affect engineering decisions, acceptance requirements, security, privacy, accessibility, reliability, data integrity, integration, maintenance, or future development. Routine debugging noise, speculative observations without material implications, and ordinary corrected implementation errors do not require separate incidental-finding records unless they contain significant engineering knowledge. Existing verification and known-limitation reporting requirements still apply.
+
+### Durable preservation
+
+Record material findings at the next practical durable reporting opportunity and before handing back, transferring, or terminating an assignment. Use the **Incidental Findings** section of the existing PR as the primary reporting location. Link supplementary PR comments, durable test evidence, screenshots, and source references rather than duplicating them. If no material incidental findings were discovered, explicitly state that.
+
+Where a PR does not yet exist, preserve findings on the originating Issue or another appropriate authorized durable record. Terminal output, coding-agent conversations, local files, and temporary execution environments do not independently satisfy this requirement.
+
+If an agent lacks the ability to update the appropriate durable record, it must explicitly identify the unrecorded findings and the access blocker in its handback. Dev is responsible for preserving them, using an authorized route; the owner must not become the routine manual relay. If a durable write is unavailable, identify the blocker and accountable next action without claiming preservation succeeded.
+
+### Evidence requirements
+
+For each material finding, document where applicable:
+
+- Observed behavior and expected behavior.
+- Affected surface, component, file, or subsystem.
+- Relevant conditions, environment, and implementation checkpoint (including commit SHA when available).
+- Reproduction steps or verification procedure.
+- Whether the finding appears introduced, pre-existing, or of undetermined origin.
+- Supporting screenshots, tests, logs, or source references.
+- Apparent implications for existing requirements, acceptance, or future engineering work.
+
+Distinguish verified observations, implementer-reported evidence, suspected causes, and unverified concerns. Do not present a hypothesis as an established defect without appropriate supporting evidence.
+
+### Scope and continuity
+
+Discovering a defect does not authorize correcting it outside the existing assignment scope. Maintain the findings record throughout implementation, review corrections, agent replacement, and departmental handoffs. Record the subsequent disposition and supporting evidence rather than silently deleting a finding when corrected, disproven, or deferred. Cross-reference existing verification or known-limitation records where appropriate.
+
+### Evaluation and disposition
+
+Every material incidental finding must receive an identifiable recorded disposition and, where unresolved, an accountable next responsible party.
+
+Appropriate dispositions include correction within authorized scope, referral to Planning, reference to an existing Issue, authorized deferral with rationale, further investigation, evidence-based dismissal, or resolution with supporting evidence. A disposition does not necessarily require immediate corrective implementation or creation of a new Issue.
+
+Independent Review evaluates the technical relevance of findings to the submitted implementation and its applicable requirements. Reporting an unrelated pre-existing defect does not automatically prevent technical approval. A pre-existing defect may nevertheless block approval when it materially undermines applicable requirements.
+
+Dev communicates this obligation at dispatch, coordinates authorized corrections and routes remaining findings to the appropriate department. Planning investigates referred findings and prepares or references assignments within its authorized scope, avoiding duplicates. Admin confirms recorded dispositions and accountable next steps through existing Checks & Merge responsibilities; it does not assume technical review authority.
+
+No department acquires new implementation, technical approval, Issue-creation, prioritization, or merge authority through this requirement. Unresolved reporting or disposition gaps must be surfaced to the responsible department and Aaron rather than treated as silently cleared.
+
+### Sensitive information
+
+Do not disclose credentials, personal information, exploitable security details, unpublished confidential content, or other sensitive information through public Issues, PRs, screenshots, or logs. Preserve sensitive findings through an appropriate authorized restricted mechanism; escalate to Aaron when no suitable mechanism exists. Public tracking information, where appropriate, must be sanitized and must not reveal protected material.
+
+### Governing principle
+
+**Every material finding must be accounted for. Not every material finding must become a merge blocker.** Aaron retains final authority over engineering scope, priorities, accepted limitations, implementation authorization, technical acceptance, and merging.
+
 ## 6. Completion and Acceptance
 
 When implementation is finished:

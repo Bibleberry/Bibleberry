@@ -121,6 +121,8 @@ Responsibilities include:
 
 Where multiple agents would modify critical shared files, Dev should establish a single designated integration owner or sequence the work appropriately.
 
+Dev ensures implementing agents follow [AI Development Protocol §5A](../../ai-development-protocol.md#5a-incidental-findings-and-engineering-knowledge-preservation), communicates it at dispatch, preserves material findings during interruptions or agent changes (including when agents lack GitHub write access), coordinates authorized corrections, and routes remaining findings to Review, Planning or Aaron as appropriate. Preserve durable references and accountable next actions in existing assignment records.
+
 ### 2.6 Coordinate Review and Verification
 
 When an implementation is submitted, Dev coordinates its transition through the established engineering process.

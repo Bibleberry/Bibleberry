@@ -171,6 +171,8 @@ Duplicate work must not be created under a new codename to bypass an existing as
 
 When an existing Issue is appropriate, Planning should refer to it rather than inventing another assignment.
 
+Planning investigates material incidental findings referred under [AI Development Protocol §5A](../../ai-development-protocol.md#5a-incidental-findings-and-engineering-knowledge-preservation), reconciles them against existing assignments and prepares bounded corrective Issues only within its authorized planning scope. Record the follow-up or referral disposition without duplicating work or independently authorizing implementation.
+
 ## 3. Authority to Create GitHub Issues
 
 ### 3.1 Delegated Issue-Creation Authority
