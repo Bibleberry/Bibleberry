@@ -1,16 +1,18 @@
-import { useCallback, useLayoutEffect, useRef } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { ReaderNavigation } from './chrome/ReaderNavigation.tsx'
 import { ReaderScreens } from './chrome/ReaderScreens.tsx'
 import { captureScreenRestoration, restoreScreen } from './chrome/screenRestoration.ts'
 import { useReaderNavigation } from './chrome/useReaderNavigation.ts'
 import { activeRestoration, globalNavigation, type RouteRestoration } from './navigation/index.ts'
 import { readerRouteOptions } from './navigation/routeTable.ts'
+import { createPlatformReaderProfileStore } from '../readerProfile/platformStore.ts'
 import '../App.css'
 import './readerShell.css'
 
 const routeOptions = readerRouteOptions()
 
 export default function R06ReaderShell() {
+  const [profileStore] = useState(createPlatformReaderProfileStore)
   const viewport = useRef<HTMLDivElement>(null)
   const replayRestoration = useRef<RouteRestoration | undefined>(undefined)
   const stopReplayRestoration = useRef<(() => void) | undefined>(undefined)
@@ -60,6 +62,7 @@ export default function R06ReaderShell() {
         }}
       >
         <ReaderScreens
+          profileStore={profileStore}
           state={state}
           send={action => dispatch(action, revision)}
           pending={pending}
