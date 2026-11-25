@@ -148,6 +148,8 @@ Review must examine whether tests:
 
 Review must distinguish tests inspected, tests independently executed, implementer-reported results, and hosted CI evidence.
 
+Review evaluates reported incidental findings under [AI Development Protocol §5A](../../ai-development-protocol.md#5a-incidental-findings-and-engineering-knowledge-preservation), records their relevance to the technical disposition and distinguishes current-assignment blockers from separate engineering concerns. An unrelated pre-existing defect does not automatically block technical approval; a defect that materially undermines applicable requirements may still block approval.
+
 ### 2.7 Accessibility and Interface Behavior
 
 For relevant user-facing changes, Review must investigate:

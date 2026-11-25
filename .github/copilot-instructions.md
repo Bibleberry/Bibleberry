@@ -29,4 +29,5 @@
 - Reader: `npm ci`, `npm run build`, `npm run lint` (separate pre-existing lint findings). Studio: `cd studio && npm ci && npm run typecheck && npm run build`. CI builds both on PRs.
 - Test changed behavior and regression risks. For UI changes check mobile, keyboard and screen readers; verify normal production builds omit testing tools.
 - Report changed files, exact checks/results, untested areas and risks. Never claim unrun tests; compilation alone is not functional proof.
+- Follow [AI Development Protocol §5A](../docs/ai-development-protocol.md#5a-incidental-findings-and-engineering-knowledge-preservation) for timely durable reporting of material incidental findings, including discoveries outside scope and during corrections. Use the PR section or originating Issue, explicitly state if none, and preserve findings without unauthorized fixes.
 - Prioritize correctness, security, data integrity, editorial boundaries and regressions over style nitpicks. Copilot's review is not human acceptance.

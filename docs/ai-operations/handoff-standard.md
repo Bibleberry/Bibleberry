@@ -144,6 +144,8 @@ For each matter, include:
 - Immediate next action.
 - Supporting GitHub references when available.
 
+Include unresolved material incidental findings under [AI Development Protocol §5A](../ai-development-protocol.md#5a-incidental-findings-and-engineering-knowledge-preservation): durable Issue/PR references or sanitized restricted-record references, current disposition, evidence checkpoint, and accountable next action. Flag any preservation blocker; the handoff itself does not replace the durable record.
+
 If there is no outstanding work, state that explicitly.
 
 Do not invent tasks to fill this section.
