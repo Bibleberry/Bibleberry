@@ -13,6 +13,8 @@ import { MoreLanding } from './MoreLanding.tsx'
 import { MoreIntroductionReplay } from './MoreIntroductionReplay.tsx'
 import { CollectionsLanding } from '../collections/CollectionsLanding.tsx'
 import { TodayHost } from '../today/TodayHost.tsx'
+import { encodeDiscoveriesBatch, VIEW_DISCOVERIES_SCREEN } from '../today/discoveriesBatch.ts'
+import { ViewDiscoveriesGallery } from '../today/ViewDiscoveriesGallery.tsx'
 
 type Send = (action: NavigationAction) => void
 
@@ -49,6 +51,12 @@ function TodayLanding({ send }: { send: Send }) {
       }}
       onOpenMonth={intent => openMonth(send, intent.yearMonth)}
       onOpenNews={() => send(openNews)}
+      onViewDiscoveries={awardIds => {
+        const id = encodeDiscoveriesBatch(awardIds)
+        if (!id) return false
+        send({ type: 'push', route: { kind: 'detail', screen: VIEW_DISCOVERIES_SCREEN, id } })
+        return true
+      }}
     />
   )
 }
@@ -178,6 +186,15 @@ function CurrentScreen({ state, send, challengeProvider, captureReplayReturn }: 
             articleDocumentId={route.id}
             onNavigate={({ monthId }) => openMonth(send, monthId)}
             onBack={() => send(back)}
+          />
+        )
+      }
+      if (route.screen === VIEW_DISCOVERIES_SCREEN && route.id && state.activeTab === 'today') {
+        return (
+          <ViewDiscoveriesGallery
+            batch={route.id}
+            onReturnToToday={() => send(back)}
+            onBrowseFieldNotebook={() => send({ type: 'openFieldNotebook' })}
           />
         )
       }
