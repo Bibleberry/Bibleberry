@@ -80,7 +80,6 @@ export interface NotebookLifetimeDisplay {
   readonly unviewedCardCount: number
   readonly headline: string
   readonly supportingCopy: string
-  readonly provisionalNote: string
 }
 
 export interface NotebookSearchFilter {
@@ -525,19 +524,12 @@ export function buildNotebookLifetimeDisplay(
   const challengeNoun = distinctCompletedChallenges === 1 ? 'Challenge' : 'Challenges'
   const headline = `${distinctCompletedChallenges} Distinct ${challengeNoun} Completed`
 
-  const supportingCopy =
-    distinctCompletedChallenges === 0
-      ? 'Each distinct Challenge finished from current teaching, Shelf, or Library counts once toward your ongoing record.'
-      : 'Counted across current teaching, Shelf, and Library. Rereading does not inflate your distinct total.'
-
   return Object.freeze({
     distinctCompletedChallenges,
     earnedCardCount,
     unviewedCardCount,
     headline,
-    supportingCopy,
-    provisionalNote:
-      'Single evolving participation record — final lifetime status naming and artwork remain pending design review.',
+    supportingCopy: 'Each finished Challenge counts once across current teaching, Shelf, and Library.',
   })
 }
 

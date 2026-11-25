@@ -232,6 +232,248 @@ test('acknowledges Discoveries when returning to the retained Notebook after ear
   })
 })
 
+test('J6 Collections previews only persisted earned Cards and keeps Notebook and Saved Scripture independent', async ({ page }) => {
+  await mockGateway(page)
+  const cardRequests: string[] = []
+  page.on('request', request => {
+    if (request.url() === currentThematicCardImageUrl || request.url() === RESTRICTED_CARD_IMAGE_URL) {
+      cardRequests.push(request.url())
+    }
+  })
+  await page.goto(readerUrl())
+  await selectTab(page, 'Collections')
+  const main = page.getByRole('main')
+  const notebookEntry = main.getByRole('button', { name: 'Field Notebook', exact: true })
+  const savedEntry = main.getByRole('button', { name: 'Saved Scripture', exact: true })
+  const preview = main.getByRole('region', { name: 'Earned Scripture Cards', exact: true })
+  await expect(preview.getByRole('status')).toContainText('There are no Scripture Cards in your collection yet')
+  await expect(preview.getByRole('img')).toHaveCount(0)
+  await expect(notebookEntry).toBeVisible()
+  await savedEntry.click()
+  await expect(main.getByRole('heading', { name: 'No Saved Scripture yet' })).toBeVisible()
+  await page.goBack()
+  await expect(savedEntry).toBeFocused()
+  expect(cardRequests).toEqual([])
+
+  await selectTab(page, 'Today')
+  await page.getByTestId('today-primary-cta').click()
+  await main.getByRole('button', { name: 'Next', exact: true }).click()
+  await main.getByRole('button', { name: 'Finish', exact: true }).click()
+  await expect.poll(async () => Object.keys((await participation(page))?.earnedAwards ?? {}))
+    .toEqual([currentThematicAwardId])
+
+  await selectTab(page, 'Collections')
+  const thumbnail = preview.getByRole('button', { name: /Open Scripture Card: November Reading Card/ })
+  await expect(thumbnail.getByRole('img')).toHaveAttribute('src', currentThematicCardImageUrl)
+  await expect(thumbnail.getByText('New', { exact: true })).toBeVisible()
+  await expect(notebookEntry).toHaveAccessibleDescription('New Discoveries')
+  expect((await participation(page)).earnedAwards[currentThematicAwardId].cardViewed).toBe(false)
+
+  await thumbnail.focus()
+  await page.keyboard.press('Enter')
+  const dialog = page.getByRole('dialog', { name: currentThematicEarnedCard.title })
+  await expect(dialog).toContainText(currentThematicEarnedCard.accessibleTranscription)
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  await expect(thumbnail).toBeFocused()
+  await expect(thumbnail.getByText('New', { exact: true })).toHaveCount(0)
+  await expect(notebookEntry).toHaveAccessibleDescription('New Discoveries')
+  const afterViewing = await participation(page)
+  expect(afterViewing.notebookAcknowledgedAwardIds).toBeUndefined()
+  expect(afterViewing.earnedAwards[currentThematicAwardId]).toMatchObject({
+    earnedOn: serverContext.authorizedLocalDate,
+    cardViewed: true,
+    hubAnnouncementAcked: false,
+  })
+
+  // Persist a saved passage through the existing storage format to exercise its independent route.
+  await page.evaluate(key => {
+    const stored = JSON.parse(localStorage.getItem(key)!)
+    stored.data.savedScriptures = [{ reference: 'John 1:1', translation: 'WEB', savedOn: '2026-11-16' }]
+    localStorage.setItem(key, JSON.stringify(stored))
+  }, participationKey)
+  await page.reload()
+  await expect(thumbnail.getByText('New', { exact: true })).toHaveCount(0)
+  await expect(notebookEntry).toHaveAccessibleDescription('New Discoveries')
+  await notebookEntry.click()
+  await expect(main.getByRole('heading', { name: '1 Distinct Challenge Completed' })).toBeVisible()
+  await expect(main.getByText(/Foundations & Learning|Special Experiences/)).toHaveCount(0)
+  const search = main.getByRole('searchbox', { name: 'Search Your Cards' })
+  await search.fill('Psalms')
+  const results = main.getByRole('region', { name: 'Matching Earned Cards' })
+  await expect(results.getByText('Psalm 23:1', { exact: true })).toBeVisible()
+  await expect(results.getByRole('img')).toHaveAttribute('src', currentThematicCardImageUrl)
+  await search.fill('John 1:1')
+  await expect(results.getByRole('heading', { name: 'No Matching Earned Scripture Cards' })).toBeVisible()
+  await search.fill('Psalms')
+
+  await selectTab(page, 'More')
+  await selectTab(page, 'Collections')
+  await expect(search).toHaveValue('Psalms')
+  await expect(search).toBeFocused()
+  await expect(results).toBeVisible()
+  await main.getByRole('button', { name: 'Back to Collections' }).click()
+  await expect(notebookEntry).toBeFocused()
+  await expect(notebookEntry).not.toHaveAccessibleDescription('New Discoveries')
+  await expect.poll(async () => (await participation(page))?.notebookAcknowledgedAwardIds)
+    .toEqual([currentThematicAwardId])
+  await page.reload()
+  await expect(notebookEntry).not.toHaveAccessibleDescription('New Discoveries')
+
+  await savedEntry.click()
+  const savedSearch = main.getByRole('searchbox', { name: 'Search Saved Scripture' })
+  await savedSearch.fill('John')
+  await expect(main.getByText('John 1:1', { exact: true })).toBeVisible()
+  await selectTab(page, 'More')
+  await selectTab(page, 'Collections')
+  await expect(savedSearch).toHaveValue('John')
+  await expect(savedSearch).toBeFocused()
+  await main.getByRole('button', { name: 'Back to Collections' }).click()
+  await expect(savedEntry).toBeFocused()
+  expect((await participation(page)).earnedAwards).toEqual(afterViewing.earnedAwards)
+  expect(cardRequests).toContain(currentThematicCardImageUrl)
+  expect(cardRequests).not.toContain(RESTRICTED_CARD_IMAGE_URL)
+})
+
+test('J6 preserves unavailable Card New markers independently of Notebook entry', async ({ page }) => {
+  await mockGateway(page)
+  const unviewedId = 'card:monthly:2026-11:full-month'
+  const viewedId = 'card:monthly:2026-10:full-month'
+  const rejectedId = 'card:monthly:2026-09:full-month'
+  await page.addInitScript(({ key, unviewedId, viewedId, rejectedId }) => {
+    if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify({
+      schemaVersion: 3,
+      data: {
+        earnedAwards: {
+          [unviewedId]: { earnedOn: '2026-11-10', cardViewed: false, hubAnnouncementAcked: false },
+          [viewedId]: { earnedOn: '2026-11-09', cardViewed: true, hubAnnouncementAcked: false },
+          [rejectedId]: { awardId: unviewedId, earnedOn: '2026-11-08', cardViewed: false },
+        },
+      },
+    }))
+  }, { key: participationKey, unviewedId, viewedId, rejectedId })
+  await page.goto(readerUrl() + '#/collections')
+  const main = page.getByRole('main')
+  const preview = main.getByRole('region', { name: 'Earned Scripture Cards' })
+  const notebookEntry = main.getByRole('button', { name: 'Field Notebook', exact: true })
+  const assertUnavailableCards = async (container: typeof preview) => {
+    const cards = container.locator('.notebook-card--unavailable')
+    await expect(cards).toHaveCount(2)
+    await expect(cards.filter({ hasText: 'Published November 2026' }).getByText('New', { exact: true })).toBeVisible()
+    await expect(cards.filter({ hasText: 'Published October 2026' }).getByText('New', { exact: true })).toHaveCount(0)
+    await expect(cards.getByRole('button')).toHaveCount(0)
+    await expect(cards.getByRole('img')).toHaveCount(0)
+  }
+  await assertUnavailableCards(preview)
+  await expect(notebookEntry).toHaveAccessibleDescription('New Discoveries')
+  await notebookEntry.click()
+  await expect.poll(async () => (await participation(page))?.notebookAcknowledgedAwardIds)
+    .toEqual([viewedId, unviewedId].sort())
+  await page.getByRole('button', { name: 'All Earned Cards' }).click()
+  await assertUnavailableCards(main)
+  const awards = (await participation(page)).earnedAwards
+  expect(Object.keys(awards).sort()).toEqual([viewedId, unviewedId].sort())
+  expect(awards[unviewedId]).toMatchObject({ cardViewed: false, hubAnnouncementAcked: false })
+  expect(awards[viewedId]).toMatchObject({ cardViewed: true, hubAnnouncementAcked: false })
+  await main.getByRole('button', { name: 'Back to Collections' }).click()
+  await expect(notebookEntry).not.toHaveAccessibleDescription('New Discoveries')
+  await assertUnavailableCards(preview)
+  await page.reload()
+  await expect(notebookEntry).not.toHaveAccessibleDescription('New Discoveries')
+  await assertUnavailableCards(preview)
+  expect((await participation(page)).earnedAwards).toEqual(awards)
+})
+
+test('J6 Collections withholds corrupt art and reflows verified Cards when illustration delivery fails', async ({ page }) => {
+  await mockGateway(page)
+  await page.route(currentThematicCardImageUrl, route => route.fulfill({ status: 404 }))
+  const restrictedRequests: string[] = []
+  page.on('request', request => {
+    if (request.url() === RESTRICTED_CARD_IMAGE_URL) restrictedRequests.push(request.url())
+  })
+  const corruptAward = 'card:monthly:2026-11:corrupt'
+  await page.addInitScript(({ key, data }) => {
+    if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify({ schemaVersion: 3, data }))
+  }, {
+    key: participationKey,
+    data: {
+      earnedAwards: {
+        [currentThematicAwardId]: {
+          earnedOn: serverContext.authorizedLocalDate,
+          earnedCard: currentThematicEarnedCard,
+        },
+        [corruptAward]: {
+          awardId: currentThematicAwardId,
+          earnedOn: serverContext.authorizedLocalDate,
+          earnedCard: { ...currentThematicEarnedCard, imageUrl: RESTRICTED_CARD_IMAGE_URL },
+        },
+      },
+    },
+  })
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.goto(readerUrl() + '#/collections')
+  const main = page.getByRole('main')
+  const thumbnail = main.getByRole('button', { name: /Open Scripture Card: November Reading Card/ })
+  for (const width of [320, 375]) {
+    await page.setViewportSize({ width, height: 620 })
+    await page.evaluate(() => { document.documentElement.style.fontSize = '200%' })
+    await expect(thumbnail).toHaveAccessibleDescription('Illustration unavailable right now.')
+    await expect(main.locator('.r06-collections__preview li')).toHaveCount(1)
+    expect(await page.locator('.r06-viewport').evaluate(element => element.scrollWidth)).toBe(width)
+    await thumbnail.click()
+    const dialog = page.getByRole('dialog', { name: currentThematicEarnedCard.title })
+    await expect(dialog.getByRole('status')).toContainText('Card illustration could not be loaded')
+    await expect(dialog).toContainText(currentThematicEarnedCard.accessibleTranscription)
+    expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
+    await page.keyboard.press('Escape')
+    await expect(thumbnail).toBeFocused()
+  }
+  await main.getByRole('button', { name: 'Field Notebook', exact: true }).click()
+  const search = main.getByRole('searchbox', { name: 'Search Your Cards' })
+  await search.fill('Psalms')
+  await expect(main.getByRole('region', { name: 'Matching Earned Cards' }).getByRole('button')).toHaveCount(1)
+  expect(await page.locator('.r06-viewport').evaluate(element => element.scrollWidth)).toBe(375)
+  expect(restrictedRequests).toEqual([])
+})
+
+test('J6 keeps Collections truthful when progress reconciliation fails after Finish and recovers without duplicate awards', async ({ page }) => {
+  await mockGateway(page)
+  const progressUrl = `**/api/months/${currentMonthId}/progress`
+  await page.route(progressUrl, route => route.fulfill({ status: 503 }))
+  await page.goto(readerUrl())
+  await page.getByTestId('today-primary-cta').click()
+  await page.getByRole('button', { name: 'Next', exact: true }).click()
+  const progressResponse = page.waitForResponse(response => response.url().includes(`/api/months/${currentMonthId}/progress`))
+  await page.getByRole('button', { name: 'Finish', exact: true }).click()
+  expect((await progressResponse).status()).toBe(503)
+  await selectTab(page, 'Collections')
+  const preview = page.getByRole('region', { name: 'Earned Scripture Cards' })
+  await expect(preview.getByRole('status')).toContainText('There are no Scripture Cards in your collection yet')
+  await expect(preview.getByRole('img')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Field Notebook' })).not.toHaveAccessibleDescription('New Discoveries')
+  const afterFailure = await participation(page)
+  expect(Object.keys(afterFailure.completedChallenges)).toEqual([`cms:${todayDocumentId}`])
+  expect(afterFailure.earnedAwards).toEqual({})
+
+  await page.unroute(progressUrl)
+  await page.route(progressUrl, route => {
+    const ids = route.request().postDataJSON().completedChallengeIds as string[]
+    return route.fulfill({ json: buildCurrentMonthProgressPayload(ids) })
+  })
+  await selectTab(page, 'Today')
+  await page.getByTestId('today-current-month-link').click()
+  await page.getByRole('button', { name: 'Continue', exact: true }).click()
+  await page.getByRole('button', { name: 'Begin the Month' }).click()
+  await expect.poll(async () => Object.keys((await participation(page)).earnedAwards)).toEqual([currentThematicAwardId])
+  await selectTab(page, 'Collections')
+  await expect(preview.getByRole('button', { name: /November Reading Card/ })).toBeVisible()
+  const afterRecovery = await participation(page)
+  expect(afterRecovery.completedChallenges).toEqual(afterFailure.completedChallenges)
+  await page.reload()
+  await expect(preview.getByRole('button', { name: /November Reading Card/ })).toHaveCount(1)
+  expect((await participation(page)).earnedAwards).toEqual(afterRecovery.earnedAwards)
+})
+
 test('retains each tab’s screen, scroll, and focus and resets the selected tab on reselection', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 460 })
   await mockGateway(page)
@@ -239,7 +481,7 @@ test('retains each tab’s screen, scroll, and focus and resets the selected tab
 
   await selectTab(page, 'Collections')
   await page.getByRole('button', { name: 'Field Notebook' }).click()
-  await expect(page.getByRole('heading', { name: 'Earned Scripture Cards', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Field Notebook', exact: true })).toBeVisible()
   const allCards = page.getByRole('button', { name: 'All Earned Cards' })
   await allCards.click()
   await expect(allCards).toHaveAttribute('aria-pressed', 'true')
@@ -358,7 +600,7 @@ test('restores browser entries and safely handles invalid routes and a failed ga
   })
   await page.goto(readerUrl() + '#/field-notebook')
   await expect(page).toHaveURL(/#\/notebook$/)
-  await expect(page.getByRole('heading', { name: 'Earned Scripture Cards', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Field Notebook', exact: true })).toBeVisible()
   expect(await page.evaluate(() => window.history.state.unrelated)).toBe('preserved')
   await selectTab(page, 'More')
   await page.getByRole('button', { name: 'View All News' }).click()
@@ -366,7 +608,7 @@ test('restores browser entries and safely handles invalid routes and a failed ga
   await page.goBack()
   await expect(page.getByRole('heading', { name: 'More', exact: true })).toBeVisible()
   await page.goBack()
-  await expect(page.getByRole('heading', { name: 'Earned Scripture Cards', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Field Notebook', exact: true })).toBeVisible()
   await page.goForward()
   await page.goForward()
   await page.reload()
@@ -1080,7 +1322,7 @@ test('completes the connected M1a current-Month walkthrough with context restora
   await expect(page.getByRole('main', { name: 'Shelf', exact: true })).toBeVisible()
   await selectTab(page, 'Collections')
   await page.getByRole('button', { name: 'Field Notebook' }).click()
-  await expect(page.getByRole('heading', { name: 'Earned Scripture Cards', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Field Notebook', exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: '1 Distinct Challenge Completed' })).toBeVisible()
   await page.getByRole('button', { name: 'All Earned Cards' }).click()
   await expect(page.getByText(currentThematicEarnedCard.title)).toBeVisible()

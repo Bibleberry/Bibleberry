@@ -43,6 +43,8 @@ export type ReaderParticipationStoreStatus = 'hydrating' | 'ready'
 export interface ReaderParticipationSnapshot {
   readonly status: ReaderParticipationStoreStatus
   readonly data: ReaderParticipationData
+  /** Persisted state before optimistic commands are applied. */
+  readonly committedData: ReaderParticipationData
   readonly distinctCompletedCount: number
   readonly hasPendingWrites: boolean
   readonly health: PersistenceHealth
@@ -62,7 +64,7 @@ export interface ReaderParticipationStore {
 export function acknowledgeNotebookEntry(store: ReaderParticipationStore): Promise<void> {
   const snapshot = store.getSnapshot()
   if (snapshot.status !== 'ready') return Promise.resolve()
-  const awardIds = selectNewDiscoveryAwardIds(snapshot.data)
+  const awardIds = selectNewDiscoveryAwardIds(snapshot.committedData)
   if (awardIds.length === 0) return Promise.resolve()
   return store.dispatch({ type: 'acknowledgeNotebookEntry', awardIds })
 }
@@ -367,6 +369,7 @@ export function createReaderParticipationStore(
   let cachedSnapshot: ReaderParticipationSnapshot = Object.freeze({
     status,
     data: committedData,
+    committedData,
     distinctCompletedCount: 0,
     hasPendingWrites: false,
     health,
@@ -381,6 +384,7 @@ export function createReaderParticipationStore(
     if (
       cachedSnapshot.status === status
       && cachedSnapshot.data === stableData
+      && cachedSnapshot.committedData === committedData
       && cachedSnapshot.distinctCompletedCount === nextCount
       && cachedSnapshot.hasPendingWrites === nextHasPending
       && cachedSnapshot.health === health
@@ -391,6 +395,7 @@ export function createReaderParticipationStore(
     cachedSnapshot = Object.freeze({
       status,
       data: stableData,
+      committedData,
       distinctCompletedCount: nextCount,
       hasPendingWrites: nextHasPending,
       health,

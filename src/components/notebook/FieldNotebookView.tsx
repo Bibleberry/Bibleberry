@@ -1,14 +1,13 @@
-import { useRef, useState } from 'react'
+import { useRef } from 'react'
 import {
   ArrowLeft,
   ArrowRight,
-  BookOpen,
   Calendar,
   Layers,
   Search,
-  Sparkles,
   X,
 } from 'lucide-react'
+import { EarnedCardThumbnail } from './EarnedCardThumbnail.tsx'
 import { EarnedScriptureCardViewer } from '../cards/EarnedScriptureCardViewer.tsx'
 import {
   filterNotebookCards,
@@ -41,123 +40,19 @@ export interface FieldNotebookViewProps {
   readonly exitLabel?: string
 }
 
-interface NotebookCardTileProps {
-  readonly item: NotebookEarnedCardItem
-  readonly failedImageUrls: Readonly<Record<string, true>>
-  readonly onImageError: (imageUrl: string) => void
-  readonly onOpenCard: (item: NotebookEarnedCardItem, triggerElement: HTMLButtonElement) => void
-}
-
-function NotebookCardTile({
-  item,
-  failedImageUrls,
-  onImageError,
-  onOpenCard,
-}: NotebookCardTileProps) {
-  if (!item.hasCardSnapshot || !item.earnedCard) {
-    return (
-      <li className="notebook-card notebook-card--unavailable">
-        <div className="notebook-card__kind">
-          <span>{item.kindLabel}</span>
-          {!item.cardViewed && <span className="notebook-card__new-badge">New</span>}
-        </div>
-        <h3 className="notebook-card__title">{item.title}</h3>
-        <p className="notebook-card__dates">
-          <span>Published {item.publicationMonthHeading}</span>
-          <span>Earned {item.earnedDateLabel}</span>
-        </p>
-        <p className="notebook-card__unavailable-note">
-          Card snapshot unavailable — your earned award record is preserved.
-        </p>
-      </li>
-    )
-  }
-
-  const card = item.earnedCard
-  const imageFailed = failedImageUrls[card.imageUrl] === true
-  const ariaLabel = [
-    `Open Scripture Card: ${card.title}`,
-    card.scripture.reference,
-    `Published ${item.publicationMonthHeading}`,
-    `Earned ${item.earnedDateLabel}`,
-    !item.cardViewed ? 'New' : null,
-  ]
-    .filter(Boolean)
-    .join(', ')
-
-  return (
-    <li className="notebook-card">
-      <button
-        type="button"
-        className="notebook-card__button"
-        onClick={event => onOpenCard(item, event.currentTarget)}
-        aria-label={ariaLabel}
-      >
-        <div className="notebook-card__media">
-          {!imageFailed ? (
-            <img
-              src={card.imageUrl}
-              alt={card.illustrationAlt}
-              loading="lazy"
-              decoding="async"
-              onError={() => onImageError(card.imageUrl)}
-            />
-          ) : (
-            <div className="notebook-card__media-fallback" role="status">
-              <span>Illustration unavailable right now. {card.illustrationAlt}</span>
-            </div>
-          )}
-          {!item.cardViewed && <span className="notebook-card__new-badge">New</span>}
-        </div>
-
-        <div className="notebook-card__body">
-          <div className="notebook-card__kind">
-            <span>{item.kindLabel}</span>
-          </div>
-          <h3 className="notebook-card__title">{card.title}</h3>
-          <p className="notebook-card__scripture">
-            <BookOpen size={14} aria-hidden="true" />
-            <span>
-              {card.scripture.reference} · {card.scripture.translation} ({card.scripture.book})
-            </span>
-          </p>
-          <p className="notebook-card__dates">
-            <span>Published {item.publicationMonthHeading}</span>
-            <span>Earned {item.earnedDateLabel}</span>
-          </p>
-          {item.theologicalThemes.length > 0 && (
-            <ul className="notebook-card__themes" aria-label="Curated themes">
-              {item.theologicalThemes.map(theme => (
-                <li key={theme}>{theme}</li>
-              ))}
-            </ul>
-          )}
-          <span className="notebook-card__cta">Open Scripture Card</span>
-        </div>
-      </button>
-    </li>
-  )
-}
-
 function NotebookGallerySection({
   heading,
   cards,
   emptyTitle,
   emptyBody,
-  isFiltered,
   onClearFilter,
-  failedImageUrls,
-  onImageError,
   onOpenCard,
 }: {
   readonly heading: string
   readonly cards: readonly NotebookEarnedCardItem[]
   readonly emptyTitle: string
   readonly emptyBody: string
-  readonly isFiltered: boolean
-  readonly onClearFilter: () => void
-  readonly failedImageUrls: Readonly<Record<string, true>>
-  readonly onImageError: (imageUrl: string) => void
+  readonly onClearFilter?: () => void
   readonly onOpenCard: (item: NotebookEarnedCardItem, triggerElement: HTMLButtonElement) => void
 }) {
   return (
@@ -171,27 +66,22 @@ function NotebookGallerySection({
 
       {cards.length === 0 ? (
         <div className="notebook-empty" role="status">
-          <h3>{isFiltered ? 'No Matching Earned Scripture Cards' : emptyTitle}</h3>
-          <p>
-            {isFiltered
-              ? 'Try another card title, Bible book, Scripture reference, or curated theme.'
-              : emptyBody}
-          </p>
-          {isFiltered && (
+          <h3>{emptyTitle}</h3>
+          <p>{emptyBody}</p>
+          {onClearFilter && (
             <button type="button" className="button button--secondary" onClick={onClearFilter}>
               Clear search and filters
             </button>
           )}
         </div>
       ) : (
-        <ul className="notebook-cards-grid">
+        <ul className={onClearFilter ? 'notebook-cards-grid notebook-cards-grid--search' : 'notebook-cards-grid'}>
           {cards.map(item => (
-            <NotebookCardTile
+            <EarnedCardThumbnail
               key={item.awardId}
               item={item}
-              failedImageUrls={failedImageUrls}
-              onImageError={onImageError}
-              onOpenCard={onOpenCard}
+              showDates={!onClearFilter}
+              onOpen={onOpenCard}
             />
           ))}
         </ul>
@@ -231,13 +121,6 @@ export function FieldNotebookView({
   exitLabel = 'Return',
 }: FieldNotebookViewProps) {
   const lastCardTriggerRef = useRef<HTMLButtonElement | null>(null)
-  const [failedImageUrls, setFailedImageUrls] = useState<Readonly<Record<string, true>>>({})
-
-  const handleImageError = (imageUrl: string) => {
-    setFailedImageUrls(previous =>
-      previous[imageUrl] ? previous : { ...previous, [imageUrl]: true },
-    )
-  }
 
   const handleTriggerCard = (item: NotebookEarnedCardItem, triggerElement: HTMLButtonElement) => {
     lastCardTriggerRef.current = triggerElement
@@ -248,6 +131,11 @@ export function FieldNotebookView({
   const clearFilters = () => {
     onSearchQueryChange('')
     onSelectTheme(null)
+  }
+
+  const selectBrowseMode = (mode: NotebookBrowseMode) => {
+    clearFilters()
+    onChangeBrowseMode(mode)
   }
 
   const yearOptions = Array.from(new Set([...projection.relevantYears, selectedYear])).sort(
@@ -269,18 +157,6 @@ export function FieldNotebookView({
     && (adjacentMonths.next <= projection.referenceYearMonth
       || projection.allEarnedCards.some(card => card.publicationYearMonth === adjacentMonths.next))
 
-  const filteredAllCards = filterNotebookCards(projection.allEarnedCards, {
-    query: searchQuery,
-    theme: selectedTheme,
-  })
-
-  const filteredMonthCards = selectedMonthEntry
-    ? filterNotebookCards(selectedMonthEntry.cards, {
-        query: searchQuery,
-        theme: selectedTheme,
-      })
-    : []
-
   return (
     <div className="standard-page notebook-page">
       {onExit && (
@@ -292,16 +168,7 @@ export function FieldNotebookView({
       )}
 
       <header className="notebook-header">
-        <p className="eyebrow">FIELD NOTEBOOK</p>
-        <h1>Earned Scripture Cards</h1>
-        <p className="notebook-header__subtitle">
-          A lasting, earned-only archive of Scripture Cards from your completed studies across
-          current teaching, Shelf, and Library.
-        </p>
-        <p className="notebook-provisional-note">
-          <Sparkles size={14} aria-hidden="true" /> Provisional Field Notebook layout — final
-          illustrated notebook artwork and status naming remain pending design review.
-        </p>
+        <h1>Field Notebook</h1>
       </header>
 
       <section className="notebook-lifetime" aria-labelledby="notebook-lifetime-heading">
@@ -310,45 +177,12 @@ export function FieldNotebookView({
           {projection.lifetime.headline}
         </h2>
         <p className="notebook-lifetime__copy">{projection.lifetime.supportingCopy}</p>
-        <div className="notebook-lifetime__stats">
-          <span className="notebook-lifetime__stat-pill">
-            {projection.lifetime.earnedCardCount}{' '}
-            {projection.lifetime.earnedCardCount === 1
-              ? 'Earned Scripture Card'
-              : 'Earned Scripture Cards'}
-          </span>
-          {projection.lifetime.unviewedCardCount > 0 && (
-            <span className="notebook-lifetime__stat-pill notebook-lifetime__stat-pill--new">
-              {projection.lifetime.unviewedCardCount} Unopened
-            </span>
-          )}
-        </div>
-        <p className="notebook-lifetime__note">{projection.lifetime.provisionalNote}</p>
       </section>
 
       <section className="notebook-controls" aria-label="Browse and filter earned Scripture Cards">
-        <div className="notebook-mode-tabs" role="group" aria-label="Field Notebook views">
-          <button
-            type="button"
-            className="notebook-mode-tab"
-            aria-pressed={browseMode === 'yearMonth'}
-            onClick={() => onChangeBrowseMode('yearMonth')}
-          >
-            <Calendar size={16} aria-hidden="true" /> By Year &amp; Month
-          </button>
-          <button
-            type="button"
-            className="notebook-mode-tab"
-            aria-pressed={browseMode === 'allCards'}
-            onClick={() => onChangeBrowseMode('allCards')}
-          >
-            <Layers size={16} aria-hidden="true" /> All Earned Cards
-          </button>
-        </div>
-
         <div className="notebook-search">
           <label htmlFor="notebook-search-input" className="notebook-search__label">
-            Search earned cards by title, Bible book, reference, or theme
+            Search Your Cards
           </label>
           <div className="notebook-search__row">
             <div className="notebook-search__input-wrap">
@@ -359,7 +193,7 @@ export function FieldNotebookView({
                 className="notebook-search__input"
                 value={searchQuery}
                 onChange={event => onSearchQueryChange(event.target.value)}
-                placeholder="Search title, book, reference, or theme…"
+                placeholder="Title, Bible book, reference, or theme"
               />
             </div>
             {hasActiveFilter && (
@@ -398,30 +232,41 @@ export function FieldNotebookView({
             ))}
           </div>
         )}
+        <div className="notebook-mode-tabs" role="group" aria-label="Field Notebook views">
+          <button
+            type="button"
+            className="notebook-mode-tab"
+            aria-pressed={!hasActiveFilter && browseMode === 'yearMonth'}
+            onClick={() => selectBrowseMode('yearMonth')}
+          >
+            <Calendar size={16} aria-hidden="true" /> By Year &amp; Month
+          </button>
+          <button
+            type="button"
+            className="notebook-mode-tab"
+            aria-pressed={!hasActiveFilter && browseMode === 'allCards'}
+            onClick={() => selectBrowseMode('allCards')}
+          >
+            <Layers size={16} aria-hidden="true" /> All Earned Cards
+          </button>
+        </div>
       </section>
 
-      {browseMode === 'allCards' ? (
-        <NotebookGallerySection
-          heading="All Earned Cards"
-          cards={filteredAllCards}
-          emptyTitle="No Earned Scripture Cards Yet"
-          emptyBody="As you complete thematic discoveries and finalized months—from current teaching, Shelf, or Library—your earned Scripture Cards will gather here permanently."
-          isFiltered={hasActiveFilter}
-          onClearFilter={clearFilters}
-          failedImageUrls={failedImageUrls}
-          onImageError={handleImageError}
-          onOpenCard={handleTriggerCard}
-        />
-      ) : hasActiveFilter && selectedYearMonth === null ? (
+      {hasActiveFilter ? (
         <NotebookGallerySection
           heading="Matching Earned Cards"
-          cards={filteredAllCards}
-          emptyTitle="No Earned Scripture Cards Yet"
-          emptyBody="Earned Scripture Cards appear here as you finish monthly discoveries."
-          isFiltered={hasActiveFilter}
+          cards={filterNotebookCards(projection.allEarnedCards, { query: searchQuery, theme: selectedTheme })}
+          emptyTitle="No Matching Earned Scripture Cards"
+          emptyBody="Try another card title, Bible book, Scripture reference, or curated theme."
           onClearFilter={clearFilters}
-          failedImageUrls={failedImageUrls}
-          onImageError={handleImageError}
+          onOpenCard={handleTriggerCard}
+        />
+      ) : browseMode === 'allCards' ? (
+        <NotebookGallerySection
+          heading="All Earned Cards"
+          cards={projection.allEarnedCards}
+          emptyTitle="No Earned Scripture Cards Yet"
+          emptyBody="Scripture Cards you earn from monthly discoveries appear here."
           onOpenCard={handleTriggerCard}
         />
       ) : selectedYearMonth !== null ? (
@@ -482,13 +327,9 @@ export function FieldNotebookView({
           ) : (
             <NotebookGallerySection
               heading={`Cards Earned for ${formatPublicationMonthHeading(selectedYearMonth)}`}
-              cards={filteredMonthCards}
+              cards={selectedMonthEntry?.cards ?? []}
               emptyTitle={`No Earned Cards for ${formatPublicationMonthHeading(selectedYearMonth)}`}
               emptyBody="No Scripture Cards have been earned for this publication month yet. Cards earned later from Shelf or Library still appear here under their original publication month."
-              isFiltered={hasActiveFilter}
-              onClearFilter={clearFilters}
-              failedImageUrls={failedImageUrls}
-              onImageError={handleImageError}
               onOpenCard={handleTriggerCard}
             />
           )}

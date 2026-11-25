@@ -1,0 +1,33 @@
+.r06-collections {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1.25rem;
+}
+
+.r06-collections h1 {
+  margin: 0;
+}
+
+.r06-collections h2 {
+  margin-bottom: 0.75rem;
+  font-size: 1.25rem;
+}
+
+.r06-collections__preview {
+  max-inline-size: 40rem;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 11rem), 1fr));
+}
+
+.r06-collections__discoveries {
+  align-self: center;
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  background: var(--selected);
+  color: var(--selected-ink);
+  font-size: 0.8rem;
+}
+
+.r06-collections .button {
+  flex-wrap: wrap;
+  font-size: 0.875rem;
+}

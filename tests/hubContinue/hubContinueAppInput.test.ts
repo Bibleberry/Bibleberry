@@ -95,6 +95,7 @@ function makeSources(overrides: Partial<HubContinueAppSources> = {}): HubContinu
   const participation: ReaderParticipationSnapshot = {
     status: 'ready',
     data: emptyReaderParticipationData(),
+    committedData: emptyReaderParticipationData(),
     distinctCompletedCount: 0,
     hasPendingWrites: false,
     health: 'ok',

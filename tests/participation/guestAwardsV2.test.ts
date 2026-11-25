@@ -300,6 +300,10 @@ test('V1->V3 migration write failure preserves V1 on disk across restart and com
     ],
   })
   assert.equal(backing2.get(STORAGE_KEY), legacyV1)
+  assert.equal(failedSession.getSnapshot().data.earnedAwards[fullMonthAwardId]?.earnedOn, day3)
+  assert.deepEqual(failedSession.getSnapshot().committedData.earnedAwards, {})
+  await acknowledgeNotebookEntry(failedSession)
+  assert.deepEqual(failedSession.getSnapshot().data.notebookAcknowledgedAwardIds ?? [], [])
   failedSession.dispose()
 
   failWrite2 = false
@@ -324,7 +328,7 @@ test('V1->V3 migration write failure preserves V1 on disk across restart and com
     ],
   })
   assert.equal(JSON.parse(backing2.get(STORAGE_KEY)!).schemaVersion, 3)
-  assert.equal(restartedSession.getSnapshot().data.earnedAwards[fullMonthAwardId]?.earnedOn, day3)
+  assert.equal(restartedSession.getSnapshot().committedData.earnedAwards[fullMonthAwardId]?.earnedOn, day3)
   restartedSession.dispose()
 })
 
