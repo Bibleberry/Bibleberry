@@ -166,15 +166,32 @@ export function createR06ExternalIngressBridge(
 
   let started = false
   let stopped = false
-  let inStart = false
+  let inResumedOpen = false
   let directCallDepth = 0
+
+  const wrappedSource: ExternalDeepLinkSourceAdapter | undefined = options.source
+    ? {
+        getInitialUrl: options.source.getInitialUrl,
+        subscribeUrlOpen: options.source.subscribeUrlOpen
+          ? listener =>
+              options.source!.subscribeUrlOpen!(url => {
+                inResumedOpen = true
+                try {
+                  listener(url)
+                } finally {
+                  inResumedOpen = false
+                }
+              })
+          : undefined,
+      }
+    : undefined
 
   const externalController: DeepLinkIngressController = createDeepLinkIngressController({
     policy: externalPolicy,
     destinationOptions: options.destinationOptions,
     challengeProvider: {
       async loadChallenge(slug, loadOptions) {
-        if (started && !stopped && !inStart && directCallDepth === 0) {
+        if (started && !stopped && inResumedOpen && directCallDepth === 0) {
           options.onWarmIngressStart?.(slug)
         }
         return verified.challengeProvider.loadChallenge(slug, loadOptions)
@@ -182,12 +199,7 @@ export function createR06ExternalIngressBridge(
     },
     dedupeWindowMs: options.dedupeWindowMs,
     now: options.now,
-    source: options.source
-      ? {
-          getInitialUrl: options.source.getInitialUrl,
-          subscribeUrlOpen: options.source.subscribeUrlOpen,
-        }
-      : undefined,
+    source: wrappedSource,
     onNavigate(outcome) {
       if (outcome.sourceEvent.trigger === 'resumedSession' && directCallDepth === 0) {
         options.onOutcome?.(outcome, resolveVerified(outcome))
@@ -218,13 +230,7 @@ export function createR06ExternalIngressBridge(
       if (started || stopped) return null
       started = true
 
-      inStart = true
-      let externalOutcome: DeepLinkIngressOutcome | null
-      try {
-        externalOutcome = await externalController.start()
-      } finally {
-        inStart = false
-      }
+      const externalOutcome = await externalController.start()
       if (stopped) return null
       if (externalOutcome) {
         return {

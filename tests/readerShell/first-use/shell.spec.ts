@@ -815,3 +815,95 @@ test('G09 J1 communicates onboarding save failure accurately, recovers on Try Ag
     await mixedContext.close()
   }
 })
+
+test('G09 J2 warm external ingress during deferred getInitialUrl holds pending without Intro/Tutorial/Today detour', async ({
+  context,
+}) => {
+  for (const outcome of ['authorized', 'unavailable'] as const) {
+    const scenarioContext = await context.browser()!.newContext()
+    try {
+      await scenarioContext.clock.setFixedTime(new Date('2026-11-10T12:00:00Z'))
+      await scenarioContext.route('https://**', route => route.abort())
+      await mockGateway(scenarioContext)
+
+      let releaseChallenge!: () => void
+      const challengeGate = new Promise<void>(resolve => {
+        releaseChallenge = resolve
+      })
+      let challengeRequested!: () => void
+      const challengeRequestSeen = new Promise<void>(resolve => {
+        challengeRequested = resolve
+      })
+
+      const testPage = await scenarioContext.newPage()
+      await testPage.route(`**/api/challenges/${teachingSlug}`, async route => {
+        challengeRequested()
+        await challengeGate
+        if (outcome === 'authorized') {
+          await route.fulfill({ json: { ok: true, challenge } })
+        } else {
+          await route.fulfill({ status: 404, json: { ok: false, error: 'Not found' } })
+        }
+      })
+
+      await testPage.addInitScript(() => {
+        const w = window as unknown as {
+          __r06EnableTutorialSeam?: boolean
+          __r06GetInitialExternalUrl?: () => Promise<string | null>
+          __r06ResolveInitialUrl?: (url: string | null) => void
+        }
+        w.__r06EnableTutorialSeam = true
+        w.__r06GetInitialExternalUrl = () =>
+          new Promise<string | null>(resolve => {
+            w.__r06ResolveInitialUrl = resolve
+          })
+      })
+
+      await testPage.goto(serverUrl(seamServer))
+      await expect(testPage.getByRole('status')).toHaveText('Opening Bibleberry…')
+
+      // Emit a warm external Challenge while getInitialUrl is still unresolved
+      await testPage.evaluate(
+        slug => {
+          ;(window as unknown as { __r06EmitWarmExternalUrl?: (url: string) => void }).__r06EmitWarmExternalUrl?.(
+            `https://reader.example.test/challenge/${slug}?origin=month&yearMonth=2026-10`,
+          )
+        },
+        teachingSlug,
+      )
+      await challengeRequestSeen
+
+      // Resolve getInitialUrl(null) while the warm gateway response is still held:
+      // must NOT fall through to Intro, Tutorial, or Today.
+      await testPage.evaluate(() => {
+        ;(window as unknown as { __r06ResolveInitialUrl?: (url: string | null) => void }).__r06ResolveInitialUrl?.(
+          null,
+        )
+      })
+      await testPage.waitForTimeout(80)
+      await expect(testPage.getByTestId('onboarding-step-heading')).toHaveCount(0)
+      await expect(testPage.getByTestId('synthetic-tutorial-seam')).toHaveCount(0)
+      await expect(testPage.getByRole('heading', { name: 'Today', exact: true })).toHaveCount(0)
+      await expect(testPage.getByRole('status')).toHaveText('Opening Bibleberry…')
+
+      // Release held warm gateway response and verify final state + Exit/Return to Today + pending onboarding
+      releaseChallenge()
+      if (outcome === 'authorized') {
+        await expect(testPage.getByRole('heading', { name: 'Reading screen 1' })).toBeVisible()
+        await expect(primaryNav(testPage)).toBeHidden()
+        await testPage.getByRole('button', { name: 'Exit', exact: true }).click()
+      } else {
+        await expect(testPage.getByRole('heading', { name: 'Challenge unavailable' })).toBeVisible()
+        await testPage.getByRole('button', { name: 'Return to Today' }).click()
+      }
+
+      await expect(testPage.getByRole('heading', { name: 'Today', exact: true })).toBeVisible()
+      expect((await storedProfile(testPage)).profile).toMatchObject({
+        introStatus: 'pending',
+        tutorialStatus: 'pending',
+      })
+    } finally {
+      await scenarioContext.close()
+    }
+  }
+})

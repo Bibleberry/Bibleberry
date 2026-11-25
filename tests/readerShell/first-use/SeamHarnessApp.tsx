@@ -8,6 +8,7 @@ import type { GuidedTutorialStepProps } from '../../../src/readerShell/entry/ind
 interface SeamBridgeWindow {
   __r06EnableTutorialSeam?: boolean
   __r06InitialExternalUrl?: string | null
+  __r06GetInitialExternalUrl?: () => Promise<string | null>
   __r06EmitWarmExternalUrl?: (url: string) => void
   __r06DelayNextProfileUpdate?: boolean
   __r06OnProfileUpdateStarted?: () => void
@@ -57,7 +58,10 @@ export function SeamHarnessRoot() {
     }
   })
   const [externalSource] = useState<ExternalDeepLinkSourceAdapter>(() => ({
-    getInitialUrl: () => bridgeWindow.__r06InitialExternalUrl ?? null,
+    getInitialUrl: () =>
+      bridgeWindow.__r06GetInitialExternalUrl
+        ? bridgeWindow.__r06GetInitialExternalUrl()
+        : (bridgeWindow.__r06InitialExternalUrl ?? null),
     subscribeUrlOpen(listener) {
       bridgeWindow.__r06EmitWarmExternalUrl = listener
       return () => {

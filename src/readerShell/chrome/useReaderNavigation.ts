@@ -475,11 +475,8 @@ export function useReaderNavigation(
       void ingressBridge.start().then(started => {
         if (controller.signal.aborted) return
         pending.current = null
-        if (!started) {
-          restoreLocation()
-          return
-        }
-        if (started.outcome.status === 'ignoredDuplicate') {
+        if (!started || started.outcome.status === 'ignoredDuplicate') {
+          if (warmIngressInFlightRef.current) return
           restoreLocation()
           return
         }
