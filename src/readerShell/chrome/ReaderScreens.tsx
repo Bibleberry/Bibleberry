@@ -53,7 +53,9 @@ function TodayLanding({ send }: { send: Send }) {
       onOpenNews={() => send(openNews)}
       onViewDiscoveries={awardIds => {
         const id = encodeDiscoveriesBatch(awardIds)
-        if (id) send({ type: 'push', route: { kind: 'detail', screen: VIEW_DISCOVERIES_SCREEN, id } })
+        if (!id) return false
+        send({ type: 'push', route: { kind: 'detail', screen: VIEW_DISCOVERIES_SCREEN, id } })
+        return true
       }}
     />
   )

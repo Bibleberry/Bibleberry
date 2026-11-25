@@ -5,12 +5,16 @@ import { buildCombinedAnnouncementCopy } from '../../components/announcements/hu
 import { useHubCardAnnouncements } from '../../components/announcements/useHubCardAnnouncements.ts'
 import type { ReaderParticipationStore } from '../../participation/store.ts'
 import type { CanonicalAwardId } from '../../participation/types.ts'
+import { handOffDiscoveriesBatch } from './discoveriesBatch.ts'
 
 export interface TodayCardAnnouncementProps {
   readonly participationStore: ReaderParticipationStore
   readonly preferencesStore?: AnnouncementPreferencesStore
-  /** Receives the exact award IDs this announcement presented. */
-  readonly onViewDiscoveries?: (awardIds: readonly CanonicalAwardId[]) => void
+  /**
+   * Opens the gallery for the exact award IDs this announcement presented. Returns
+   * `false` when the handoff failed; the batch then stays pending and unacknowledged.
+   */
+  readonly onViewDiscoveries?: (awardIds: readonly CanonicalAwardId[]) => boolean
   /** Where focus goes once the notice leaves Today (the Today heading). */
   readonly returnFocusRef: { readonly current: HTMLElement | null }
 }
@@ -19,7 +23,7 @@ export interface TodayCardAnnouncementProps {
  * Coastal Osprey (Issue #322): the R06 Today-only inline earned-Card announcement.
  *
  * Mounted only by the Today landing, so every mount is a Today arrival or return. It
- * reuses the R14-6 Hub batch controller: one frozen combined batch per visit, nothing
+ * reuses the R14-6 Hub batch controller over committed (persisted) awards only: one frozen combined batch per visit, nothing
  * during hydration, nothing while announcements are switched off (awards still persist),
  * and a single catch-up on the next Today visit once they are switched back on.
  *
@@ -37,6 +41,7 @@ export function TodayCardAnnouncement({
     store: participationStore,
     preferencesStore,
     isHubActive: true,
+    awardSource: 'committed',
   })
 
   if (!controller.isOpen) return null
@@ -54,14 +59,16 @@ export function TodayCardAnnouncement({
     if (await controller.retryAcknowledge()) moveFocusToToday()
   }
 
-  const viewDiscoveries = () => {
+  const viewDiscoveries = (trigger: HTMLButtonElement) => {
     if (!onViewDiscoveries || saving) return
     const awardIds = controller.items.map(item => item.awardId)
-    // Capture the batch before Today unmounts. Navigation does not wait for the save:
-    // if it fails, the same batch is offered again on a later Today visit.
-    void controller.dismissAnnouncement()
+    // Focus Today first so the shell records it as the return target for this entry.
     moveFocusToToday()
-    onViewDiscoveries(awardIds)
+    // Acknowledge only after the gallery route was accepted. The batch is captured
+    // synchronously, before Today unmounts. If the save fails, the same batch is offered
+    // again on a later Today visit.
+    const handedOff = handOffDiscoveriesBatch(awardIds, onViewDiscoveries, () => { void controller.dismissAnnouncement() })
+    if (!handedOff) trigger.focus()
   }
 
   return (
@@ -115,7 +122,7 @@ export function TodayCardAnnouncement({
               className="button button--secondary"
               data-testid="today-view-discoveries"
               disabled={saving}
-              onClick={viewDiscoveries}
+              onClick={event => viewDiscoveries(event.currentTarget)}
             >
               View Discoveries
             </button>

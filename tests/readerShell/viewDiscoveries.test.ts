@@ -15,6 +15,7 @@ import {
 import { activeScreenKey } from '../../src/readerShell/navigation/routeTable.ts'
 import {
   encodeDiscoveriesBatch,
+  handOffDiscoveriesBatch,
   parseDiscoveriesBatch,
   projectDiscoveriesBatch,
   VIEW_DISCOVERIES_SCREEN,
@@ -73,15 +74,56 @@ function data(...records: EarnedAwardRecord[]): ReaderParticipationData {
   }
 }
 
-test('encodes and parses only canonical, distinct award batches', () => {
-  const encoded = encodeDiscoveriesBatch([thematic, fullMonth, thematic])
+test('encodes and parses only complete canonical batches, never truncating or deduplicating silently', () => {
+  const encoded = encodeDiscoveriesBatch([thematic, fullMonth])
   assert.equal(encoded, `${thematic} ${fullMonth}`)
   assert.deepEqual(parseDiscoveriesBatch(encoded), [thematic, fullMonth])
   assert.equal(encodeDiscoveriesBatch([]), null)
-  assert.equal(encodeDiscoveriesBatch(['not-an-award' as CanonicalAwardId]), null)
+  assert.equal(encodeDiscoveriesBatch([thematic, fullMonth, thematic]), null)
+  assert.equal(encodeDiscoveriesBatch([thematic, 'not-an-award' as CanonicalAwardId]), null)
   for (const raw of ['', ' ', `${thematic} ${thematic}`, `${thematic}  ${fullMonth}`, 'card:monthly:2026-13:x', 42, undefined]) {
     assert.equal(parseDiscoveriesBatch(raw), null, String(raw))
   }
+})
+
+test('a large catch-up batch round-trips completely through the session route and browser reload', () => {
+  const large = Array.from({ length: 600 }, (_, index) => {
+    const year = 2000 + Math.floor(index / 12)
+    const month = String((index % 12) + 1).padStart(2, '0')
+    return `card:monthly:${year}-${month}:reading-${index}` as CanonicalAwardId
+  })
+  const id = encodeDiscoveriesBatch(large)
+  assert.ok(id)
+  assert.deepEqual(parseDiscoveriesBatch(id), large)
+  const options = {
+    currentYearMonth: '2026-11', monthScreenEnabled: true, releasedChallengeRouteEnabled: true,
+    historicalLibraryEnabled: true, fieldNotebookEnabled: true, savedScriptureEnabled: true, newsReaderEnabled: true,
+  }
+  const first = restoreBrowserLocation(createBrowserNavigation('session-1'), { hash: '' }, options)
+  assert.equal(first.status, 'ready')
+  const route = { kind: 'detail', screen: VIEW_DISCOVERIES_SCREEN, id } as const
+  const opened = applyNavigationAction(first.navigation, { type: 'push', route })
+  if (opened.history.type !== 'push') throw new Error('expected push')
+  const reloaded = restoreBrowserLocation(
+    createBrowserNavigation('session-2', serializeBrowserNavigation(opened.navigation)),
+    { hash: opened.history.hash, historyState: opened.history.state },
+    options,
+  )
+  assert.equal(reloaded.status, 'ready')
+  const restored = activeRoute(reloaded.navigation.state)
+  assert.equal(restored.kind === 'detail' ? parseDiscoveriesBatch(restored.id)?.length : 0, large.length)
+})
+
+test('a batch is acknowledged only after its gallery handoff succeeds', () => {
+  let acknowledged = 0
+  const opened: (readonly CanonicalAwardId[])[] = []
+  assert.equal(handOffDiscoveriesBatch([thematic], () => false, () => { acknowledged++ }), false)
+  assert.equal(handOffDiscoveriesBatch([], ids => { opened.push(ids); return true }, () => { acknowledged++ }), false)
+  assert.equal(acknowledged, 0)
+  assert.deepEqual(opened, [])
+  assert.equal(handOffDiscoveriesBatch([thematic, fullMonth], ids => { opened.push(ids); return true }, () => { acknowledged++ }), true)
+  assert.equal(acknowledged, 1)
+  assert.deepEqual(opened, [[thematic, fullMonth]])
 })
 
 test('projects only referenced earned awards in announcement order without fabricating art', () => {

@@ -35,16 +35,19 @@ export function ViewDiscoveriesGallery({
   const { status, committedData, health } = useReaderParticipation(store)
   const awardIds = useMemo(() => parseDiscoveriesBatch(batch), [batch])
   const items = useMemo(
-    () => (awardIds ? projectDiscoveriesBatch(committedData, awardIds) : []),
+    () => (awardIds ? projectDiscoveriesBatch(committedData, awardIds) : Object.freeze([])),
     [awardIds, committedData],
   )
   const triggerRef = useRef<HTMLButtonElement>(null)
   const [activeAwardId, setActiveAwardId] = useState<CanonicalAwardId | null>(null)
   const activeCard = items.find(item => item.awardId === activeAwardId)
 
+  // Only a valid batch with at least one durably earned Card counts as Field Notebook
+  // entry. A malformed or empty route never clears unrelated New Discoveries.
+  const hasEligibleBatch = status === 'ready' && items.length > 0
   useEffect(() => {
-    if (status === 'ready') void acknowledgeNotebookEntry(store).catch(() => {})
-  }, [store, status])
+    if (hasEligibleBatch) void acknowledgeNotebookEntry(store).catch(() => {})
+  }, [store, hasEligibleBatch])
 
   function openCard(item: NotebookEarnedCardItem, trigger: HTMLButtonElement) {
     if (!item.earnedCard) return

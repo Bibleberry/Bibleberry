@@ -2047,3 +2047,131 @@ test('G09 J6 keeps a Today batch pending when its acknowledgement cannot be save
   await expect(announcement(page)).toHaveCount(0)
   await expect.poll(async () => (await participation(page)).earnedAwards[currentThematicAwardId].hubAnnouncementAcked).toBe(true)
 })
+
+test('G09 J6 never announces an award whose write failed and announces it once it is durably saved', async ({ page }) => {
+  await mockGateway(page)
+  await page.goto(readerUrl())
+  await expect(page.getByTestId('today-primary-cta')).toBeVisible()
+  // Let the completion persist, but fail every write that would store the earned award.
+  await page.evaluate(({ key, award }) => {
+    const original = Storage.prototype.setItem
+    ;(window as unknown as { restoreSetItem: () => void }).restoreSetItem = () => { Storage.prototype.setItem = original }
+    Storage.prototype.setItem = function (name: string, value: string) {
+      if (name === key && value.includes(award)) throw new Error('quota')
+      return original.call(this, name, value)
+    }
+  }, { key: participationKey, award: currentThematicAwardId })
+  const progress = page.waitForResponse(response => response.url().includes(`/api/months/${currentMonthId}/progress`))
+  await page.getByTestId('today-primary-cta').click()
+  await page.getByRole('button', { name: 'Next', exact: true }).click()
+  await page.getByRole('button', { name: 'Finish', exact: true }).click()
+  await progress
+  await expect.poll(async () => Object.keys((await participation(page))?.completedChallenges ?? {}))
+    .toEqual([`cms:${todayDocumentId}`])
+  await expect(page.getByRole('heading', { name: 'Today', exact: true, level: 1 })).toBeVisible()
+  await expect(announcement(page)).toHaveCount(0)
+  // A fresh Today arrival still sees only committed state.
+  await selectTab(page, 'More')
+  await selectTab(page, 'Today')
+  await expect(page.getByRole('heading', { name: 'Today', exact: true, level: 1 })).toBeVisible()
+  await expect(announcement(page)).toHaveCount(0)
+  expect((await participation(page)).earnedAwards ?? {}).toEqual({})
+
+  // Recovery: storage works again and the Month reconciliation persists the award.
+  await page.evaluate(() => (window as unknown as { restoreSetItem: () => void }).restoreSetItem())
+  await page.getByTestId('today-current-month-link').click()
+  await page.getByRole('button', { name: 'Continue', exact: true }).click()
+  await page.getByRole('button', { name: 'Begin the Month' }).click()
+  await expect.poll(async () => Object.keys((await participation(page))?.earnedAwards ?? {})).toEqual([currentThematicAwardId])
+  await expect(announcement(page)).toHaveCount(0)
+  await selectTab(page, 'Today')
+  await expect(announcement(page)).toHaveCount(1)
+  await expect(announcement(page)).toHaveAttribute('data-award-count', '1')
+  await page.getByTestId('today-view-discoveries').click()
+  await expect(page.getByTestId('view-discoveries-gallery').locator('.notebook-card')).toHaveCount(1)
+  await expect.poll(async () => (await participation(page)).earnedAwards[currentThematicAwardId].hubAnnouncementAcked).toBe(true)
+})
+
+test('G09 J6 hands off a large catch-up batch whole and reflows at 375px and 200% text with visible focus', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 700 })
+  await mockGateway(page)
+  const ids = Array.from({ length: 80 }, (_, index) => {
+    const year = 2019 + Math.floor(index / 12)
+    const month = String((index % 12) + 1).padStart(2, '0')
+    return `card:monthly:${year}-${month}:reading-${index}`
+  })
+  await page.addInitScript(({ key, data }) => {
+    if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify({ schemaVersion: 3, data }))
+  }, {
+    key: participationKey,
+    data: { earnedAwards: Object.fromEntries(ids.map(id => [id, { earnedOn: '2026-11-01' }])) },
+  })
+  await page.goto(readerUrl())
+  await page.evaluate(() => { document.documentElement.style.fontSize = '200%' })
+  await expect(announcement(page)).toHaveAttribute('data-award-count', '80')
+  await expect(announcement(page).getByRole('heading', { name: '80 New Scripture Cards Earned' })).toBeVisible()
+  expect(await page.locator('.r06-viewport').evaluate(element => element.scrollWidth)).toBe(375)
+
+  const viewDiscoveries = page.getByTestId('today-view-discoveries')
+  await page.getByTestId('today-dismiss-announcement').focus()
+  await page.keyboard.press('Shift+Tab')
+  await expect(viewDiscoveries).toBeFocused()
+  expect(await viewDiscoveries.evaluate(element => getComputedStyle(element).outlineStyle)).not.toBe('none')
+  await page.keyboard.press('Enter')
+
+  const gallery = page.getByTestId('view-discoveries-gallery')
+  await expect(gallery.locator('.notebook-card')).toHaveCount(80)
+  await page.evaluate(() => { document.documentElement.style.fontSize = '200%' })
+  expect(await page.locator('.r06-viewport').evaluate(element => element.scrollWidth)).toBe(375)
+  await expect.poll(async () => Object.values((await participation(page)).earnedAwards)
+    .filter(award => (award as { hubAnnouncementAcked?: boolean }).hubAnnouncementAcked).length).toBe(80)
+  await page.reload()
+  await expect(gallery.locator('.notebook-card')).toHaveCount(80)
+  const returnToToday = page.getByRole('button', { name: 'Return to Today' })
+  await returnToToday.focus()
+  await page.keyboard.press('Tab')
+  await page.keyboard.press('Shift+Tab')
+  await expect(returnToToday).toBeFocused()
+  expect(await returnToToday.evaluate(element => getComputedStyle(element).outlineStyle)).not.toBe('none')
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('heading', { name: 'Today', exact: true, level: 1 })).toBeFocused()
+  await expect(announcement(page)).toHaveCount(0)
+})
+
+test('G09 J6 an ineligible View Discoveries batch does not clear unrelated New Discoveries', async ({ page }) => {
+  await mockGateway(page)
+  await page.addInitScript(({ key, data }) => {
+    if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify({ schemaVersion: 3, data }))
+  }, {
+    key: participationKey,
+    data: {
+      earnedAwards: {
+        [currentThematicAwardId]: { earnedOn: serverContext.authorizedLocalDate, earnedCard: currentThematicEarnedCard },
+        [currentFullMonthAwardId]: { earnedOn: serverContext.authorizedLocalDate },
+      },
+    },
+  })
+  await page.goto(readerUrl())
+  await page.getByTestId('today-view-discoveries').click()
+  await expect(page.getByTestId('view-discoveries-gallery').locator('.notebook-card')).toHaveCount(2)
+  await expect.poll(async () => (await participation(page))?.notebookAcknowledgedAwardIds?.length).toBe(2)
+
+  // Make this batch ineligible (its awards are gone) while an unrelated award awaits New Discoveries.
+  await page.evaluate(({ key, removed, unrelated }) => {
+    const stored = JSON.parse(localStorage.getItem(key)!)
+    const kept = { [unrelated]: { ...stored.data.earnedAwards[removed[0]], awardId: unrelated, discoveryId: 'discovery:2026-10:october-reading', publicationYearMonth: '2026-10', kind: 'thematic' } }
+    delete kept[unrelated].earnedCard
+    delete kept[unrelated].cardDocumentId
+    stored.data.earnedAwards = kept
+    delete stored.data.notebookAcknowledgedAwardIds
+    localStorage.setItem(key, JSON.stringify(stored))
+  }, { key: participationKey, removed: [currentThematicAwardId, currentFullMonthAwardId], unrelated: awardId })
+  await page.reload()
+  await expect(page.getByTestId('view-discoveries-gallery').getByRole('status'))
+    .toContainText('These discoveries are no longer available here')
+  await page.waitForTimeout(300)
+  expect((await participation(page)).notebookAcknowledgedAwardIds).toBeUndefined()
+  expect(Object.keys((await participation(page)).earnedAwards)).toEqual([awardId])
+  await page.getByRole('button', { name: 'Browse Full Field Notebook' }).click()
+  await expect.poll(async () => (await participation(page))?.notebookAcknowledgedAwardIds).toEqual([awardId])
+})

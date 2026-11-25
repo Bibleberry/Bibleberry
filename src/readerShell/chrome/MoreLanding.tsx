@@ -14,6 +14,10 @@ interface MoreLandingProps {
   readonly announcementPreferencesStore?: AnnouncementPreferencesStore
 }
 
+const TODAY_PREFERENCE_DESCRIPTION =
+  'Show one combined announcement on Today after earning new Scripture Cards. '
+  + 'Turning this off hides announcements only; cards are still earned and saved.'
+
 /**
  * Coastal Osprey: the earned-Card announcement opt-out. It suppresses only the Today
  * notice. Earning, dates, New Discoveries and per-Card New keep working, and switching it
@@ -26,6 +30,7 @@ function AnnouncementPreference({ store }: { readonly store: AnnouncementPrefere
       enabled={preferences.data.earnedCardAnnouncementsEnabled}
       disabled={preferences.status !== 'ready'}
       onToggle={enabled => { void store.setAnnouncementsEnabled(enabled).catch(() => {}) }}
+      description={TODAY_PREFERENCE_DESCRIPTION}
     />
   )
 }

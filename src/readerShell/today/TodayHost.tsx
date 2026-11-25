@@ -45,7 +45,7 @@ export interface TodayHostProps {
   readonly onOpenMonth: (intent: OpenMonthIntent) => void
   readonly onOpenNews?: () => void
   /** Opens the focused gallery for exactly the award IDs one Today announcement presented. */
-  readonly onViewDiscoveries?: (awardIds: readonly CanonicalAwardId[]) => void
+  readonly onViewDiscoveries?: (awardIds: readonly CanonicalAwardId[]) => boolean
   readonly announcementPreferencesStore?: AnnouncementPreferencesStore
   readonly monthProvider?: MonthGatewayProvider
   readonly catalogProvider?: ReleasedCatalogProvider

@@ -36,6 +36,12 @@ export interface UseHubCardAnnouncementsOptions {
   readonly surface?: HubSurface
   /** Alternative declarative boolean for callers that already track `isHubActive`. */
   readonly isHubActive?: boolean
+  /**
+   * Which participation state may produce a batch. The legacy Hub keeps `'optimistic'`.
+   * The R06 Today notice uses `'committed'` so pending or failed award writes are never
+   * announced as saved; once they persist they become eligible like any other award.
+   */
+  readonly awardSource?: 'optimistic' | 'committed'
 }
 
 export interface UseHubCardAnnouncementsResult {
@@ -113,6 +119,7 @@ export function useHubCardAnnouncements(
     preferencesStore = defaultAnnouncementPreferencesStore,
     surface,
     isHubActive: isHubActiveProp,
+    awardSource = 'optimistic',
   } = options
 
   const controlledActive =
@@ -124,6 +131,9 @@ export function useHubCardAnnouncements(
 
   const participationSnapshot = useReaderParticipation(store)
   const preferencesSnapshot = useAnnouncementPreferences(preferencesStore)
+  const evaluatedData = awardSource === 'committed'
+    ? participationSnapshot.committedData
+    : participationSnapshot.data
 
   const [state, dispatch] = useReducer(
     hubAnnouncementReducer,
@@ -158,7 +168,7 @@ export function useHubCardAnnouncements(
       type: 'evaluate',
       input: {
         participationReady: participationSnapshot.status === 'ready',
-        participationData: participationSnapshot.data,
+        participationData: evaluatedData,
         preferencesReady: preferencesSnapshot.status === 'ready',
         announcementsEnabled: preferencesSnapshot.data.earnedCardAnnouncementsEnabled,
       },
@@ -170,7 +180,7 @@ export function useHubCardAnnouncements(
     state.presentedVisitId,
     state.suppressedVisitId,
     participationSnapshot.status,
-    participationSnapshot.data,
+    evaluatedData,
     preferencesSnapshot.status,
     preferencesSnapshot.data.earnedCardAnnouncementsEnabled,
   ])

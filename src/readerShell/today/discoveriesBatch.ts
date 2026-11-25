@@ -13,31 +13,51 @@ import type { CanonicalAwardId, ReaderParticipationData } from '../../participat
 export const VIEW_DISCOVERIES_SCREEN = 'viewDiscoveries'
 
 const SEPARATOR = ' '
-const MAX_BATCH_SIZE = 64
 
+/**
+ * Encodes the whole batch, in order. There is no size cap: a long opt-out can produce a
+ * large catch-up batch, and every referenced award must stay reachable. Returns `null`
+ * (and the caller must not acknowledge) when any ID is invalid or repeated, so a batch is
+ * never silently truncated.
+ */
 export function encodeDiscoveriesBatch(awardIds: readonly CanonicalAwardId[]): string | null {
-  const unique: CanonicalAwardId[] = []
+  if (awardIds.length === 0) return null
+  const seen = new Set<CanonicalAwardId>()
   for (const raw of awardIds) {
     const id = parseCanonicalMonthlyAwardId(raw)
-    if (!id || unique.includes(id)) continue
-    unique.push(id)
+    if (!id || seen.has(id)) return null
+    seen.add(id)
   }
-  if (unique.length === 0 || unique.length > MAX_BATCH_SIZE) return null
-  return unique.join(SEPARATOR)
+  return awardIds.join(SEPARATOR)
 }
 
 /** Returns the referenced canonical award IDs in announcement order, or `null` when malformed. */
 export function parseDiscoveriesBatch(raw: unknown): readonly CanonicalAwardId[] | null {
   if (typeof raw !== 'string' || raw.length === 0) return null
-  const parts = raw.split(SEPARATOR)
-  if (parts.length > MAX_BATCH_SIZE) return null
   const ids: CanonicalAwardId[] = []
-  for (const part of parts) {
+  const seen = new Set<CanonicalAwardId>()
+  for (const part of raw.split(SEPARATOR)) {
     const id = parseCanonicalMonthlyAwardId(part)
-    if (!id || ids.includes(id)) return null
+    if (!id || seen.has(id)) return null
+    seen.add(id)
     ids.push(id)
   }
   return Object.freeze(ids)
+}
+
+/**
+ * Opens the gallery for the exact batch, then acknowledges it. The acknowledgement runs
+ * only when the handoff succeeded, so a batch can never be acknowledged and disappear
+ * without its gallery opening.
+ */
+export function handOffDiscoveriesBatch(
+  awardIds: readonly CanonicalAwardId[],
+  openGallery: (awardIds: readonly CanonicalAwardId[]) => boolean,
+  acknowledge: () => void,
+): boolean {
+  if (awardIds.length === 0 || !openGallery(awardIds)) return false
+  acknowledge()
+  return true
 }
 
 /**
