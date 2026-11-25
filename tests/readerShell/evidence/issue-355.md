@@ -10,6 +10,8 @@ The committed before screenshot replays the baseline declarations in the synthet
 
 ## After
 
-`responsiveAccessibility.spec.ts` captures the 320px and 375px 200% text navigation, Today announcement, and discoveries gallery screenshots under `test-results/issue-355/`. CI uploads them as `silent-observatory-browser-evidence-<commit SHA>` for 30 days. It also captures the out-of-scope Collections page-title wrap at 320px to document that separate finding. The tests assert 13px → 26px shared button scaling, 16px → 32px navigation scaling, intact labels, 44px minimum navigation targets, no page-width overflow, keyboard operation, and the Today → View Discoveries → Return to Today path.
+`responsiveAccessibility.spec.ts` captures the navigation at normal and 200% text at 320px and 375px, plus the Today announcement and discoveries gallery at 200% text. CI uploads the screenshots from `test-results/issue-355/` as `silent-observatory-browser-evidence-<commit SHA>` for 30 days. The evidence also includes the Collections page-title wrap at 320px.
+
+The tests check one navigation row at normal text size, two rows at 200% text, and the desktop sidebar. At 200%, the reader retains at least three quarters of the 640px viewport and scrolls independently of the navigation. The tests also check 13px → 26px shared button scaling, 16px → 32px navigation scaling, intact labels, 44px minimum navigation targets, no horizontal overflow, keyboard operation, and the Today → View Discoveries → Return to Today path.
 
 These are Chromium browser checks with CSS root-text enlargement emulation. They are not physical-device or actual screen-reader checks.

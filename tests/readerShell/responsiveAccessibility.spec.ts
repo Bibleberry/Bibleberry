@@ -116,37 +116,56 @@ for (const width of [320, 375]) {
     await expect(primaryAction).toBeVisible()
     expect(await primaryAction.evaluate(element => getComputedStyle(element).fontSize)).toBe('13px')
 
-    const linesAtDefault = await tabs.evaluateAll(buttons => buttons.map(button => {
+    const readLayout = () => tabs.evaluateAll(buttons => buttons.map(button => {
       const range = document.createRange()
       range.selectNodeContents(button)
-      return range.getClientRects().length
+      const text = range.getBoundingClientRect()
+      const { top, right, bottom, left, width, height } = button.getBoundingClientRect()
+      return {
+        fontSize: getComputedStyle(button).fontSize,
+        textLines: range.getClientRects().length,
+        textFits: text.left >= left && text.right <= right && text.top >= top && text.bottom <= bottom,
+        top, right, bottom, left, width, height,
+      }
     }))
-    expect(linesAtDefault).toEqual([1, 1, 1, 1])
+
+    const defaultLayout = await readLayout()
+    expect(defaultLayout.map(button => button.fontSize)).toEqual(Array(4).fill('16px'))
+    expect(defaultLayout.map(button => button.textLines)).toEqual([1, 1, 1, 1])
+    expect(new Set(defaultLayout.map(button => button.top)).size).toBe(1)
+    expect(defaultLayout.every(button => button.textFits && button.width >= 44 && button.height >= 44)).toBe(true)
+    for (let index = 1; index < defaultLayout.length; index += 1) {
+      expect(defaultLayout[index].left).toBeGreaterThan(defaultLayout[index - 1].right)
+    }
+    await expect(nav).toHaveCSS('flex-wrap', 'wrap')
+    await page.screenshot({ path: `test-results/issue-355/after-navigation-${width}px-normal.png`, fullPage: true })
 
     await page.evaluate(() => { document.documentElement.style.fontSize = '200%' })
     expect(await primaryAction.evaluate(element => getComputedStyle(element).fontSize)).toBe('26px')
-    const largeTextLayout = await tabs.evaluateAll(buttons => buttons.map(button => {
-      const range = document.createRange()
-      range.selectNodeContents(button)
-      return {
-        label: button.textContent?.trim(),
-        fontSize: getComputedStyle(button).fontSize,
-        textLines: range.getClientRects().length,
-        touchHeight: button.getBoundingClientRect().height,
-        textFits: (() => {
-          const text = range.getBoundingClientRect()
-          const control = button.getBoundingClientRect()
-          return text.left >= control.left && text.right <= control.right
-        })(),
-      }
-    }))
-    expect(largeTextLayout.map(button => button.label)).toEqual(['Today', 'Library', 'Collections', 'More'])
-    expect(largeTextLayout.map(button => button.fontSize)).toEqual(['32px', '32px', '32px', '32px'])
+    const largeTextLayout = await readLayout()
+    expect(largeTextLayout.map(button => button.fontSize)).toEqual(Array(4).fill('32px'))
     expect(largeTextLayout.map(button => button.textLines)).toEqual([1, 1, 1, 1])
-    expect(largeTextLayout.every(button => button.touchHeight >= 44)).toBe(true)
-    expect(largeTextLayout.every(button => button.textFits)).toBe(true)
+    expect(largeTextLayout.every(button => button.textFits && button.width >= 44 && button.height >= 44)).toBe(true)
+    const [today, library, collections, more] = largeTextLayout
+    expect(today.top).toBe(library.top)
+    expect(collections.top).toBe(more.top)
+    expect(collections.top).toBeGreaterThan(library.bottom)
+    expect(library.left).toBeGreaterThan(today.right)
+    expect(more.left).toBeGreaterThan(collections.right)
+
+    const viewport = page.locator('.r06-viewport')
+    const readerBounds = (await viewport.boundingBox())!
+    const navBounds = (await nav.boundingBox())!
+    const viewportHeight = page.viewportSize()!.height
+    expect(readerBounds.height).toBeGreaterThanOrEqual(viewportHeight * 0.75)
+    expect(readerBounds.y + readerBounds.height).toBe(navBounds.y)
+    expect(navBounds.y + navBounds.height).toBe(viewportHeight)
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width)
+    expect(await viewport.evaluate(element => element.scrollWidth)).toBe(width)
     await page.screenshot({ path: `test-results/issue-355/after-navigation-${width}px-200-percent.png`, fullPage: true })
+    await viewport.evaluate(element => { element.scrollTop = 100 })
+    await expect.poll(() => viewport.evaluate(element => element.scrollTop)).toBe(100)
+    expect(await nav.boundingBox()).toEqual(navBounds)
 
     const labels = ['Today', 'Library', 'Collections', 'More']
     await tabs.nth(0).focus()
@@ -219,3 +238,27 @@ for (const width of [320, 375]) {
     await expect(notice).toHaveCount(0)
   })
 }
+
+test('R06 desktop navigation stays in a sidebar beside the reader', async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 640 })
+  await mockGateway(page)
+  await page.goto(url)
+
+  const nav = primaryNav(page)
+  await expect(nav).toHaveCSS('display', 'grid')
+  const tabs = nav.getByRole('button')
+  await expect(tabs).toHaveText(['Today', 'Library', 'Collections', 'More'])
+  const navBounds = (await nav.boundingBox())!
+  const readerBounds = (await page.locator('.r06-viewport').boundingBox())!
+  expect(navBounds.x + navBounds.width).toBe(readerBounds.x)
+  expect(navBounds.y).toBe(readerBounds.y)
+  expect(navBounds.height).toBe(readerBounds.height)
+  const positions = await tabs.evaluateAll(buttons => buttons.map(button => {
+    const { left, top, bottom } = button.getBoundingClientRect()
+    return { left, top, bottom }
+  }))
+  expect(new Set(positions.map(button => button.left)).size).toBe(1)
+  for (let index = 1; index < positions.length; index += 1) {
+    expect(positions[index].top).toBeGreaterThan(positions[index - 1].bottom)
+  }
+})

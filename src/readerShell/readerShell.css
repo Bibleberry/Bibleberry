@@ -255,8 +255,8 @@
 }
 
 .r06-primary-nav {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(max-content, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 0.25rem;
   padding: 0.375rem max(0.375rem, env(safe-area-inset-right)) max(0.375rem, env(safe-area-inset-bottom)) max(0.375rem, env(safe-area-inset-left));
   border-top: 1px solid var(--rule);
@@ -264,12 +264,14 @@
 }
 
 .r06-primary-nav button {
+  flex: 1 1 0;
   min-height: 44px;
-  min-width: 0;
+  max-width: 100%;
   padding: 0.25rem;
   border-radius: 0.25rem;
   line-height: 1.2;
-  overflow-wrap: normal;
+  /* Keep the intrinsic label width for row wrapping. */
+  overflow-wrap: break-word;
   word-break: normal;
 }
 
@@ -301,6 +303,7 @@
   }
 
   .r06-primary-nav {
+    display: grid;
     grid-row: 1;
     grid-column: 1;
     grid-template-columns: minmax(0, 1fr);
@@ -311,6 +314,7 @@
   }
 
   .r06-primary-nav button {
+    min-width: 0;
     padding-inline: 1rem;
     text-align: start;
   }
