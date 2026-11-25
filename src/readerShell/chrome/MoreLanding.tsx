@@ -1,13 +1,42 @@
 import { NewsReaderHost } from '../../components/news/NewsReaderHost.tsx'
+import { CardAnnouncementPreferenceControl } from '../../components/announcements/HubCardAnnouncementBoundary.tsx'
+import {
+  defaultAnnouncementPreferencesStore,
+  useAnnouncementPreferences,
+  type AnnouncementPreferencesStore,
+} from '../../components/announcements/announcementPreferencesStorage.ts'
 
 interface MoreLandingProps {
   readonly onOpenFeatured: (documentId: string) => void
   readonly onOpenNews: () => void
   readonly onOpenAbout: () => void
   readonly onReplayIntroduction: () => void
+  readonly announcementPreferencesStore?: AnnouncementPreferencesStore
 }
 
-export function MoreLanding({ onOpenFeatured, onOpenNews, onOpenAbout, onReplayIntroduction }: MoreLandingProps) {
+/**
+ * Coastal Osprey: the earned-Card announcement opt-out. It suppresses only the Today
+ * notice. Earning, dates, New Discoveries and per-Card New keep working, and switching it
+ * back on yields one combined catch-up on the next Today visit.
+ */
+function AnnouncementPreference({ store }: { readonly store: AnnouncementPreferencesStore }) {
+  const preferences = useAnnouncementPreferences(store)
+  return (
+    <CardAnnouncementPreferenceControl
+      enabled={preferences.data.earnedCardAnnouncementsEnabled}
+      disabled={preferences.status !== 'ready'}
+      onToggle={enabled => { void store.setAnnouncementsEnabled(enabled).catch(() => {}) }}
+    />
+  )
+}
+
+export function MoreLanding({
+  onOpenFeatured,
+  onOpenNews,
+  onOpenAbout,
+  onReplayIntroduction,
+  announcementPreferencesStore = defaultAnnouncementPreferencesStore,
+}: MoreLandingProps) {
   return (
     <div className="r06-landing r06-more">
       <h1>More</h1>
@@ -22,6 +51,9 @@ export function MoreLanding({ onOpenFeatured, onOpenNews, onOpenAbout, onReplayI
         <li>
           <strong>Appearance &amp; Settings</strong>
           <p>Unavailable in this reader.</p>
+        </li>
+        <li className="r06-more__preference">
+          <AnnouncementPreference store={announcementPreferencesStore} />
         </li>
         <li>
           <strong>Account &amp; Progress</strong>

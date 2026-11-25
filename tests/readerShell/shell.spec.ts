@@ -1805,3 +1805,245 @@ test('J4 G03 leaves corrupt Shelf data intact while Today remains readable', asy
   await expect(page.getByTestId('today-primary-cta')).toBeVisible()
   expect(await page.evaluate(key => localStorage.getItem(key), shelfKey)).toBe('{unreadable-shelf')
 })
+
+// Coastal Osprey (Issue #322): Today-only inline earned-Card announcements and View Discoveries.
+async function grantBothNovemberAwardsOnTodayFinish(page: Page) {
+  await page.route(`**/api/months/${currentMonthId}/progress`, route => {
+    const ids = route.request().postDataJSON().completedChallengeIds as string[]
+    // The synthetic gateway awards the full-month Card once today's teaching completes the month.
+    const padded = ids.includes(`cms:${todayDocumentId}`)
+      ? [...ids, ...Array.from({ length: 29 }, (_, index) => `cms:november-synthetic-${index + 1}`)]
+      : ids
+    return route.fulfill({ json: buildCurrentMonthProgressPayload(padded) })
+  })
+}
+
+const announcement = (page: Page) => page.getByTestId('today-card-announcement')
+
+test('G09 J6 records a two-award Finish silently off Today and announces one combined batch only on Today', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 700 })
+  await mockGateway(page)
+  await grantBothNovemberAwardsOnTodayFinish(page)
+  await page.goto(readerUrl())
+  await expect(page.getByTestId('today-primary-cta')).toBeVisible()
+  await expect(announcement(page)).toHaveCount(0)
+
+  await page.getByTestId('today-current-month-link').click()
+  await page.getByRole('button', { name: 'Continue', exact: true }).click()
+  await page.getByRole('button', { name: 'Begin the Month' }).click()
+  await page.getByRole('button', { name: new RegExp(todayChallenge.title) }).first().click()
+  await page.getByRole('button', { name: 'Next', exact: true }).click()
+  await page.getByRole('button', { name: 'Finish', exact: true }).click()
+  await expect.poll(async () => Object.keys((await participation(page))?.earnedAwards ?? {}).sort())
+    .toEqual([currentFullMonthAwardId, currentThematicAwardId].sort())
+  // Month, Library and Collections stay silent: no inline notice and no modal.
+  await expect(page.getByRole('heading', { name: currentMonthTitle, exact: true })).toBeVisible()
+  await expect(announcement(page)).toHaveCount(0)
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await selectTab(page, 'Library')
+  await expect(announcement(page)).toHaveCount(0)
+  await selectTab(page, 'Collections')
+  await expect(page.getByRole('button', { name: 'Field Notebook' })).toHaveAccessibleDescription('New Discoveries')
+  await expect(announcement(page)).toHaveCount(0)
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+
+  // The Today tab still holds the Month route; it stays silent until the Today landing returns.
+  await selectTab(page, 'Today')
+  await expect(page.getByRole('heading', { name: currentMonthTitle, exact: true })).toBeVisible()
+  await expect(announcement(page)).toHaveCount(0)
+  await selectTab(page, 'Today')
+  await expect(announcement(page)).toHaveCount(1)
+  await expect(announcement(page)).toHaveAttribute('data-award-count', '2')
+  await expect(announcement(page).getByRole('heading', { name: '2 New Scripture Cards Earned' })).toBeVisible()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  // Subordinate to today's teaching in reading order.
+  const order = await page.evaluate(() => {
+    const primary = document.querySelector('[data-testid="today-primary-teaching"]')!
+    const notice = document.querySelector('[data-testid="today-card-announcement"]')!
+    return primary.compareDocumentPosition(notice) & Node.DOCUMENT_POSITION_FOLLOWING
+  })
+  expect(order).toBeTruthy()
+
+  // Switching tabs before dismissing keeps the batch pending; it returns once on Today.
+  await selectTab(page, 'More')
+  await selectTab(page, 'Today')
+  await expect(announcement(page)).toHaveCount(1)
+  expect(Object.values((await participation(page)).earnedAwards).every((award: { hubAnnouncementAcked?: boolean; cardViewed?: boolean }) => !award.hubAnnouncementAcked)).toBe(true)
+
+  const dismiss = page.getByTestId('today-dismiss-announcement')
+  await dismiss.focus()
+  await page.keyboard.press('Enter')
+  await expect(announcement(page)).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'Today', exact: true, level: 1 })).toBeFocused()
+  await expect.poll(async () => Object.values((await participation(page)).earnedAwards).map((award: { hubAnnouncementAcked?: boolean; cardViewed?: boolean }) => award.hubAnnouncementAcked))
+    .toEqual([true, true])
+  const afterDismiss = await participation(page)
+  expect(afterDismiss.notebookAcknowledgedAwardIds).toBeUndefined()
+  expect(Object.values(afterDismiss.earnedAwards).every((award: { hubAnnouncementAcked?: boolean; cardViewed?: boolean }) => award.cardViewed === false)).toBe(true)
+
+  await page.reload()
+  await expect(page.getByTestId('today-primary-cta')).toBeVisible()
+  await expect(announcement(page)).toHaveCount(0)
+  await selectTab(page, 'Collections')
+  await expect(page.getByRole('button', { name: 'Field Notebook' })).toHaveAccessibleDescription('New Discoveries')
+  await expect(page.getByRole('button', { name: /Open Scripture Card: November Reading Card/ }).getByText('New', { exact: true })).toBeVisible()
+  await selectTab(page, 'Today')
+  await expect(announcement(page)).toHaveCount(0)
+  expect((await participation(page)).earnedAwards).toEqual(afterDismiss.earnedAwards)
+})
+
+test('G09 J6 View Discoveries shows only the announced batch, clears New Discoveries separately, and restores focus on Return', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 640 })
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await mockGateway(page)
+  await page.route(currentThematicCardImageUrl, route => route.fulfill({ status: 404 }))
+  const olderAwardId = awardId
+  await page.addInitScript(({ key, data }) => {
+    if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify({ schemaVersion: 3, data }))
+  }, {
+    key: participationKey,
+    data: {
+      earnedAwards: {
+        [currentThematicAwardId]: {
+          earnedOn: serverContext.authorizedLocalDate,
+          earnedCard: currentThematicEarnedCard,
+        },
+        [currentFullMonthAwardId]: { earnedOn: serverContext.authorizedLocalDate },
+        [olderAwardId]: { earnedOn: '2026-10-31', hubAnnouncementAcked: true },
+      },
+    },
+  })
+  await page.goto(readerUrl())
+  await expect(announcement(page)).toHaveAttribute('data-award-count', '2')
+  await page.getByTestId('today-view-discoveries').click()
+
+  const main = page.getByRole('main')
+  const gallery = page.getByTestId('view-discoveries-gallery')
+  await expect(gallery.getByRole('heading', { name: 'Your New Discoveries', level: 1 })).toBeVisible()
+  await expect(gallery.locator('.notebook-card')).toHaveCount(2)
+  await expect(gallery.locator('.notebook-card--unavailable')).toHaveCount(1)
+  await expect(gallery.getByText(/October/)).toHaveCount(0)
+  const thumbnail = gallery.getByRole('button', { name: /Open Scripture Card: November Reading Card/ })
+  await expect(thumbnail).toHaveAccessibleDescription('Illustration unavailable right now.')
+  await expect(thumbnail.getByText('New', { exact: true })).toBeVisible()
+  expect(await page.locator('.r06-viewport').evaluate(element => element.scrollWidth)).toBe(320)
+
+  await expect.poll(async () => [...((await participation(page))?.notebookAcknowledgedAwardIds ?? [])].sort())
+    .toEqual([olderAwardId, currentFullMonthAwardId, currentThematicAwardId].sort())
+  await expect.poll(async () => (await participation(page)).earnedAwards[currentThematicAwardId].hubAnnouncementAcked).toBe(true)
+  let stored = await participation(page)
+  expect(stored.earnedAwards[currentFullMonthAwardId]).toMatchObject({ hubAnnouncementAcked: true, cardViewed: false })
+  expect(stored.earnedAwards[currentThematicAwardId].cardViewed).toBe(false)
+
+  await thumbnail.focus()
+  await page.keyboard.press('Enter')
+  const dialog = page.getByRole('dialog', { name: currentThematicEarnedCard.title })
+  await expect(dialog.getByRole('status')).toContainText('Card illustration could not be loaded')
+  await expect(dialog).toContainText(currentThematicEarnedCard.accessibleTranscription)
+  await page.keyboard.press('Escape')
+  await expect(thumbnail).toBeFocused()
+  await expect(thumbnail.getByText('New', { exact: true })).toHaveCount(0)
+  await expect.poll(async () => (await participation(page)).earnedAwards[currentThematicAwardId].cardViewed).toBe(true)
+  expect((await participation(page)).earnedAwards[currentFullMonthAwardId].cardViewed).toBe(false)
+
+  // Reload keeps the same batch; Return to Today focuses Today with no repeated notice.
+  await page.reload()
+  await expect(gallery.locator('.notebook-card')).toHaveCount(2)
+  await main.getByRole('button', { name: 'Return to Today' }).click()
+  const todayHeading = page.getByRole('heading', { name: 'Today', exact: true, level: 1 })
+  await expect(todayHeading).toBeFocused()
+  await expect(announcement(page)).toHaveCount(0)
+
+  await page.goForward()
+  await expect(gallery).toBeVisible()
+  await main.getByRole('button', { name: 'Browse Full Field Notebook' }).click()
+  await expect(primaryNav(page).getByRole('button', { name: 'Collections', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(main.getByRole('button', { name: 'Back to Collections' })).toBeVisible()
+  await page.goBack()
+  await expect(gallery).toBeVisible()
+  await page.goBack()
+  await expect(todayHeading).toBeVisible()
+  await expect(announcement(page)).toHaveCount(0)
+  stored = await participation(page)
+  expect(Object.keys(stored.earnedAwards).sort()).toEqual([olderAwardId, currentFullMonthAwardId, currentThematicAwardId].sort())
+})
+
+test('G09 J6 opt-out suppresses Today notices without changing awards and re-enabling yields one catch-up', async ({ page }) => {
+  await mockGateway(page)
+  await page.goto(readerUrl() + '#/more')
+  const toggle = page.getByRole('switch', { name: 'Earned Scripture Card announcements' })
+  await expect(toggle).toHaveAttribute('aria-checked', 'true')
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-checked', 'false')
+
+  await selectTab(page, 'Today')
+  await page.getByTestId('today-primary-cta').click()
+  await page.getByRole('button', { name: 'Next', exact: true }).click()
+  await page.getByRole('button', { name: 'Finish', exact: true }).click()
+  await expect.poll(async () => (await participation(page))?.earnedAwards?.[currentThematicAwardId]).toMatchObject({
+    hubAnnouncementAcked: false,
+    cardViewed: false,
+  })
+  await expect(page.getByTestId('today-primary-status')).toHaveText('Completed')
+  await expect(announcement(page)).toHaveCount(0)
+  await page.reload()
+  await expect(page.getByTestId('today-primary-status')).toHaveText('Completed')
+  await expect(announcement(page)).toHaveCount(0)
+  await selectTab(page, 'Collections')
+  await expect(page.getByRole('button', { name: 'Field Notebook' })).toHaveAccessibleDescription('New Discoveries')
+
+  await selectTab(page, 'More')
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-checked', 'true')
+  await selectTab(page, 'Today')
+  await expect(announcement(page)).toHaveCount(1)
+  await expect(announcement(page)).toHaveAttribute('data-award-count', '1')
+  await expect(announcement(page).getByRole('heading', { name: 'New Scripture Card Earned' })).toBeVisible()
+  await page.getByTestId('today-dismiss-announcement').click()
+  await expect(announcement(page)).toHaveCount(0)
+
+  // Read Again issues no duplicate award and no repeated announcement.
+  await page.getByTestId('today-primary-cta').click()
+  await page.getByRole('button', { name: 'Next', exact: true }).click()
+  await page.getByRole('button', { name: 'Finish', exact: true }).click()
+  await expect(page.getByTestId('today-primary-status')).toHaveText('Completed')
+  await selectTab(page, 'More')
+  await selectTab(page, 'Today')
+  await expect(page.getByTestId('today-primary-status')).toHaveText('Completed')
+  await expect(announcement(page)).toHaveCount(0)
+  const stored = await participation(page)
+  expect(Object.keys(stored.earnedAwards)).toEqual([currentThematicAwardId])
+  expect(stored.earnedAwards[currentThematicAwardId]).toMatchObject({ hubAnnouncementAcked: true, cardViewed: false })
+})
+
+test('G09 J6 keeps a Today batch pending when its acknowledgement cannot be saved', async ({ page }) => {
+  await mockGateway(page)
+  await page.addInitScript(({ key, data }) => {
+    if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify({ schemaVersion: 3, data }))
+  }, {
+    key: participationKey,
+    data: { earnedAwards: { [currentThematicAwardId]: { earnedOn: serverContext.authorizedLocalDate, earnedCard: currentThematicEarnedCard } } },
+  })
+  await page.goto(readerUrl())
+  await expect(announcement(page)).toHaveCount(1)
+  await page.evaluate(key => {
+    const original = Storage.prototype.setItem
+    Storage.prototype.setItem = function (name: string, value: string) {
+      if (name === key) throw new Error('quota')
+      return original.call(this, name, value)
+    }
+  }, participationKey)
+  await page.getByTestId('today-dismiss-announcement').click()
+  const alert = announcement(page).getByRole('alert')
+  await expect(alert).toContainText('Could not save announcement acknowledgment')
+  await alert.getByRole('button', { name: 'Close for Now' }).click()
+  await expect(announcement(page)).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'Today', exact: true, level: 1 })).toBeFocused()
+  expect((await participation(page)).earnedAwards[currentThematicAwardId].hubAnnouncementAcked).not.toBe(true)
+
+  await page.reload()
+  await expect(announcement(page)).toHaveCount(1)
+  await page.getByTestId('today-dismiss-announcement').click()
+  await expect(announcement(page)).toHaveCount(0)
+  await expect.poll(async () => (await participation(page)).earnedAwards[currentThematicAwardId].hubAnnouncementAcked).toBe(true)
+})

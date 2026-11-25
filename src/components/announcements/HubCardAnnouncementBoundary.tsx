@@ -84,7 +84,7 @@ export function CardAnnouncementPreferenceControl({
       <div>
         <h2>Earned Scripture Card announcements</h2>
         <p>
-          Show one combined announcement when returning to the Hub after earning new Scripture
+          Show one combined announcement when returning to Today after earning new Scripture
           Cards. Turning this off hides announcements only; cards are still earned and saved.
         </p>
       </div>

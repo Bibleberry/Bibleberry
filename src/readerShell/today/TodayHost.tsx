@@ -21,7 +21,8 @@ import { formatYearMonthHeading } from '../../components/month/monthScreenModel.
 import { deriveHubContinueSuggestion } from '../../hubContinue/engine.ts'
 import { defaultGuestParticipationStore } from '../../participation/defaultGuestStore.ts'
 import type { ReaderParticipationStore } from '../../participation/store.ts'
-import type { PublicationYearMonth } from '../../participation/types.ts'
+import type { CanonicalAwardId, PublicationYearMonth } from '../../participation/types.ts'
+import type { AnnouncementPreferencesStore } from '../../components/announcements/announcementPreferencesStorage.ts'
 import { useReaderParticipation } from '../../participation/useReaderParticipation.ts'
 import { defaultGuestShelfStore } from '../../shelfPersistence/defaultGuestShelfStore.ts'
 import type { GuestShelfStore } from '../../shelfPersistence/store.ts'
@@ -34,6 +35,7 @@ import {
   type TodayExploreReason,
   type TodayMonthSource,
 } from './primaryActionModel.ts'
+import { TodayCardAnnouncement } from './TodayCardAnnouncement.tsx'
 import { loadAuthorizedTodayMonth } from './todayMonthLoader.ts'
 import type { TodayRolloverContext } from './todayShelfRollover.ts'
 import { useTodayShelfRollover } from './useTodayShelfRollover.ts'
@@ -42,6 +44,9 @@ export interface TodayHostProps {
   readonly onOpenChallenge: (intent: OpenChallengeIntent) => void
   readonly onOpenMonth: (intent: OpenMonthIntent) => void
   readonly onOpenNews?: () => void
+  /** Opens the focused gallery for exactly the award IDs one Today announcement presented. */
+  readonly onViewDiscoveries?: (awardIds: readonly CanonicalAwardId[]) => void
+  readonly announcementPreferencesStore?: AnnouncementPreferencesStore
   readonly monthProvider?: MonthGatewayProvider
   readonly catalogProvider?: ReleasedCatalogProvider
   readonly participationStore?: ReaderParticipationStore
@@ -111,6 +116,8 @@ export function TodayHost({
   onOpenChallenge,
   onOpenMonth,
   onOpenNews,
+  onViewDiscoveries,
+  announcementPreferencesStore,
   monthProvider = defaultGatewayMonthProvider,
   catalogProvider = defaultGatewayCatalogProvider,
   participationStore = defaultGuestParticipationStore,
@@ -121,6 +128,7 @@ export function TodayHost({
 }: TodayHostProps) {
   const participationSnapshot = useReaderParticipation(participationStore)
   const shelfSnapshot = useGuestShelfStore(shelfStore)
+  const todayHeadingRef = useRef<HTMLHeadingElement>(null)
 
   const effectiveTimeZone = useMemo(
     () => resolveReaderTimeZone(timeZone ?? detectReaderTimeZone()),
@@ -286,7 +294,7 @@ export function TodayHost({
             {context.authorizedLocalDate}
           </p>
         ) : null}
-        <h1>Today</h1>
+        <h1 ref={todayHeadingRef} tabIndex={-1}>Today</h1>
       </header>
 
       <section
@@ -413,6 +421,16 @@ export function TodayHost({
           </div>
         )}
       </section>
+
+      {/* Coastal Osprey: subordinate to today's teaching and shown only on Today. */}
+      <div className="r06-today__announcement-slot">
+        <TodayCardAnnouncement
+          participationStore={participationStore}
+          preferencesStore={announcementPreferencesStore}
+          onViewDiscoveries={onViewDiscoveries}
+          returnFocusRef={todayHeadingRef}
+        />
+      </div>
 
       {secondary && authorizedHubSuggestion && (
         <div className="r06-today__continue" data-testid="today-continue-study">
