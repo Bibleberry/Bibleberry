@@ -4,6 +4,7 @@ import type { PublicationYearMonth } from '../../participation/types.ts'
 import { ShelfCard } from './ShelfCard.tsx'
 import type {
   ShelfCandidateMonthViewModel,
+  ShelfPresentation,
   ShelfViewModel,
 } from './shelfModel.ts'
 
@@ -23,6 +24,7 @@ export interface ShelfViewProps {
   readonly onRequestLibraryPicker?: () => void
   readonly onExit?: () => void
   readonly exitLabel?: string
+  readonly presentation?: ShelfPresentation
 }
 
 /**
@@ -51,6 +53,7 @@ export function ShelfView({
   onRequestLibraryPicker,
   onExit,
   exitLabel = 'Return',
+  presentation = 'legacy',
 }: ShelfViewProps) {
   const {
     entries,
@@ -104,12 +107,12 @@ export function ShelfView({
         <section
           className="shelf-focus-banner"
           role="region"
-          aria-label="Active study focus outside Shelf"
+          aria-label="Active Focus outside Shelf"
         >
           <div className="shelf-focus-banner__content">
             <Compass size={18} aria-hidden="true" />
             <p className="shelf-focus-banner__text">
-              <strong>Active Study Focus:</strong> {activeFocusHeading} (studying in Library, not on
+              <strong>Active Focus:</strong> {activeFocusHeading} (studying in Library, not on
               Shelf)
             </p>
           </div>
@@ -118,7 +121,7 @@ export function ShelfView({
             className="shelf-btn shelf-btn--secondary"
             onClick={onClearFocus}
           >
-            Clear Focus
+            Clear Active Focus
           </button>
         </section>
       )}
@@ -179,6 +182,7 @@ export function ShelfView({
                   onPutAway={onPutAway}
                   onSetFocus={onSetFocus}
                   onClearFocus={onClearFocus}
+                  presentation={presentation}
                 />
               </li>
             ))}

@@ -266,6 +266,25 @@
   color: var(--muted);
 }
 
+.shelf-card__progress {
+  display: grid;
+  gap: 6px;
+  color: var(--ink);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.shelf-card__progress progress {
+  width: 100%;
+  height: 8px;
+  accent-color: var(--accent);
+}
+
+.shelf-card__progress-status {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
 .shelf-badge--focus {
   background: var(--accent);
   color: var(--on-accent);

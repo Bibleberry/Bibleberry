@@ -262,6 +262,7 @@ function LibraryShelfHarnessApp() {
   return (
     <>
       <LibraryShelfHost
+        presentation="r06"
         referenceCurrentYearMonth={scenario === 'implicit-calendar' ? undefined : REFERENCE_CURRENT_MONTH}
         shelfState={persistedShelfState}
         onShelfStateChange={handleShelfStateChange}

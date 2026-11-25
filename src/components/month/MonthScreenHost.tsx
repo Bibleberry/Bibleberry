@@ -610,6 +610,7 @@ function MonthScreen({
         title={monthState.month.title}
         referenceMonth={referenceMonth}
         authorizedLocalDate={monthState.authorizedLocalDate}
+        presentation={inReaderShell ? 'r06' : 'legacy'}
       />
     : undefined
 
