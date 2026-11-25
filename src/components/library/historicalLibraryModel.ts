@@ -126,19 +126,15 @@ export function formatPublicationMonthHeading(
 export function deduplicateAndSortMonths(
   existing: readonly LibraryMonthSummary[],
   incoming: readonly LibraryMonthSummary[],
+  historicalBefore?: string,
 ): readonly LibraryMonthSummary[] {
   const seenYearMonths = new Set<string>()
   const merged: LibraryMonthSummary[] = []
 
-  for (const item of existing) {
-    if (isValidYearMonth(item.yearMonth) && !seenYearMonths.has(item.yearMonth)) {
-      seenYearMonths.add(item.yearMonth)
-      merged.push(item)
-    }
-  }
-
-  for (const item of incoming) {
-    if (isValidYearMonth(item.yearMonth) && !seenYearMonths.has(item.yearMonth)) {
+  for (const item of [...existing, ...incoming]) {
+    if (isValidYearMonth(item.yearMonth) &&
+        (!historicalBefore || item.yearMonth < historicalBefore) &&
+        !seenYearMonths.has(item.yearMonth)) {
       seenYearMonths.add(item.yearMonth)
       merged.push(item)
     }
@@ -148,6 +144,17 @@ export function deduplicateAndSortMonths(
   merged.sort((a, b) => (a.yearMonth > b.yearMonth ? -1 : a.yearMonth < b.yearMonth ? 1 : 0))
 
   return Object.freeze(merged)
+}
+
+/** Input is the reducer's deduplicated descending list. Map preserves its year order. */
+export function groupMonthsByYear(items: readonly LibraryMonthSummary[]) {
+  const years = new Map<number, LibraryMonthSummary[]>()
+  for (const item of items) {
+    const group = years.get(item.year)
+    if (group) group.push(item)
+    else years.set(item.year, [item])
+  }
+  return years
 }
 
 /**
@@ -170,7 +177,7 @@ export function historicalLibraryReducer(
       }
 
     case 'INITIAL_LOAD_SUCCESS': {
-      const mergedItems = deduplicateAndSortMonths([], action.items)
+      const mergedItems = deduplicateAndSortMonths([], action.items, action.serverContext.authorizedLocalDate.slice(0, 7))
       const hasMore = Boolean(action.page.hasMore)
       const nextCursor = hasMore ? action.page.nextCursor : null
 
@@ -234,7 +241,7 @@ export function historicalLibraryReducer(
     }
 
     case 'LOAD_MORE_SUCCESS': {
-      const mergedItems = deduplicateAndSortMonths(state.items, action.items)
+      const mergedItems = deduplicateAndSortMonths(state.items, action.items, action.serverContext.authorizedLocalDate.slice(0, 7))
       const hasMore = Boolean(action.page.hasMore)
       const nextCursor = hasMore ? action.page.nextCursor : null
       const isSparse = action.items.length === 0 && hasMore

@@ -8,6 +8,7 @@ import type {
 import {
   deduplicateAndSortMonths,
   formatPublicationMonthHeading,
+  groupMonthsByYear,
   historicalLibraryReducer,
   initialHistoricalLibraryState,
   isValidYearMonth,
@@ -281,4 +282,12 @@ test('historicalLibraryReducer ignores START_LOAD_MORE if hasMore is false or al
 
   const result2 = historicalLibraryReducer(loadingState, { type: 'START_LOAD_MORE' })
   assert.equal(result2, loadingState)
+})
+
+test('groups a continued December window under the preceding year', () => {
+  const december = { ...mockOct2026, yearMonth: '2025-12', year: 2025, month: 12 }
+  const months = deduplicateAndSortMonths([mockOct2026], [december, mockSep2026])
+  assert.deepEqual([...groupMonthsByYear(months)], [
+    [2026, [mockOct2026, mockSep2026]], [2025, [december]],
+  ])
 })

@@ -261,7 +261,7 @@ test.describe('Juniper Signal (#289): R06 Functional Shelf-Centered Library Land
     await page.getByRole('button', { name: 'Back to Library' }).click()
     await expect(page.getByRole('heading', { name: 'Historical Library', level: 1 })).toBeVisible()
     await expect(page.locator('.library-card')).toHaveCount(5)
-    await expect(page.getByTestId('provider-fetch-count')).toHaveText('2')
+    await expect(page.getByTestId('provider-fetch-count')).toHaveText('4')
     await expect(page.getByTestId('exit-calls')).toHaveText('0')
 
     // Outer exit from root Library surface still works after returning

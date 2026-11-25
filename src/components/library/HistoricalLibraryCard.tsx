@@ -1,5 +1,4 @@
-import { useState, useCallback } from 'react'
-import { BookmarkCheck, Calendar, ChevronRight, Plus, Shield } from 'lucide-react'
+import { BookmarkCheck, Plus, Shield } from 'lucide-react'
 import type { LibraryMonthSummary } from '../../cms/reader/libraryMonthIndexProvider.ts'
 import {
   formatPublicationMonthHeading,
@@ -14,14 +13,6 @@ export interface HistoricalLibraryCardProps {
   readonly onSelectForShelf?: (yearMonth: string) => void
 }
 
-/**
- * Accessible presentation card for an individual historical publication month.
- *
- * Requirements:
- * - Displays month/theme, safe optional cover/subtitle, accessible open-month action.
- * - Strictly historical study focus: no unearned cards, streaks, or gamification widgets.
- * - Minimum 44px touch targets and full keyboard focus visibility.
- */
 export function HistoricalLibraryCard({
   item,
   onOpenMonth,
@@ -29,23 +20,7 @@ export function HistoricalLibraryCard({
   isSelectedContext = false,
   onSelectForShelf,
 }: HistoricalLibraryCardProps) {
-  const [imageFailed, setImageFailed] = useState(false)
-
   const monthHeading = formatPublicationMonthHeading(item.yearMonth, item.year, item.month)
-  const accessibleActionLabel = `Open ${monthHeading}: ${item.title}`
-
-  const handleImageError = useCallback(() => {
-    setImageFailed(true)
-  }, [])
-
-  const handleOpen = useCallback(() => {
-    onOpenMonth(item.yearMonth)
-  }, [item.yearMonth, onOpenMonth])
-
-  const handleSelectForShelf = useCallback(() => {
-    onSelectForShelf?.(item.yearMonth)
-  }, [item.yearMonth, onSelectForShelf])
-
   const isOnShelf = Boolean(shelfStatus?.isOnShelf)
   const isProtected = Boolean(shelfStatus?.isProtected)
 
@@ -58,24 +33,20 @@ export function HistoricalLibraryCard({
       data-on-shelf={isOnShelf ? 'true' : undefined}
       data-shelf-protected={isOnShelf ? String(isProtected) : undefined}
     >
-      <div className="library-card__inner">
-        {item.coverImage && !imageFailed ? (
-          <div className="library-card__cover-wrapper">
-            <img
-              src={item.coverImage.url}
-              alt={item.coverImage.alt}
-              className="library-card__cover-image"
-              loading="lazy"
-              onError={handleImageError}
-            />
-          </div>
-        ) : (
-          <div className="library-card__placeholder-cover" aria-hidden="true">
-            <Calendar size={28} className="library-card__placeholder-icon" />
-          </div>
-        )}
-
-        <div className="library-card__content">
+      <div className="library-card__content">
+        <h3 className="library-card__heading" aria-labelledby={`library-card-title-${item.yearMonth}`}>
+          <button
+            type="button"
+            className="library-card__action-btn"
+            data-library-focus={`month:${item.yearMonth}:open`}
+            onClick={() => onOpenMonth(item.yearMonth)}
+            aria-label={`Open ${monthHeading}: ${item.title}`}
+          >
+            <span className="library-card__month-eyebrow">{monthHeading}</span>
+            <span id={`library-card-title-${item.yearMonth}`} className="library-card__title">{item.title}</span>
+          </button>
+        </h3>
+        <div className="library-card__actions">
           {isOnShelf && (
             <div className="library-card__badges">
               <span
@@ -93,64 +64,43 @@ export function HistoricalLibraryCard({
             </div>
           )}
 
-          <header className="library-card__header">
-            <span className="library-card__month-eyebrow">{monthHeading}</span>
-            <h2 id={`library-card-title-${item.yearMonth}`} className="library-card__title">
-              {item.title}
-            </h2>
-          </header>
-
-          {item.subtitle && (
-            <p className="library-card__subtitle">{item.subtitle}</p>
-          )}
-
-          <div className="library-card__actions">
+          {onSelectForShelf && !isOnShelf && (
             <button
               type="button"
-              className="library-card__action-btn"
-              onClick={handleOpen}
-              aria-label={accessibleActionLabel}
+              className="library-card__shelf-btn"
+              data-library-focus={`month:${item.yearMonth}:add`}
+              onClick={() => onSelectForShelf(item.yearMonth)}
+              aria-label={`Add ${monthHeading} to Shelf`}
             >
-              <span>Open Month</span>
-              <ChevronRight size={16} aria-hidden="true" />
+              <Plus size={15} aria-hidden="true" />
+              <span>Add to Shelf</span>
             </button>
+          )}
 
-            {onSelectForShelf && !isOnShelf && (
-              <button
-                type="button"
-                className="library-card__shelf-btn"
-                onClick={handleSelectForShelf}
-                aria-label={`Add ${monthHeading} to Shelf`}
-              >
-                <Plus size={15} aria-hidden="true" />
-                <span>Add to Shelf</span>
-              </button>
-            )}
+          {onSelectForShelf && isOnShelf && !isProtected && (
+            <button
+              type="button"
+              className="library-card__shelf-btn"
+              data-library-focus={`month:${item.yearMonth}:keep`}
+              onClick={() => onSelectForShelf(item.yearMonth)}
+              aria-label={`Keep ${monthHeading} on Shelf (protect from rollover)`}
+            >
+              <Shield size={15} aria-hidden="true" />
+              <span>Keep on Shelf</span>
+            </button>
+          )}
 
-            {onSelectForShelf && isOnShelf && !isProtected && (
-              <button
-                type="button"
-                className="library-card__shelf-btn"
-                onClick={handleSelectForShelf}
-                aria-label={`Keep ${monthHeading} on Shelf (protect from rollover)`}
-              >
-                <Shield size={15} aria-hidden="true" />
-                <span>Keep on Shelf</span>
-              </button>
-            )}
-
-            {onSelectForShelf && isOnShelf && isProtected && (
-              <button
-                type="button"
-                className="library-card__shelf-btn library-card__shelf-btn--on-shelf"
-                disabled
-                aria-label={`${monthHeading} is already protected on Shelf`}
-              >
-                <Shield size={15} aria-hidden="true" />
-                <span>On Shelf</span>
-              </button>
-            )}
-          </div>
+          {onSelectForShelf && isOnShelf && isProtected && (
+            <button
+              type="button"
+              className="library-card__shelf-btn library-card__shelf-btn--on-shelf"
+              disabled
+              aria-label={`${monthHeading} is already protected on Shelf`}
+            >
+              <Shield size={15} aria-hidden="true" />
+              <span>On Shelf</span>
+            </button>
+          )}
         </div>
       </div>
     </article>

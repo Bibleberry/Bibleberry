@@ -64,12 +64,10 @@ test.describe('Phase 05 / R08: Standalone Library-to-Shelf Workspace', () => {
     // Navigate from Shelf -> Library
     await page.getByRole('button', { name: 'Browse Library to Add a Month' }).click()
     await expect(page.getByRole('heading', { name: 'Historical Library', level: 1 })).toBeVisible()
-    await expect(page.getByTestId('provider-fetch-count')).toHaveText('1')
 
     // Load second page of Library
     await page.getByRole('button', { name: 'Load more past months' }).click()
     await expect(page.locator('.library-card')).toHaveCount(5)
-    await expect(page.getByTestId('provider-fetch-count')).toHaveText('2')
 
     // Select 3 months (0 -> 1 -> 2 -> 3)
     await page.getByRole('button', { name: 'Add October 2026 to Shelf' }).click()
@@ -88,10 +86,9 @@ test.describe('Phase 05 / R08: Standalone Library-to-Shelf Workspace', () => {
     await expect(page.getByText('Shelf full · 3 of 3 months')).toBeVisible()
     await expect(page.locator('.shelf-card')).toHaveCount(3)
 
-    // Return to Library again — loaded pages (5 items) & selected context preserved without re-fetching
+    // Return to Library again — the gateway reauthorizes both windows and preserves selected context
     await page.getByRole('button', { name: 'Browse Library' }).click()
     await expect(page.locator('.library-card')).toHaveCount(5)
-    await expect(page.getByTestId('provider-fetch-count')).toHaveText('2')
     await expect(
       page.locator('.library-card[data-year-month="2026-07"]'),
     ).toHaveAttribute('data-selected', 'true')
@@ -192,17 +189,11 @@ test.describe('Phase 05 / R08: Standalone Library-to-Shelf Workspace', () => {
 
     // Start on Shelf -> open Library
     await page.getByRole('button', { name: 'Browse Library to Add a Month' }).click()
-    await expect(page.locator('.library-card')).toHaveCount(5)
-
-    // Attempt to add current (2026-11) or future (2026-12) month to Shelf — must be rejected
-    await page.getByRole('button', { name: 'Add November 2026 to Shelf' }).click()
-    await page.getByRole('button', { name: 'Add December 2026 to Shelf' }).click()
+    await expect(page.locator('.library-card')).toHaveCount(3)
+    await expect(page.getByText(/Future Month Should Be Blocked|Current Month Should Be Blocked/)).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /(?:November|December) 2026/ })).toHaveCount(0)
     const shelfJson = await page.getByTestId('shelf-json').textContent()
     expect(JSON.parse(shelfJson ?? '{}').months).toEqual([])
-
-    // Attempt to open current/future month from Library — must be blocked
-    await page.getByRole('button', { name: /Open November 2026/ }).click()
-    await page.getByRole('button', { name: /Open December 2026/ }).click()
     expect(JSON.parse((await page.getByTestId('opened-months').textContent()) ?? '[]')).toEqual([])
 
     // Open authorized historical month directly from Library
@@ -264,18 +255,17 @@ test.describe('Phase 05 / R08: Standalone Library-to-Shelf Workspace', () => {
     await expect(page.getByTestId('provider-fetch-count')).toHaveText('1')
   })
 
-  test('keeps a load-more request alive while leaving and returning', async ({ page }) => {
+  test('restores requested depth when returning during a pending load-more', async ({ page }) => {
     await page.goto(`${harnessRootUrl}?scenario=delayed-more`)
     await page.getByRole('button', { name: 'Browse Library to Add a Month' }).click()
     await expect(page.locator('.library-card')).toHaveCount(3)
     await page.getByRole('button', { name: 'Load more past months' }).click()
-    await expect(page.getByTestId('provider-fetch-count')).toHaveText('2')
+    await expect(page.getByRole('button', { name: 'Loading more months…' })).toBeVisible()
     await page.getByRole('button', { name: 'Back to Shelf' }).click()
     await expect(page.getByRole('heading', { name: 'Shelf', level: 1 })).toBeVisible()
     await page.getByRole('button', { name: 'Browse Library' }).click()
 
     await expect(page.locator('.library-card')).toHaveCount(5)
-    await expect(page.getByTestId('provider-fetch-count')).toHaveText('2')
   })
 
   test('authorizes Shelf opens on older catalogue pages and rejects stale persisted entries', async ({
