@@ -1,3 +1,4 @@
+import { selectPendingHubAnnouncementAwards } from '../../participation/awards.ts'
 import type { PersistenceHealth } from '../../participation/persistence.ts'
 import type { ReaderParticipationStoreStatus } from '../../participation/store.ts'
 import type { ReaderParticipationData } from '../../participation/types.ts'
@@ -22,16 +23,42 @@ export type GuestInviteEligibilityReason =
 export interface GuestInviteEligibilityInput {
   readonly participationStatus: ReaderParticipationStoreStatus
   readonly participationHealth: PersistenceHealth
-  readonly participationData: ReaderParticipationData | null
+  /** Must be durably committed participation data (never optimistic `data`). */
+  readonly committedParticipationData: ReaderParticipationData | null
   readonly profileStatus: 'loading' | 'ready' | 'error'
   readonly profileHealth: ReaderProfileHealth | null
   readonly profile: ReaderProfile | null
   /**
-   * True when a Hub earned-Card announcement is open or still hydrating.
+   * True when a Hub earned-Card announcement is open, hydrating, or has unacknowledged
+   * committed awards while announcements are enabled.
    * Per §3.4 and Coastal Osprey (#322), the guest invitation never renders
    * simultaneously with or ahead of a pending Card announcement.
    */
   readonly hasPendingCardAnnouncement: boolean
+}
+
+export interface PendingAnnouncementGateInput {
+  readonly participationReady: boolean
+  readonly preferencesReady: boolean
+  readonly isOpen: boolean
+  readonly announcementsEnabled: boolean
+  readonly committedParticipationData: ReaderParticipationData | null
+}
+
+/**
+ * Synchronously checks whether a Hub earned-Card announcement is open, still hydrating,
+ * or has unacknowledged committed awards while announcements are enabled.
+ * Preserves opt-out semantics: when `announcementsEnabled` is false and no batch is open,
+ * this returns false so intentionally disabled announcements do not suppress the invite.
+ */
+export function hasPendingEnabledCardAnnouncement(
+  input: PendingAnnouncementGateInput,
+): boolean {
+  if (!input.participationReady || !input.preferencesReady) return true
+  if (input.isOpen) return true
+  if (!input.announcementsEnabled) return false
+  if (!input.committedParticipationData) return true
+  return selectPendingHubAnnouncementAwards(input.committedParticipationData).length > 0
 }
 
 export interface GuestInviteEligibilityResult {
@@ -70,8 +97,8 @@ export function deriveGuestInviteEligibility(
 ): GuestInviteEligibilityResult {
   if (
     input.participationStatus !== 'ready' ||
-    input.participationHealth !== 'ok' ||
-    !input.participationData
+    (input.participationHealth !== 'ok' && input.participationHealth !== 'writeFailed') ||
+    !input.committedParticipationData
   ) {
     return {
       eligible: false,
@@ -80,7 +107,7 @@ export function deriveGuestInviteEligibility(
     }
   }
 
-  const distinctCompletedCount = countDistinctCompletedChallenges(input.participationData)
+  const distinctCompletedCount = countDistinctCompletedChallenges(input.committedParticipationData)
   if (distinctCompletedCount < GUEST_INVITE_FINISH_THRESHOLD) {
     return {
       eligible: false,

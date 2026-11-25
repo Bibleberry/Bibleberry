@@ -1,4 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  hasPendingMonthAwardReconciliation,
+  subscribeToMonthAwardReconciliation,
+} from '../../cms/reader/monthAwardReconciliation.ts'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { ArrowRight, CheckCircle2, RotateCcw } from 'lucide-react'
 import {
   createHubContinueAppInput,
@@ -31,7 +35,10 @@ import { useReaderProfile } from '../../readerProfile/useReaderProfile.ts'
 import { defaultGuestShelfStore } from '../../shelfPersistence/defaultGuestShelfStore.ts'
 import type { GuestShelfStore } from '../../shelfPersistence/store.ts'
 import { useGuestShelfStore } from '../../shelfPersistence/useGuestShelfStore.ts'
-import { deriveGuestInviteEligibility } from './guestInviteModel.ts'
+import {
+  deriveGuestInviteEligibility,
+  hasPendingEnabledCardAnnouncement,
+} from './guestInviteModel.ts'
 import {
   deriveTodayPrimaryAction,
   type OpenChallengeIntent,
@@ -305,17 +312,33 @@ export function TodayHost({
   const authorizedHubSuggestion =
     secondary && hubContinueResult?.status === 'suggestion' ? hubContinueResult.suggestion : null
 
+  const committedParticipationData =
+    participationSnapshot.status === 'ready' &&
+    (participationSnapshot.health === 'ok' || participationSnapshot.health === 'writeFailed')
+      ? participationSnapshot.committedData
+      : null
+
+  const checkingMonthAwards = useSyncExternalStore(
+    subscribeToMonthAwardReconciliation,
+    () => hasPendingMonthAwardReconciliation(participationStore),
+    () => false,
+  )
   const hasPendingCardAnnouncement =
-    !announcementController.participationReady ||
-    !announcementController.preferencesReady ||
-    announcementController.isOpen
+    (announcementController.announcementsEnabled && checkingMonthAwards) ||
+    hasPendingEnabledCardAnnouncement({
+      participationReady: announcementController.participationReady,
+      preferencesReady: announcementController.preferencesReady,
+      isOpen: announcementController.isOpen,
+      announcementsEnabled: announcementController.announcementsEnabled,
+      committedParticipationData,
+    })
 
   const guestInvite = useMemo(
     () =>
       deriveGuestInviteEligibility({
         participationStatus: participationSnapshot.status,
         participationHealth: participationSnapshot.health,
-        participationData,
+        committedParticipationData,
         profileStatus: profileState.status,
         profileHealth: profileState.health,
         profile: profileState.profile,
@@ -324,7 +347,7 @@ export function TodayHost({
     [
       participationSnapshot.status,
       participationSnapshot.health,
-      participationData,
+      committedParticipationData,
       profileState.status,
       profileState.health,
       profileState.profile,

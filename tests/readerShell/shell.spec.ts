@@ -2203,11 +2203,25 @@ test('G09 J7 guest invitation appears only after 3 distinct Finishes, yields to 
   await expect(invite()).toHaveCount(0)
 
   // Complete the 3rd distinct Challenge (todayDocumentId), which also earns currentThematicAwardId.
-  const progress = page.waitForResponse(response => response.url().includes(`/api/months/${currentMonthId}/progress`))
+  let releaseProgress!: () => void
+  const progressGate = new Promise<void>(resolve => { releaseProgress = resolve })
+  const progressPath = `/api/months/${currentMonthId}/progress`
+  await page.route(`**${progressPath}`, async route => {
+    await progressGate
+    await route.fallback()
+  })
+  const progressRequested = page.waitForRequest(request => request.url().includes(progressPath))
   await page.getByTestId('today-primary-cta').click()
   await page.getByRole('button', { name: 'Next', exact: true }).click()
   await page.getByRole('button', { name: 'Finish', exact: true }).click()
-  await progress
+  try {
+    await progressRequested
+    await expect(page.getByRole('heading', { name: 'Today', exact: true, level: 1 })).toBeVisible()
+    await expect.poll(async () => Object.keys((await participation(page)).completedChallenges)).toHaveLength(3)
+    await expect(invite()).toHaveCount(0)
+  } finally {
+    releaseProgress()
+  }
 
   // Award announcement takes precedence: guest invite must NOT show simultaneously.
   await expect(announcement()).toHaveCount(1)
@@ -2316,4 +2330,135 @@ test('G09 J7 handles guest dismissal write failure honestly and reflows at 320px
   await page.keyboard.press('Enter')
   await expect(page.getByTestId('account-progress-screen')).toBeVisible()
   expect(await page.locator('.r06-viewport').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+})
+
+test('G09 J7 does not trigger guest invite or increment Account & Progress saved count while 3rd Finish is unpersisted', async ({ page }) => {
+  const invite = () => page.getByTestId('today-guest-invite')
+
+  await mockGateway(page)
+  await page.addInitScript(({ key, data }) => {
+    if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify({ schemaVersion: 3, data }))
+  }, {
+    key: participationKey,
+    data: {
+      completedChallenges: {
+        [`cms:${documentId}`]: { completedOn: '2026-11-10' },
+        [`cms:${currentMonthMultiScreenDocumentId}`]: { completedOn: '2026-11-14' },
+      },
+      earnedAwards: {
+        [awardId]: { earnedOn: '2026-11-10', hubAnnouncementAcked: true },
+      },
+    },
+  })
+
+  await page.goto(readerUrl())
+  await expect(page.getByTestId('today-primary-cta')).toBeVisible()
+
+  // Fail persistence for the 3rd Finish so it remains pending/uncommitted.
+  await page.evaluate(({ key, thirdDoc }) => {
+    const original = Storage.prototype.setItem
+    ;(window as unknown as { restoreSetItem: () => void }).restoreSetItem = () => { Storage.prototype.setItem = original }
+    Storage.prototype.setItem = function (name: string, value: string) {
+      if (name === key && JSON.parse(value).data?.completedChallenges?.[`cms:${thirdDoc}`]) throw new Error('quota')
+      return original.call(this, name, value)
+    }
+  }, { key: participationKey, thirdDoc: todayDocumentId })
+
+  await page.getByTestId('today-primary-cta').click()
+  await page.getByRole('button', { name: 'Next', exact: true }).click()
+  await page.getByRole('button', { name: 'Finish', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Retry Finish' })).toBeVisible()
+  await page.getByRole('button', { name: 'Exit', exact: true }).click()
+
+  await expect(page.getByRole('heading', { name: 'Today', exact: true, level: 1 })).toBeVisible()
+  await expect(invite()).toHaveCount(0)
+
+  // Account & Progress must report only the 2 durably saved Finishes and disclose pending writes.
+  await selectTab(page, 'More')
+  await page.getByTestId('more-account-progress-button').click()
+  await expect(page.getByTestId('account-summary-completed')).toHaveText('2')
+  await expect(page.getByTestId('account-summary-pending-note')).toBeVisible()
+
+  // Restore writes and retry the pending participation commands in this session.
+  await page.evaluate(async () => {
+    ;(window as unknown as { restoreSetItem: () => void }).restoreSetItem()
+    const modulePath = '/src/participation/defaultGuestStore.ts'
+    const { defaultGuestParticipationStore } = await import(modulePath)
+    await defaultGuestParticipationStore.flushPending()
+  })
+  await expect(page.getByTestId('account-summary-completed')).toHaveText('3')
+  await expect(page.getByTestId('account-summary-pending-note')).toHaveCount(0)
+  await selectTab(page, 'Today')
+  await expect(invite()).toHaveCount(1)
+  await expect(invite()).toContainText('3 Challenges')
+
+  await selectTab(page, 'More')
+  await expect(page.getByTestId('account-summary-completed')).toHaveText('3')
+})
+
+test('G09 J7 never flashes guest invite on initial render or after failed announcement ack ahead of a pending enabled batch', async ({ page }) => {
+  const invite = () => page.getByTestId('today-guest-invite')
+  const announcement = () => page.getByTestId('today-card-announcement')
+
+  await mockGateway(page)
+  await page.addInitScript(({ key, data }) => {
+    if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify({ schemaVersion: 3, data }))
+    const win = window as unknown as { __sawGuestInvite?: boolean }
+    win.__sawGuestInvite = false
+    const selector = '[data-testid="today-guest-invite"]'
+    const observer = new MutationObserver(records => {
+      for (const { addedNodes } of records) {
+        for (const node of addedNodes) {
+          if (node instanceof Element && (node.matches(selector) || node.querySelector(selector))) {
+            win.__sawGuestInvite = true
+          }
+        }
+      }
+    })
+    observer.observe(document.documentElement, { childList: true, subtree: true })
+  }, {
+    key: participationKey,
+    data: {
+      completedChallenges: {
+        [`cms:${documentId}`]: { completedOn: '2026-11-10' },
+        [`cms:${currentMonthMultiScreenDocumentId}`]: { completedOn: '2026-11-14' },
+        [`cms:${todayDocumentId}`]: { completedOn: '2026-11-15' },
+      },
+      earnedAwards: {
+        [currentThematicAwardId]: { earnedOn: '2026-11-15', hubAnnouncementAcked: false },
+      },
+    },
+  })
+
+  await page.goto(readerUrl())
+  await expect(announcement()).toHaveCount(1)
+  await expect(invite()).toHaveCount(0)
+  expect(await page.evaluate(() => (window as unknown as { __sawGuestInvite?: boolean }).__sawGuestInvite)).toBe(false)
+
+  // Fail acknowledgement persistence and close the announcement for now: guest invite must stay suppressed.
+  await page.evaluate(key => {
+    const original = Storage.prototype.setItem
+    ;(window as unknown as { restoreSetItem: () => void }).restoreSetItem = () => { Storage.prototype.setItem = original }
+    Storage.prototype.setItem = function (name: string, value: string) {
+      if (name === key && value.includes('"hubAnnouncementAcked":true')) throw new Error('quota')
+      return original.call(this, name, value)
+    }
+  }, participationKey)
+
+  await page.getByTestId('today-dismiss-announcement').click()
+  await expect(page.getByRole('button', { name: 'Close for Now' })).toBeVisible()
+  await page.getByRole('button', { name: 'Close for Now' }).click()
+  await expect(announcement()).toHaveCount(0)
+  await expect(invite()).toHaveCount(0)
+
+  // Recover storage, reload, and acknowledge the pending batch cleanly -> guest invite now appears.
+  await page.evaluate(() => (window as unknown as { restoreSetItem: () => void }).restoreSetItem())
+  await page.reload()
+  await expect(announcement()).toHaveCount(1)
+  await expect(invite()).toHaveCount(0)
+  await page.getByTestId('today-dismiss-announcement').click()
+  await expect(announcement()).toHaveCount(0)
+  await expect(invite()).toHaveCount(1)
+  await page.reload()
+  await expect(invite()).toHaveCount(1)
 })

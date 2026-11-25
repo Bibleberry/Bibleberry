@@ -10,6 +10,25 @@ import type { AdmittedChallenge } from '../../participation/admission.ts'
 import type { ReaderParticipationStore } from '../../participation/store.ts'
 import type { MonthGatewayProvider, MonthProgressResult } from './monthProvider.ts'
 
+const pendingByStore = new WeakMap<ReaderParticipationStore, number>()
+const listeners = new Set<() => void>()
+
+export function subscribeToMonthAwardReconciliation(listener: () => void): () => void {
+  listeners.add(listener)
+  return () => { listeners.delete(listener) }
+}
+
+export function hasPendingMonthAwardReconciliation(store: ReaderParticipationStore): boolean {
+  return pendingByStore.has(store)
+}
+
+function updatePendingReconciliations(store: ReaderParticipationStore, delta: number): void {
+  const count = (pendingByStore.get(store) ?? 0) + delta
+  if (count === 0) pendingByStore.delete(store)
+  else pendingByStore.set(store, count)
+  listeners.forEach(listener => listener())
+}
+
 export type MonthAwardReconciliationStatus =
   | 'recorded'
   | 'noAwards'
@@ -53,13 +72,26 @@ export async function persistGatewayMonthProgressAwards(
  * candidate is verified against the gateway's released month roster before progress
  * is requested. This bounded workflow intentionally outlives its initiating component.
  */
-export async function reconcileFinishedChallengeMonthAwards(input: {
+interface FinishedChallengeMonthAwardInput {
   readonly store: ReaderParticipationStore
   readonly monthProvider: MonthGatewayProvider
   readonly challenge: CmsChallenge
   readonly admittedChallenge: AdmittedChallenge
   readonly completionWrite: Promise<void>
-}): Promise<MonthAwardReconciliationStatus> {
+}
+
+export async function reconcileFinishedChallengeMonthAwards(
+  input: FinishedChallengeMonthAwardInput,
+): Promise<MonthAwardReconciliationStatus> {
+  updatePendingReconciliations(input.store, 1)
+  try {
+    return await reconcileMonthAwards(input)
+  } finally {
+    updatePendingReconciliations(input.store, -1)
+  }
+}
+
+async function reconcileMonthAwards(input: FinishedChallengeMonthAwardInput): Promise<MonthAwardReconciliationStatus> {
   const {
     store,
     monthProvider,

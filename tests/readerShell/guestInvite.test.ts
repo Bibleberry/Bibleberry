@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { emptyReaderParticipationData } from '../../src/participation/model.ts'
-import type { KeyValueStorageDriver } from '../../src/participation/persistence.ts'
+import { createEnvelopePersistenceAdapter, type KeyValueStorageDriver } from '../../src/participation/persistence.ts'
+import { createReaderParticipationStore } from '../../src/participation/store.ts'
 import type {
   CanonicalAwardId,
   CanonicalChallengeId,
@@ -15,6 +16,7 @@ import {
   GUEST_INVITE_FINISH_THRESHOLD,
   countDistinctCompletedChallenges,
   deriveGuestInviteEligibility,
+  hasPendingEnabledCardAnnouncement,
 } from '../../src/readerShell/today/guestInviteModel.ts'
 
 function challengeId(id: string): CanonicalChallengeId {
@@ -38,12 +40,16 @@ function makeParticipation(completedIds: readonly string[]): ReaderParticipation
   }
 }
 
-function createMemoryDriver(options: { failWrites?: boolean } = {}): KeyValueStorageDriver {
+function createMemoryDriver(options: { failWrites?: boolean } = {}): KeyValueStorageDriver & { setFailWrites: (fail: boolean) => void } {
   const map = new Map<string, string>()
+  let failWrites = options.failWrites ?? false
   return {
+    setFailWrites: (fail: boolean) => {
+      failWrites = fail
+    },
     getItem: key => map.get(key) ?? null,
     setItem: (key, value) => {
-      if (options.failWrites) throw new Error('disk full')
+      if (failWrites) throw new Error('disk full')
       map.set(key, value)
     },
     removeItem: key => {
@@ -61,7 +67,7 @@ test('Arctic Sextant — guest invitation eligibility threshold & deduplication'
     const result = deriveGuestInviteEligibility({
       participationStatus: 'ready',
       participationHealth: 'ok',
-      participationData: makeParticipation(ids),
+      committedParticipationData: makeParticipation(ids),
       profileStatus: 'ready',
       profileHealth: 'ok',
       profile,
@@ -75,7 +81,7 @@ test('Arctic Sextant — guest invitation eligibility threshold & deduplication'
   const eligibleAtThree = deriveGuestInviteEligibility({
     participationStatus: 'ready',
     participationHealth: 'ok',
-    participationData: makeParticipation(['c1', 'c2', 'c3']),
+    committedParticipationData: makeParticipation(['c1', 'c2', 'c3']),
     profileStatus: 'ready',
     profileHealth: 'ok',
     profile,
@@ -122,7 +128,7 @@ test('Arctic Sextant — unrelated awards, in-progress, and malformed records do
   const result = deriveGuestInviteEligibility({
     participationStatus: 'ready',
     participationHealth: 'ok',
-    participationData: withExtras,
+    committedParticipationData: withExtras,
     profileStatus: 'ready',
     profileHealth: 'ok',
     profile: createDefaultReaderProfile(),
@@ -140,7 +146,7 @@ test('Arctic Sextant — Card announcement precedence, dismissal, and corrupt/lo
   const blockedByAnnouncement = deriveGuestInviteEligibility({
     participationStatus: 'ready',
     participationHealth: 'ok',
-    participationData: threeFinishes,
+    committedParticipationData: threeFinishes,
     profileStatus: 'ready',
     profileHealth: 'ok',
     profile: defaultProfile,
@@ -152,7 +158,7 @@ test('Arctic Sextant — Card announcement precedence, dismissal, and corrupt/lo
   const suppressedByDismissal = deriveGuestInviteEligibility({
     participationStatus: 'ready',
     participationHealth: 'ok',
-    participationData: threeFinishes,
+    committedParticipationData: threeFinishes,
     profileStatus: 'ready',
     profileHealth: 'ok',
     profile: { ...defaultProfile, guestInviteDismissed: true },
@@ -164,7 +170,7 @@ test('Arctic Sextant — Card announcement precedence, dismissal, and corrupt/lo
   const corruptParticipation = deriveGuestInviteEligibility({
     participationStatus: 'ready',
     participationHealth: 'corrupt',
-    participationData: threeFinishes,
+    committedParticipationData: threeFinishes,
     profileStatus: 'ready',
     profileHealth: 'ok',
     profile: defaultProfile,
@@ -176,7 +182,7 @@ test('Arctic Sextant — Card announcement precedence, dismissal, and corrupt/lo
   const corruptProfile = deriveGuestInviteEligibility({
     participationStatus: 'ready',
     participationHealth: 'ok',
-    participationData: threeFinishes,
+    committedParticipationData: threeFinishes,
     profileStatus: 'ready',
     profileHealth: 'corrupt',
     profile: defaultProfile,
@@ -212,4 +218,153 @@ test('Arctic Sextant — permanent dismissal persists across reloads and fails h
   const failedDismiss = await failingStore.dismissGuestInvite()
   assert.equal(failedDismiss.ok, false)
   assert.equal(failedDismiss.profile.guestInviteDismissed, false)
+})
+
+test('Arctic Sextant — synchronous pending announcement gate blocks pre-effect render and failed ack without suppressing opt-out', () => {
+  const unackedData: ReaderParticipationData = {
+    ...makeParticipation(['c1', 'c2', 'c3']),
+    earnedAwards: {
+      ['card:monthly:2026-11:hope' as CanonicalAwardId]: {
+        awardId: 'card:monthly:2026-11:hope' as CanonicalAwardId,
+        kind: 'thematic',
+        publicationYearMonth: '2026-11' as PublicationYearMonth,
+        discoveryId: 'discovery:2026-11:hope',
+        earnedOn: localDate('2026-11-12'),
+        hubAnnouncementAcked: false,
+        cardViewed: false,
+      },
+    },
+  }
+
+  // Even when isOpen is still false (first render before passive effect, or after Close for Now on failed ack),
+  // an enabled unacked committed award blocks the guest invitation.
+  assert.equal(
+    hasPendingEnabledCardAnnouncement({
+      participationReady: true,
+      preferencesReady: true,
+      isOpen: false,
+      announcementsEnabled: true,
+      committedParticipationData: unackedData,
+    }),
+    true,
+  )
+
+  // When announcements are intentionally opted out and no batch is open, guest invite is NOT suppressed.
+  assert.equal(
+    hasPendingEnabledCardAnnouncement({
+      participationReady: true,
+      preferencesReady: true,
+      isOpen: false,
+      announcementsEnabled: false,
+      committedParticipationData: unackedData,
+    }),
+    false,
+  )
+
+  // Once acknowledged, guest invite is unblocked.
+  const ackedData: ReaderParticipationData = {
+    ...unackedData,
+    earnedAwards: {
+      ['card:monthly:2026-11:hope' as CanonicalAwardId]: {
+        ...unackedData.earnedAwards['card:monthly:2026-11:hope' as CanonicalAwardId]!,
+        hubAnnouncementAcked: true,
+      },
+    },
+  }
+  assert.equal(
+    hasPendingEnabledCardAnnouncement({
+      participationReady: true,
+      preferencesReady: true,
+      isOpen: false,
+      announcementsEnabled: true,
+      committedParticipationData: ackedData,
+    }),
+    false,
+  )
+})
+
+test('Arctic Sextant — pending/failed third Finish does not satisfy eligibility until durably committed', async () => {
+  const driver = createMemoryDriver()
+  let writeGate = Promise.resolve()
+  const adapter = createEnvelopePersistenceAdapter({
+    storageKey: 'test-participation-key',
+    driver: {
+      ...driver,
+      async setItem(key, value) {
+        await writeGate
+        await driver.setItem(key, value)
+      },
+    },
+    allowedNamespace: 'cms',
+  })
+  const store = createReaderParticipationStore(adapter, { allowedNamespace: 'cms' })
+  await store.whenReady()
+  await store.dispatch({
+    type: 'completeChallenge',
+    challengeId: challengeId('c1'),
+    completedOn: localDate('2026-11-10'),
+  })
+  await store.dispatch({
+    type: 'completeChallenge',
+    challengeId: challengeId('c2'),
+    completedOn: localDate('2026-11-11'),
+  })
+
+  // Fail writes for the 3rd Finish: optimistic `data` has 3, but `committedData` still has 2.
+  let releaseWrite!: () => void
+  writeGate = new Promise<void>(resolve => { releaseWrite = resolve })
+  driver.setFailWrites(true)
+  const thirdFinish = store.dispatch({
+    type: 'completeChallenge',
+    challengeId: challengeId('c3'),
+    completedOn: localDate('2026-11-12'),
+  })
+
+  const saving = store.getSnapshot()
+  assert.equal(saving.health, 'ok')
+  assert.equal(saving.hasPendingWrites, true)
+  assert.equal(countDistinctCompletedChallenges(saving.data), 3)
+  assert.equal(countDistinctCompletedChallenges(saving.committedData), 2)
+  releaseWrite()
+  await thirdFinish
+
+  const pendingSnap = store.getSnapshot()
+  assert.equal(pendingSnap.hasPendingWrites, true)
+  assert.equal(pendingSnap.health, 'writeFailed')
+  assert.equal(countDistinctCompletedChallenges(pendingSnap.data), 3)
+  assert.equal(countDistinctCompletedChallenges(pendingSnap.committedData), 2)
+
+  const profile = createDefaultReaderProfile()
+  const beforeCommit = deriveGuestInviteEligibility({
+    participationStatus: pendingSnap.status,
+    participationHealth: pendingSnap.health,
+    committedParticipationData: pendingSnap.committedData,
+    profileStatus: 'ready',
+    profileHealth: 'ok',
+    profile,
+    hasPendingCardAnnouncement: false,
+  })
+  assert.equal(beforeCommit.eligible, false)
+  assert.equal(beforeCommit.distinctCompletedCount, 2)
+  assert.equal(beforeCommit.reason, 'belowThreshold')
+
+  // Recover storage and flush pending write -> committedData reaches 3 -> eligible.
+  driver.setFailWrites(false)
+  await store.flushPending()
+  const committedSnap = store.getSnapshot()
+  assert.equal(committedSnap.hasPendingWrites, false)
+  assert.equal(committedSnap.health, 'ok')
+  assert.equal(countDistinctCompletedChallenges(committedSnap.committedData), 3)
+
+  const afterCommit = deriveGuestInviteEligibility({
+    participationStatus: committedSnap.status,
+    participationHealth: committedSnap.health,
+    committedParticipationData: committedSnap.committedData,
+    profileStatus: 'ready',
+    profileHealth: 'ok',
+    profile,
+    hasPendingCardAnnouncement: false,
+  })
+  assert.equal(afterCommit.eligible, true)
+  assert.equal(afterCommit.distinctCompletedCount, 3)
 })

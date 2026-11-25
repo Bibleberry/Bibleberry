@@ -38,20 +38,28 @@ export function AccountProgressScreen({
   const profileState = useReaderProfile(activeProfileStore)
 
   const participationReady = participationSnapshot.status === 'ready'
-  const participationHealthy = participationReady && participationSnapshot.health === 'ok'
-  const distinctCompletedCount = participationHealthy
-    ? countDistinctCompletedChallenges(participationSnapshot.data)
+  const participationReadable =
+    participationReady &&
+    (participationSnapshot.health === 'ok' || participationSnapshot.health === 'writeFailed')
+  const participationHasPending =
+    participationReady &&
+    (participationSnapshot.hasPendingWrites || participationSnapshot.health === 'writeFailed')
+  const distinctCompletedCount = participationReadable
+    ? countDistinctCompletedChallenges(participationSnapshot.committedData)
     : null
-  const earnedCardsCount = participationHealthy
-    ? Object.keys(participationSnapshot.data.earnedAwards).length
+  const earnedCardsCount = participationReadable
+    ? Object.keys(participationSnapshot.committedData.earnedAwards).length
     : null
-  const savedScriptureCount = participationHealthy
-    ? participationSnapshot.data.savedScriptures.length
+  const savedScriptureCount = participationReadable
+    ? participationSnapshot.committedData.savedScriptures.length
     : null
-  const shelfMonthsCount =
-    shelfSnapshot.status === 'ready' && shelfSnapshot.health === 'ok'
-      ? shelfSnapshot.state.months.length
-      : null
+  const shelfReadable =
+    shelfSnapshot.status === 'ready' &&
+    (shelfSnapshot.health === 'ok' || shelfSnapshot.health === 'writeFailed')
+  const shelfPending =
+    shelfReadable &&
+    (shelfSnapshot.hasPendingWrites || shelfSnapshot.health === 'writeFailed')
+  const shelfMonthsCount = shelfReadable && !shelfPending ? shelfSnapshot.state.months.length : null
 
   return (
     <div className="r06-landing r06-account-progress" data-testid="account-progress-screen">
@@ -118,33 +126,48 @@ export function AccountProgressScreen({
           Saved on this device
         </h2>
         {!participationReady && <p role="status">Loading local progress…</p>}
-        {participationReady && !participationHealthy && (
+        {participationReady && !participationReadable && (
           <p className="r06-account-progress__alert" role="alert">
             Your local participation records could not be read safely on this device. Your stored
             data has not been overwritten.
           </p>
         )}
-        {participationHealthy && (
-          <dl className="r06-account-progress__summary">
-            <div>
-              <dt>Distinct Challenges finished</dt>
-              <dd data-testid="account-summary-completed">{distinctCompletedCount}</dd>
-            </div>
-            <div>
-              <dt>Earned Scripture Cards</dt>
-              <dd data-testid="account-summary-cards">{earnedCardsCount}</dd>
-            </div>
-            <div>
-              <dt>Saved Scripture</dt>
-              <dd data-testid="account-summary-scripture">{savedScriptureCount}</dd>
-            </div>
-            {shelfMonthsCount !== null && (
+        {participationReadable && (
+          <>
+            <dl className="r06-account-progress__summary">
               <div>
-                <dt>Shelf months</dt>
-                <dd data-testid="account-summary-shelf">{shelfMonthsCount} of 3</dd>
+                <dt>Distinct Challenges finished</dt>
+                <dd data-testid="account-summary-completed">{distinctCompletedCount}</dd>
               </div>
+              <div>
+                <dt>Earned Scripture Cards</dt>
+                <dd data-testid="account-summary-cards">{earnedCardsCount}</dd>
+              </div>
+              <div>
+                <dt>Saved Scripture</dt>
+                <dd data-testid="account-summary-scripture">{savedScriptureCount}</dd>
+              </div>
+              {shelfMonthsCount !== null && (
+                <div>
+                  <dt>Shelf months</dt>
+                  <dd data-testid="account-summary-shelf">
+                    {shelfMonthsCount} of 3
+                  </dd>
+                </div>
+              )}
+            </dl>
+            {shelfPending && <p role="status">Shelf changes are waiting to be saved.</p>}
+            {participationHasPending && (
+              <p
+                className="r06-account-progress__note"
+                role={participationSnapshot.health === 'writeFailed' ? 'alert' : 'status'}
+                data-testid="account-summary-pending-note"
+              >
+                Some recent changes are still waiting to be saved on this device and are not
+                included in the saved counts above.
+              </p>
             )}
-          </dl>
+          </>
         )}
       </section>
     </div>
