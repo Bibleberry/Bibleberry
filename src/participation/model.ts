@@ -260,10 +260,17 @@ export function reduceParticipationCommand(
         : undefined
 
       const existing = data.inProgressChallenges[challengeId]
+      // Derive order during command replay against the durable base, independent of device time.
+      const interruptionOrder = command.trackInterruption && normalizedScreenId
+        ? Object.values(data.inProgressChallenges).reduce(
+            (latest, record) => Math.max(latest, record.interruptionOrder ?? 0), 0,
+          ) + 1
+        : existing?.interruptionOrder
       if (
         existing
         && existing.screenId === normalizedScreenId
         && existing.updatedOn === updatedOn
+        && existing.interruptionOrder === interruptionOrder
       ) {
         return data
       }
@@ -271,6 +278,7 @@ export function reduceParticipationCommand(
       const nextRecord: ChallengeResumeRecord = Object.freeze({
         ...(normalizedScreenId !== undefined ? { screenId: normalizedScreenId } : {}),
         updatedOn,
+        ...(interruptionOrder !== undefined ? { interruptionOrder } : {}),
       })
 
       return Object.freeze({
