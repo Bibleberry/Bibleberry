@@ -10,6 +10,7 @@ interface MoreLandingProps {
   readonly onOpenFeatured: (documentId: string) => void
   readonly onOpenNews: () => void
   readonly onOpenAbout: () => void
+  readonly onOpenAccountProgress?: () => void
   readonly onReplayIntroduction: () => void
   readonly announcementPreferencesStore?: AnnouncementPreferencesStore
 }
@@ -39,6 +40,7 @@ export function MoreLanding({
   onOpenFeatured,
   onOpenNews,
   onOpenAbout,
+  onOpenAccountProgress,
   onReplayIntroduction,
   announcementPreferencesStore = defaultAnnouncementPreferencesStore,
 }: MoreLandingProps) {
@@ -61,8 +63,15 @@ export function MoreLanding({
           <AnnouncementPreference store={announcementPreferencesStore} />
         </li>
         <li>
-          <strong>Account &amp; Progress</strong>
-          <p>Unavailable in this reader.</p>
+          <button
+            type="button"
+            className="button button--secondary"
+            data-testid="more-account-progress-button"
+            onClick={onOpenAccountProgress}
+            disabled={!onOpenAccountProgress}
+          >
+            Account &amp; Progress
+          </button>
         </li>
         <li>
           <button type="button" className="button button--secondary" onClick={onReplayIntroduction}>Review Introduction</button>
