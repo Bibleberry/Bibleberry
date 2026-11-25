@@ -1,3 +1,4 @@
+import { matchesLibraryMonth, MAX_LIBRARY_QUERY_LENGTH } from '../../lib/libraryMonthSearch.ts'
 import { z } from 'zod'
 
 /**
@@ -131,6 +132,7 @@ export interface LibraryMonthIndexProviderConfig {
 }
 
 export interface LibraryMonthIndexRequestOptions {
+  readonly query?: string
   readonly limit?: number
   readonly cursor?: string
   readonly signal?: AbortSignal
@@ -422,6 +424,10 @@ export function createGatewayLibraryMonthIndexProvider(
       requestedLimit = options.limit
     }
 
+    const query = options?.query ?? ''
+    if (typeof query !== 'string' || query.length > MAX_LIBRARY_QUERY_LENGTH) {
+      return { status: 'validationError', message: 'Invalid Library search', source: 'gateway' }
+    }
     let requestedCursor: string | undefined
     if (options?.cursor !== undefined) {
       if (typeof options.cursor !== 'string' || !YEAR_MONTH_PATTERN.test(options.cursor)) {
@@ -481,6 +487,7 @@ export function createGatewayLibraryMonthIndexProvider(
     if (requestedCursor !== undefined) {
       searchParams.set('cursor', requestedCursor)
     }
+    if (query.trim()) searchParams.set('q', query.trim())
     const queryString = searchParams.toString()
     const url = `${baseCheck.baseUrl}/api/library/months${queryString ? `?${queryString}` : ''}`
 
@@ -508,6 +515,7 @@ export function createGatewayLibraryMonthIndexProvider(
             'X-Bibleberry-Timezone': timeZone,
           },
           credentials: 'same-origin',
+          cache: 'no-store',
           signal: options?.signal,
         })
       } catch (err: unknown) {
@@ -610,6 +618,9 @@ export function createGatewayLibraryMonthIndexProvider(
     const seenYearMonths = new Set<string>()
     for (let i = 0; i < items.length; i++) {
       const item = items[i]
+      if (query && !matchesLibraryMonth(item, query)) {
+        return { status: 'validationError', message: 'Unexpected Library search result', source: 'gateway' }
+      }
       if (item.yearMonth >= currentYearMonth) {
         return {
           status: 'validationError',

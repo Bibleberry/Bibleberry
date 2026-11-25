@@ -617,3 +617,16 @@ test('libraryMonthIndexProvider has zero gateway/Sanity imports and is independe
   const appSource = readFileSync(resolve(repositoryRoot, 'src/App.tsx'), 'utf8')
   assert.doesNotMatch(appSource, /libraryMonthIndexProvider/)
 })
+
+test('sends the same literal query on continuation and rejects unfiltered responses', async () => {
+  const urls: string[] = []
+  const provider = createGatewayLibraryMonthIndexProvider({ fetchImpl: async input => {
+    urls.push(String(input))
+    return Response.json(makeIndexResponsePayload())
+  } })
+  const result = await provider.loadHistoricalMonths({ query: ' Hope & joy ', cursor: '2026-11' })
+  assert.equal(result.status, 'validationError')
+  const params = new URL(urls[0], 'https://example.org').searchParams
+  assert.equal(params.get('q'), 'Hope & joy')
+  assert.equal(params.get('cursor'), '2026-11')
+})
