@@ -20,7 +20,6 @@ import { isValidYearMonth } from '../library/historicalLibraryModel.ts'
 import {
   formatPublicationMonthHeading,
   validateOpenShelfMonthTarget,
-  type ShelfCompletionProgress,
   type ShelfMonthMetadata,
 } from '../shelf/shelfModel.ts'
 import { extractCompletedCmsChallengeIdsForMonth } from '../month/monthScreenModel.ts'
@@ -33,13 +32,13 @@ export interface OpenMonthContext {
   readonly origin: MonthOpenOrigin
 }
 
-export async function loadShelfCompletionProgress(params: {
+export async function loadAuthorizedShelfMonthMetadata(params: {
   readonly yearMonths: readonly string[]
   readonly participationData: ReaderParticipationData
   readonly monthProvider: MonthGatewayProvider
   readonly signal?: AbortSignal
   readonly timeZone?: string
-}): Promise<ReadonlyMap<string, ShelfCompletionProgress>> {
+}): Promise<ReadonlyMap<string, ShelfMonthMetadata>> {
   const yearMonths = [
     ...new Set(
       params.yearMonths
@@ -47,17 +46,23 @@ export async function loadShelfCompletionProgress(params: {
         .filter((yearMonth): yearMonth is PublicationYearMonth => yearMonth !== null),
     ),
   ]
-  const results = await Promise.all(
-    yearMonths.map(async yearMonth => {
+  const results: (readonly [string, ShelfMonthMetadata])[] = await Promise.all(
+    yearMonths.map(async (yearMonth): Promise<readonly [string, ShelfMonthMetadata]> => {
       try {
         const monthResult = await params.monthProvider.loadMonth(yearMonth, {
           signal: params.signal,
           timeZone: params.timeZone,
         })
-        if (monthResult.status !== 'ready' || monthResult.month.monthId !== yearMonth) {
-          return null
+        if (
+          monthResult.status !== 'ready'
+          || monthResult.source !== 'gateway'
+          || monthResult.month.monthId !== yearMonth
+        ) {
+          return [yearMonth, { yearMonth, progressStatus: 'unavailable' }] as const
         }
 
+        const title = monthResult.month.title.trim()
+        const subtitle = monthResult.month.subtitle?.trim()
         const completedChallengeIds = extractCompletedCmsChallengeIdsForMonth(
           params.participationData,
           monthResult.month.slots,
@@ -69,32 +74,47 @@ export async function loadShelfCompletionProgress(params: {
         )
         if (
           progressResult.status !== 'ready'
+          || progressResult.source !== 'gateway'
           || progressResult.progress.monthId !== yearMonth
+          || progressResult.progress.rosterVersion !== monthResult.month.rosterVersion
+          || progressResult.progress.totalChallenges !== monthResult.month.totalChallenges
           || !Number.isSafeInteger(progressResult.progress.completedInMonthCount)
           || !Number.isSafeInteger(progressResult.progress.totalChallenges)
           || progressResult.progress.completedInMonthCount < 0
+          || progressResult.progress.completedInMonthCount > completedChallengeIds.length
           || progressResult.progress.totalChallenges < progressResult.progress.completedInMonthCount
         ) {
-          return null
+          return [
+            yearMonth,
+            {
+              yearMonth,
+              ...(title ? { title } : {}),
+              ...(subtitle ? { subtitle } : {}),
+              progressStatus: 'unavailable',
+            },
+          ] as const
         }
 
         return [
           yearMonth,
           {
-            completedChallengeCount: progressResult.progress.completedInMonthCount,
-            totalChallengeCount: progressResult.progress.totalChallenges,
+            yearMonth,
+            ...(title ? { title } : {}),
+            ...(subtitle ? { subtitle } : {}),
+            completionProgress: {
+              completedChallengeCount: progressResult.progress.completedInMonthCount,
+              totalChallengeCount: progressResult.progress.totalChallenges,
+            },
           },
         ] as const
       } catch {
-        if (params.signal?.aborted) throw new Error('Shelf progress request aborted')
-        return null
+        if (params.signal?.aborted) throw new Error('Shelf month metadata request aborted')
+        return [yearMonth, { yearMonth, progressStatus: 'unavailable' }] as const
       }
     }),
   )
 
-  return new Map(
-    results.filter((result): result is NonNullable<typeof result> => result !== null),
-  )
+  return new Map(results)
 }
 
 /**

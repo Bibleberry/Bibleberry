@@ -14,6 +14,11 @@ function readScenario(): string {
   return params.get('scenario') ?? 'empty'
 }
 
+function readPresentation(): 'legacy' | 'r06' {
+  const params = new URLSearchParams(window.location.search)
+  return params.get('presentation') === 'legacy' ? 'legacy' : 'r06'
+}
+
 const REFERENCE_CURRENT_MONTH = '2026-11' as PublicationYearMonth
 const CURRENT_LOCAL_DATE = '2026-11-15' as LocalCalendarDate
 
@@ -129,6 +134,7 @@ function buildScenarioState(scenario: string): ShelfState {
 // eslint-disable-next-line react-refresh/only-export-components
 function ShelfHarnessApp() {
   const scenario = readScenario()
+  const presentation = readPresentation()
   const [openedMonth, setOpenedMonth] = useState<string | null>(null)
   const [libraryPickerCalls, setLibraryPickerCalls] = useState(0)
   const [exitCalls, setExitCalls] = useState(0)
@@ -187,6 +193,7 @@ function ShelfHarnessApp() {
         availableHistoricalMonths={AVAILABLE_HISTORICAL_MONTHS}
         monthMetadata={MONTH_METADATA}
         currentLocalDate={CURRENT_LOCAL_DATE}
+        presentation={presentation}
         onExit={handleExit}
         exitLabel="Back to Hub"
       />

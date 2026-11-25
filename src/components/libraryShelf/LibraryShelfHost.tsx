@@ -29,12 +29,13 @@ import {
   projectShelfViewModel,
   type ShelfEntryViewModel,
   type ShelfMonthMetadata,
+  type ShelfPresentation,
 } from '../shelf/shelfModel.ts'
 import {
   attemptSelectLibraryMonthForShelf,
   buildShelfMonthMetadataMap,
   isGatewayAuthorizedHistoricalMonth,
-  loadShelfCompletionProgress,
+  loadAuthorizedShelfMonthMetadata,
   resolveReferenceCurrentYearMonth,
   validateAuthorizedMonthOpen,
   type LibraryShelfSurface,
@@ -99,6 +100,9 @@ export interface LibraryShelfHostProps {
     | ReadonlyMap<string, ShelfMonthMetadata>
     | Readonly<Record<string, ShelfMonthMetadata>>
 
+  /** Opts into R06 card presentation while preserving the shared legacy default. */
+  readonly presentation?: ShelfPresentation
+
   /**
    * Controlled active surface ('shelf' | 'library').
    */
@@ -135,15 +139,7 @@ export interface LibraryShelfHostProps {
   readonly shellOwnsNavigation?: boolean
 }
 
-type ShelfCompletionProgress =
-  | {
-      readonly status: 'ready'
-      readonly completedChallengeCount: number
-      readonly totalChallengeCount: number
-    }
-  | { readonly status: 'loading' | 'unavailable' }
-
-const EMPTY_SHELF_COMPLETION_PROGRESS: ReadonlyMap<string, ShelfCompletionProgress> = new Map()
+const EMPTY_SHELF_COMPLETION_PROGRESS: ReadonlyMap<string, ShelfMonthMetadata> = new Map()
 
 /**
  * Standalone Library-to-Shelf reader handoff workspace (Phase 05 / R08).
@@ -163,6 +159,7 @@ export function LibraryShelfHost({
   libraryPageSize = DEFAULT_LIBRARY_PAGE_SIZE,
   timeZone,
   monthMetadata,
+  presentation = 'legacy',
   surface: controlledSurface,
   initialSurface = 'shelf',
   onSurfaceChange,
@@ -217,8 +214,9 @@ export function LibraryShelfHost({
         activeShelfState,
         resolvedCurrentYearMonth ?? '',
         mergedMonthMetadata,
+        presentation,
       ),
-    [activeShelfState, mergedMonthMetadata, resolvedCurrentYearMonth],
+    [activeShelfState, mergedMonthMetadata, presentation, resolvedCurrentYearMonth],
   )
   const shelfMonthKey = shelfViewModel.entries.map(entry => entry.yearMonth).join('|')
   const shelfYearMonths = useMemo(
@@ -229,21 +227,23 @@ export function LibraryShelfHost({
     () => ({
       yearMonths: shelfYearMonths,
       participationData: participationSnapshot.data,
+      activeSurface,
     }),
-    [participationSnapshot.data, shelfYearMonths],
+    [activeSurface, participationSnapshot.data, shelfYearMonths],
   )
   const [completionProgressState, setCompletionProgressState] = useState<{
     readonly request: typeof completionRequest
-    readonly byMonth: ReadonlyMap<string, ShelfCompletionProgress>
+    readonly byMonth: ReadonlyMap<string, ShelfMonthMetadata>
   } | null>(null)
-  const completionProgressByMonth =
+  const authorizedShelfMetadataByMonth =
     completionProgressState?.request === completionRequest
       ? completionProgressState.byMonth
       : EMPTY_SHELF_COMPLETION_PROGRESS
 
   useEffect(() => {
     if (
-      shelfFallback
+      presentation !== 'r06'
+      || shelfFallback
       || activeSurface !== 'shelf'
       || participationSnapshot.status !== 'ready'
       || participationSnapshot.health !== 'ok'
@@ -255,7 +255,7 @@ export function LibraryShelfHost({
     const controller = new AbortController()
     let ignore = false
 
-    void loadShelfCompletionProgress({
+    void loadAuthorizedShelfMonthMetadata({
       yearMonths: completionRequest.yearMonths,
       participationData: completionRequest.participationData,
       monthProvider: monthProgressProvider,
@@ -266,17 +266,7 @@ export function LibraryShelfHost({
         if (ignore) return
         setCompletionProgressState({
           request: completionRequest,
-          byMonth: new Map(
-            completionRequest.yearMonths.map(yearMonth => {
-              const summary = progress.get(yearMonth)
-              return [
-                yearMonth,
-                summary
-                  ? { status: 'ready' as const, ...summary }
-                  : { status: 'unavailable' as const },
-              ]
-            }),
-          ),
+          byMonth: progress,
         })
       })
       .catch(() => undefined)
@@ -287,6 +277,7 @@ export function LibraryShelfHost({
     }
   }, [
     monthProgressProvider,
+    presentation,
     completionRequest,
     participationSnapshot.health,
     participationSnapshot.status,
@@ -298,33 +289,36 @@ export function LibraryShelfHost({
   const shelfCardMetadata = useMemo(() => {
     const result = new Map(mergedMonthMetadata)
     for (const entry of shelfViewModel.entries) {
+      if (presentation === 'r06') {
+        const authorizedMetadata = authorizedShelfMetadataByMonth.get(entry.yearMonth)
+        if (authorizedMetadata) {
+          result.set(entry.yearMonth, authorizedMetadata)
+          continue
+        }
+      }
+
       const participationIsReady =
         participationSnapshot.status === 'ready' && participationSnapshot.health === 'ok'
-      const progress = participationIsReady
-        ? completionProgressByMonth.get(entry.yearMonth)
+      const progressMetadata = participationIsReady
+        ? authorizedShelfMetadataByMonth.get(entry.yearMonth)
         : undefined
       const progressStatus =
         !participationIsReady && participationSnapshot.status !== 'ready'
           ? 'loading'
           : !participationIsReady
             ? 'unavailable'
-            : progress?.status ?? 'loading'
+            : progressMetadata?.progressStatus ?? 'loading'
       result.set(entry.yearMonth, {
         ...(result.get(entry.yearMonth) ?? { yearMonth: entry.yearMonth }),
-        completionProgress:
-          progress?.status === 'ready'
-            ? {
-                completedChallengeCount: progress.completedChallengeCount,
-                totalChallengeCount: progress.totalChallengeCount,
-              }
-            : undefined,
-        progressStatus: progressStatus === 'ready' ? undefined : progressStatus,
+        completionProgress: progressMetadata?.completionProgress,
+        progressStatus,
       })
     }
     return result
   }, [
-    completionProgressByMonth,
+    authorizedShelfMetadataByMonth,
     mergedMonthMetadata,
+    presentation,
     participationSnapshot.health,
     participationSnapshot.status,
     shelfViewModel.entries,
@@ -555,6 +549,7 @@ export function LibraryShelfHost({
           currentLocalDate={currentLocalDate}
           onExit={shelfOnExit}
           exitLabel={shelfExitLabel}
+          presentation={presentation}
         />
       ) : null}
       {needsGatewayCalendarContext && !calendarContextFailed && (

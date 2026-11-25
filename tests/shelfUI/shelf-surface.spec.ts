@@ -95,9 +95,12 @@ test.describe('Phase 05 / R08-4: Standalone Shelf Reader Surface', () => {
     await expect(sepCard.getByText('Active Focus', { exact: true })).toBeVisible()
 
     // Protect the auto-admitted October 2026 month
-    await octCard.getByRole('button', { name: 'Keep October 2026 on Shelf' }).click()
+    const keep = octCard.getByRole('button', { name: 'Keep October 2026 on Shelf' })
+    await keep.focus()
+    await page.keyboard.press('Enter')
     await expect(octCard).toHaveAttribute('data-protected', 'true')
     await expect(octCard.getByText('Kept on Shelf')).toBeVisible()
+    await expect(octCard.getByRole('status')).toBeFocused()
     await expect(octCard.getByRole('button', { name: /Keep|Remove Protection/ })).toHaveCount(0)
   })
 
@@ -112,15 +115,36 @@ test.describe('Phase 05 / R08-4: Standalone Shelf Reader Surface', () => {
     await october.getByRole('button', { name: 'Keep October 2026 on Shelf' }).click()
     await expect(october.getByText('Kept on Shelf')).toBeVisible()
 
-    await october.getByRole('button', { name: 'Set October 2026 as Active Focus' }).click()
+    const setFocus = october.getByRole('button', { name: 'Set October 2026 as Active Focus' })
+    await setFocus.focus()
+    await page.keyboard.press('Enter')
     await expect(cards.nth(0)).toHaveAttribute('data-year-month', '2026-10')
     await expect(october.getByText('Active Focus', { exact: true })).toBeVisible()
 
-    await october.getByRole('button', { name: 'Clear Active Focus from October 2026' }).click()
+    await page.keyboard.press('Enter')
+    await expect(october.getByRole('button', { name: 'Set October 2026 as Active Focus' })).toBeFocused()
     await expect(october.getByText('Kept on Shelf')).toBeVisible()
     await expect(october).toBeVisible()
     await expect(cards).toHaveCount(2)
     await expect(page.getByRole('button', { name: /Remove Protection/ })).toHaveCount(0)
+  })
+
+  test('legacy presentation retains original ordering, protection toggle and copy', async ({ page }) => {
+    await page.goto(`${harnessRootUrl}?scenario=two-months&presentation=legacy`)
+
+    const cards = page.locator('.shelf-card')
+    await expect(cards.nth(0)).toHaveAttribute('data-year-month', '2026-10')
+    await expect(cards.nth(1)).toHaveAttribute('data-year-month', '2026-09')
+    const september = cards.nth(1)
+    await expect(september.getByText('Saved to Shelf · Protected')).toBeVisible()
+    const unprotect = september.getByRole('button', {
+      name: 'Remove rollover protection for September 2026',
+    })
+    await expect(unprotect).toBeVisible()
+    await unprotect.click()
+    await expect(september).toHaveAttribute('data-protected', 'false')
+    await expect(september.getByText('Saved to Shelf', { exact: true })).toBeVisible()
+    await expect(cards).toHaveCount(2)
   })
 
   test('capacity overflow requires explicit replacement choice and never silently evicts protected months', async ({ page }) => {

@@ -10,7 +10,7 @@ import {
   attemptSelectLibraryMonthForShelf,
   buildShelfMonthMetadataMap,
   isGatewayAuthorizedHistoricalMonth,
-  loadShelfCompletionProgress,
+  loadAuthorizedShelfMonthMetadata,
   resolveReferenceCurrentYearMonth,
   validateAuthorizedMonthOpen,
 } from '../../src/components/libraryShelf/libraryShelfModel.ts'
@@ -33,7 +33,7 @@ const APPROVED_LIBRARY_ITEMS: readonly LibraryMonthSummary[] = [
   { yearMonth: '2026-07', year: 2026, month: 7, title: 'Living Word' },
 ]
 
-test('loadShelfCompletionProgress uses the month roster and authoritative gateway counts', async () => {
+test('loadAuthorizedShelfMonthMetadata uses an older month detail, its roster and authoritative gateway counts', async () => {
   const participationData: ReaderParticipationData = {
     ...emptyReaderParticipationData(),
     completedChallenges: {
@@ -43,11 +43,16 @@ test('loadShelfCompletionProgress uses the month roster and authoritative gatewa
   }
   let requestedCompletionIds: readonly string[] = []
   const provider = {
-    async loadMonth() {
+    async loadMonth(yearMonth: string) {
       return {
         status: 'ready',
+        source: 'gateway',
         month: {
-          monthId: '2026-10',
+          monthId: yearMonth,
+          title: 'An older authorized theme',
+          subtitle: 'A real month subtitle',
+          totalChallenges: 2,
+          rosterVersion: 1,
           slots: [
             { availability: 'available', challengeId: 'cms:october-challenge' },
             { availability: 'available', challengeId: 'cms:unfinished-challenge' },
@@ -55,12 +60,14 @@ test('loadShelfCompletionProgress uses the month roster and authoritative gatewa
         },
       }
     },
-    async loadMonthProgress(_yearMonth: string, completedChallengeIds: readonly string[]) {
+    async loadMonthProgress(yearMonth: string, completedChallengeIds: readonly string[]) {
       requestedCompletionIds = completedChallengeIds
       return {
         status: 'ready',
+        source: 'gateway',
         progress: {
-          monthId: '2026-10',
+          monthId: yearMonth,
+          rosterVersion: 1,
           completedInMonthCount: 1,
           totalChallenges: 2,
         },
@@ -68,49 +75,79 @@ test('loadShelfCompletionProgress uses the month roster and authoritative gatewa
     },
   } as unknown as MonthGatewayProvider
 
-  const progress = await loadShelfCompletionProgress({
-    yearMonths: ['2026-10', '2026-10'],
+  const metadata = await loadAuthorizedShelfMonthMetadata({
+    yearMonths: ['2024-01', '2024-01'],
     participationData,
     monthProvider: provider,
   })
 
   assert.deepEqual(requestedCompletionIds, ['cms:october-challenge'])
-  assert.deepEqual(progress.get('2026-10'), {
-    completedChallengeCount: 1,
-    totalChallengeCount: 2,
+  assert.deepEqual(metadata.get('2024-01'), {
+    yearMonth: '2024-01',
+    title: 'An older authorized theme',
+    subtitle: 'A real month subtitle',
+    completionProgress: {
+      completedChallengeCount: 1,
+      totalChallengeCount: 2,
+    },
   })
 })
 
-test('loadShelfCompletionProgress omits mismatched or invalid gateway progress', async () => {
+test('loadAuthorizedShelfMonthMetadata withholds unavailable months and mismatched or invalid progress', async () => {
   const provider = {
-    async loadMonth() {
+    async loadMonth(yearMonth: string) {
       return {
         status: 'ready',
+        source: 'gateway',
         month: {
-          monthId: '2026-10',
+          monthId: yearMonth,
+          title: 'Authorized month title',
+          totalChallenges: 1,
+          rosterVersion: 3,
           slots: [{ availability: 'available', challengeId: 'cms:october-challenge' }],
         },
       }
     },
-    async loadMonthProgress() {
+    async loadMonthProgress(yearMonth: string) {
       return {
         status: 'ready',
+        source: 'gateway',
         progress: {
-          monthId: '2026-10',
+          monthId: yearMonth,
+          rosterVersion: 2,
           completedInMonthCount: 3,
-          totalChallenges: 2,
+          totalChallenges: 1,
         },
       }
     },
   } as unknown as MonthGatewayProvider
 
-  const progress = await loadShelfCompletionProgress({
+  const metadata = await loadAuthorizedShelfMonthMetadata({
     yearMonths: ['2026-10'],
     participationData: emptyReaderParticipationData(),
     monthProvider: provider,
   })
 
-  assert.equal(progress.has('2026-10'), false)
+  assert.deepEqual(metadata.get('2026-10'), {
+    yearMonth: '2026-10',
+    title: 'Authorized month title',
+    progressStatus: 'unavailable',
+  })
+
+  const withdrawnProvider = {
+    async loadMonth() {
+      return { status: 'notFound', source: 'gateway' }
+    },
+  } as unknown as MonthGatewayProvider
+  const withdrawn = await loadAuthorizedShelfMonthMetadata({
+    yearMonths: ['2026-10'],
+    participationData: emptyReaderParticipationData(),
+    monthProvider: withdrawnProvider,
+  })
+  assert.deepEqual(withdrawn.get('2026-10'), {
+    yearMonth: '2026-10',
+    progressStatus: 'unavailable',
+  })
 })
 
 test('gateway authorization scans older pages beyond the currently loaded Library window', async () => {

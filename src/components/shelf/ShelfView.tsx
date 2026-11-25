@@ -4,6 +4,7 @@ import type { PublicationYearMonth } from '../../participation/types.ts'
 import { ShelfCard } from './ShelfCard.tsx'
 import type {
   ShelfCandidateMonthViewModel,
+  ShelfPresentation,
   ShelfViewModel,
 } from './shelfModel.ts'
 
@@ -23,6 +24,7 @@ export interface ShelfViewProps {
   readonly onRequestLibraryPicker?: () => void
   readonly onExit?: () => void
   readonly exitLabel?: string
+  readonly presentation?: ShelfPresentation
 }
 
 /**
@@ -51,6 +53,7 @@ export function ShelfView({
   onRequestLibraryPicker,
   onExit,
   exitLabel = 'Return',
+  presentation = 'legacy',
 }: ShelfViewProps) {
   const {
     entries,
@@ -179,6 +182,7 @@ export function ShelfView({
                   onPutAway={onPutAway}
                   onSetFocus={onSetFocus}
                   onClearFocus={onClearFocus}
+                  presentation={presentation}
                 />
               </li>
             ))}

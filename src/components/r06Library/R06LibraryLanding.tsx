@@ -214,6 +214,7 @@ export function R06LibraryLanding({
       </div>
 
       <LibraryShelfHost
+        presentation="r06"
         referenceCurrentYearMonth={referenceCurrentYearMonth}
         shelfState={shelfState}
         initialShelfState={initialShelfState}

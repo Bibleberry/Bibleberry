@@ -1,7 +1,7 @@
-import { useCallback } from 'react'
-import { BookmarkCheck, ChevronRight, Compass, Shield, X } from 'lucide-react'
+import { useCallback, useEffect, useRef } from 'react'
+import { BookmarkCheck, ChevronRight, Compass, Shield, ShieldOff, X } from 'lucide-react'
 import type { PublicationYearMonth } from '../../participation/types.ts'
-import type { ShelfEntryViewModel } from './shelfModel.ts'
+import type { ShelfEntryViewModel, ShelfPresentation } from './shelfModel.ts'
 
 export interface ShelfCardProps {
   readonly entry: ShelfEntryViewModel
@@ -10,6 +10,7 @@ export interface ShelfCardProps {
   readonly onPutAway: (yearMonth: PublicationYearMonth) => void
   readonly onSetFocus: (yearMonth: PublicationYearMonth) => void
   readonly onClearFocus: () => void
+  readonly presentation?: ShelfPresentation
 }
 
 /**
@@ -27,14 +28,25 @@ export function ShelfCard({
   onPutAway,
   onSetFocus,
   onClearFocus,
+  presentation = 'legacy',
 }: ShelfCardProps) {
+  const keptStatusRef = useRef<HTMLSpanElement>(null)
+  const wasProtected = useRef(entry.isProtected)
+
+  useEffect(() => {
+    if (presentation === 'r06' && !wasProtected.current && entry.isProtected) {
+      keptStatusRef.current?.focus()
+    }
+    wasProtected.current = entry.isProtected
+  }, [entry.isProtected, presentation])
+
   const handleOpen = useCallback(() => {
     onOpenMonth(entry.yearMonth)
   }, [entry.yearMonth, onOpenMonth])
 
-  const handleKeepOnShelf = useCallback(() => {
-    onSetProtection(entry.yearMonth, true)
-  }, [entry.yearMonth, onSetProtection])
+  const handleToggleProtection = useCallback(() => {
+    onSetProtection(entry.yearMonth, presentation === 'r06' || !entry.isProtected)
+  }, [entry.isProtected, entry.yearMonth, onSetProtection, presentation])
 
   const handlePutAway = useCallback(() => {
     onPutAway(entry.yearMonth)
@@ -52,11 +64,19 @@ export function ShelfCard({
     ? `Open ${entry.monthHeading}: ${entry.title}`
     : `Open ${entry.monthHeading}`
 
-  const keepAriaLabel = `Keep ${entry.monthHeading} on Shelf`
+  const keepAriaLabel = presentation === 'r06'
+    ? `Keep ${entry.monthHeading} on Shelf`
+    : entry.isProtected
+      ? `Remove rollover protection for ${entry.monthHeading}`
+      : `Keep ${entry.monthHeading} on Shelf (protect from rollover)`
 
-  const focusAriaLabel = entry.isActiveFocus
-    ? `Clear Active Focus from ${entry.monthHeading}`
-    : `Set ${entry.monthHeading} as Active Focus`
+  const focusAriaLabel = presentation === 'r06'
+    ? entry.isActiveFocus
+      ? `Clear Active Focus from ${entry.monthHeading}`
+      : `Set ${entry.monthHeading} as Active Focus`
+    : entry.isActiveFocus
+      ? `Clear study focus from ${entry.monthHeading}`
+      : `Set ${entry.monthHeading} as active study focus`
 
   return (
     <article
@@ -78,13 +98,19 @@ export function ShelfCard({
             ) : (
               <BookmarkCheck size={13} aria-hidden="true" />
             )}
-            <span>{entry.statusLabel}</span>
+            <span
+              ref={keptStatusRef}
+              role={presentation === 'r06' && entry.isProtected ? 'status' : undefined}
+              tabIndex={presentation === 'r06' && entry.isProtected ? -1 : undefined}
+            >
+              {entry.statusLabel}
+            </span>
           </span>
 
           {entry.isActiveFocus && (
             <span className="shelf-badge shelf-badge--focus">
               <Compass size={13} aria-hidden="true" />
-              <span>Active Focus</span>
+              <span>{presentation === 'r06' ? 'Active Focus' : 'Active Study Focus'}</span>
             </span>
           )}
         </div>
@@ -100,7 +126,7 @@ export function ShelfCard({
         {entry.subtitle && <p className="shelf-card__subtitle">{entry.subtitle}</p>}
 
         <p className="shelf-card__explanation">{entry.protectionExplanation}</p>
-        {entry.completionProgress && (
+        {presentation === 'r06' && entry.completionProgress && (
           <div className="shelf-card__progress">
             <span>
               {entry.completionProgress.completedChallengeCount} of{' '}
@@ -115,10 +141,10 @@ export function ShelfCard({
             )}
           </div>
         )}
-        {!entry.completionProgress && entry.progressStatus === 'loading' && (
+        {presentation === 'r06' && !entry.completionProgress && entry.progressStatus === 'loading' && (
           <p className="shelf-card__progress-status" role="status">Loading completion progress…</p>
         )}
-        {!entry.completionProgress && entry.progressStatus === 'unavailable' && (
+        {presentation === 'r06' && !entry.completionProgress && entry.progressStatus === 'unavailable' && (
           <p className="shelf-card__progress-status">Completion progress unavailable</p>
         )}
       </div>
@@ -135,15 +161,22 @@ export function ShelfCard({
         </button>
 
         <div className="shelf-card__secondary-actions">
-          {!entry.isProtected && (
+          {(presentation === 'legacy' || !entry.isProtected) && (
             <button
               type="button"
               className="shelf-btn shelf-btn--secondary"
-              onClick={handleKeepOnShelf}
+              onClick={handleToggleProtection}
               aria-label={keepAriaLabel}
+              aria-pressed={presentation === 'legacy' ? entry.isProtected : undefined}
             >
-              <Shield size={15} aria-hidden="true" />
-              <span>Keep on Shelf</span>
+              {presentation === 'legacy' && entry.isProtected
+                ? <ShieldOff size={15} aria-hidden="true" />
+                : <Shield size={15} aria-hidden="true" />}
+              <span>
+                {presentation === 'r06' || !entry.isProtected
+                  ? 'Keep on Shelf'
+                  : 'Remove Protection'}
+              </span>
             </button>
           )}
 
@@ -155,7 +188,11 @@ export function ShelfCard({
             aria-pressed={entry.isActiveFocus}
           >
             <Compass size={15} aria-hidden="true" />
-            <span>{entry.isActiveFocus ? 'Clear Active Focus' : 'Set as Active Focus'}</span>
+            <span>
+              {presentation === 'r06'
+                ? entry.isActiveFocus ? 'Clear Active Focus' : 'Set as Active Focus'
+                : entry.isActiveFocus ? 'Clear Focus' : 'Set as Focus'}
+            </span>
           </button>
 
           <button
