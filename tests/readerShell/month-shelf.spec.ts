@@ -7,6 +7,7 @@ import {
   buildCurrentMonthProgressPayload,
   buildDefaultCurrentMonthPayload,
   buildDefaultHistoricalMonthPayload,
+  buildChallengeFixture,
   buildGuestParticipationStorageValue,
   buildGuestShelfStorageValue,
   buildHistoricalMonthProgressPayload,
@@ -18,6 +19,7 @@ import {
   monthTitle,
   participationKey,
   shelfKey,
+  serverContext,
 } from './fixtures/m1aGatewayFixtures.ts'
 
 let enabledServer: ViteDevServer
@@ -90,6 +92,158 @@ async function enterCatalogue(page: Page) {
   await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Library' }).click()
   await page.getByRole('button', { name: 'Browse All Months' }).click()
 }
+
+test('R06 Shelf loads an older authorized Month theme and updates progress after Finish, then clears it when withdrawn', async ({ page }) => {
+  const olderMonth = '2025-01'
+  const olderTheme = 'Synthetic older authorized theme'
+  let withdrawn = false
+  let invalidProgress = false
+
+  await page.addInitScript(({ shelfKey, participationKey, shelf, participation }) => {
+    localStorage.setItem(shelfKey, shelf)
+    localStorage.setItem(participationKey, participation)
+  }, {
+    shelfKey,
+    participationKey,
+    shelf: buildGuestShelfStorageValue({
+      activeFocusMonth: null,
+      months: [{ yearMonth: olderMonth, admissionKind: 'autoAdmitted', isProtected: false }],
+    }),
+    participation: buildGuestParticipationStorageValue(),
+  })
+
+  await page.route('**/api/library/months**', route => {
+    const cursor = new URL(route.request().url()).searchParams.get('cursor')
+    const pagePayload = buildLibraryMonthsPayload()
+    return route.fulfill({
+      json: {
+        ...pagePayload,
+        items: cursor
+          ? [{ yearMonth: olderMonth, year: 2025, month: 1, title: olderTheme }]
+          : pagePayload.items,
+        page: {
+          limit: 12,
+          hasMore: !cursor,
+          nextCursor: cursor ? null : '2025-03',
+        },
+      },
+    })
+  })
+  await page.route(`**/api/months/${olderMonth}`, route =>
+    withdrawn
+      ? route.fulfill({ status: 404, json: { ok: false, error: 'Month not found' } })
+      : route.fulfill({
+          json: buildMonthPayload({
+            yearMonth: olderMonth,
+            year: 2025,
+            month: 1,
+            daysInMonth: 31,
+            phase: 'historical',
+            title: olderTheme,
+            context: serverContext,
+            slotOverride: (dayOfMonth, date) => ({
+              dayOfMonth,
+              date,
+              availability: 'available',
+              title: `Synthetic Challenge ${dayOfMonth}`,
+              slug: dayOfMonth === 1 ? 'older-day-01' : `older-day-${dayOfMonth}`,
+              challengeId: `cms:${dayOfMonth === 1 ? 'older-day-01' : `older-day-${dayOfMonth}`}`,
+              challengeType: 'teaching',
+            }),
+          }),
+        }),
+  )
+  await page.route(`**/api/months/${olderMonth}/progress`, route => {
+    const request = route.request().postDataJSON() as { completedChallengeIds?: string[] } | null
+    const completedInMonthCount = request?.completedChallengeIds?.length ?? 0
+    return route.fulfill({
+      json: {
+        ok: true,
+        serverContext,
+        monthId: olderMonth,
+        rosterVersion: invalidProgress ? 2 : 1,
+        completedInMonthCount,
+        totalChallenges: 31,
+        thematicEarnedCount: 0,
+        thematicTotalCount: 0,
+        discoveries: [],
+      },
+    })
+  })
+  await page.route('**/api/challenges/older-day-01', route =>
+    route.fulfill({
+      json: {
+        ok: true,
+        serverContext,
+        challenge: buildChallengeFixture({
+          yearMonth: olderMonth,
+          dayOfMonth: 1,
+          documentId: 'older-day-01',
+          slug: 'older-day-01',
+          title: 'Synthetic older Challenge',
+          seriesId: 'older-month-series',
+          seriesTitle: 'Synthetic older series',
+          scriptureReference: 'Psalm 119:105',
+          releaseAt: '2025-01-01T00:00:00Z',
+          reviewedAt: '2025-01-01T12:00:00Z',
+          screenKeyPrefix: 'older-step',
+          screenHeadingPrefix: 'Synthetic older step',
+          bodyText: 'Synthetic test content.',
+        }),
+      },
+    }),
+  )
+
+  await page.goto(readerUrl())
+  await page.getByRole('navigation', { name: 'Primary navigation' })
+    .getByRole('button', { name: 'Library' }).click()
+  const card = page.locator(`.shelf-card[data-year-month="${olderMonth}"]`)
+  await expect(card.getByRole('heading', { name: 'January 2025' })).toBeVisible()
+  await expect(card.getByText(olderTheme)).toBeVisible()
+  await expect(card.getByText('0 of 31 Challenges', { exact: true })).toBeVisible()
+  const keepOnShelf = card.getByRole('button', { name: 'Keep January 2025 on Shelf' })
+  await keepOnShelf.focus()
+  await page.keyboard.press('Enter')
+  await expect(card.getByRole('status')).toBeFocused()
+  expect((await storedShelf(page)).state).toMatchObject({
+    activeFocusMonth: null,
+    months: [{ yearMonth: olderMonth, isProtected: true }],
+  })
+
+  await card.getByRole('button', { name: 'Open January 2025' }).click()
+  await expect(page.getByRole('heading', { name: 'Test month overview', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Continue', exact: true }).click()
+  await page.getByRole('button', { name: 'Begin the Month', exact: true }).click()
+  await page.getByRole('button', { name: /Jan 1, 2025: Synthetic Challenge 1, Available/ }).click()
+  await page.getByRole('navigation', { name: 'Challenge screen navigation' })
+    .getByRole('button', { name: 'Next' }).click()
+  await page.getByRole('button', { name: 'Finish', exact: true }).click()
+  await expect(
+    page.locator('.month-ticker[aria-label="Monthly completion progress"]')
+      .getByText('1 of 31 Challenges', { exact: true }),
+  ).toBeVisible()
+  await page.getByRole('button', { name: 'Back', exact: true }).click()
+  await expect(card.getByText('1 of 31 Challenges', { exact: true })).toBeVisible()
+  expect((await participation(page)).completedChallenges['cms:older-day-01']).toBeTruthy()
+
+  invalidProgress = true
+  await page.getByRole('button', { name: 'Browse All Months' }).click()
+  await page.getByRole('button', { name: 'Your Shelf' }).click()
+  await expect(card.getByText('Completion progress unavailable')).toBeVisible()
+  await expect(card.getByText(olderTheme)).toBeVisible()
+  await expect(card.getByText('1 of 31 Challenges', { exact: true })).toHaveCount(0)
+
+  withdrawn = true
+  await page.getByRole('button', { name: 'Browse All Months' }).click()
+  await page.getByRole('button', { name: 'Your Shelf' }).click()
+  await expect(card.getByText('Completion progress unavailable')).toBeVisible()
+  await expect(card.getByText(olderTheme)).toHaveCount(0)
+  await expect(card).toHaveAttribute('data-protected', 'true')
+  expect((await storedShelf(page)).state).toMatchObject({
+    activeFocusMonth: null,
+    months: [{ yearMonth: olderMonth, isProtected: true }],
+  })
+})
 
 test('J5 shares protected Shelf membership across the Month and Library entrances and reload', async ({ page }) => {
   const september = buildMonthPayload({
@@ -198,7 +352,7 @@ test('J5 confirms replacement and Active Focus in place while preserving study r
   await expect(chooser).toContainText(monthTitle)
   await expect(chooser.getByRole('group', { name: 'Current Shelf months' }).getByRole('radio')).toHaveCount(3)
   await expect(chooser.getByRole('radio', { name: /July 2026.*Active Focus/ })).toBeVisible()
-  await expect(chooser.getByRole('radio', { name: /August 2026.*Protected/ })).toBeVisible()
+  await expect(chooser.getByRole('radio', { name: /August 2026.*Kept on Shelf/ })).toBeVisible()
   await chooser.getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(add).toBeFocused()
   expect(await storedShelf(page)).toEqual(shelfBefore)
@@ -219,6 +373,8 @@ test('J5 confirms replacement and Active Focus in place while preserving study r
   expect(stored.state.activeFocusMonth).toBe('2026-08')
   expect(stored.state.months.map((month: { yearMonth: string }) => month.yearMonth).sort()).toEqual(['2026-08', '2026-09', monthId])
   expect(stored.state.months.find((month: { yearMonth: string }) => month.yearMonth === monthId))
+    .toMatchObject({ admissionKind: 'readerSelected', isProtected: true })
+  expect(stored.state.months.find((month: { yearMonth: string }) => month.yearMonth === '2026-08'))
     .toMatchObject({ admissionKind: 'readerSelected', isProtected: true })
   expect(await participation(page)).toEqual(progressBefore)
 

@@ -21,6 +21,7 @@ import {
   validateOpenShelfMonthTarget,
   type ShelfEntryViewModel,
   type ShelfMonthMetadata,
+  type ShelfPresentation,
 } from './shelfModel.ts'
 import { ShelfReplaceDialog } from './ShelfReplaceDialog.tsx'
 import { ShelfPutAwayDialog } from './ShelfPutAwayDialog.tsx'
@@ -94,6 +95,9 @@ export interface ShelfHostProps {
    * Accessible label for exit action. Defaults to 'Return'.
    */
   readonly exitLabel?: string
+
+  /** Opts into the approved R06 Shelf card presentation; shared legacy use stays unchanged. */
+  readonly presentation?: ShelfPresentation
 }
 
 interface PendingShelfConfirmation {
@@ -124,6 +128,7 @@ export function ShelfHost({
   currentLocalDate,
   onExit,
   exitLabel = 'Return',
+  presentation = 'legacy',
 }: ShelfHostProps) {
   const [internalState, setInternalState] = useState<ShelfState>(
     () => initialState ?? createEmptyShelfState(),
@@ -152,8 +157,8 @@ export function ShelfHost({
   )
 
   const viewModel = useMemo(
-    () => projectShelfViewModel(currentState, referenceCurrentYearMonth, monthMetadata),
-    [currentState, monthMetadata, referenceCurrentYearMonth],
+    () => projectShelfViewModel(currentState, referenceCurrentYearMonth, monthMetadata, presentation),
+    [currentState, monthMetadata, presentation, referenceCurrentYearMonth],
   )
 
   const candidateMonths = useMemo(
@@ -357,7 +362,7 @@ export function ShelfHost({
       setErrorMessage(null)
       commitState(result.state)
       const heading = formatPublicationMonthHeading(yearMonth)
-      setLiveAnnouncement(`${heading} set as active study focus.`)
+      setLiveAnnouncement(`${heading} set as Active Focus.`)
     },
     [commitState, currentLocalDate, currentState],
   )
@@ -366,7 +371,7 @@ export function ShelfHost({
     const nextState = clearActiveFocusMonth(currentState, currentLocalDate)
     setErrorMessage(null)
     commitState(nextState)
-    setLiveAnnouncement('Active study focus cleared.')
+    setLiveAnnouncement('Active Focus cleared.')
   }, [commitState, currentLocalDate, currentState])
 
   const pendingTitle = useMemo(() => {
@@ -391,6 +396,7 @@ export function ShelfHost({
         onRequestLibraryPicker={onRequestLibraryPicker}
         onExit={onExit}
         exitLabel={exitLabel}
+        presentation={presentation}
       />
 
       <ShelfReplaceDialog

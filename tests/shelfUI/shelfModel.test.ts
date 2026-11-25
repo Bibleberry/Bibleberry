@@ -43,12 +43,12 @@ test('projectShelfViewModel renders 0, 1, 2, and 3 historical months without pad
     ],
     activeFocusMonth: null,
   }
-  const vm1 = projectShelfViewModel(oneMonth, CURRENT_MONTH)
+  const vm1 = projectShelfViewModel(oneMonth, CURRENT_MONTH, undefined, 'r06')
   assert.equal(vm1.entries.length, 1)
   assert.equal(vm1.isFull, false)
   assert.equal(vm1.entries[0]?.monthHeading, 'October 2026')
   assert.equal(vm1.entries[0]?.title, null)
-  assert.equal(vm1.entries[0]?.statusLabel, 'Saved to Shelf · Protected')
+  assert.equal(vm1.entries[0]?.statusLabel, 'Kept on Shelf')
 
   const threeMonths: ShelfState = {
     months: [
@@ -71,20 +71,73 @@ test('projectShelfViewModel renders 0, 1, 2, and 3 historical months without pad
     activeFocusMonth: '2026-09' as PublicationYearMonth,
   }
   const metadata: Record<string, ShelfMonthMetadata> = {
-    '2026-10': { yearMonth: '2026-10', title: 'Walk in Gratitude' },
+    '2026-10': {
+      yearMonth: '2026-10',
+      title: 'Walk in Gratitude',
+      completionProgress: { completedChallengeCount: 14, totalChallengeCount: 31 },
+    },
     '2026-09': { yearMonth: '2026-09', title: 'Steadfast Hope' },
   }
 
-  const vm3 = projectShelfViewModel(threeMonths, CURRENT_MONTH, metadata)
+  const vm3 = projectShelfViewModel(threeMonths, CURRENT_MONTH, metadata, 'r06')
   assert.equal(vm3.entries.length, 3)
   assert.equal(vm3.isFull, true)
-  assert.equal(vm3.entries[0]?.title, 'Walk in Gratitude')
-  assert.equal(vm3.entries[1]?.statusLabel, 'Added at rollover')
-  assert.equal(vm3.entries[1]?.isProtected, false)
-  assert.equal(vm3.entries[1]?.isActiveFocus, true)
-  assert.equal(vm3.entries[2]?.statusLabel, 'Added at rollover · Protected')
+  assert.deepEqual(
+    vm3.entries.map(entry => entry.yearMonth),
+    ['2026-09', '2026-10', '2026-08'],
+  )
+  assert.equal(vm3.entries[0]?.statusLabel, 'Added at rollover')
+  assert.equal(vm3.entries[0]?.isProtected, false)
+  assert.equal(vm3.entries[1]?.title, 'Walk in Gratitude')
+  assert.deepEqual(vm3.entries[1]?.completionProgress, {
+    completedChallengeCount: 14,
+    totalChallengeCount: 31,
+  })
+  assert.equal(vm3.entries[0]?.isActiveFocus, true)
+  assert.equal(vm3.entries[2]?.statusLabel, 'Kept on Shelf')
   assert.equal(vm3.entries[2]?.title, null)
   assert.equal(vm3.activeFocusOutsideShelf, false)
+  assert.deepEqual(
+    threeMonths.months.map(entry => entry.yearMonth),
+    ['2026-10', '2026-09', '2026-08'],
+    'presentation ordering must not mutate persisted Shelf membership order',
+  )
+})
+
+test('projectShelfViewModel sorts all months newest-first when no Active Focus is selected', () => {
+  const state: ShelfState = {
+    months: [
+      { yearMonth: '2025-12' as PublicationYearMonth, admissionKind: 'autoAdmitted', isProtected: false },
+      { yearMonth: '2026-08' as PublicationYearMonth, admissionKind: 'readerSelected', isProtected: true },
+      { yearMonth: '2026-10' as PublicationYearMonth, admissionKind: 'autoAdmitted', isProtected: false },
+    ],
+    activeFocusMonth: null,
+  }
+
+  const viewModel = projectShelfViewModel(state, CURRENT_MONTH, undefined, 'r06')
+  assert.deepEqual(
+    viewModel.entries.map(entry => entry.yearMonth),
+    ['2026-10', '2026-08', '2025-12'],
+  )
+})
+
+test('legacy Shelf presentation preserves input ordering and existing protection controls copy', () => {
+  const state: ShelfState = {
+    months: [
+      { yearMonth: '2026-08' as PublicationYearMonth, admissionKind: 'readerSelected', isProtected: true },
+      { yearMonth: '2026-10' as PublicationYearMonth, admissionKind: 'autoAdmitted', isProtected: false },
+      { yearMonth: '2026-09' as PublicationYearMonth, admissionKind: 'autoAdmitted', isProtected: true },
+    ],
+    activeFocusMonth: '2026-10' as PublicationYearMonth,
+  }
+
+  const viewModel = projectShelfViewModel(state, CURRENT_MONTH)
+  assert.deepEqual(
+    viewModel.entries.map(entry => entry.yearMonth),
+    ['2026-08', '2026-10', '2026-09'],
+  )
+  assert.equal(viewModel.entries[0]?.statusLabel, 'Saved to Shelf · Protected')
+  assert.equal(viewModel.entries[1]?.statusLabel, 'Added at rollover')
 })
 
 test('projectShelfViewModel strictly excludes current and future months and detects outside focus', () => {

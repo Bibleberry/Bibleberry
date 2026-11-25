@@ -4,11 +4,6 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
-const TINY_PNG_BUFFER = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aW0cAAAAASUVORK5CYII=',
-  'base64',
-)
-
 let viteServer: ViteDevServer | null = null
 let harnessRootUrl = ''
 
@@ -52,9 +47,7 @@ test.describe('R08-2 Reader-facing Historical Library Catalogue', () => {
       }
     })
 
-    await page.route('https://cdn.sanity.io/images/**', route =>
-      route.fulfill({ status: 200, contentType: 'image/png', body: TINY_PNG_BUFFER }),
-    )
+
   })
 
   test.afterEach(() => {
@@ -76,8 +69,7 @@ test.describe('R08-2 Reader-facing Historical Library Catalogue', () => {
     await expect(octCard).toBeVisible()
     await expect(octCard.getByRole('heading', { name: 'Walk in Gratitude' })).toBeVisible()
     await expect(octCard.getByText('October 2026')).toBeVisible()
-    await expect(octCard.getByText('Thirty-one studies on thankfulness.')).toBeVisible()
-    await expect(octCard.locator('img.library-card__cover-image')).toBeVisible()
+    await expect(octCard.locator('img')).toHaveCount(0)
 
     await expect(sepCard).toBeVisible()
     await expect(sepCard.getByRole('heading', { name: 'Steadfast Hope' })).toBeVisible()
@@ -221,6 +213,11 @@ test.describe('R08-2 Reader-facing Historical Library Catalogue', () => {
     // Tab to Return button
     await page.keyboard.press('Tab')
     await expect(page.getByRole('button', { name: 'Return to Hub' })).toBeFocused()
+
+    await page.keyboard.press('Tab')
+    await expect(page.getByRole('searchbox')).toBeFocused()
+    await page.keyboard.press('Tab')
+    await expect(page.getByRole('button', { name: '2026', exact: true })).toBeFocused()
 
     // Tab to first card's Open Month button
     await page.keyboard.press('Tab')

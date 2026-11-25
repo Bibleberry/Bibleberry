@@ -55,6 +55,7 @@ export const TARGET_PATTERNS = {
   'release-gateway': [
     ...UNIVERSAL_PATTERNS,
     /^src\/gateway\//,
+    /^src\/lib\/libraryMonthSearch\.ts$/,
     /^src\/types\//,
     /^src\/utils\//,
     /^tests\/gateway\//,

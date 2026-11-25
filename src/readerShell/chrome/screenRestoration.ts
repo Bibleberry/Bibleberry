@@ -16,6 +16,10 @@ export function captureScreenRestoration(
   // or form values from the reader. Check the element type again on return.
   const steps: string[] = []
   const focused = lastFocused && screen.contains(lastFocused) ? lastFocused : document.activeElement
+  const library = screen.querySelector('.library-page')
+  const libraryFocus = focused instanceof HTMLElement && library?.contains(focused)
+    ? focused.getAttribute('data-library-focus') ?? 'search'
+    : undefined
   if (focused instanceof HTMLElement && screen.contains(focused)) {
     for (let node = focused; node !== screen && node.parentElement; node = node.parentElement) {
       const index = Array.from(node.parentElement.children).indexOf(node)
@@ -24,12 +28,23 @@ export function captureScreenRestoration(
   }
   return {
     scrollTop: viewport.scrollTop,
-    focusId: steps.length ? steps.join('/') : undefined,
+    focusId: libraryFocus ? `library:${libraryFocus}` : steps.length ? steps.join('/') : undefined,
     ...(agenda?.getAttribute('data-month-agenda') === 'preview' ? { monthPreview: true } : {}),
   }
 }
 
 function findSavedFocus(screen: HTMLElement, focusId: string): HTMLElement | null {
+  if (focusId.startsWith('library:')) {
+    const library = screen.querySelector<HTMLElement>('.library-page')
+    if (library?.getAttribute('data-library-restoration-ready') !== 'true') return null
+    const id = focusId.slice('library:'.length)
+    const controls = Array.from(library.querySelectorAll<HTMLElement>('[data-library-focus]'))
+    const target = controls.find(control => control.getAttribute('data-library-focus') === id)
+      ?? controls.find(control => control.getAttribute('data-library-focus') === 'search')
+    return target && !target.matches(':disabled') && !target.closest('[hidden], [inert]') && target.getClientRects().length
+      ? target
+      : library.querySelector<HTMLElement>('[data-library-focus="search"]')
+  }
   let node: Element | undefined = screen
   for (const step of focusId.split('/')) {
     const [tag, index] = step.split(':')
@@ -93,9 +108,9 @@ export function restoreScreen(
   observer.observe(screen)
   // A new Month calendar or a loaded News feed can occupy the same height as
   // its loading view. Observe their content so a returning control can receive focus.
-  const waitsForContent = month || screen.hasAttribute('data-news-screen')
+  const waitsForContent = month || screen.hasAttribute('data-news-screen') || Boolean(screen.querySelector('.library-page'))
   const contentObserver = waitsForContent ? new MutationObserver(restoreWhenReady) : undefined
-  contentObserver?.observe(screen, { childList: true, subtree: true })
+  contentObserver?.observe(screen, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-library-restoration-ready'] })
   if (month) {
     screen.addEventListener('load', restoreWhenReady, true)
     screen.addEventListener('error', restoreWhenReady, true)

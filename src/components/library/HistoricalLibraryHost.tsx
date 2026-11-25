@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react'
+import { useCallback, useContext, useEffect, useMemo, useLayoutEffect, useReducer, useRef, useState } from 'react'
 import {
   DEFAULT_LIBRARY_PAGE_SIZE,
   defaultGatewayLibraryMonthIndexProvider,
@@ -12,6 +12,7 @@ import {
   isValidYearMonth,
   type HistoricalLibraryState,
 } from './historicalLibraryModel.ts'
+import { LibraryRouteVisible } from './libraryRouteVisibility.ts'
 import { HistoricalLibraryView } from './HistoricalLibraryView.tsx'
 
 export interface HistoricalLibraryHostProps {
@@ -78,11 +79,8 @@ export interface HistoricalLibraryHostProps {
    */
   readonly shelfAnnouncement?: string
 
-  /**
-   * Optional preserved Library state so returning between Shelf and Library
-   * does not discard loaded pages or server context.
-   */
-  readonly preservedState?: HistoricalLibraryState
+  /** The retained host also supplies unfiltered metadata to Shelf. */
+  readonly browsing?: boolean
 
   /**
    * Optional callback invoked whenever the Library state updates.
@@ -113,19 +111,30 @@ export function HistoricalLibraryHost({
   onViewShelf,
   shelfMaxCapacity,
   shelfAnnouncement,
-  preservedState,
+  browsing = true,
   onStateChange,
 }: HistoricalLibraryHostProps) {
-  const [state, dispatch] = useReducer(
-    historicalLibraryReducer,
-    preservedState ?? initialHistoricalLibraryState,
-  )
+  const [state, dispatch] = useReducer(historicalLibraryReducer, initialHistoricalLibraryState)
+  const [restorationReady, setRestorationReady] = useState(false)
+  const routeVisible = useContext(LibraryRouteVisible)
+  const loadCatalogue = routeVisible || !browsing
+  const [searchText, setSearchText] = useState('')
+  const query = browsing ? searchText.trim() : ''
+  const controllerRef = useRef<AbortController | null>(null)
+  // Retain navigation depth only. Rebuild previous windows through the gateway
+  // on return so a withdrawal cannot be restored from an old result list.
+  const browseDepth = useRef(1)
+  const searchDepth = useRef(1)
+  const loadedDepth = useRef(0)
 
-  const activeAbortControllerRef = useRef<AbortController | null>(null)
-  const isMountedRef = useRef(true)
-  const hasHydratedInitialRef = useRef(
-    Boolean(preservedState && preservedState.status !== 'idle'),
-  )
+  const [lastBrowsing, setLastBrowsing] = useState(browsing)
+  const [entry, setEntry] = useState(0)
+  if (lastBrowsing !== browsing) {
+    setLastBrowsing(browsing)
+    // A pending first window is already fresh. Keep that request alive when
+    // entering from Shelf, but reauthorize any previously displayed pages.
+    if (browsing && state.status !== 'idle' && state.status !== 'loading-initial') setEntry(entry + 1)
+  }
 
   const resolvedPageSize = useMemo(() => {
     if (typeof pageSize !== 'number' || Number.isNaN(pageSize) || pageSize < 1) {
@@ -136,149 +145,99 @@ export function HistoricalLibraryHost({
 
   const fetchMonths = useCallback(
     async (mode: 'initial' | 'more', cursor?: string) => {
-      // Cancel any existing in-flight request
-      if (activeAbortControllerRef.current) {
-        activeAbortControllerRef.current.abort()
-      }
-
+      controllerRef.current?.abort()
       const controller = new AbortController()
-      activeAbortControllerRef.current = controller
-
-      if (mode === 'initial') {
-        dispatch({ type: 'START_INITIAL_LOAD' })
-      } else {
-        dispatch({ type: 'START_LOAD_MORE' })
-      }
-
+      controllerRef.current = controller
+      let action = mode
+      let next = cursor
+      const depth = query ? searchDepth : browseDepth
+      if (mode === 'initial') loadedDepth.current = 0
+      // An explicit Load more reads one window. A return replays only as far
+      // as the user previously browsed, following freshly authorized cursors.
+      const target = Math.max(depth.current, loadedDepth.current + 1)
+      depth.current = target
       try {
-        const result = await provider.loadHistoricalMonths({
-          limit: resolvedPageSize,
-          cursor,
-          timeZone,
-          signal: controller.signal,
-        })
-
-        if (!isMountedRef.current || controller.signal.aborted) {
-          return
-        }
-
-        switch (result.status) {
-          case 'ready':
-            if (mode === 'initial') {
-              dispatch({
-                type: 'INITIAL_LOAD_SUCCESS',
-                items: result.items,
-                page: result.page,
-                serverContext: result.serverContext,
-              })
-            } else {
-              dispatch({
-                type: 'LOAD_MORE_SUCCESS',
-                items: result.items,
-                page: result.page,
-                serverContext: result.serverContext,
-              })
-            }
-            break
-
-          case 'empty':
-            if (mode === 'initial') {
-              dispatch({
-                type: 'INITIAL_LOAD_SUCCESS',
-                items: [],
-                page: result.page,
-                serverContext: result.serverContext,
-              })
-            } else {
-              dispatch({
-                type: 'LOAD_MORE_SUCCESS',
-                items: [],
-                page: result.page,
-                serverContext: result.serverContext,
-              })
-            }
-            break
-
-          case 'requestError':
+        do {
+          dispatch({ type: action === 'initial' ? 'START_INITIAL_LOAD' : 'START_LOAD_MORE' })
+          const result = await provider.loadHistoricalMonths({
+            limit: resolvedPageSize, cursor: next, query, timeZone, signal: controller.signal,
+          })
+          if (controller.signal.aborted) return
+          if (result.status === 'requestError' || result.status === 'validationError') {
             dispatch({
               type: 'LOAD_FAILURE',
-              errorKind: 'request',
+              errorKind: result.status === 'requestError' ? 'request' : 'validation',
+              issues: result.status === 'validationError' ? result.issues : undefined,
               message: result.message,
-              failedAction: mode,
+              failedAction: action,
             })
-            break
-
-          case 'validationError':
-            dispatch({
-              type: 'LOAD_FAILURE',
-              errorKind: 'validation',
-              message: result.message,
-              issues: result.issues,
-              failedAction: mode,
-            })
-            break
+            return
+          }
+          dispatch({
+            type: action === 'initial' ? 'INITIAL_LOAD_SUCCESS' : 'LOAD_MORE_SUCCESS',
+            items: result.items,
+            page: result.page,
+            serverContext: result.serverContext,
+          })
+          loadedDepth.current += 1
+          depth.current = result.page.hasMore ? Math.max(depth.current, loadedDepth.current) : loadedDepth.current
+          next = result.page.nextCursor ?? undefined
+          action = 'more'
+        } while (next && loadedDepth.current < target)
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          dispatch({
+            type: 'LOAD_FAILURE', errorKind: 'request', failedAction: action,
+            message: error instanceof Error ? error.message : 'Unable to load historical months',
+          })
         }
-      } catch (err: unknown) {
-        if (!isMountedRef.current || controller.signal.aborted) {
-          return
-        }
-        if (err instanceof Error && err.name === 'AbortError') {
-          return
-        }
-        const message = err instanceof Error ? err.message : 'An unexpected network error occurred'
-        dispatch({
-          type: 'LOAD_FAILURE',
-          errorKind: 'request',
-          message,
-          failedAction: mode,
-        })
       } finally {
-        if (activeAbortControllerRef.current === controller) {
-          activeAbortControllerRef.current = null
+        if (controllerRef.current === controller) {
+          controllerRef.current = null
+          if (!controller.signal.aborted) setRestorationReady(true)
         }
       }
     },
-    [provider, resolvedPageSize, timeZone],
+    [provider, query, resolvedPageSize, timeZone],
   )
 
-  // Notify parent when Library state changes so navigation can preserve loaded pages
-  useEffect(() => {
-    onStateChange?.(state)
-  }, [onStateChange, state])
+  useEffect(() => { onStateChange?.(state) }, [onStateChange, state])
 
-  // Trigger initial fetch on mount or when provider/timeZone changes (unless hydrated from preservedState)
   useEffect(() => {
-    isMountedRef.current = true
-    if (hasHydratedInitialRef.current) {
-      hasHydratedInitialRef.current = false
-    } else {
-      void fetchMonths('initial')
+    function restorePage(event: PageTransitionEvent) {
+      if (event.persisted) setEntry(previous => previous + 1)
     }
+    window.addEventListener('pageshow', restorePage)
+    return () => window.removeEventListener('pageshow', restorePage)
+  }, [])
 
+  useLayoutEffect(() => {
+    setRestorationReady(false)
+    dispatch({ type: 'RESET' })
+    if (!loadCatalogue) return
+    // Coalesce keystrokes before requesting a new search window.
+    const timer = window.setTimeout(() => { void fetchMonths('initial') }, query ? 180 : 0)
     return () => {
-      isMountedRef.current = false
-      if (activeAbortControllerRef.current) {
-        activeAbortControllerRef.current.abort()
-        activeAbortControllerRef.current = null
-      }
+      window.clearTimeout(timer)
+      controllerRef.current?.abort()
     }
-  }, [fetchMonths])
+  }, [fetchMonths, query, entry, loadCatalogue])
 
-  const handleLoadMore = useCallback(() => {
-    if (!state.hasMore || state.status === 'loading-more') {
-      return
-    }
-    const cursor = state.nextCursor ?? undefined
-    void fetchMonths('more', cursor)
-  }, [fetchMonths, state.hasMore, state.nextCursor, state.status])
+  function changeSearch(text: string) {
+    if (text.trim() !== query) searchDepth.current = 1
+    setSearchText(text)
+  }
 
-  const handleRetry = useCallback(() => {
-    if (state.failedAction === 'more' && state.nextCursor) {
+  function handleLoadMore() {
+    if (!controllerRef.current && state.hasMore && state.nextCursor) {
       void fetchMonths('more', state.nextCursor)
-    } else {
-      void fetchMonths('initial')
     }
-  }, [fetchMonths, state.failedAction, state.nextCursor])
+  }
+
+  function handleRetry() {
+    if (state.failedAction === 'more' && state.nextCursor) void fetchMonths('more', state.nextCursor)
+    else void fetchMonths('initial')
+  }
 
   const handleOpenMonth = useCallback(
     (yearMonth: string) => {
@@ -316,7 +275,10 @@ export function HistoricalLibraryHost({
 
   return (
     <HistoricalLibraryView
+      restorationReady={restorationReady}
       state={state}
+      searchText={searchText}
+      onSearchChange={changeSearch}
       onOpenMonth={handleOpenMonth}
       onLoadMore={handleLoadMore}
       onRetry={handleRetry}

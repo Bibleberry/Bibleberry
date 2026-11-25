@@ -69,6 +69,8 @@ export function R06LibraryLanding({
   onShelfStateChange,
   currentLocalDate,
   libraryProvider,
+  monthProgressProvider,
+  participationStore,
   libraryPageSize,
   timeZone,
   monthMetadata,
@@ -212,12 +214,15 @@ export function R06LibraryLanding({
       </div>
 
       <LibraryShelfHost
+        presentation="r06"
         referenceCurrentYearMonth={referenceCurrentYearMonth}
         shelfState={shelfState}
         initialShelfState={initialShelfState}
         onShelfStateChange={shelfState === undefined ? handleShelfStateChange : onShelfStateChange}
         currentLocalDate={currentLocalDate}
         libraryProvider={libraryProvider}
+        monthProgressProvider={monthProgressProvider}
+        participationStore={participationStore}
         libraryPageSize={libraryPageSize}
         timeZone={timeZone}
         monthMetadata={monthMetadata}
