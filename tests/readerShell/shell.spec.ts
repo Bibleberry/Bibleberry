@@ -1859,6 +1859,35 @@ test('J4 G02 preserves completed Active Focus precedence', async ({ page }) => {
   await expect(continuation.getByRole('button', { name: /Continue Your Study/ })).toHaveCount(0)
 })
 
+test('J4 G02 does not present a prior-month Challenge that fails admission', async ({ page }) => {
+  await mockGateway(page)
+  await seedValidPriorMonthPosition(page)
+  await page.route(`**/api/challenges/${teachingSlug}`, route => route.fulfill({
+    json: { ok: true, challenge: { ...challenge, editorialEligibility: { adaptationReviewed: false } } },
+  }))
+  await page.goto(readerUrl())
+  await expect(page.getByTestId('today-primary-cta')).toBeVisible()
+  await expect(page.getByTestId('today-continue-study')).toHaveCount(0)
+})
+
+test('J4 G02 permits a subsequent verification after an inconsistent gateway response', async ({ page }) => {
+  await mockGateway(page)
+  await seedValidPriorMonthPosition(page)
+  let inconsistent = true
+  await page.route(`**/api/challenges/${teachingSlug}`, route => {
+    if (!inconsistent) return route.fallback()
+    inconsistent = false
+    return route.fulfill({
+      json: { ok: true, challenge: { ...challenge, documentId: 'mismatched-doc' } },
+    })
+  })
+  await page.goto(readerUrl())
+  await expect(page.getByTestId('today-primary-cta')).toBeVisible()
+  await expect(page.getByTestId('today-continue-study')).toHaveCount(0)
+  await page.reload()
+  await expect(page.getByTestId('today-continue-study').getByRole('button', { name: /Continue Your Study/ })).toBeVisible()
+})
+
 test('J4 G03 preserves progress for an identity absent from the prior-month roster', async ({ page }) => {
   await mockGateway(page)
   await seedRolloverProgress(page, false)

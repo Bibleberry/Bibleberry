@@ -4,12 +4,12 @@ import { defaultGatewayChallengeProvider } from '../../cms/reader/challengeDetai
 import type { MonthGatewayProvider } from '../../cms/reader/monthProvider.ts'
 import { createCapacitorPreferencesDriver } from '../../participation/drivers/capacitorPreferencesDriver.ts'
 import { createWebLocalStorageDriver } from '../../participation/drivers/webLocalStorageDriver.ts'
-import type { ReaderParticipationData } from '../../participation/types.ts'
+import type { ReaderParticipationData, PublicationYearMonth } from '../../participation/types.ts'
 import type { ReaderParticipationSnapshot, ReaderParticipationStore } from '../../participation/store.ts'
 import type { HubContinueSuggestion } from '../../hubContinue/types.ts'
 import type { GuestShelfSnapshot, GuestShelfStore } from '../../shelfPersistence/store.ts'
 import { getPreviousPublicationYearMonth } from '../../shelf/validation.ts'
-import { confirmsPriorMonthPosition, selectPriorMonthCandidates } from './priorMonthContinue.ts'
+import { evaluatePriorMonthContinue } from './priorMonthContinue.ts'
 import { createPriorMonthVisitStore, PRIOR_MONTH_VISIT_KEY } from './priorMonthVisitStore.ts'
 import type { TodayRolloverContext } from './todayShelfRollover.ts'
 
@@ -51,22 +51,23 @@ export function usePriorMonthContinue(
         latestShelf.health === 'ok' && !latestShelf.hasPendingWrites && latestShelf.state.activeFocusMonth === activeFocus
     }
 
-    async function evaluate(current: TodayRolloverContext, endingMonth: string, saved: ReaderParticipationData) {
+    async function evaluate(
+      current: TodayRolloverContext,
+      endingMonth: PublicationYearMonth,
+      saved: ReaderParticipationData,
+    ) {
       if (!await visits.isOpen(current.yearMonth) || !stillOnVisit()) return
-      let suggestion: HubContinueSuggestion | undefined
-      if (!activeFocus && Object.values(saved.inProgressChallenges).some(record => record.screenId)) {
-        const roster = await monthProvider.loadMonth(endingMonth, { signal, timeZone: current.effectiveTimeZone })
-        if (signal.aborted || roster.source !== 'gateway' ||
-          (roster.status !== 'ready' && roster.status !== 'notFound')) return
-        for (const candidate of selectPriorMonthCandidates(current, roster, saved)) {
-          const detail = await defaultGatewayChallengeProvider.loadChallenge(candidate.challengeSlug, { signal })
-          if (signal.aborted || detail.status === 'requestError') return
-          if (confirmsPriorMonthPosition(candidate, detail)) {
-            suggestion = candidate
-            break
-          }
-        }
-      }
+      const outcome = await evaluatePriorMonthContinue({
+        context: current,
+        endingMonth,
+        saved,
+        activeFocusMonth: activeFocus,
+        signal,
+        monthProvider,
+        challengeProvider: defaultGatewayChallengeProvider,
+      })
+      if (!outcome.settle || !stillOnVisit()) return
+      const { suggestion } = outcome
       const recorded = await visits.settle(current.yearMonth, suggestion ? 'presented' : 'closed', stillOnVisit)
       if (recorded && suggestion && stillOnVisit()) {
         setPresented({ yearMonth: current.yearMonth, suggestion })
