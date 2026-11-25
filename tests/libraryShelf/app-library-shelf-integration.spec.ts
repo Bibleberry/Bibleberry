@@ -536,7 +536,7 @@ test.describe('Issue #227 [Velvet Badger]: Ordinary Reader Library & Shelf Integ
     const shelfMain = page.getByRole('main', { name: 'Shelf' })
     await expect(shelfMain.getByText('Steadfast Joy')).toBeVisible()
     await expect(shelfMain.getByText('Quiet Trust')).toHaveCount(0)
-    await expect(shelfMain.locator('[data-year-month="2026-10"]').getByText('Active Focus', { exact: true })).toBeVisible()
+    await expect(shelfMain.locator('[data-year-month="2026-10"]').getByText('Active Study Focus', { exact: true })).toBeVisible()
 
     // Verify 2026-09 participation and earned awards remain contract-valid and intact
     const participationAfterReplace = await page.evaluate(

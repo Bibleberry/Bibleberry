@@ -97,6 +97,7 @@ test('R06 Shelf loads an older authorized Month theme and updates progress after
   const olderMonth = '2025-01'
   const olderTheme = 'Synthetic older authorized theme'
   let withdrawn = false
+  let invalidProgress = false
 
   await page.addInitScript(({ shelfKey, participationKey, shelf, participation }) => {
     localStorage.setItem(shelfKey, shelf)
@@ -160,7 +161,7 @@ test('R06 Shelf loads an older authorized Month theme and updates progress after
         ok: true,
         serverContext,
         monthId: olderMonth,
-        rosterVersion: 1,
+        rosterVersion: invalidProgress ? 2 : 1,
         completedInMonthCount,
         totalChallenges: 31,
         thematicEarnedCount: 0,
@@ -200,26 +201,48 @@ test('R06 Shelf loads an older authorized Month theme and updates progress after
   await expect(card.getByRole('heading', { name: 'January 2025' })).toBeVisible()
   await expect(card.getByText(olderTheme)).toBeVisible()
   await expect(card.getByText('0 of 31 Challenges', { exact: true })).toBeVisible()
+  const keepOnShelf = card.getByRole('button', { name: 'Keep January 2025 on Shelf' })
+  await keepOnShelf.focus()
+  await page.keyboard.press('Enter')
+  await expect(card.getByRole('status')).toBeFocused()
+  expect((await storedShelf(page)).state).toMatchObject({
+    activeFocusMonth: null,
+    months: [{ yearMonth: olderMonth, isProtected: true }],
+  })
 
   await card.getByRole('button', { name: 'Open January 2025' }).click()
-  await expect(page.getByRole('heading', { name: olderTheme, exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Test month overview', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Continue', exact: true }).click()
   await page.getByRole('button', { name: 'Begin the Month', exact: true }).click()
-  await page.getByRole('button', { name: 'Synthetic Challenge 1' }).click()
+  await page.getByRole('button', { name: /Jan 1, 2025: Synthetic Challenge 1, Available/ }).click()
   await page.getByRole('navigation', { name: 'Challenge screen navigation' })
     .getByRole('button', { name: 'Next' }).click()
   await page.getByRole('button', { name: 'Finish', exact: true }).click()
-  await expect(page.getByText('1 of 31')).toBeVisible()
+  await expect(
+    page.locator('.month-ticker[aria-label="Monthly completion progress"]')
+      .getByText('1 of 31 Challenges', { exact: true }),
+  ).toBeVisible()
   await page.getByRole('button', { name: 'Back', exact: true }).click()
   await expect(card.getByText('1 of 31 Challenges', { exact: true })).toBeVisible()
   expect((await participation(page)).completedChallenges['cms:older-day-01']).toBeTruthy()
+
+  invalidProgress = true
+  await page.getByRole('button', { name: 'Browse All Months' }).click()
+  await page.getByRole('button', { name: 'Your Shelf' }).click()
+  await expect(card.getByText('Completion progress unavailable')).toBeVisible()
+  await expect(card.getByText(olderTheme)).toBeVisible()
+  await expect(card.getByText('1 of 31 Challenges', { exact: true })).toHaveCount(0)
 
   withdrawn = true
   await page.getByRole('button', { name: 'Browse All Months' }).click()
   await page.getByRole('button', { name: 'Your Shelf' }).click()
   await expect(card.getByText('Completion progress unavailable')).toBeVisible()
   await expect(card.getByText(olderTheme)).toHaveCount(0)
-  await expect(card).toHaveAttribute('data-protected', 'false')
+  await expect(card).toHaveAttribute('data-protected', 'true')
+  expect((await storedShelf(page)).state).toMatchObject({
+    activeFocusMonth: null,
+    months: [{ yearMonth: olderMonth, isProtected: true }],
+  })
 })
 
 test('J5 shares protected Shelf membership across the Month and Library entrances and reload', async ({ page }) => {

@@ -6,17 +6,24 @@ import { areShelfStatesEqual, isShelfEntryProtected } from '../../shelf/validati
 import { defaultGuestShelfStore } from '../../shelfPersistence/defaultGuestShelfStore.ts'
 import { useGuestShelfStore } from '../../shelfPersistence/useGuestShelfStore.ts'
 import { ShelfReplaceDialog } from '../shelf/ShelfReplaceDialog.tsx'
-import { projectShelfViewModel } from '../shelf/shelfModel.ts'
+import { projectShelfViewModel, type ShelfPresentation } from '../shelf/shelfModel.ts'
 
 interface MonthShelfActionProps {
   readonly yearMonth: PublicationYearMonth
   readonly title: string
   readonly referenceMonth: PublicationYearMonth
   readonly authorizedLocalDate: string
+  readonly presentation?: ShelfPresentation
 }
 
 /** Shelf membership for a historical detail already authorized by the Month gateway. */
-export function MonthShelfAction({ yearMonth, title, referenceMonth, authorizedLocalDate }: MonthShelfActionProps) {
+export function MonthShelfAction({
+  yearMonth,
+  title,
+  referenceMonth,
+  authorizedLocalDate,
+  presentation = 'legacy',
+}: MonthShelfActionProps) {
   const store = defaultGuestShelfStore
   const snapshot = useGuestShelfStore(store)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -95,7 +102,11 @@ export function MonthShelfAction({ yearMonth, title, referenceMonth, authorizedL
         isOpen={pendingReplace !== null}
         incomingYearMonth={yearMonth}
         incomingTitle={title}
-        currentEntries={pendingReplace ? projectShelfViewModel(pendingReplace, referenceMonth).entries : []}
+        currentEntries={
+          pendingReplace
+            ? projectShelfViewModel(pendingReplace, referenceMonth, undefined, presentation).entries
+            : []
+        }
         onConfirmReplace={(replaceMonth, nextFocus) => {
           setPendingReplace(null)
           void select(replaceMonth, nextFocus)

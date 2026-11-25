@@ -289,16 +289,18 @@ export function LibraryShelfHost({
   const shelfCardMetadata = useMemo(() => {
     const result = new Map(mergedMonthMetadata)
     for (const entry of shelfViewModel.entries) {
+      const participationIsReady =
+        participationSnapshot.status === 'ready' && participationSnapshot.health === 'ok'
       if (presentation === 'r06') {
-        const authorizedMetadata = authorizedShelfMetadataByMonth.get(entry.yearMonth)
+        const authorizedMetadata = participationIsReady
+          ? authorizedShelfMetadataByMonth.get(entry.yearMonth)
+          : undefined
         if (authorizedMetadata) {
           result.set(entry.yearMonth, authorizedMetadata)
           continue
         }
       }
 
-      const participationIsReady =
-        participationSnapshot.status === 'ready' && participationSnapshot.health === 'ok'
       const progressMetadata = participationIsReady
         ? authorizedShelfMetadataByMonth.get(entry.yearMonth)
         : undefined
