@@ -1766,13 +1766,13 @@ test('J4 G03 retries a qualifying Shelf admission on the next Today visit withou
   expect(await participation(page)).toEqual(before)
 })
 
-async function seedValidPriorMonthPosition(page: Page, fullFocus = false) {
-  await page.addInitScript(({ key, id, sKey, prior, fullFocus }) => {
+async function seedValidPriorMonthPosition(page: Page, completedFocus?: string) {
+  await page.addInitScript(({ key, id, sKey, completedFocus }) => {
     if (localStorage.getItem(key)) return
-    const completedChallenges = fullFocus
-      ? Object.fromEntries(Array.from({ length: 31 }, (_, index) => {
+    const completedChallenges = completedFocus
+      ? Object.fromEntries(Array.from({ length: 30 }, (_, index) => {
           const day = index + 1
-          return [`cms:${day === 25 ? id : `${prior}-challenge-${day}`}`, { completedOn: '2026-10-31' }]
+          return [`cms:${completedFocus}-challenge-${day}`, { completedOn: '2026-09-30' }]
         }))
       : {}
     localStorage.setItem(key, JSON.stringify({
@@ -1782,11 +1782,11 @@ async function seedValidPriorMonthPosition(page: Page, fullFocus = false) {
         inProgressChallenges: { [`cms:${id}`]: { updatedOn: '2026-10-31', screenId: 'step-2' } },
       },
     }))
-    if (fullFocus) localStorage.setItem(sKey, JSON.stringify({
+    if (completedFocus) localStorage.setItem(sKey, JSON.stringify({
       schemaVersion: 1,
-      state: { activeFocusMonth: prior, months: [{ yearMonth: prior, admissionKind: 'readerSelected', isProtected: true }] },
+      state: { activeFocusMonth: completedFocus, months: [{ yearMonth: completedFocus, admissionKind: 'readerSelected', isProtected: true }] },
     }))
-  }, { key: participationKey, id: documentId, sKey: shelfKey, prior: monthId, fullFocus })
+  }, { key: participationKey, id: documentId, sKey: shelfKey, completedFocus })
 }
 
 for (const action of ['Exit', 'Finish'] as const) {
@@ -1844,11 +1844,18 @@ test('J4 G02 consumes on presentation and two concurrent Today visits share one 
 
 test('J4 G02 preserves completed Active Focus precedence', async ({ page }) => {
   await mockGateway(page)
-  await seedValidPriorMonthPosition(page, true)
+  const completedFocus = '2026-09'
+  await page.route(`**/api/months/${completedFocus}`, route => route.fulfill({
+    json: buildMonthPayload({
+      yearMonth: completedFocus, year: 2026, month: 9, daysInMonth: 30,
+      phase: 'historical', title: 'Completed focus',
+    }),
+  }))
+  await seedValidPriorMonthPosition(page, completedFocus)
   await page.goto(readerUrl())
   const continuation = page.getByTestId('today-continue-study')
   await expect(continuation).toHaveCount(1)
-  await expect(continuation.getByRole('button', { name: /Review This Month/ })).toBeVisible()
+  await expect(continuation.getByRole('button', { name: /Review This Month: September 2026/ })).toBeVisible()
   await expect(continuation.getByRole('button', { name: /Continue Your Study/ })).toHaveCount(0)
 })
 

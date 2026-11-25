@@ -16,7 +16,7 @@ import type { TodayRolloverContext } from './todayShelfRollover.ts'
 const native = Capacitor.isNativePlatform()
 const visits = createPriorMonthVisitStore(
   native ? createCapacitorPreferencesDriver() : createWebLocalStorageDriver(),
-  operation => !native && typeof navigator !== 'undefined' && navigator.locks
+  async operation => !native && typeof navigator !== 'undefined' && navigator.locks
     ? navigator.locks.request(PRIOR_MONTH_VISIT_KEY, operation)
     : operation(),
 )

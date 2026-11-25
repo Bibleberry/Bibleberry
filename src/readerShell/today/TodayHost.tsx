@@ -258,9 +258,12 @@ export function TodayHost({
     shelfStore,
     monthProvider,
   )
-  const continuation = hubContinueResult?.status === 'suggestion' ? hubContinueResult : priorMonthSuggestion
-    ? { status: 'suggestion', reason: 'inProgressAfterRollover', suggestion: priorMonthSuggestion } as const
-    : null
+  const continuation = useMemo(() => {
+    if (hubContinueResult?.status === 'suggestion') return hubContinueResult
+    return priorMonthSuggestion
+      ? { status: 'suggestion', reason: 'inProgressAfterRollover', suggestion: priorMonthSuggestion } as const
+      : null
+  }, [hubContinueResult, priorMonthSuggestion])
 
   const model = useMemo(
     () =>
