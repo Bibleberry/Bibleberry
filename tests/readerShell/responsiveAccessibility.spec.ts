@@ -164,6 +164,11 @@ for (const width of [320, 375]) {
       await destination.click()
       await expect(destination).toHaveAttribute('aria-current', 'page')
     }
+    if (width === 320) {
+      await nav.getByRole('button', { name: 'Collections', exact: true }).click()
+      await expect(page.getByRole('heading', { name: 'Collections', exact: true })).toBeVisible()
+      await page.screenshot({ path: 'test-results/issue-355/incidental-collections-heading-320px-200-percent.png', fullPage: true })
+    }
   })
 
   test(`R06 Today discovery actions and gallery stay usable at ${width}px and 200% text`, async ({ page }) => {
