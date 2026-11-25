@@ -502,3 +502,50 @@ test('takeVerifiedProvider retains single-visit provider until consumed and does
   assert.equal((await singleUse.loadChallenge('released-teaching')).status, 'ready')
   assert.equal(verified.takeVerifiedProvider('released-teaching'), undefined)
 })
+
+test('createR06ExternalIngressBridge fires onWarmIngressStart only for resumedSession source events', async () => {
+  let warmListener: ((url: string) => void) | null = null
+  const warmStarts: string[] = []
+  const outcomes: DeepLinkIngressOutcome[] = []
+
+  const bridge = createR06ExternalIngressBridge({
+    destinationOptions: routeOptions,
+    challengeProvider: {
+      async loadChallenge(slug) {
+        return {
+          status: 'ready',
+          source: 'gateway',
+          challenge: makeGatewayChallenge(slug),
+        }
+      },
+    },
+    policy: { allowedHttpsHosts: ['reader.example.test'] },
+    source: {
+      getInitialUrl: async () => 'https://reader.example.test/challenge/cold-teaching',
+      subscribeUrlOpen(listener) {
+        warmListener = listener
+        return () => {
+          warmListener = null
+        }
+      },
+    },
+    onWarmIngressStart(slug) {
+      warmStarts.push(slug)
+    },
+    onOutcome(outcome) {
+      outcomes.push(outcome)
+    },
+  })
+
+  const cold = await bridge.start()
+  assert.equal(cold?.outcome.status, 'navigated')
+  assert.deepEqual(warmStarts, [])
+
+  warmListener?.('https://reader.example.test/challenge/warm-teaching')
+  await new Promise(resolve => setTimeout(resolve, 0))
+  assert.deepEqual(warmStarts, ['warm-teaching'])
+  assert.equal(outcomes.length, 1)
+  assert.equal(outcomes[0]?.status, 'navigated')
+
+  bridge.stop()
+})

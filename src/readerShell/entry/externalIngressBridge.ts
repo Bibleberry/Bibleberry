@@ -117,6 +117,7 @@ export interface R06ExternalIngressOptions {
   readonly now?: () => number
   readonly getVerificationDate?: () => Date
   readonly dedupeWindowMs?: number
+  readonly onWarmIngressStart?: (slug: string) => void
   readonly onOutcome?: (
     outcome: DeepLinkIngressOutcome,
     verifiedProvider?: ChallengeDetailProvider,
@@ -165,12 +166,20 @@ export function createR06ExternalIngressBridge(
 
   let started = false
   let stopped = false
+  let inStart = false
   let directCallDepth = 0
 
   const externalController: DeepLinkIngressController = createDeepLinkIngressController({
     policy: externalPolicy,
     destinationOptions: options.destinationOptions,
-    challengeProvider: verified.challengeProvider,
+    challengeProvider: {
+      async loadChallenge(slug, loadOptions) {
+        if (started && !stopped && !inStart && directCallDepth === 0) {
+          options.onWarmIngressStart?.(slug)
+        }
+        return verified.challengeProvider.loadChallenge(slug, loadOptions)
+      },
+    },
     dedupeWindowMs: options.dedupeWindowMs,
     now: options.now,
     source: options.source
@@ -209,7 +218,13 @@ export function createR06ExternalIngressBridge(
       if (started || stopped) return null
       started = true
 
-      const externalOutcome = await externalController.start()
+      inStart = true
+      let externalOutcome: DeepLinkIngressOutcome | null
+      try {
+        externalOutcome = await externalController.start()
+      } finally {
+        inStart = false
+      }
       if (stopped) return null
       if (externalOutcome) {
         return {

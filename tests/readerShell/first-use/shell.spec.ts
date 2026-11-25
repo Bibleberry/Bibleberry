@@ -579,6 +579,9 @@ test('G09 J1/J2 delayed onboarding write cannot clobber in-flight or active exte
       await route.fulfill({ json: { ok: true, challenge } })
     })
 
+    await racePage.addInitScript(() => {
+      ;(window as unknown as { __r06EnableTutorialSeam?: boolean }).__r06EnableTutorialSeam = true
+    })
     await racePage.goto(serverUrl(seamServer))
     await expect(racePage.getByTestId('onboarding-step-heading')).toBeVisible()
 
@@ -626,11 +629,15 @@ test('G09 J1/J2 delayed onboarding write cannot clobber in-flight or active exte
     )
     await challengeRequestSeen
 
-    // Resolve the delayed profile write while external Challenge authorization is still pending
+    // Resolve the delayed profile write while the warm external gateway request is still held:
+    // neither the Tutorial seam nor Today may mount during the held request.
     await racePage.evaluate(() => {
       ;(window as unknown as { __r06ReleaseProfileUpdate?: () => void }).__r06ReleaseProfileUpdate?.()
     })
-    await racePage.waitForTimeout(50)
+    await racePage.waitForTimeout(80)
+    await expect(racePage.getByTestId('synthetic-tutorial-seam')).toHaveCount(0)
+    await expect(racePage.getByRole('heading', { name: 'Today', exact: true })).toHaveCount(0)
+    await expect(racePage.getByTestId('onboarding-step-heading')).toBeVisible()
 
     // External Challenge authorization completes and mounts using the single verified gateway fetch
     releaseChallenge()
@@ -747,5 +754,64 @@ test('G09 J1 communicates onboarding save failure accurately, recovers on Try Ag
     expect(await nextLaunch.evaluate(key => localStorage.getItem(key), readerProfileKey)).toBe('{corrupt')
   } finally {
     await corruptContext.close()
+  }
+
+  // 3. Mixed failure/recovery: Intro fails -> Continue Without Saving -> Tutorial seam succeeds -> Today (not back to Intro),
+  // while durable introStatus remains pending and re-offers on next ordinary fresh launch with Tutorial already completed.
+  const mixedContext = await context.browser()!.newContext()
+  try {
+    await mixedContext.clock.setFixedTime(new Date('2026-11-10T12:00:00Z'))
+    await mixedContext.route('https://**', route => route.abort())
+    await mockGateway(mixedContext)
+    const mixedPage = await mixedContext.newPage()
+    await mixedPage.addInitScript(
+      ({ key }) => {
+        ;(window as unknown as { __r06EnableTutorialSeam?: boolean }).__r06EnableTutorialSeam = true
+        const originalSetItem = Storage.prototype.setItem
+        Storage.prototype.setItem = function (name, value) {
+          if (name === key && document.documentElement.dataset.blockIntroOnce === 'true') {
+            throw new DOMException('Transient Intro write failure', 'QuotaExceededError')
+          }
+          return originalSetItem.call(this, name, value)
+        }
+      },
+      { key: readerProfileKey },
+    )
+
+    await mixedPage.goto(serverUrl(seamServer))
+    await mixedPage.evaluate(() => {
+      document.documentElement.dataset.blockIntroOnce = 'true'
+    })
+    await mixedPage.getByTestId('onboarding-skip-button').click()
+    await expect(mixedPage.getByTestId('first-use-save-failure')).toBeVisible()
+
+    // Continue Without Saving enters the Tutorial seam, then storage recovers before Tutorial completes
+    await mixedPage.getByTestId('first-use-continue-session-button').click()
+    await expect(mixedPage.getByTestId('synthetic-tutorial-seam')).toBeVisible()
+    await mixedPage.evaluate(() => {
+      delete document.documentElement.dataset.blockIntroOnce
+    })
+    await mixedPage.getByRole('button', { name: 'Complete Tutorial' }).click()
+
+    // Must advance to Today (never bounce back to Intro in the same session), with introStatus still pending
+    await expect(mixedPage.getByRole('heading', { name: 'Today', exact: true })).toBeVisible()
+    expect((await storedProfile(mixedPage)).profile).toMatchObject({
+      introStatus: 'pending',
+      tutorialStatus: 'completed',
+    })
+    await mixedPage.close()
+
+    // Next ordinary fresh launch re-offers pending Intro, and completing it goes directly to Today
+    const nextLaunch = await mixedContext.newPage()
+    await nextLaunch.goto(serverUrl(seamServer))
+    await expect(nextLaunch.getByTestId('onboarding-step-heading')).toBeVisible()
+    await nextLaunch.getByTestId('onboarding-skip-button').click()
+    await expect(nextLaunch.getByRole('heading', { name: 'Today', exact: true })).toBeVisible()
+    expect((await storedProfile(nextLaunch)).profile).toMatchObject({
+      introStatus: 'skipped',
+      tutorialStatus: 'completed',
+    })
+  } finally {
+    await mixedContext.close()
   }
 })

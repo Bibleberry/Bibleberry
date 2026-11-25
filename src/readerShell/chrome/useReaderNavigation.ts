@@ -145,6 +145,9 @@ export function useReaderNavigation(
   const revision = useRef(0)
   const awaitingBack = useRef(false)
   const pending = useRef<AbortController | null>(null)
+  const warmIngressInFlightRef = useRef(false)
+  const skipIntroInSessionRef = useRef(false)
+  const skipTutorialInSessionRef = useRef(false)
   const tutorialSavingRef = useRef(false)
 
   const rememberScreen = useCallback(() => {
@@ -182,7 +185,12 @@ export function useReaderNavigation(
 
   const isGuidanceFrameCurrent = useCallback(
     (sourceRevision: number, expectedKind: 'intro' | 'tutorial') => {
-      if (pending.current || awaitingBack.current || sourceRevision !== revision.current) {
+      if (
+        pending.current ||
+        warmIngressInFlightRef.current ||
+        awaitingBack.current ||
+        sourceRevision !== revision.current
+      ) {
         return false
       }
       const { state } = current.current
@@ -200,7 +208,11 @@ export function useReaderNavigation(
     (nextProfile: ReaderProfile, sourceRevision: number, expectedKind: 'intro' | 'tutorial') => {
       profileRef.current = nextProfile
       if (!isGuidanceFrameCurrent(sourceRevision, expectedKind)) return
-      const step = resolveFirstUseStep(nextProfile, { tutorialAvailable })
+      const step = resolveFirstUseStep(nextProfile, {
+        tutorialAvailable,
+        skipIntroInSession: skipIntroInSessionRef.current,
+        skipTutorialInSession: skipTutorialInSessionRef.current,
+      })
       const update = replaceFirstUseGuidance(current.current, step)
       if (update.history.type === 'none') return
       commit(update, undefined, nextProfile.reminder.time)
@@ -211,10 +223,15 @@ export function useReaderNavigation(
   const continueFirstUseSessionOnly = useCallback(
     (sourceRevision: number, expectedKind: 'intro' | 'tutorial') => {
       if (!isGuidanceFrameCurrent(sourceRevision, expectedKind)) return
+      if (expectedKind === 'intro') {
+        skipIntroInSessionRef.current = true
+      } else {
+        skipTutorialInSessionRef.current = true
+      }
       const step = resolveFirstUseStep(profileRef.current, {
         tutorialAvailable,
-        skipIntroInSession: true,
-        skipTutorialInSession: expectedKind === 'tutorial',
+        skipIntroInSession: skipIntroInSessionRef.current,
+        skipTutorialInSession: skipTutorialInSessionRef.current,
       })
       const update = replaceFirstUseGuidance(current.current, step)
       if (update.history.type === 'none') return
@@ -259,7 +276,14 @@ export function useReaderNavigation(
   )
 
   const dispatch = useCallback((action: NavigationAction, sourceRevision?: number) => {
-    if (pending.current || awaitingBack.current || (sourceRevision !== undefined && sourceRevision !== revision.current)) return
+    if (
+      pending.current ||
+      warmIngressInFlightRef.current ||
+      awaitingBack.current ||
+      (sourceRevision !== undefined && sourceRevision !== revision.current)
+    ) {
+      return
+    }
     rememberScreen()
     const update = applyNavigationAction(current.current, action)
     if (update.history.type !== 'none' || action.type === 'selectTab') commit(update)
@@ -300,8 +324,12 @@ export function useReaderNavigation(
       source: externalIngressSource,
       locationHref: () => window.location.href,
       locationPolicyOrigin: window.location,
+      onWarmIngressStart() {
+        warmIngressInFlightRef.current = true
+      },
       onOutcome(outcome, verifiedProvider) {
         if (outcome.status === 'ignoredDuplicate') return
+        warmIngressInFlightRef.current = false
         if (!pending.current) rememberScreen()
         pending.current?.abort()
         pending.current = null
@@ -472,6 +500,7 @@ export function useReaderNavigation(
     window.addEventListener('pagehide', onPageHide)
     window.addEventListener('pageshow', onPageShow)
     return () => {
+      warmIngressInFlightRef.current = false
       ingressBridge.stop()
       pending.current?.abort()
       window.history.scrollRestoration = previousScrollRestoration
