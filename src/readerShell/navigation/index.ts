@@ -19,6 +19,7 @@ export {
   applyNativeIngress,
   applyNavigationAction,
   createBrowserNavigation,
+  replaceFirstUseGuidance,
   restoreBrowserLocation,
   serializeBrowserNavigation,
   type BrowserAddress,

@@ -7,6 +7,10 @@ import { MonthScreenHost } from '../../components/month/MonthScreenHost.tsx'
 import { FieldNotebookHost } from '../../components/notebook/FieldNotebookHost.tsx'
 import { SavedScriptureHost } from '../../components/savedScripture/SavedScriptureHost.tsx'
 import { NewsReaderHost } from '../../components/news/NewsReaderHost.tsx'
+import type { ReaderProfileStore } from '../../readerProfile/store.ts'
+import type { OnboardingStepStatus, ReaderProfile } from '../../readerProfile/types.ts'
+import { FirstUseIntroduction } from '../entry/FirstUseIntroduction.tsx'
+import type { GuidedTutorialRenderer } from '../entry/index.ts'
 import { activeRoute, type NavigationAction, type NavigationState } from '../navigation/index.ts'
 import { activeScreenKey } from '../navigation/routeTable.ts'
 import { MoreLanding } from './MoreLanding.tsx'
@@ -107,9 +111,24 @@ interface ScreenProps {
   send: Send
   challengeProvider?: ChallengeDetailProvider
   captureReplayReturn: () => (() => void) | undefined
+  profileStore: ReaderProfileStore
+  initialReminderTime: string
+  onFirstUseIntroFinished: (profile: ReaderProfile) => void
+  onFirstUseTutorialFinished: (status: Extract<OnboardingStepStatus, 'completed' | 'skipped'>) => void
+  renderGuidedTutorial?: GuidedTutorialRenderer
 }
 
-function CurrentScreen({ state, send, challengeProvider, captureReplayReturn }: ScreenProps) {
+function CurrentScreen({
+  state,
+  send,
+  challengeProvider,
+  captureReplayReturn,
+  profileStore,
+  initialReminderTime,
+  onFirstUseIntroFinished,
+  onFirstUseTutorialFinished,
+  renderGuidedTutorial,
+}: ScreenProps) {
   const focus = state.focused
   if (!state.problem && focus?.kind === 'challenge') {
     return (
@@ -125,8 +144,44 @@ function CurrentScreen({ state, send, challengeProvider, captureReplayReturn }: 
       />
     )
   }
+  if (!state.problem && focus?.kind === 'intro' && state.activeTab === 'today') {
+    return (
+      <FirstUseIntroduction
+        store={profileStore}
+        initialReminderTime={initialReminderTime}
+        onFinished={onFirstUseIntroFinished}
+      />
+    )
+  }
   if (!state.problem && focus?.kind === 'intro' && state.activeTab === 'more') {
-    return <MoreIntroductionReplay onBack={() => send({ type: 'closeGuidance' })} />
+    return <MoreIntroductionReplay store={profileStore} onBack={() => send({ type: 'closeGuidance' })} />
+  }
+  if (
+    !state.problem &&
+    focus?.kind === 'tutorial' &&
+    renderGuidedTutorial &&
+    (state.activeTab === 'today' || state.activeTab === 'more')
+  ) {
+    const mode = state.activeTab === 'today' ? 'first-use' : 'replay'
+    return renderGuidedTutorial({
+      mode,
+      shownTab: focus.shownTab,
+      onShowTab: tab => send({ type: 'showTutorialTab', tab }),
+      onComplete: () => {
+        if (mode === 'first-use') {
+          onFirstUseTutorialFinished('completed')
+        } else {
+          send({ type: 'closeGuidance' })
+        }
+      },
+      onSkip: () => {
+        if (mode === 'first-use') {
+          onFirstUseTutorialFinished('skipped')
+        } else {
+          send({ type: 'closeGuidance' })
+        }
+      },
+    })
   }
   if (state.problem || focus) return <RouteProblem state={state} send={send} />
 
@@ -227,7 +282,18 @@ function keepScreen(key: RetainedScreen, state: NavigationState) {
   }
 }
 
-export function ReaderScreens({ state, send, challengeProvider, captureReplayReturn, pending }: ScreenProps & { pending: boolean }) {
+export function ReaderScreens({
+  state,
+  send,
+  challengeProvider,
+  captureReplayReturn,
+  profileStore,
+  initialReminderTime,
+  onFirstUseIntroFinished,
+  onFirstUseTutorialFinished,
+  renderGuidedTutorial,
+  pending,
+}: ScreenProps & { pending: boolean }) {
   const activeKey = pending ? 'pending' : activeScreenKey(state)
   const activeRetained = retainedScreen(activeKey)
   const [visited, setVisited] = useState<readonly RetainedScreen[]>([])
@@ -243,7 +309,10 @@ export function ReaderScreens({ state, send, challengeProvider, captureReplayRet
     route.kind === 'news' || (route.kind === 'detail' && route.screen === 'newsArticle' && Boolean(route.id))
   )
   const moreLanding = !state.problem && !state.focused && route.kind === 'landing' && route.tab === 'more'
-  const introReplay = !state.problem && state.focused?.kind === 'intro' && state.activeTab === 'more'
+  const introScreen =
+    !state.problem &&
+    state.focused?.kind === 'intro' &&
+    (state.activeTab === 'today' || state.activeTab === 'more')
   return (
     <>
       {kept.map(screen => {
@@ -276,11 +345,23 @@ export function ReaderScreens({ state, send, challengeProvider, captureReplayRet
           tabIndex={-1}
           data-month-screen={monthScreen || undefined}
           data-news-screen={!pending && (newsReader || moreLanding) || undefined}
-          role={!pending && (newsReader || introReplay) ? undefined : 'main'}
+          role={!pending && (newsReader || introScreen) ? undefined : 'main'}
         >
           {pending
             ? <p role="status">Opening Bibleberry…</p>
-            : <CurrentScreen state={state} send={send} challengeProvider={challengeProvider} captureReplayReturn={captureReplayReturn} />}
+            : (
+                <CurrentScreen
+                  state={state}
+                  send={send}
+                  challengeProvider={challengeProvider}
+                  captureReplayReturn={captureReplayReturn}
+                  profileStore={profileStore}
+                  initialReminderTime={initialReminderTime}
+                  onFirstUseIntroFinished={onFirstUseIntroFinished}
+                  onFirstUseTutorialFinished={onFirstUseTutorialFinished}
+                  renderGuidedTutorial={renderGuidedTutorial}
+                />
+              )}
         </div>
       )}
     </>

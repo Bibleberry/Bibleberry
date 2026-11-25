@@ -17,6 +17,7 @@ import {
   buildLibraryMonthsPayload,
   buildMonthPayload,
   buildNewsPayload,
+  buildReaderProfileStorageValue,
   buildUnauthorizedChallengeFixture,
   challenge,
   currentFullMonthAwardId,
@@ -36,6 +37,7 @@ import {
   monthTitle,
   navigationKey,
   participationKey,
+  readerProfileKey,
   serverContext,
   shelfKey,
   teachingSlug,
@@ -145,6 +147,18 @@ test.afterAll(async () => {
 test.beforeEach(async ({ page }) => {
   // Keep Today’s bootstrap month deterministic while the gateway supplies the authorized date.
   await page.clock.setFixedTime(new Date('2026-11-10T12:00:00Z'))
+  await page.addInitScript(
+    ({ key, value }) => {
+      try {
+        if (localStorage.getItem(key) === null && localStorage.getItem('bibleberry-prototype-v1') === null) {
+          localStorage.setItem(key, value)
+        }
+      } catch {
+        // Leave storage untouched when a test intentionally blocks it.
+      }
+    },
+    { key: readerProfileKey, value: buildReaderProfileStorageValue() },
+  )
   await page.route('https://**', route => route.abort())
 })
 

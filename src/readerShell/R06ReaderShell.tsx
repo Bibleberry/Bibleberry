@@ -1,8 +1,16 @@
-import { useCallback, useLayoutEffect, useRef } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState } from 'react'
+import type {
+  ExternalDeepLinkSourceAdapter,
+  ExternalLinkIngressPolicy,
+} from '../deepLinkIngress/types.ts'
+import type { AppLifecycleEventSource } from '../native/lifecycleAdapter.ts'
+import { createPlatformReaderProfileStore } from '../readerProfile/platformStore.ts'
+import type { ReaderProfileStore } from '../readerProfile/store.ts'
 import { ReaderNavigation } from './chrome/ReaderNavigation.tsx'
 import { ReaderScreens } from './chrome/ReaderScreens.tsx'
 import { captureScreenRestoration, restoreScreen } from './chrome/screenRestoration.ts'
 import { useReaderNavigation } from './chrome/useReaderNavigation.ts'
+import type { GuidedTutorialRenderer } from './entry/index.ts'
 import { activeRestoration, globalNavigation, type RouteRestoration } from './navigation/index.ts'
 import { readerRouteOptions } from './navigation/routeTable.ts'
 import '../App.css'
@@ -10,7 +18,23 @@ import './readerShell.css'
 
 const routeOptions = readerRouteOptions()
 
-export default function R06ReaderShell() {
+export interface R06ReaderShellProps {
+  readonly profileStore?: ReaderProfileStore
+  readonly renderGuidedTutorial?: GuidedTutorialRenderer
+  readonly externalIngressSource?: ExternalDeepLinkSourceAdapter
+  readonly externalIngressPolicy?: ExternalLinkIngressPolicy
+  readonly lifecycleEvents?: AppLifecycleEventSource
+}
+
+export default function R06ReaderShell({
+  profileStore: injectedProfileStore,
+  renderGuidedTutorial,
+  externalIngressSource,
+  externalIngressPolicy,
+  lifecycleEvents,
+}: R06ReaderShellProps = {}) {
+  const [defaultProfileStore] = useState(() => injectedProfileStore ?? createPlatformReaderProfileStore())
+  const profileStore = injectedProfileStore ?? defaultProfileStore
   const viewport = useRef<HTMLDivElement>(null)
   const replayRestoration = useRef<RouteRestoration | undefined>(undefined)
   const stopReplayRestoration = useRef<(() => void) | undefined>(undefined)
@@ -30,7 +54,22 @@ export default function R06ReaderShell() {
       stopReplayRestoration.current = restoreScreen(element, saved, false)
     }
   }, [captureRestoration])
-  const { navigation, revision, dispatch, pending, challengeProvider } = useReaderNavigation(routeOptions, captureRestoration)
+  const {
+    navigation,
+    revision,
+    dispatch,
+    pending,
+    challengeProvider,
+    initialReminderTime,
+    advanceFirstUse,
+    completeFirstUseTutorial,
+  } = useReaderNavigation(routeOptions, captureRestoration, {
+    profileStore,
+    tutorialAvailable: Boolean(renderGuidedTutorial),
+    externalIngressSource,
+    externalIngressPolicy,
+    lifecycleEvents,
+  })
   const { state } = navigation
 
   useLayoutEffect(() => {
@@ -45,6 +84,9 @@ export default function R06ReaderShell() {
       stopReplayRestoration.current = undefined
     }
   }, [state, revision, pending])
+
+  const navState = globalNavigation(state)
+  const displayedTab = state.focused?.kind === 'tutorial' ? state.focused.shownTab : state.activeTab
 
   return (
     <div className="r06-shell">
@@ -65,10 +107,24 @@ export default function R06ReaderShell() {
           pending={pending}
           challengeProvider={challengeProvider}
           captureReplayReturn={captureReplayReturn}
+          profileStore={profileStore}
+          initialReminderTime={initialReminderTime}
+          onFirstUseIntroFinished={advanceFirstUse}
+          onFirstUseTutorialFinished={completeFirstUseTutorial}
+          renderGuidedTutorial={renderGuidedTutorial}
         />
       </div>
-      {!pending && globalNavigation(state) !== 'hidden' && (
-        <ReaderNavigation activeTab={state.activeTab} onSelectTab={tab => dispatch({ type: 'selectTab', tab })} />
+      {!pending && navState !== 'hidden' && (
+        <ReaderNavigation
+          activeTab={displayedTab}
+          onSelectTab={tab =>
+            dispatch(
+              navState === 'guided'
+                ? { type: 'showTutorialTab', tab }
+                : { type: 'selectTab', tab },
+            )
+          }
+        />
       )}
     </div>
   )

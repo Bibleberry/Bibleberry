@@ -1,9 +1,26 @@
-import { useCallback, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { defaultGatewayChallengeProvider, type ChallengeDetailProvider } from '../../cms/reader/challengeDetailProvider.ts'
 import { deriveReleasedChallengeDetailState } from '../../cms/reader/releasedChallengeHostModel.ts'
+import type {
+  ExternalDeepLinkSourceAdapter,
+  ExternalLinkIngressPolicy,
+} from '../../deepLinkIngress/types.ts'
+import type { AppLifecycleEventSource } from '../../native/lifecycleAdapter.ts'
+import { nativeLifecycleEvents } from '../../native/lifecycleService.ts'
+import { createDefaultReaderProfile, DEFAULT_REMINDER_TIME } from '../../readerProfile/model.ts'
+import type { ReaderProfileStore } from '../../readerProfile/store.ts'
+import type { OnboardingStepStatus, ReaderProfile } from '../../readerProfile/types.ts'
 import {
+  createR06ExternalIngressBridge,
+  extractRawLocationTarget,
+  resolveFirstUseStep,
+  shouldEvaluateFirstUseOnBoot,
+} from '../entry/index.ts'
+import {
+  applyNativeIngress,
   applyNavigationAction,
   createBrowserNavigation,
+  replaceFirstUseGuidance,
   restoreBrowserLocation,
   serializeBrowserNavigation,
   type BrowserNavigation,
@@ -31,13 +48,24 @@ function writeSession(navigation: BrowserNavigation) {
   }
 }
 
+function historyTargetUrl(hash: string) {
+  if (extractRawLocationTarget(window.location.href) !== null || window.location.search !== '') {
+    return `/${hash}`
+  }
+  return hash
+}
+
 function applyHistoryUpdate({ history }: NavigationUpdate) {
   switch (history.type) {
     case 'push':
-      window.history.pushState(history.state, '', history.hash)
+      window.history.pushState(history.state, '', historyTargetUrl(history.hash))
       break
     case 'replace':
-      window.history.replaceState({ ...window.history.state, ...history.state }, '', history.hash)
+      window.history.replaceState(
+        { ...window.history.state, ...history.state },
+        '',
+        historyTargetUrl(history.hash),
+      )
       break
     case 'back':
       window.history.back()
@@ -57,22 +85,56 @@ function sameAddress(a: ReturnType<typeof browserAddress>, b: ReturnType<typeof 
     a.historyState?.r06Navigation?.navId === b.historyState?.r06Navigation?.navId
 }
 
+export interface ReaderEntryConfiguration {
+  readonly profileStore: ReaderProfileStore
+  readonly tutorialAvailable?: boolean
+  readonly externalIngressSource?: ExternalDeepLinkSourceAdapter
+  readonly externalIngressPolicy?: ExternalLinkIngressPolicy
+  readonly lifecycleEvents?: AppLifecycleEventSource
+}
+
 interface ReaderNavigationView {
   readonly navigation: BrowserNavigation
   readonly revision: number
   readonly pending: boolean
   readonly challengeProvider?: ChallengeDetailProvider
+  readonly initialReminderTime: string
 }
 
 export function useReaderNavigation(
   options: NavigationRouteOptions,
   captureRestoration: () => RouteRestoration | undefined,
+  entry: ReaderEntryConfiguration,
 ) {
-  const [view, setView] = useState<ReaderNavigationView>(() => {
-    const sessionId = crypto.randomUUID?.() ?? crypto.getRandomValues(new Uint32Array(4)).join('-')
-    return { navigation: createBrowserNavigation(sessionId, readSession()), revision: 0, pending: true }
+  const {
+    profileStore,
+    tutorialAvailable = false,
+    externalIngressSource,
+    externalIngressPolicy,
+    lifecycleEvents = nativeLifecycleEvents,
+  } = entry
+
+  const [initialSession] = useState(() => {
+    const freshSessionId = crypto.randomUUID?.() ?? crypto.getRandomValues(new Uint32Array(4)).join('-')
+    const stored = readSession()
+    const navigation = createBrowserNavigation(freshSessionId, stored)
+    return {
+      navigation,
+      restoredSession: Boolean(stored) && navigation.sessionId !== freshSessionId,
+    }
   })
+
+  const [view, setView] = useState<ReaderNavigationView>(() => ({
+    navigation: initialSession.navigation,
+    revision: 0,
+    pending: true,
+    initialReminderTime: DEFAULT_REMINDER_TIME,
+  }))
   const current = useRef(view.navigation)
+  const profileRef = useRef<ReaderProfile>(createDefaultReaderProfile())
+  const restoredSessionRef = useRef(initialSession.restoredSession)
+  const initialBootSettledRef = useRef(false)
+  const bypassedByExternalIngressRef = useRef(false)
   const revision = useRef(0)
   const awaitingBack = useRef(false)
   const pending = useRef<AbortController | null>(null)
@@ -87,17 +149,43 @@ export function useReaderNavigation(
     }
   }, [captureRestoration])
 
-  const commit = useCallback((update: NavigationUpdate, challengeProvider?: ChallengeDetailProvider) => {
+  const commit = useCallback((
+    update: NavigationUpdate,
+    challengeProvider?: ChallengeDetailProvider,
+    reminderTime?: string,
+  ) => {
     current.current = update.navigation
     writeSession(update.navigation)
     if (update.history.type === 'back') {
       awaitingBack.current = true
     } else {
       revision.current += 1
-      setView({ navigation: update.navigation, revision: revision.current, pending: false, challengeProvider })
+      setView({
+        navigation: update.navigation,
+        revision: revision.current,
+        pending: false,
+        challengeProvider,
+        initialReminderTime: reminderTime ?? profileRef.current.reminder.time,
+      })
     }
     applyHistoryUpdate(update)
   }, [])
+
+  const advanceFirstUse = useCallback((nextProfile: ReaderProfile) => {
+    profileRef.current = nextProfile
+    const step = resolveFirstUseStep(nextProfile, { tutorialAvailable })
+    const update = replaceFirstUseGuidance(current.current, step)
+    commit(update, undefined, nextProfile.reminder.time)
+  }, [commit, tutorialAvailable])
+
+  const completeFirstUseTutorial = useCallback((status: Extract<OnboardingStepStatus, 'completed' | 'skipped'>) => {
+    void profileStore.setTutorialStatus(status).then(updated => {
+      const nextProfile = updated.ok
+        ? updated.profile
+        : { ...updated.profile, tutorialStatus: status }
+      advanceFirstUse(nextProfile)
+    })
+  }, [advanceFirstUse, profileStore])
 
   const dispatch = useCallback((action: NavigationAction, sourceRevision?: number) => {
     if (pending.current || awaitingBack.current || (sourceRevision !== undefined && sourceRevision !== revision.current)) return
@@ -106,9 +194,56 @@ export function useReaderNavigation(
     if (update.history.type !== 'none' || action.type === 'selectTab') commit(update)
   }, [commit, rememberScreen])
 
+  useEffect(() => {
+    let active = true
+    const syncLoaded = () => {
+      void profileStore.load().then(({ profile }) => {
+        if (!active) return
+        profileRef.current = profile
+      })
+    }
+    const unsubscribeStore = profileStore.subscribe(profile => {
+      if (!active) return
+      profileRef.current = profile
+    })
+    const unsubscribeExternal = profileStore.subscribeExternalChanges?.(syncLoaded)
+    const unsubscribeLifecycle = lifecycleEvents.subscribe(event => {
+      if (event === 'foreground') syncLoaded()
+    })
+    return () => {
+      active = false
+      unsubscribeStore()
+      unsubscribeExternal?.()
+      unsubscribeLifecycle()
+    }
+  }, [lifecycleEvents, profileStore])
+
   useLayoutEffect(() => {
     const previousScrollRestoration = window.history.scrollRestoration
     window.history.scrollRestoration = 'manual'
+
+    const ingressBridge = createR06ExternalIngressBridge({
+      destinationOptions: options,
+      challengeProvider: defaultGatewayChallengeProvider,
+      policy: externalIngressPolicy,
+      source: externalIngressSource,
+      locationHref: () => window.location.href,
+      locationPolicyOrigin: window.location,
+      onOutcome(outcome, verifiedProvider) {
+        if (outcome.status === 'ignoredDuplicate') return
+        if (!pending.current) rememberScreen()
+        pending.current?.abort()
+        pending.current = null
+        awaitingBack.current = false
+        bypassedByExternalIngressRef.current = true
+        initialBootSettledRef.current = true
+        void profileStore.load().then(({ profile }) => {
+          profileRef.current = profile
+        })
+        const update = applyNativeIngress(current.current, outcome, options)
+        commit(update, update.navigation.state.focused ? verifiedProvider : undefined)
+      },
+    })
 
     function restoreLocation(captureOutgoing = false) {
       const address = browserAddress()
@@ -118,6 +253,53 @@ export function useReaderNavigation(
       awaitingBack.current = false
       const result = restoreBrowserLocation(current.current, address, options)
       if (result.status === 'ready') {
+        if (result.navigation.state.problem !== null) {
+          bypassedByExternalIngressRef.current = true
+          initialBootSettledRef.current = true
+          void profileStore.load().then(({ profile }) => {
+            profileRef.current = profile
+          })
+          commit(result)
+          return
+        }
+
+        if (
+          !initialBootSettledRef.current &&
+          shouldEvaluateFirstUseOnBoot({
+            restoredSession: restoredSessionRef.current,
+            bypassedByExternalIngress: bypassedByExternalIngressRef.current,
+            state: result.navigation.state,
+          })
+        ) {
+          const controller = new AbortController()
+          pending.current = controller
+          revision.current += 1
+          setView(previous => ({
+            ...previous,
+            navigation: current.current,
+            revision: revision.current,
+            pending: true,
+          }))
+          void profileStore.load().then(({ profile }) => {
+            if (controller.signal.aborted || !sameAddress(address, browserAddress())) return
+            pending.current = null
+            profileRef.current = profile
+            initialBootSettledRef.current = true
+            const step = resolveFirstUseStep(profile, { tutorialAvailable })
+            const gated = replaceFirstUseGuidance(result.navigation, step)
+            const finalUpdate: NavigationUpdate =
+              gated.history.type === 'none'
+                ? { navigation: gated.navigation, history: result.history }
+                : gated
+            commit(finalUpdate, undefined, profile.reminder.time)
+          })
+          return
+        }
+
+        initialBootSettledRef.current = true
+        void profileStore.load().then(({ profile }) => {
+          profileRef.current = profile
+        })
         commit(result)
         return
       }
@@ -125,7 +307,15 @@ export function useReaderNavigation(
       const controller = new AbortController()
       pending.current = controller
       revision.current += 1
-      setView({ navigation: current.current, revision: revision.current, pending: true })
+      setView(previous => ({
+        ...previous,
+        navigation: current.current,
+        revision: revision.current,
+        pending: true,
+      }))
+      void profileStore.load().then(({ profile }) => {
+        profileRef.current = profile
+      })
       const { slug } = result
       void defaultGatewayChallengeProvider.loadChallenge(slug, { signal: controller.signal })
         .catch(() => ({ status: 'requestError', message: 'Content gateway unavailable' } as const))
@@ -138,6 +328,8 @@ export function useReaderNavigation(
           const update = restoreBrowserLocation(current.current, address, options, authorization)
           pending.current = null
           if (update.status === 'ready') {
+            bypassedByExternalIngressRef.current = true
+            initialBootSettledRef.current = true
             // Reuse the verified response only for this visit. History stores no teaching.
             const provider = update.navigation.state.focused ? { loadChallenge: async () => detail } : undefined
             commit(update, provider)
@@ -164,12 +356,52 @@ export function useReaderNavigation(
       if (event.persisted) restoreLocation()
     }
 
-    restoreLocation()
+    const hasColdExternalIngress = Boolean(
+      externalIngressSource?.getInitialUrl || extractRawLocationTarget(window.location.href),
+    )
+
+    if (hasColdExternalIngress) {
+      const controller = new AbortController()
+      pending.current = controller
+      revision.current += 1
+      setView(previous => ({
+        ...previous,
+        navigation: current.current,
+        revision: revision.current,
+        pending: true,
+      }))
+      void profileStore.load().then(({ profile }) => {
+        profileRef.current = profile
+      })
+      void ingressBridge.start().then(started => {
+        if (controller.signal.aborted) return
+        pending.current = null
+        if (!started) {
+          restoreLocation()
+          return
+        }
+        if (started.outcome.status === 'ignoredDuplicate') {
+          restoreLocation()
+          return
+        }
+        bypassedByExternalIngressRef.current = true
+        initialBootSettledRef.current = true
+        const update = applyNativeIngress(current.current, started.outcome, options)
+        commit(update, update.navigation.state.focused ? started.verifiedProvider : undefined)
+      })
+    } else {
+      if (externalIngressSource?.subscribeUrlOpen) {
+        void ingressBridge.start()
+      }
+      restoreLocation()
+    }
+
     window.addEventListener('popstate', onPop)
     window.addEventListener('hashchange', onHashChange)
     window.addEventListener('pagehide', onPageHide)
     window.addEventListener('pageshow', onPageShow)
     return () => {
+      ingressBridge.stop()
       pending.current?.abort()
       window.history.scrollRestoration = previousScrollRestoration
       window.removeEventListener('popstate', onPop)
@@ -177,7 +409,20 @@ export function useReaderNavigation(
       window.removeEventListener('pagehide', onPageHide)
       window.removeEventListener('pageshow', onPageShow)
     }
-  }, [commit, options, rememberScreen])
+  }, [
+    commit,
+    externalIngressPolicy,
+    externalIngressSource,
+    options,
+    profileStore,
+    rememberScreen,
+    tutorialAvailable,
+  ])
 
-  return { ...view, dispatch }
+  return {
+    ...view,
+    dispatch,
+    advanceFirstUse,
+    completeFirstUseTutorial,
+  }
 }

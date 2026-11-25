@@ -27,7 +27,12 @@ function screenKey(tab: ReaderTab, route: ReaderRoute): string {
 
 export function activeScreenKey(state: NavigationState): string {
   if (state.focused?.kind === 'challenge') return `challenge:${state.focused.slug}`
-  if (!state.problem && state.focused?.kind === 'intro' && state.activeTab === 'more') return 'more:intro'
+  if (!state.problem && state.focused?.kind === 'intro' && (state.activeTab === 'today' || state.activeTab === 'more')) {
+    return `${state.activeTab}:intro`
+  }
+  if (!state.problem && state.focused?.kind === 'tutorial' && (state.activeTab === 'today' || state.activeTab === 'more')) {
+    return `${state.activeTab}:tutorial`
+  }
   if (state.problem || state.focused) return 'unavailable'
   return screenKey(state.activeTab, activeRoute(state))
 }
