@@ -188,7 +188,7 @@ Current assignments, permanent codenames, implementing agents, dependency sequen
 
 **Independent Review**
 
-Assignment codenames, PR and Issue identities, exact reviewed HEAD SHAs, existing review dispositions, blocking findings, correction status, and verification limitations.
+Assignment codenames, PR and Issue identities, exact reviewed/current HEAD SHAs, review dispositions, blocking findings, correction status, verification limitations, Checks & Merge queue, hosted checks, queue/auto-merge state, applicable owner authorizations and authorized-but-unfinished merge work.
 
 **General Administration**
 
@@ -449,7 +449,7 @@ Only material lessons, risks, unusual circumstances, or restrictions that the su
 
 These are the two **canonical instructions Aaron copies into ChatGPT** whenever a permanent AI department is moved from one conversation to another. They standardize the *request and activation*, while §10 standardizes the *operational handoff document* produced between them.
 
-**Four departments only:** General Administration includes Checks & Merge; Engineering Issue Planning includes Project Board Stewardship; Development Management manages coding-agent resources; Independent Review is the separate technical-review department. The subsidiary functions and resources transfer with their parent department and do **not** require independent departmental charters or separate department-activation prompts.
+**Four departments only:** General Administration provides organizational support; Engineering Issue Planning includes Project Board Stewardship; Development Management manages coding-agent resources; Independent Review is separate from implementation and includes Checks & Merge. The subsidiary functions and resources transfer with their parent department and do **not** require independent departmental charters or separate department-activation prompts.
 
 **No manual substitutions:** Neither message contains a department name, charter path, Issue number or current commit to fill in. The outgoing conversation must supply its own department identity and exact charter path in the handoff. The successor discovers and verifies them from that handoff and accepted GitHub records.
 

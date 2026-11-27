@@ -397,7 +397,7 @@ Planning does not approve PRs or determine whether an existing implementation pa
 
 ### 7.2 Checks & Merge
 
-General Administration owns Checks & Merge and evaluates hosted CI, required checks, exact-commit evidence, and merge readiness.
+Independent Review owns Checks & Merge and evaluates hosted CI, required checks, exact-commit evidence, merge readiness and authorized protected merge coordination.
 
 Planning identifies anticipated verification requirements before an assignment begins.
 
@@ -417,7 +417,7 @@ Changes to departmental boundaries require Aaron's approval.
 
 Planning maintains board membership, routine item metadata, links to originating Issues/PRs, accurate Triage placement, status hygiene and evidence-based completion reconciliation. It investigates inconsistencies and records unresolved blockers or owner decisions rather than inventing a status.
 
-**Decision boundaries:** Dev determines engineering readiness, priorities, work ownership and In Progress transitions; Review determines applicable technical dispositions; Admin's Checks & Merge verifies merge readiness; Aaron authorizes merges, completion exceptions and organizational changes. Planning implements the resulting board updates and may reconcile **Done** only against an accepted PR that satisfies the full Issue scope or Aaron's explicit alternate disposition.
+**Decision boundaries:** Dev determines engineering readiness, priorities, work ownership and In Progress transitions; Review determines applicable technical dispositions and verifies merge readiness; Aaron authorizes merges, including any separately activated standing conditional authorization, completion exceptions and organizational changes. Planning implements the resulting board updates and may reconcile **Done** only against an accepted PR that satisfies the full Issue scope or Aaron's explicit alternate disposition.
 
 Planning must not create a competing board, independently change another department's decisions, or treat a merged partial PR as full Issue completion.
 

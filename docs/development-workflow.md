@@ -17,7 +17,7 @@ The **Bibleberry Development** Project uses four statuses.
 
 1. **Triage** holds candidate Issues. Planning creates engineering assignment Issues here for Dev to evaluate.
 2. **Ready to Assign** means Dev has determined that the scope, acceptance criteria, and dependencies are clear enough to assign. Dev dispatches work when Aaron’s authorization covers the assignment.
-3. **In Progress** covers implementation, PR review, corrections, and merge checks. The Issue stays here while the PR awaits Aaron’s merge decision.
+3. **In Progress** covers implementation, PR review, corrections, and merge checks. The Issue stays here while the PR awaits applicable verification and merge authorization or protected merge completion.
 4. **Done** records completion. **Planning, acting as Project Board Steward**, marks an implementation Issue Done only after the PR completing its full scope has merged. If Aaron directs another disposition, Planning records his decision.
 
 See [Department Responsibilities](ai-operations/department-responsibilities.md) for ownership and handoffs at each stage.
@@ -30,8 +30,8 @@ See [Department Responsibilities](ai-operations/department-responsibilities.md) 
 4. Create a development branch using the originating Issue number and codename under the [AI Development Protocol](ai-development-protocol.md).
 5. Implement and test the changes.
 6. Open a Pull Request for review.
-7. For technical/software changes, obtain Independent Review's exact-HEAD disposition; **Admin's Checks & Merge** verifies required CI, review evidence, and merge readiness. For strictly administrative/governance-documentation PRs, Aaron may expressly deem technical Review inapplicable and approve the work himself; Admin records that decision and still checks applicable requirements.
-8. **Only with Aaron's authorization**, Admin may execute the merge process into `main`. Close the originating Issue only when its full scope and acceptance criteria have been satisfied; otherwise keep it open. Planning, as Project Board Steward, reconciles **Done** against the accepted outcome.
+7. For technical/software changes, obtain Independent Review's exact-HEAD disposition; **Review's Checks & Merge** verifies required CI, review evidence, and merge readiness. For strictly administrative/governance-documentation PRs, Aaron may expressly deem technical Review inapplicable and approve the work himself; Review records that decision and still checks applicable requirements.
+8. **Only within Aaron's applicable authorization**, Review may coordinate the protected merge process into `main` under [AI Development Protocol §2C](ai-development-protocol.md#2c-protected-merge-authorization-and-coordination). Close the originating Issue only when its full scope and acceptance criteria have been satisfied; otherwise keep it open. Planning, as Project Board Steward, reconciles **Done** against the accepted outcome.
 
 ## Weekly Operating Review
 

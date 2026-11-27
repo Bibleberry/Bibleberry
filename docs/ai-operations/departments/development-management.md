@@ -228,7 +228,7 @@ Dev coordinates the consequences of those findings but does not overrule Review'
 
 ### 4.3 Development Management and Checks & Merge
 
-**General Administration owns Checks & Merge** and evaluates CI results, verification requirements, integration readiness and applicable merge gates before reporting to Aaron.
+**Independent Review owns Checks & Merge** and evaluates CI results, verification requirements, integration readiness and applicable merge gates; it coordinates authorized protected merging under AI Development Protocol §2C.
 
 Dev tracks progress through verification and coordinates necessary engineering corrections.
 
