@@ -15,6 +15,7 @@ export const UNIVERSAL_PATTERNS = [
   /^eslint\.config\.js$/,
   /^scripts\/ci\//,
   /^tests\/ci\//,
+  /^\.nvmrc$/, // Pinned Node toolchain for every web CI job and the R06 release build
 ];
 
 /**
@@ -55,6 +56,11 @@ export const TARGET_PATTERNS = {
   'release-gateway': [
     ...UNIVERSAL_PATTERNS,
     /^src\/gateway\//,
+    // Gateway tests import the reader providers, Sanity mappers and fixture scripts.
+    // tests/ci/gateway-scope-imports.test.ts keeps this list aligned with their import graph.
+    /^src\/cms\/reader\//,
+    /^src\/cms\/sanity\//,
+    /^scripts\/(?:r08a-monthly-fixtures|staging-fixtures|verify-staging-acceptance)\.ts$/,
     /^src\/lib\/libraryMonthSearch\.ts$/,
     /^src\/types\//,
     /^src\/utils\//,
