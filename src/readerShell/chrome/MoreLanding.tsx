@@ -10,6 +10,7 @@ interface MoreLandingProps {
   readonly onOpenFeatured: (documentId: string) => void
   readonly onOpenNews: () => void
   readonly onOpenAbout: () => void
+  readonly onOpenAppearanceSettings?: () => void
   readonly onOpenAccountProgress?: () => void
   readonly onReplayIntroduction: () => void
   readonly announcementPreferencesStore?: AnnouncementPreferencesStore
@@ -40,6 +41,7 @@ export function MoreLanding({
   onOpenFeatured,
   onOpenNews,
   onOpenAbout,
+  onOpenAppearanceSettings,
   onOpenAccountProgress,
   onReplayIntroduction,
   announcementPreferencesStore = defaultAnnouncementPreferencesStore,
@@ -56,8 +58,15 @@ export function MoreLanding({
         </li>
         <li><button type="button" className="button button--secondary" onClick={onOpenAbout}>About Bibleberry</button></li>
         <li>
-          <strong>Appearance &amp; Settings</strong>
-          <p>Unavailable in this reader.</p>
+          <button
+            type="button"
+            className="button button--secondary"
+            data-testid="more-appearance-settings-button"
+            onClick={onOpenAppearanceSettings}
+            disabled={!onOpenAppearanceSettings}
+          >
+            Appearance &amp; Settings
+          </button>
         </li>
         <li className="r06-more__preference">
           <AnnouncementPreference store={announcementPreferencesStore} />
