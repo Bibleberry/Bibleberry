@@ -215,11 +215,11 @@ export function AppearanceSettingsScreen({
                 <dd data-testid="appearance-applied-palette">{view.appliedPaletteLabel}</dd>
               </div>
               <div>
-                <dt>Saved preference</dt>
+                <dt data-testid="appearance-preference-term">{view.preferenceTermLabel}</dt>
                 <dd data-testid="appearance-saved-preference">
                   {view.savedModeLabel}
-                  {!view.isSavedOnDevice && (
-                    <span className="r06-appearance__unsaved-tag"> (Not saved on this device)</span>
+                  {view.preferenceQualifier && (
+                    <span className="r06-appearance__unsaved-tag"> ({view.preferenceQualifier})</span>
                   )}
                 </dd>
               </div>

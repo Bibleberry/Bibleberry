@@ -7,6 +7,7 @@ import {
   serializeReaderProfileEnvelope,
 } from '../../../src/readerProfile/index.ts'
 import { parseParticipationEnvelope } from '../../../src/participation/persistence.ts'
+import { parseShelfEnvelope } from '../../../src/shelfPersistence/persistence.ts'
 import * as fixtures from '../fixtures/m1aGatewayFixtures.ts'
 
 let server: ViteDevServer
@@ -47,6 +48,13 @@ async function mockGateway(page: Page) {
   await page.route('**/api/library/months**', route =>
     route.fulfill({ json: fixtures.buildLibraryMonthsPayload() }),
   )
+  await page.route(`**/api/months/${fixtures.monthId}`, route =>
+    route.fulfill({ json: fixtures.buildDefaultHistoricalMonthPayload() }),
+  )
+  await page.route(`**/api/months/${fixtures.monthId}/progress`, route => {
+    const ids = route.request().postDataJSON().completedChallengeIds as string[]
+    return route.fulfill({ json: fixtures.buildHistoricalMonthProgressPayload(ids) })
+  })
   await page.route(`**/api/months/${fixtures.currentMonthId}`, route =>
     route.fulfill({ json: fixtures.buildDefaultCurrentMonthPayload() }),
   )
@@ -219,11 +227,30 @@ test('handles invalid stored appearance preference safely and surfaces storage w
   await page.getByTestId('more-appearance-settings-button').click()
 
   await expect(page.getByTestId('appearance-invalid-notice')).toBeVisible()
+  await expect(page.getByTestId('appearance-preference-term')).toHaveText('Fallback preference')
+  await expect(page.getByTestId('appearance-saved-preference')).toContainText('Display fallback — not saved')
+  await expect(page.getByTestId('appearance-applied-card')).not.toContainText('Your saved preference is stored on this device')
   await expect(page.getByTestId('appearance-mode-follow-seasons')).toBeChecked()
   await expect(page.getByTestId('appearance-mode-choose-colors')).toBeDisabled()
   await expect(page.getByTestId('appearance-choose-colors-unavailable')).toBeVisible()
 
-  // Part 2: Seed a valid manual profile, then fail Storage.prototype.setItem during mode switch.
+  // Part 2: Corrupt stored profile JSON must show alert, never claim storage succeeded,
+  // disable saves, and leave the corrupt record untouched.
+  await page.evaluate(key => {
+    localStorage.setItem(key, '{corrupt-profile-json')
+  }, READER_PROFILE_STORAGE_KEY)
+  await page.reload()
+  await expect(page.getByRole('heading', { name: 'Appearance & Settings', level: 1 })).toBeVisible()
+  await expect(page.getByTestId('appearance-storage-alert')).toBeVisible()
+  await expect(page.getByTestId('appearance-preference-term')).toHaveText('Fallback preference')
+  await expect(page.getByTestId('appearance-saved-preference')).toContainText('Not saved on this device')
+  await expect(page.getByTestId('appearance-applied-card')).not.toContainText('Your saved preference is stored on this device')
+  await expect(page.getByTestId('appearance-mode-follow-seasons')).toBeDisabled()
+  await expect(page.getByTestId('appearance-mode-choose-colors')).toBeDisabled()
+  const rawAfterCorrupt = await page.evaluate(key => localStorage.getItem(key), READER_PROFILE_STORAGE_KEY)
+  expect(rawAfterCorrupt).toBe('{corrupt-profile-json')
+
+  // Part 3: Seed a valid manual profile, then fail Storage.prototype.setItem during mode switch.
   const validManual = serializeReaderProfileEnvelope(
     {
       ...createDefaultReaderProfile(),
@@ -306,12 +333,24 @@ test('supports keyboard navigation, focus restoration, and 200% text reflow at 3
   expect(Object.keys(parsedSeed.data.completedChallenges)).toEqual([`cms:${fixtures.todayDocumentId}`])
   expect(Object.keys(parsedSeed.data.earnedAwards)).toEqual([fixtures.currentThematicAwardId])
 
-  const shelfRaw = JSON.stringify({
-    schemaVersion: 1,
-    state: {
-      months: [{ yearMonth: fixtures.currentMonthId, pinnedAt: '2026-11-15T12:00:00.000Z' }],
-    },
+  // Seed a valid historical Shelf record using the production fixture builder and validate via parseShelfEnvelope.
+  const shelfRaw = fixtures.buildGuestShelfStorageValue({
+    activeFocusMonth: fixtures.monthId,
+    months: [
+      {
+        yearMonth: fixtures.monthId,
+        admissionKind: 'readerSelected',
+        isProtected: true,
+      },
+    ],
   })
+  const parsedShelfSeed = parseShelfEnvelope(shelfRaw, {
+    referenceCurrentMonth: fixtures.currentMonthId,
+  })
+  expect(parsedShelfSeed.health).toBe('ok')
+  expect(parsedShelfSeed.payload.state.activeFocusMonth).toBe(fixtures.monthId)
+  expect(parsedShelfSeed.payload.state.months).toHaveLength(1)
+  expect(parsedShelfSeed.payload.state.months[0]?.yearMonth).toBe(fixtures.monthId)
 
   const manualProfile = {
     ...createDefaultReaderProfile(),
@@ -328,6 +367,11 @@ test('supports keyboard navigation, focus restoration, and 200% text reflow at 3
 
   await page.setViewportSize({ width: 320, height: 640 })
   await page.goto(url + '#/more')
+
+  // Verify hydrated historical Shelf is nonempty BEFORE switching appearance mode.
+  await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Library' }).click()
+  await expect(page.getByRole('main', { name: 'Shelf' }).getByText(fixtures.monthTitle)).toBeVisible()
+  await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'More' }).click()
 
   // Open via keyboard (focus + Enter).
   const appearanceBtn = page.getByTestId('more-appearance-settings-button')
@@ -362,7 +406,7 @@ test('supports keyboard navigation, focus restoration, and 200% text reflow at 3
   await expect(page.getByRole('heading', { name: 'More', level: 1 })).toBeVisible()
   await expect(page.getByTestId('more-appearance-settings-button')).toBeFocused()
 
-  // Verify participation & Shelf storage are completely untouched.
+  // Verify participation & Shelf storage are completely untouched and still parse cleanly.
   const afterStorage = await page.evaluate(
     ({ pKey, sKey }) => ({
       participation: localStorage.getItem(pKey),
@@ -372,11 +416,21 @@ test('supports keyboard navigation, focus restoration, and 200% text reflow at 3
   )
   expect(afterStorage.participation).toBe(validParticipationRaw)
   expect(afterStorage.shelf).toBe(shelfRaw)
+  const parsedShelfAfter = parseShelfEnvelope(afterStorage.shelf, {
+    referenceCurrentMonth: fixtures.currentMonthId,
+  })
+  expect(parsedShelfAfter.health).toBe('ok')
+  expect(parsedShelfAfter.payload.state.months).toHaveLength(1)
+  expect(parsedShelfAfter.payload.state.months[0]?.yearMonth).toBe(fixtures.monthId)
 
-  // Verify earned Card artwork in Collections → Field Notebook is untouched (no recoloring/filter).
+  // Reload and verify nonempty hydrated Shelf and earned Card artwork survive untouched.
   await page.evaluate(() => {
     document.documentElement.style.fontSize = ''
   })
+  await page.reload()
+  await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Library' }).click()
+  await expect(page.getByRole('main', { name: 'Shelf' }).getByText(fixtures.monthTitle)).toBeVisible()
+
   await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Collections' }).click()
   await page.getByRole('button', { name: /Field Notebook/i }).click()
   await expect(page.getByRole('heading', { name: '1 Distinct Challenge Completed', level: 2 })).toBeVisible()

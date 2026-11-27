@@ -7,6 +7,9 @@ import {
   serializeReaderProfileEnvelope,
 } from '../../src/readerProfile/index.ts'
 import {
+  APPLIED_APPEARANCE_FALLBACK_EXPLANATION,
+  APPLIED_APPEARANCE_SAVED_EXPLANATION,
+  APPLIED_APPEARANCE_UNSAVED_EXPLANATION,
   APPLIED_PALETTE_LABEL,
   CHOOSE_COLORS_UNAVAILABLE_REASON,
   INVALID_APPEARANCE_NOTICE,
@@ -24,8 +27,11 @@ test('fresh reader defaults to Follow Bibleberry Seasons and keeps Choose My Col
 
   assert.equal(view.savedMode, 'followSeasons')
   assert.equal(view.savedModeLabel, 'Follow Bibleberry Seasons')
+  assert.equal(view.preferenceTermLabel, 'Saved preference')
+  assert.equal(view.preferenceQualifier, null)
   assert.equal(view.rememberedPaletteId, null)
   assert.equal(view.isSavedOnDevice, true)
+  assert.equal(view.appliedAppearanceExplanation, APPLIED_APPEARANCE_SAVED_EXPLANATION)
   assert.equal(view.canSelectFollowSeasons, true)
   assert.equal(view.canSelectChooseColors, false)
   assert.equal(view.chooseColorsUnavailableReason, CHOOSE_COLORS_UNAVAILABLE_REASON)
@@ -131,7 +137,13 @@ test('invalid stored appearance preference safely falls back to Follow Bibleberr
   const view = buildAppearanceSettingsViewModel({ status: 'ready', result: loaded })
 
   assert.equal(loaded.health, 'ok')
+  assert.equal(loaded.persisted, true)
   assert.equal(view.savedMode, 'followSeasons')
+  assert.equal(view.isSavedOnDevice, false)
+  assert.equal(view.preferenceTermLabel, 'Fallback preference')
+  assert.equal(view.preferenceQualifier, 'Display fallback — not saved')
+  assert.equal(view.appliedAppearanceExplanation, APPLIED_APPEARANCE_FALLBACK_EXPLANATION)
+  assert.equal(view.appliedAppearanceExplanation.includes('is stored on this device'), false)
   assert.equal(view.rememberedPaletteId, null)
   assert.equal(view.canSelectChooseColors, false)
   assert.equal(view.invalidAppearanceNotice, INVALID_APPEARANCE_NOTICE)
@@ -167,24 +179,33 @@ test('storage write failure leaves prior stored preference intact and reports wr
   })
 })
 
-test('corrupt, newer-schema, unavailable, and initial writeFailed states surface truthful alerts and disable unsafe writes', async () => {
+test('corrupt, newer-schema, unavailable, error, and initial writeFailed states never claim storage succeeded', async () => {
   // Corrupt stored profile
   const corruptDriver = createMemoryDriver({ [READER_PROFILE_STORAGE_KEY]: '{not-json' })
   const corruptLoaded = await createReaderProfileStore({ driver: corruptDriver }).load()
   const corruptView = buildAppearanceSettingsViewModel({ status: 'ready', result: corruptLoaded })
   assert.equal(corruptView.canSavePreferences, false)
   assert.equal(corruptView.isSavedOnDevice, false)
+  assert.equal(corruptView.preferenceTermLabel, 'Fallback preference')
+  assert.equal(corruptView.preferenceQualifier, 'Not saved on this device')
+  assert.equal(corruptView.appliedAppearanceExplanation, APPLIED_APPEARANCE_UNSAVED_EXPLANATION)
+  assert.equal(corruptView.appliedAppearanceExplanation.includes('is stored on this device'), false)
   assert.ok(corruptView.storageAlert)
+  assert.equal(corruptDriver.store.get(READER_PROFILE_STORAGE_KEY), '{not-json')
 
   // Unsupported newer schema
-  const newerDriver = createMemoryDriver({
-    [READER_PROFILE_STORAGE_KEY]: JSON.stringify({ schemaVersion: 99, profile: {} }),
-  })
+  const newerRaw = JSON.stringify({ schemaVersion: 99, profile: {} })
+  const newerDriver = createMemoryDriver({ [READER_PROFILE_STORAGE_KEY]: newerRaw })
   const newerLoaded = await createReaderProfileStore({ driver: newerDriver }).load()
   const newerView = buildAppearanceSettingsViewModel({ status: 'ready', result: newerLoaded })
   assert.equal(newerView.canSavePreferences, false)
   assert.equal(newerView.isSavedOnDevice, false)
+  assert.equal(newerView.preferenceTermLabel, 'Fallback preference')
+  assert.equal(newerView.preferenceQualifier, 'Not saved on this device')
+  assert.equal(newerView.appliedAppearanceExplanation, APPLIED_APPEARANCE_UNSAVED_EXPLANATION)
+  assert.equal(newerView.appliedAppearanceExplanation.includes('is stored on this device'), false)
   assert.ok(newerView.storageAlert)
+  assert.equal(newerDriver.store.get(READER_PROFILE_STORAGE_KEY), newerRaw)
 
   // Storage unavailable
   const unavailableDriver = createMemoryDriver()
@@ -196,6 +217,10 @@ test('corrupt, newer-schema, unavailable, and initial writeFailed states surface
   })
   assert.equal(unavailableView.canSavePreferences, false)
   assert.equal(unavailableView.isSavedOnDevice, false)
+  assert.equal(unavailableView.preferenceTermLabel, 'Fallback preference')
+  assert.equal(unavailableView.preferenceQualifier, 'Not saved on this device')
+  assert.equal(unavailableView.appliedAppearanceExplanation, APPLIED_APPEARANCE_UNSAVED_EXPLANATION)
+  assert.equal(unavailableView.appliedAppearanceExplanation.includes('is stored on this device'), false)
   assert.ok(unavailableView.storageAlert)
 
   // Initial write failure on fresh profile
@@ -208,5 +233,19 @@ test('corrupt, newer-schema, unavailable, and initial writeFailed states surface
   })
   assert.equal(writeFailedView.isSavedOnDevice, false)
   assert.equal(writeFailedView.canRetryInitialSave, true)
+  assert.equal(writeFailedView.preferenceTermLabel, 'Default preference')
+  assert.equal(writeFailedView.preferenceQualifier, 'Not saved on this device')
+  assert.equal(writeFailedView.appliedAppearanceExplanation, APPLIED_APPEARANCE_UNSAVED_EXPLANATION)
+  assert.equal(writeFailedView.appliedAppearanceExplanation.includes('is stored on this device'), false)
   assert.ok(writeFailedView.storageAlert)
+
+  // Unhandled load error
+  const errorView = buildAppearanceSettingsViewModel({ status: 'error' })
+  assert.equal(errorView.canSavePreferences, false)
+  assert.equal(errorView.isSavedOnDevice, false)
+  assert.equal(errorView.preferenceTermLabel, 'Fallback preference')
+  assert.equal(errorView.preferenceQualifier, 'Not saved on this device')
+  assert.equal(errorView.appliedAppearanceExplanation, APPLIED_APPEARANCE_UNSAVED_EXPLANATION)
+  assert.equal(errorView.appliedAppearanceExplanation.includes('is stored on this device'), false)
+  assert.ok(errorView.storageAlert)
 })

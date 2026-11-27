@@ -18,6 +18,8 @@ export interface AppearanceSettingsViewModel {
   readonly status: 'loading' | 'ready' | 'error'
   readonly savedMode: AppearanceModeKind
   readonly savedModeLabel: string
+  readonly preferenceTermLabel: string
+  readonly preferenceQualifier: string | null
   readonly rememberedPaletteId: string | null
   readonly isSavedOnDevice: boolean
   readonly canSavePreferences: boolean
@@ -46,8 +48,19 @@ const CONTRAST_LABELS: Readonly<Record<ContrastMode, string>> = {
 
 export const APPLIED_PALETTE_LABEL = 'Standard Bibleberry palette'
 
-export const APPLIED_APPEARANCE_EXPLANATION =
+export const APPLIED_APPEARANCE_SAVED_EXPLANATION =
   'Your saved preference is stored on this device, while this reader currently keeps the '
+  + 'standard Bibleberry palette until approved seasonal and manual palettes are added. '
+  + 'Appearance preferences never change Scripture Cards, Card artwork, teaching content, or reading progress.'
+
+export const APPLIED_APPEARANCE_FALLBACK_EXPLANATION =
+  'Bibleberry is showing the default Follow Bibleberry Seasons fallback for display only because '
+  + 'the stored appearance preference was not valid. This reader currently keeps the standard '
+  + 'Bibleberry palette until approved seasonal and manual palettes are added. '
+  + 'Appearance preferences never change Scripture Cards, Card artwork, teaching content, or reading progress.'
+
+export const APPLIED_APPEARANCE_UNSAVED_EXPLANATION =
+  'No appearance preference is currently saved on this device. This reader continues using the '
   + 'standard Bibleberry palette until approved seasonal and manual palettes are added. '
   + 'Appearance preferences never change Scripture Cards, Card artwork, teaching content, or reading progress.'
 
@@ -102,6 +115,8 @@ export function buildAppearanceSettingsViewModel(
       status: 'loading',
       savedMode: 'followSeasons',
       savedModeLabel: MODE_LABELS.followSeasons,
+      preferenceTermLabel: 'Preference',
+      preferenceQualifier: null,
       rememberedPaletteId: null,
       isSavedOnDevice: false,
       canSavePreferences: false,
@@ -109,7 +124,7 @@ export function buildAppearanceSettingsViewModel(
       canSelectChooseColors: false,
       chooseColorsUnavailableReason: null,
       appliedPaletteLabel: APPLIED_PALETTE_LABEL,
-      appliedAppearanceExplanation: APPLIED_APPEARANCE_EXPLANATION,
+      appliedAppearanceExplanation: APPLIED_APPEARANCE_UNSAVED_EXPLANATION,
       contrastModeLabel: CONTRAST_LABELS.system,
       contrastModeNote: CONTRAST_MODE_NOTE,
       invalidAppearanceNotice: null,
@@ -123,6 +138,8 @@ export function buildAppearanceSettingsViewModel(
       status: 'error',
       savedMode: 'followSeasons',
       savedModeLabel: MODE_LABELS.followSeasons,
+      preferenceTermLabel: 'Fallback preference',
+      preferenceQualifier: 'Not saved on this device',
       rememberedPaletteId: null,
       isSavedOnDevice: false,
       canSavePreferences: false,
@@ -130,7 +147,7 @@ export function buildAppearanceSettingsViewModel(
       canSelectChooseColors: false,
       chooseColorsUnavailableReason: CHOOSE_COLORS_UNAVAILABLE_REASON,
       appliedPaletteLabel: APPLIED_PALETTE_LABEL,
-      appliedAppearanceExplanation: APPLIED_APPEARANCE_EXPLANATION,
+      appliedAppearanceExplanation: APPLIED_APPEARANCE_UNSAVED_EXPLANATION,
       contrastModeLabel: CONTRAST_LABELS.system,
       contrastModeNote: CONTRAST_MODE_NOTE,
       invalidAppearanceNotice: null,
@@ -148,20 +165,37 @@ export function buildAppearanceSettingsViewModel(
   const canSavePreferences = health === 'ok' || health === 'writeFailed'
   const canSelectChooseColors = canSavePreferences && rememberedPaletteId !== null
   const hasInvalidAppearanceDiagnostic = diagnostics.some(item => item.field === 'appearance')
+  const isSavedOnDevice = persisted && health === 'ok' && !hasInvalidAppearanceDiagnostic
+
+  let preferenceTermLabel = 'Saved preference'
+  let preferenceQualifier: string | null = null
+  let appliedAppearanceExplanation = APPLIED_APPEARANCE_SAVED_EXPLANATION
+
+  if (hasInvalidAppearanceDiagnostic) {
+    preferenceTermLabel = 'Fallback preference'
+    preferenceQualifier = 'Display fallback — not saved'
+    appliedAppearanceExplanation = APPLIED_APPEARANCE_FALLBACK_EXPLANATION
+  } else if (!isSavedOnDevice) {
+    preferenceTermLabel = health === 'writeFailed' ? 'Default preference' : 'Fallback preference'
+    preferenceQualifier = 'Not saved on this device'
+    appliedAppearanceExplanation = APPLIED_APPEARANCE_UNSAVED_EXPLANATION
+  }
 
   return {
     status: 'ready',
     savedMode: profile.appearance.mode,
     savedModeLabel: MODE_LABELS[profile.appearance.mode],
+    preferenceTermLabel,
+    preferenceQualifier,
     rememberedPaletteId,
-    isSavedOnDevice: persisted && health === 'ok',
+    isSavedOnDevice,
     canSavePreferences,
     canSelectFollowSeasons: canSavePreferences,
     canSelectChooseColors,
     chooseColorsUnavailableReason:
       rememberedPaletteId === null ? CHOOSE_COLORS_UNAVAILABLE_REASON : null,
     appliedPaletteLabel: APPLIED_PALETTE_LABEL,
-    appliedAppearanceExplanation: APPLIED_APPEARANCE_EXPLANATION,
+    appliedAppearanceExplanation,
     contrastModeLabel: CONTRAST_LABELS[profile.contrastMode],
     contrastModeNote: CONTRAST_MODE_NOTE,
     invalidAppearanceNotice: hasInvalidAppearanceDiagnostic ? INVALID_APPEARANCE_NOTICE : null,
