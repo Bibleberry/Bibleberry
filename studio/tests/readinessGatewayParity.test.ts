@@ -27,9 +27,6 @@ import {
   ALL_R08A_MONTHLY_DOCUMENTS,
   buildChallengeId,
   buildR08aNegativeVariants,
-  R08A_MONTHLY_CHALLENGE_DOCUMENTS,
-  R08A_MONTHLY_NEWS_DOCUMENTS,
-  R08A_MONTHLY_PUBLICATION_DOCUMENTS,
   toDereferencedMonthlyDetailDoc,
   toDereferencedMonthlyPreviewDoc,
 } from '../../src/gateway/fixtures/r08aMonthlyFixtures'
@@ -52,23 +49,26 @@ const PROJECTION_OPTIONS = {sanityProjectId: '80016lrq', sanityDataset: 'staging
 const TIME_ZONE = 'America/New_York'
 
 type Docs = Record<string, unknown>[]
+/** A fixture document that variants edit in place; its shape is the Studio schema, not a TS type. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type EditableDoc = Record<string, any>
 
 /** All fixture documents, deep-cloned so a variant can edit freely. */
 function baseDocs(): Docs {
   return structuredClone(ALL_R08A_MONTHLY_DOCUMENTS) as Docs
 }
 
-function aprilMonth(docs: Docs): Record<string, any> {
-  return docs.find(d => d._type === 'monthlyPublication' && d.yearMonth === YEAR_MONTH) as Record<string, any>
+function aprilMonth(docs: Docs): EditableDoc {
+  return docs.find(d => d._type === 'monthlyPublication' && d.yearMonth === YEAR_MONTH) as EditableDoc
 }
 
-function aprilChallenge(docs: Docs, day: number): Record<string, any> {
+function aprilChallenge(docs: Docs, day: number): EditableDoc {
   const id = buildChallengeId(YEAR_MONTH, day)
-  return docs.find(d => d._type === 'challenge' && (d._id === id || d._id === `drafts.${id}`)) as Record<string, any>
+  return docs.find(d => d._type === 'challenge' && (d._id === id || d._id === `drafts.${id}`)) as EditableDoc
 }
 
 /** Model of the gateway GROQ filter on `monthlyPublication` (see src/gateway/query.ts). */
-function gatewayGroqEligible(month: Record<string, any> | undefined): boolean {
+function gatewayGroqEligible(month: EditableDoc | undefined): boolean {
   return Boolean(
     month &&
       month._id === MONTH_ID &&
@@ -173,7 +173,7 @@ const VARIANTS: Record<string, (docs: Docs) => void> = {
     month.slots[1].challenge = structuredClone(month.slots[0].challenge)
   },
   'Challenge also scheduled in another published month': docs => {
-    const march = docs.find(d => d._id === 'month-2098-03') as Record<string, any>
+    const march = docs.find(d => d._id === 'month-2098-03') as EditableDoc
     march.slots[0].challenge = {_type: 'reference', _ref: buildChallengeId(YEAR_MONTH, 4), _weak: true}
   },
 
