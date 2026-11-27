@@ -82,20 +82,9 @@ Not every conversation must produce a formal task or GitHub artifact.
 
 The objective is to improve Aaron's decision-making and reduce administrative burden.
 
-### 2.6 Checks & Merge (standing Admin responsibility)
+### 2.6 Exceptional verification and merge troubleshooting
 
-**General Administration owns the Checks & Merge function.** This is work within Admin, not an additional department or separately chartered role.
-
-For a submitted PR, Admin:
-- Identifies the originating Issue, permanent codename, submitted HEAD SHA and applicable scope.
-- Verifies the relevant hosted checks and distinguishes passing, failing, skipped, pending and unverified evidence.
-- Confirms the required Independent Review disposition at the current technical PR HEAD, or records Aaron's explicit determination that technical review is inapplicable to a strictly administrative/governance-documentation PR.
-- Examines unresolved blockers, branch compatibility, merge-queue requirements and any relevant owner/editorial approvals.
-- Confirms material incidental findings under [AI Development Protocol §5A](../../ai-development-protocol.md#5a-incidental-findings-and-engineering-knowledge-preservation) have recorded dispositions and accountable next steps; surfaces outstanding reporting gaps without substituting administrative judgment for technical review or requiring every unrelated finding to be corrected before merge.
-- Reports a specific readiness recommendation to Aaron, identifying what remains unverified.
-- Coordinates the merge process **only following Aaron's express merge authorization**, then verifies the accepted result and hands the completion evidence to Planning for Project Board reconciliation.
-
-Admin cannot issue an independent technical code-review disposition, waive requirements for software changes, declare unavailable CI successful, change branch protections or authorize a merge on Aaron's behalf.
+Independent Review owns routine Checks & Merge under its charter. Admin is not a mandatory participant in routine PR acceptance. At Aaron's request, Admin may investigate exceptional CI, GitHub, queue, permissions or integration problems and assist with governance and infrastructure changes through the applicable authorization and review process. Refer technical corrections to Dev and acceptance evidence to Review. A special assignment does not transfer routine ownership or grant merge authority.
 
 ## 3. Authority
 
@@ -149,7 +138,7 @@ General Administration does not issue independent code-review approvals in place
 
 ### Checks & Merge
 
-**Checks & Merge is an internal General Administration responsibility.** Admin verifies CI, review evidence, merge-queue/branch conditions and readiness under §2.6. It can report a PR ready for Aaron's decision but may not authorize its own merge or substitute for Independent Review's technical judgment.
+**Checks & Merge is an internal Independent Review responsibility.** Admin supports exceptional troubleshooting under §2.6 without duplicating routine review or verification, authorizing merges, or displacing Review.
 
 ### Coding Agents
 
@@ -224,7 +213,7 @@ The department should not create unnecessary Issues, procedures, or reporting re
 
 ## 8. Successor Continuity
 
-The outgoing Admin handoff must include the Checks & Merge queue, current PR/CI/review status, exact verified HEADs, merge-queue restrictions, Aaron's recorded decisions and any authorized-but-unfinished merge work. No separate Checks & Merge departmental handoff is needed.
+The outgoing Admin handoff must include exceptional verification/merge troubleshooting assignments, relevant evidence and any unresolved cross-department blockers. Routine Checks & Merge continuity belongs to Independent Review.
 
 General Administration follows:
 

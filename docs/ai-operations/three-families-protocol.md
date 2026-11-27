@@ -94,7 +94,7 @@ Once approved:
 
 - **Planning** checks for existing Issue coverage, creates or clarifies bounded engineering candidate Issues within its authority, applies the canonical milestone/workstream classification, and places them in Triage.
 - **Development Management** evaluates readiness and sequencing and coordinates separately authorized implementation.
-- **Independent Review, General Administration's Checks & Merge, and Aaron** retain their normal respective review, check, merge, and release controls.
+- **Independent Review (including Checks & Merge) and Aaron** retain their normal respective review, check, merge, and release controls.
 - Approved product or roadmap changes go through their established authoritative documents; raw assessment reports do **not** automatically amend the canonical roadmap.
 
 ## 8. Recordkeeping and continuity
