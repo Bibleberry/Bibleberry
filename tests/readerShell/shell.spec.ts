@@ -1873,17 +1873,22 @@ test('J4 G02 does not present a prior-month Challenge that fails admission', asy
 test('J4 G02 permits a subsequent verification after an inconsistent gateway response', async ({ page }) => {
   await mockGateway(page)
   await seedValidPriorMonthPosition(page)
+  const challengeEndpoint = `**/api/challenges/${teachingSlug}`
   let inconsistent = true
-  await page.route(`**/api/challenges/${teachingSlug}`, route => {
+  await page.route(challengeEndpoint, route => {
     if (!inconsistent) return route.fallback()
-    inconsistent = false
     return route.fulfill({
-      json: { ok: true, challenge: { ...challenge, documentId: 'mismatched-doc' } },
+      json: { ok: true, challenge: { ...challenge, _id: 'mismatched-doc' } },
     })
   })
-  await page.goto(readerUrl())
+  const [response] = await Promise.all([
+    page.waitForResponse(challengeEndpoint),
+    page.goto(readerUrl()),
+  ])
+  await response.finished()
   await expect(page.getByTestId('today-primary-cta')).toBeVisible()
   await expect(page.getByTestId('today-continue-study')).toHaveCount(0)
+  inconsistent = false
   await page.reload()
   await expect(page.getByTestId('today-continue-study').getByRole('button', { name: /Continue Your Study/ })).toBeVisible()
 })

@@ -61,7 +61,7 @@ export function usePriorMonthContinue(
         context: current,
         endingMonth,
         saved,
-        activeFocusMonth: activeFocus,
+        activeFocusMonth: activeFocus ?? null,
         signal,
         monthProvider,
         challengeProvider: defaultGatewayChallengeProvider,
