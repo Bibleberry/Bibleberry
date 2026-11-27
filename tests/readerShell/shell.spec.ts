@@ -535,7 +535,7 @@ test('opens a Month teaching, restores scroll and unfinished progress, and prese
   await selectTab(page, 'Library')
   await expect(page.getByRole('main', { name: 'Shelf', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Foundations', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Foundations unavailable' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'No Foundations readings are available yet' })).toBeVisible()
   await page.getByRole('button', { name: 'Back to Library', exact: true }).click()
   await page.getByRole('button', { name: 'Browse All Months' }).click()
 

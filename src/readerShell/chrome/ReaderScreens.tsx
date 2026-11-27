@@ -19,6 +19,7 @@ import { MoreIntroductionReplay } from './MoreIntroductionReplay.tsx'
 import { AccountProgressScreen } from './AccountProgressScreen.tsx'
 import { AppearanceSettingsScreen } from '../appearance/index.ts'
 import { CollectionsLanding } from '../collections/CollectionsLanding.tsx'
+import { FoundationsOverview } from '../foundations/index.ts'
 import { TodayHost } from '../today/TodayHost.tsx'
 import { encodeDiscoveriesBatch, VIEW_DISCOVERIES_SCREEN } from '../today/discoveriesBatch.ts'
 import { ViewDiscoveriesGallery } from '../today/ViewDiscoveriesGallery.tsx'
@@ -101,11 +102,10 @@ function RouteProblem({ state, send }: { state: NavigationState; send: Send }) {
 
 function UnavailableDetail({ screen, send }: { screen: string; send: Send }) {
   const challenge = screen === 'challengeUnavailable'
-  const title = challenge ? 'Challenge unavailable' : screen === 'foundations' ? 'Foundations' : 'Page unavailable'
-  const backLabel = challenge ? 'Back to Month' : screen === 'foundations' ? 'Back to Library' : 'Back'
+  const title = challenge ? 'Challenge unavailable' : 'Page unavailable'
+  const backLabel = challenge ? 'Back to Month' : 'Back'
   return (
     <Landing title={title}>
-      {screen === 'foundations' && <h2>Foundations unavailable</h2>}
       <Action onClick={() => send(back)}>{backLabel}</Action>
     </Landing>
   )
@@ -299,6 +299,9 @@ function CurrentScreen({
             onBrowseFieldNotebook={() => send({ type: 'openFieldNotebook' })}
           />
         )
+      }
+      if (route.screen === 'foundations' && state.activeTab === 'library') {
+        return <FoundationsOverview onBack={() => send(back)} />
       }
       if (route.screen === 'aboutBibleberry') {
         return (
