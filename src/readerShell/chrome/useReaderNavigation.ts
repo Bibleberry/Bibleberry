@@ -326,6 +326,8 @@ export function useReaderNavigation(
       locationPolicyOrigin: window.location,
       onWarmIngressStart() {
         warmIngressInFlightRef.current = true
+        // Invalidate startup work before its cancelled authorization can settle.
+        pending.current?.abort()
       },
       onOutcome(outcome, verifiedProvider) {
         if (outcome.status === 'ignoredDuplicate') return
