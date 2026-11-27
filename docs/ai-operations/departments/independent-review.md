@@ -205,10 +205,10 @@ Review does not independently:
 - Modify the Project board's priorities or assignment ownership.
 - Alter CI, branch protection, or merge settings.
 - Waive established acceptance requirements.
-- Authorize merges or deployments.
+- Grant merge authorization, deploy, bypass protection, or execute a merge outside Aaron's applicable authorization.
 - Grant theological or editorial approval on Alexis's behalf.
 
-Review's normal GitHub write action is publication of its independent technical disposition on the existing PR.
+Review's normal GitHub write actions are publication of its independent technical disposition and recording verification/acceptance evidence on the existing PR. Protected merge coordination is permitted only within Aaron's applicable authorization and §5.3.
 
 Exceptional assignments outside this normal function require Aaron's authorization and must not compromise independent review.
 
@@ -222,7 +222,7 @@ When technical findings reveal a conflict between approved requirements, Review 
 
 ## 4. Technical Review Dispositions
 
-These technical dispositions govern software and technical PRs. Strictly administrative/governance-documentation PRs are not automatically software code-review assignments: Aaron may expressly decide that Independent Review is inapplicable and approve such work himself. Admin records that decision during Checks & Merge. This exception does **not** waive technical review for source, security, CI behavior or configuration changes merely because a PR also edits documentation.
+These technical dispositions govern software and technical PRs. Strictly administrative/governance-documentation PRs are not automatically software code-review assignments: Aaron may expressly decide that Independent Review is inapplicable and approve such work himself. Review records that decision during Checks & Merge. This exception does **not** waive technical review for source, security, CI behavior or configuration changes merely because a PR also edits documentation.
 
 Review uses two substantive dispositions: `CODE APPROVED` and `CHANGES REQUESTED`.
 
@@ -307,21 +307,17 @@ Review examines that implementation.
 
 An implementation agent must not unilaterally declare an independent blocking review finding resolved.
 
-### 5.3 Checks & Merge
+### 5.3 Checks & Merge (standing Review responsibility)
 
-**General Administration owns Checks & Merge** as one of its standing responsibilities. Admin evaluates required hosted checks, exact-commit verification, branch compatibility, unresolved findings, integration readiness and applicable merge gates.
+Independent Review owns routine Checks & Merge. In addition to its separate technical disposition, Review verifies assignment identity, exact current HEAD, applicable hosted CI and other acceptance evidence, branch/queue compatibility, required approvals and conversations, unresolved blockers, and recorded dispositions and accountable next steps for material incidental findings. Distinguish passed, failed, pending, skipped, inapplicable and unavailable evidence. Route corrections through Dev. Do not approve your own implementation.
 
-Review evaluates implementation correctness and test adequacy.
+Technical approval, verification, merge authorization and actual acceptance remain distinct decisions. CODE APPROVED alone is neither CI success nor permission to merge. Follow [AI Development Protocol §2C](../../ai-development-protocol.md#2c-protected-merge-authorization-and-coordination) for protected merge execution and the activation conditions for standing conditional authorization. Report blockers to Aaron; coordinate only the authorized candidate, never bypass protection, and verify the accepted result before handing completion evidence to Planning.
 
-These functions are complementary but distinct.
-
-A PR can be code approved while CI remains incomplete. CI can be green while code review remains incomplete. Both may be complete while Aaron's merge authorization remains outstanding.
-
-None of these conditions is equivalent to the others.
+For continuity, preserve the review and verification queue, exact reviewed/current HEADs, hosted checks, queue/auto-merge state, outstanding approvals, Aaron's applicable authorization records, any enforcement limitations and authorized-but-unfinished merge work. No separate Checks & Merge department or mandatory Admin handoff is required.
 
 ### 5.4 General Administration
 
-General Administration handles organizational governance support, operational troubleshooting, cross-department coordination, special assignments, and its Checks & Merge function. It does not replace Review's independent technical judgment.
+General Administration handles organizational governance support, operational troubleshooting, cross-department coordination and special assignments. It may assist with exceptional CI or merge problems when authorized; it does not replace Review's judgment or duplicate its routine acceptance work.
 
 Review may propose procedural improvements, but permanent organizational changes require Aaron's approval.
 
