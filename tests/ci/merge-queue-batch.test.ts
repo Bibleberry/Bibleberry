@@ -30,11 +30,9 @@ import {
 const MAIN_0 = '0000000000000000000000000000000000000000';
 const MAIN_1 = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const MAIN_2 = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
-const MAIN_3 = 'cccccccccccccccccccccccccccccccccccccccc';
 const SHA_1 = '1111111111111111111111111111111111111111';
 const SHA_2 = '2222222222222222222222222222222222222222';
 const SHA_2_UPDATED = '222222222222222222222222222222222222222a';
-const SHA_2_UPDATED_2 = '222222222222222222222222222222222222222b';
 const SHA_3 = '3333333333333333333333333333333333333333';
 const SHA_UNAUTH = '9999999999999999999999999999999999999999';
 
@@ -1270,6 +1268,7 @@ test('recovers cleanly from interrupted update-branch and merge responses withou
     entries: [{ prNumber: 371, expectedHeadSha: SHA_1 }],
     authorizedBy: 'ContraPhilosophy',
   });
+  assert.equal(rInd.ok, true);
   assert.equal((cInd.state as BatchState).status, 'merging');
   assert.equal(cInd.merges.length, 1);
 
