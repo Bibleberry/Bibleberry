@@ -50,6 +50,16 @@ test('artifact verification requires an external manifest hash, exact source and
     const inventory = describeFiles(files)
     const manifest = {
       schema: 1, channel: 'r06-staging-guest', mode: 'production', sourceCommit: commit,
+      sourceTree: commit,
+      inputs: {
+        packageLockSha256: 'f'.repeat(64),
+        stagingConfigSha256: 'f'.repeat(64),
+        toolingSha256: Object.fromEntries(['preflight', 'client-build', 'staging-profile', 'verify-staging']
+          .map(name => ['r06-' + name + '.mjs', 'f'.repeat(64)])),
+      },
+      toolchain: {
+        platform: 'linux', arch: 'x64', node: '24.22.1', npm: '11.9.0', typescript: '5.9.3', vite: '7.3.7', wrangler: '4.158.0',
+      },
       flags, staging, artifactSha256: sha256(JSON.stringify(inventory)), files: inventory,
     }
     const manifestBytes = JSON.stringify(manifest)

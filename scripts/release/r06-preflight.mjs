@@ -10,6 +10,7 @@ const tooling = ['r06-preflight.mjs', 'r06-client-build.mjs', 'r06-staging-profi
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const shaPattern = /^[a-f0-9]{40}$/
 const digestPattern = /^[a-f0-9]{64}$/
+const versionPattern = /^\d+\.\d+\.\d+(?:-[\w.-]+)?$/
 const configFile = 'wrangler.staging.jsonc'
 const manifestFile = 'manifest.json'
 const registry = 'https://registry.npmjs.org/'
@@ -75,6 +76,12 @@ export async function verifyArtifact(directory, sourceCommit, expectedManifestSh
   if (
     manifest.schema !== 1 ||
     manifest.sourceCommit !== sourceCommit ||
+    !shaPattern.test(manifest.sourceTree) ||
+    !digestPattern.test(manifest.inputs?.packageLockSha256) ||
+    !digestPattern.test(manifest.inputs?.stagingConfigSha256) ||
+    !tooling.every(name => digestPattern.test(manifest.inputs?.toolingSha256?.[name])) ||
+    manifest.toolchain?.platform !== 'linux' || manifest.toolchain?.arch !== 'x64' ||
+    !['node', 'npm', 'typescript', 'vite', 'wrangler'].every(name => versionPattern.test(manifest.toolchain?.[name])) ||
     manifest.mode !== 'production' ||
     manifest.channel !== 'r06-staging-guest' ||
     JSON.stringify(manifest.flags) !== JSON.stringify(flags) ||
@@ -90,8 +97,8 @@ export async function verifyArtifact(directory, sourceCommit, expectedManifestSh
 
 async function buildArtifact(sourceCommit, directory, cacheDirectory) {
   if (!shaPattern.test(sourceCommit)) throw new Error('Build requires a full Git commit SHA.')
-  const repo = run('git', ['-C', scriptDir, 'rev-parse', '--show-toplevel'])
-  const git = args => run('git', ['-C', repo, ...args])
+  const repo = run('git', ['--no-replace-objects', '-C', scriptDir, 'rev-parse', '--show-toplevel'])
+  const git = args => run('git', ['--no-replace-objects', '-C', repo, ...args])
   if (git(['rev-parse', '--verify', sourceCommit + '^{commit}']) !== sourceCommit) {
     throw new Error('Build source must be an exact commit.')
   }
