@@ -68,9 +68,9 @@ export function assertReaderFiles(files) {
     }
   }
   const html = files.get('index.html')?.toString('utf8')
-  const entry = html?.match(/<script type="module"[^>]*src="\.\/(assets\/[\w.-]+\.js)"/)?.[1]
+  const entry = html?.match(/<script type="module"[^>]*src="\/(assets\/[\w.-]+\.js)"/)?.[1]
   if (!entry || !files.has(entry) || !files.get('favicon.svg')?.length) {
-    throw new Error('Reader dist is missing its HTML, entry script, or favicon.')
+    throw new Error('Reader dist must include a root-relative entry script and a favicon.')
   }
   const js = [...files].filter(([name]) => name.endsWith('.js')).map(([, bytes]) => bytes.toString('utf8')).join('\n')
   for (const endpoint of ['/api/challenges', '/api/months/', '/api/library/months', '/api/news']) {

@@ -7,6 +7,8 @@ import { pathToFileURL } from 'node:url'
 const stagingOrigin = staging.vars.ALLOWED_ORIGINS.split(',')[0]
 const browserOrigin = 'https://r06-preflight.test'
 const publicFontStylesheet = 'https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600&family=Poppins:wght@400;500;600&display=swap'
+const directEntryPath = '/challenge/preflight-unavailable'
+const hashEntryPath = '/#' + directEntryPath
 const challengePath = '/api/challenges/preflight-unavailable'
 const releaseRoutes = /^\/api\/(?:challenges(?:\/[^/]+)?|months\/[^/]+|library\/months|news)$/
 const contentTypes = {
@@ -57,13 +59,20 @@ async function verifyPerimeter(reader, teamHost, liveAsset) {
 async function smokeReader(reader) {
   const browser = await chromium.launch()
   try {
-    for (const failure of [404, 503, 200]) {
+    const smokeCases = [
+      { path: directEntryPath, failure: 404 },
+      { path: hashEntryPath, failure: 404 },
+      { path: hashEntryPath, failure: 503 },
+      { path: hashEntryPath, failure: 200 },
+    ]
+    for (const { path, failure } of smokeCases) {
       const context = await browser.newContext({ serviceWorkers: 'block' })
       try {
         const page = await context.newPage()
         page.setDefaultTimeout(5000)
         const unexpected = []
         const gatewayRequests = []
+        const servedAssets = new Set()
         await context.route('**/*', async route => {
           const request = route.request()
           const url = new URL(request.url())
@@ -83,16 +92,31 @@ async function smokeReader(reader) {
               json: { ok: false },
             })
           }
-          const name = url.pathname === '/' ? 'index.html' : url.pathname.slice(1)
+          // Reproduce the staging SPA fallback for a direct document request.
+          const document = request.isNavigationRequest() && (url.pathname === '/' || url.pathname === directEntryPath)
+          const name = document ? 'index.html' : url.pathname.slice(1)
           const body = reader.get(name)
           if (!body) {
-            unexpected.push('Unexpected resource path')
+            unexpected.push('Unexpected resource path: ' + url.pathname)
             return route.abort()
           }
+          if (name.startsWith('assets/')) servedAssets.add(url.pathname)
           return route.fulfill({ status: 200, body, contentType: contentTypes[name.split('.').at(-1)] })
         })
 
-        await page.goto(browserOrigin + '/#/challenge/preflight-unavailable')
+        await page.goto(browserOrigin + path)
+        if (path === directEntryPath) {
+          expect(unexpected).toEqual([])
+          await expect(page.locator('.r06-shell')).toBeVisible()
+          expect([...servedAssets]).toEqual(expect.arrayContaining([
+            expect.stringMatching(/^\/assets\/.*\.js$/),
+            expect.stringMatching(/^\/assets\/.*\.css$/),
+          ]))
+          expect(unexpected).toEqual([])
+          console.log('Packaged reader loaded root-based JavaScript and CSS from a direct Challenge URL.')
+          continue
+        }
+
         await expect(page.getByRole('heading', { name: 'Challenge unavailable', exact: true })).toBeVisible()
         await expect(page.getByRole('button', { name: 'Finish', exact: true })).toHaveCount(0)
         expect(gatewayRequests).toContain(challengePath)

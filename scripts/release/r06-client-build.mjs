@@ -43,6 +43,7 @@ if (!plugins?.some(plugin => plugin.name === 'vite-plugin-inspect-dom-simple')) 
 
 await build({
   ...loaded.config,
+  base: '/',
   configFile: false,
   mode: 'production',
   envFile: false,

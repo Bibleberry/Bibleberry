@@ -10,7 +10,7 @@ import { isAccessChallenge } from '../../scripts/release/r06-verify-staging.mjs'
 const commit = 'a'.repeat(40)
 const entry = 'assets/entry.js'
 const reader = new Map([
-  ['index.html', Buffer.from('<script type="module" src="./assets/entry.js"></script>')],
+  ['index.html', Buffer.from('<script type="module" src="/assets/entry.js"></script>')],
   ['favicon.svg', Buffer.from('<svg/>')],
   [entry, Buffer.from('/api/challenges /api/months/ /api/library/months /api/news')],
 ])
@@ -38,6 +38,14 @@ test('reader bundle checks require the shell and reject sensitive modules, scrip
   }
   throws(() => assertReaderFiles(new Map([...reader, ['assets/entry.js.map', Buffer.from('{}')]])), /Unexpected/)
   throws(() => assertReaderFiles(new Map([...reader, [entry, Buffer.from('/api/challenges')]])), /gateway route/)
+})
+
+test('reader entry script must resolve from the staging origin root', () => {
+  for (const src of ['./assets/entry.js', 'assets/entry.js', '//example.test/assets/entry.js']) {
+    const altered = new Map(reader)
+    altered.set('index.html', Buffer.from(`<script type="module" src="${src}"></script>`))
+    throws(() => assertReaderFiles(altered), /root-relative entry script/)
+  }
 })
 
 test('artifact verification requires an external manifest hash, exact source and exact file set', async () => {
