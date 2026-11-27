@@ -68,7 +68,13 @@ export interface CardAnnouncementPreferenceControlProps {
   readonly enabled: boolean
   readonly disabled?: boolean
   readonly onToggle: (nextEnabled: boolean) => void
+  /** Optional surface-specific explanation; defaults to the legacy Hub wording. */
+  readonly description?: string
 }
+
+const DEFAULT_PREFERENCE_DESCRIPTION =
+  'Show one combined announcement when returning to the Hub after earning new Scripture '
+  + 'Cards. Turning this off hides announcements only; cards are still earned and saved.'
 
 /**
  * Reusable accessible toggle for earned-Card announcement presentation opt-out.
@@ -78,14 +84,14 @@ export function CardAnnouncementPreferenceControl({
   enabled,
   disabled = false,
   onToggle,
+  description = DEFAULT_PREFERENCE_DESCRIPTION,
 }: CardAnnouncementPreferenceControlProps) {
   return (
     <div className="hub-card-announcement-pref">
       <div>
         <h2>Earned Scripture Card announcements</h2>
         <p>
-          Show one combined announcement when returning to the Hub after earning new Scripture
-          Cards. Turning this off hides announcements only; cards are still earned and saved.
+          {description}
         </p>
       </div>
       <button

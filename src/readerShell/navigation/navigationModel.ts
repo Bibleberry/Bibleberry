@@ -79,6 +79,8 @@ export type NavigationAction =
   | { readonly type: 'showTutorialTab'; readonly tab: ReaderTab }
   | { readonly type: 'unavailable'; readonly problem: NavigationProblem }
   | { readonly type: 'returnToToday' }
+  // Coastal Osprey: `Browse Full Field Notebook` from the focused View Discoveries gallery.
+  | { readonly type: 'openFieldNotebook' }
 
 export function createNavigationState(): NavigationState {
   return {
@@ -216,5 +218,12 @@ export function navigationReducer(state: NavigationState, action: NavigationActi
       return returnToToday(state, action.problem)
     case 'returnToToday':
       return returnToToday(state)
+    case 'openFieldNotebook': {
+      if (focused || problem) return state
+      const onNotebook = stacks.collections.at(-1)?.kind === 'notebook'
+      if (onNotebook && activeTab === 'collections') return state
+      const collections = onNotebook ? stacks.collections : [{ kind: 'notebook' } as const]
+      return { ...state, activeTab: 'collections', stacks: { ...stacks, collections } }
+    }
   }
 }

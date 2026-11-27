@@ -91,6 +91,7 @@ For a submitted PR, Admin:
 - Verifies the relevant hosted checks and distinguishes passing, failing, skipped, pending and unverified evidence.
 - Confirms the required Independent Review disposition at the current technical PR HEAD, or records Aaron's explicit determination that technical review is inapplicable to a strictly administrative/governance-documentation PR.
 - Examines unresolved blockers, branch compatibility, merge-queue requirements and any relevant owner/editorial approvals.
+- Confirms material incidental findings under [AI Development Protocol §5A](../../ai-development-protocol.md#5a-incidental-findings-and-engineering-knowledge-preservation) have recorded dispositions and accountable next steps; surfaces outstanding reporting gaps without substituting administrative judgment for technical review or requiring every unrelated finding to be corrected before merge.
 - Reports a specific readiness recommendation to Aaron, identifying what remains unverified.
 - Coordinates the merge process **only following Aaron's express merge authorization**, then verifies the accepted result and hands the completion evidence to Planning for Project Board reconciliation.
 
