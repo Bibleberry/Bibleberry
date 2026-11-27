@@ -2,8 +2,8 @@ import { createServer, type ViteDevServer } from 'vite'
 import { expect, test } from '../../smoke/helpers/frameSafeTest.ts'
 import {
   buildDefaultHistoricalMonthPayload, buildHistoricalMonthProgressPayload,
-  buildGuestParticipationStorageValue, buildLibraryMonthsPayload, documentId,
-  monthId, monthTitle, participationKey, shelfKey,
+  buildGuestParticipationStorageValue, buildLibraryMonthsPayload, buildReaderProfileStorageValue,
+  documentId, monthId, monthTitle, participationKey, readerProfileKey, shelfKey,
 } from '../fixtures/m1aGatewayFixtures.ts'
 
 let server: ViteDevServer
@@ -26,6 +26,14 @@ test.beforeAll(async () => {
   url = `http://127.0.0.1:${address.port}/`
 })
 test.afterAll(async () => { await server?.close() })
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(
+    ({ key, value }) => {
+      if (localStorage.getItem(key) === null) localStorage.setItem(key, value)
+    },
+    { key: readerProfileKey, value: buildReaderProfileStorageValue() },
+  )
+})
 
 test('J5 searches across years, retries a cursor and restores a reauthorized catalogue after reading', async ({ page }) => {
   const completed = { [`cms:${documentId}`]: { completedOn: '2026-10-25' } }

@@ -51,6 +51,7 @@ import { TodayCardAnnouncementView } from './TodayCardAnnouncement.tsx'
 import { TodayGuestInvite } from './TodayGuestInvite.tsx'
 import { loadAuthorizedTodayMonth } from './todayMonthLoader.ts'
 import type { TodayRolloverContext } from './todayShelfRollover.ts'
+import { usePriorMonthContinue } from './usePriorMonthContinue.ts'
 import { useTodayShelfRollover } from './useTodayShelfRollover.ts'
 
 export interface TodayHostProps {
@@ -125,7 +126,7 @@ function exploreReasonCopy(reason: TodayExploreReason): string {
  *   state (`defaultGuestShelfStore`).
  * - Derives primary teaching, compact Current Month link, and single secondary continuation
  *   exclusively through `deriveTodayPrimaryAction` and `deriveHubContinueSuggestion`.
- * - Never fabricates progress, G02 rollover reminders, calendar grids, or Monthly Introductions.
+ * - Never fabricates progress, calendar grids, or Monthly Introductions.
  */
 export function TodayHost({
   onOpenChallenge,
@@ -281,14 +282,31 @@ export function TodayHost({
       ? participationSnapshot.data
       : null
 
+  const authorizedContext = deriveTodayPrimaryAction({ currentMonth }).context
+    ?? authorizedLoad?.unpublishedMonthDate ?? null
+  const priorMonthSuggestion = usePriorMonthContinue(
+    authorizedContext,
+    participationSnapshot,
+    shelfSnapshot,
+    participationStore,
+    shelfStore,
+    monthProvider,
+  )
+  const continuation = useMemo(() => {
+    if (hubContinueResult?.status === 'suggestion') return hubContinueResult
+    return priorMonthSuggestion
+      ? { status: 'suggestion', reason: 'inProgressAfterRollover', suggestion: priorMonthSuggestion } as const
+      : null
+  }, [hubContinueResult, priorMonthSuggestion])
+
   const model = useMemo(
     () =>
       deriveTodayPrimaryAction({
         currentMonth,
         participationData,
-        hubContinue: hubContinueResult,
+        hubContinue: continuation,
       }),
-    [currentMonth, participationData, hubContinueResult],
+    [currentMonth, participationData, continuation],
   )
 
   const { context, primary, currentMonthLink, secondary } = model
@@ -310,7 +328,7 @@ export function TodayHost({
   // Reconcile the raw HubContinue suggestion with `model.secondary` so `HubContinueCard`
   // renders only when `deriveTodayPrimaryAction` authorizes the secondary continuation.
   const authorizedHubSuggestion =
-    secondary && hubContinueResult?.status === 'suggestion' ? hubContinueResult.suggestion : null
+    secondary && continuation?.status === 'suggestion' ? continuation.suggestion : null
 
   const committedParticipationData =
     participationSnapshot.status === 'ready' &&
@@ -519,7 +537,7 @@ export function TodayHost({
                 onOpenChallenge(secondary.action)
               }
             }}
-            onOpenMonth={yearMonth => {
+            onOpenMonth={priorMonthSuggestion ? undefined : yearMonth => {
               onOpenMonth({ type: 'openMonth', yearMonth })
             }}
           />

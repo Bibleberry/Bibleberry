@@ -17,6 +17,7 @@ import {
   buildLibraryMonthsPayload,
   buildMonthPayload,
   buildNewsPayload,
+  buildReaderProfileStorageValue,
   buildUnauthorizedChallengeFixture,
   challenge,
   currentFullMonthAwardId,
@@ -36,6 +37,7 @@ import {
   monthTitle,
   navigationKey,
   participationKey,
+  readerProfileKey,
   serverContext,
   shelfKey,
   teachingSlug,
@@ -145,6 +147,18 @@ test.afterAll(async () => {
 test.beforeEach(async ({ page }) => {
   // Keep Today’s bootstrap month deterministic while the gateway supplies the authorized date.
   await page.clock.setFixedTime(new Date('2026-11-10T12:00:00Z'))
+  await page.addInitScript(
+    ({ key, value }) => {
+      try {
+        if (localStorage.getItem(key) === null && localStorage.getItem('bibleberry-prototype-v1') === null) {
+          localStorage.setItem(key, value)
+        }
+      } catch {
+        // Leave storage untouched when a test intentionally blocks it.
+      }
+    },
+    { key: readerProfileKey, value: buildReaderProfileStorageValue() },
+  )
   await page.route('https://**', route => route.abort())
 })
 
@@ -1766,7 +1780,134 @@ test('J4 G03 retries a qualifying Shelf admission on the next Today visit withou
   expect(await participation(page)).toEqual(before)
 })
 
-test('J4 G03 preserves unfinished prior-month progress without auto-admission or a G02 suggestion', async ({ page }) => {
+async function seedValidPriorMonthPosition(page: Page, completedFocus?: string) {
+  await page.addInitScript(({ key, id, sKey, completedFocus }) => {
+    if (localStorage.getItem(key)) return
+    const completedChallenges = completedFocus
+      ? Object.fromEntries(Array.from({ length: 30 }, (_, index) => {
+          const day = index + 1
+          return [`cms:${completedFocus}-challenge-${day}`, { completedOn: '2026-09-30' }]
+        }))
+      : {}
+    localStorage.setItem(key, JSON.stringify({
+      schemaVersion: 2,
+      data: {
+        completedChallenges,
+        inProgressChallenges: { [`cms:${id}`]: { updatedOn: '2026-10-31', screenId: 'step-2' } },
+      },
+    }))
+    if (completedFocus) localStorage.setItem(sKey, JSON.stringify({
+      schemaVersion: 1,
+      state: { activeFocusMonth: completedFocus, months: [{ yearMonth: completedFocus, admissionKind: 'readerSelected', isProtected: true }] },
+    }))
+  }, { key: participationKey, id: documentId, sKey: shelfKey, completedFocus })
+}
+
+for (const action of ['Exit', 'Finish'] as const) {
+  test(`J4 G02 resumes a non-Shelf Challenge once and returns to Today on ${action}`, async ({ page }) => {
+    await mockGateway(page)
+    await seedValidPriorMonthPosition(page)
+    await page.clock.setFixedTime(new Date('2026-10-31T12:00:00Z'))
+    await page.goto(readerUrl())
+    await expect(page.getByTestId('r06-today-authorized-date')).toHaveText(serverContext.authorizedLocalDate)
+    const continuation = page.getByTestId('today-continue-study')
+    await expect(continuation).toHaveCount(1)
+    await expect(continuation.getByText('Active Focus')).toHaveCount(0)
+    await expect.poll(() => storedRolloverShelf(page)).toMatchObject({ state: { months: [], activeFocusMonth: null } })
+    await continuation.getByRole('button', { name: /Continue Your Study: Test Challenge 25/ }).click()
+    const position = page.getByRole('progressbar', { name: 'Challenge screen position' })
+    await expect(position).toHaveAttribute('aria-valuetext', 'Screen 2 of 2')
+    await page.getByRole('button', { name: action, exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Today', exact: true })).toBeVisible()
+    await expect(page.getByTestId('today-primary-cta')).toBeVisible()
+    await expect(continuation).toHaveCount(0)
+    await page.reload()
+    await expect(page.getByTestId('today-primary-cta')).toBeVisible()
+    await expect(continuation).toHaveCount(0)
+    const data = await participation(page)
+    if (action === 'Finish') {
+      expect(Object.keys(data.completedChallenges)).toEqual([`cms:${documentId}`])
+      await expect.poll(async () => Object.keys((await participation(page)).earnedAwards)).toEqual([awardId])
+    } else {
+      expect(data.inProgressChallenges[`cms:${documentId}`].screenId).toBe('step-2')
+      await selectTab(page, 'Library')
+      await page.getByRole('button', { name: 'Browse All Months' }).click()
+      await page.getByRole('button', { name: /Open October 2026/ }).click()
+      await page.getByRole('button', { name: 'Continue', exact: true }).click()
+      await page.getByRole('button', { name: 'Begin the Month', exact: true }).click()
+      await page.getByRole('button', { name: /Test Challenge 25/ }).click()
+      await expect(position).toHaveAttribute('aria-valuetext', 'Screen 2 of 2')
+    }
+  })
+}
+
+test('J4 G02 consumes on presentation and two concurrent Today visits share one offer', async ({ page, context }) => {
+  const duplicate = await context.newPage()
+  await Promise.all([mockGateway(page), mockGateway(duplicate), seedValidPriorMonthPosition(page), seedValidPriorMonthPosition(duplicate)])
+  await duplicate.clock.setFixedTime(new Date('2026-11-10T12:00:00Z'))
+  await Promise.all([page.goto(readerUrl()), duplicate.goto(readerUrl())])
+  const count = async () => (await page.getByTestId('today-continue-study').count())
+    + (await duplicate.getByTestId('today-continue-study').count())
+  await expect.poll(count).toBe(1)
+  await Promise.all([page.reload(), duplicate.reload()])
+  await expect(page.getByTestId('today-primary-cta')).toBeVisible()
+  await expect(duplicate.getByTestId('today-primary-cta')).toBeVisible()
+  await expect.poll(count).toBe(0)
+  expect((await participation(page)).inProgressChallenges[`cms:${documentId}`].screenId).toBe('step-2')
+})
+
+test('J4 G02 preserves completed Active Focus precedence', async ({ page }) => {
+  await mockGateway(page)
+  const completedFocus = '2026-09'
+  await page.route(`**/api/months/${completedFocus}`, route => route.fulfill({
+    json: buildMonthPayload({
+      yearMonth: completedFocus, year: 2026, month: 9, daysInMonth: 30,
+      phase: 'historical', title: 'Completed focus',
+    }),
+  }))
+  await seedValidPriorMonthPosition(page, completedFocus)
+  await page.goto(readerUrl())
+  const continuation = page.getByTestId('today-continue-study')
+  await expect(continuation).toHaveCount(1)
+  await expect(continuation.getByRole('button', { name: /Review This Month: September 2026/ })).toBeVisible()
+  await expect(continuation.getByRole('button', { name: /Continue Your Study/ })).toHaveCount(0)
+})
+
+test('J4 G02 does not present a prior-month Challenge that fails admission', async ({ page }) => {
+  await mockGateway(page)
+  await seedValidPriorMonthPosition(page)
+  await page.route(`**/api/challenges/${teachingSlug}`, route => route.fulfill({
+    json: { ok: true, challenge: { ...challenge, editorialEligibility: { adaptationReviewed: false } } },
+  }))
+  await page.goto(readerUrl())
+  await expect(page.getByTestId('today-primary-cta')).toBeVisible()
+  await expect(page.getByTestId('today-continue-study')).toHaveCount(0)
+})
+
+test('J4 G02 permits a subsequent verification after an inconsistent gateway response', async ({ page }) => {
+  await mockGateway(page)
+  await seedValidPriorMonthPosition(page)
+  const challengeEndpoint = `**/api/challenges/${teachingSlug}`
+  let inconsistent = true
+  await page.route(challengeEndpoint, route => {
+    if (!inconsistent) return route.fallback()
+    return route.fulfill({
+      json: { ok: true, challenge: { ...challenge, _id: 'mismatched-doc' } },
+    })
+  })
+  const [response] = await Promise.all([
+    page.waitForResponse(challengeEndpoint),
+    page.goto(readerUrl()),
+  ])
+  await response.finished()
+  await expect(page.getByTestId('today-primary-cta')).toBeVisible()
+  await expect(page.getByTestId('today-continue-study')).toHaveCount(0)
+  inconsistent = false
+  await page.reload()
+  await expect(page.getByTestId('today-continue-study').getByRole('button', { name: /Continue Your Study/ })).toBeVisible()
+})
+
+test('J4 G03 preserves progress for an identity absent from the prior-month roster', async ({ page }) => {
   await mockGateway(page)
   await seedRolloverProgress(page, false)
   await page.goto(readerUrl())

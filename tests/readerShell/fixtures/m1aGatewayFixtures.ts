@@ -18,6 +18,7 @@ export const navigationKey = 'bibleberry-r06-navigation-v1'
 export const participationKey = 'bibleberry-reader-participation-v1'
 export const shelfKey = 'bibleberry-guest-shelf-v1'
 export const monthIntroKey = 'bibleberry-month-intro-v1'
+export const readerProfileKey = 'bibleberry-reader-profile-v1'
 
 export const monthId = '2026-10'
 export const monthTitle = 'October test publication'
@@ -550,6 +551,30 @@ export function buildGuestShelfStorageValue(seed: {
     state: {
       activeFocusMonth: seed.activeFocusMonth,
       months: seed.months,
+    },
+  })
+}
+
+export function buildReaderProfileStorageValue(seed?: {
+  readonly introStatus?: 'pending' | 'completed' | 'skipped'
+  readonly tutorialStatus?: 'pending' | 'completed' | 'skipped'
+  readonly reminderEnabled?: boolean
+  readonly reminderTime?: string
+}): string {
+  return JSON.stringify({
+    schemaVersion: 1,
+    origin: 'defaults',
+    profile: {
+      introStatus: seed?.introStatus ?? 'completed',
+      tutorialStatus: seed?.tutorialStatus ?? 'pending',
+      guestInviteDismissed: false,
+      appearance: { mode: 'followSeasons', chosenPaletteId: null },
+      contrastMode: 'system',
+      textScale: 'default',
+      reminder: {
+        enabled: seed?.reminderEnabled ?? false,
+        time: seed?.reminderTime ?? '08:00',
+      },
     },
   })
 }

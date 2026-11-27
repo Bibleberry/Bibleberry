@@ -60,6 +60,7 @@ export type PersistedChallengeHostProps = {
   readAgain?: boolean
   /** Optional host-supplied session key that resets local completed reread position to Screen 1. */
   rereadSessionKey?: string | number
+  trackInterruption?: boolean
   onExit?: () => void
   exitLabel?: string
   eyebrow?: ReactNode
@@ -85,6 +86,7 @@ function ReadyPersistedChallengeHost({
   onFinish,
   onCompletionDispatched,
   onExit,
+  trackInterruption,
   exitLabel = 'Exit',
   eyebrow,
   banner,
@@ -136,7 +138,19 @@ function ReadyPersistedChallengeHost({
 
   const invokeReturnOnce = onExit
     ? () => {
-        finishControllerRef.current.triggerExit(onExit, effectiveReturnOnFinish)
+        finishControllerRef.current.triggerExit(() => {
+          const saved = store.getSnapshot().data.inProgressChallenges[challengeId]
+          if (trackInterruption && saved?.screenId) {
+            void store.dispatch({
+              type: 'saveChallengeProgress',
+              challengeId,
+              screenId: saved.screenId,
+              updatedOn: getToday(),
+              trackInterruption,
+            })
+          }
+          onExit()
+        }, effectiveReturnOnFinish)
       }
     : undefined
 
@@ -203,6 +217,7 @@ function ReadyPersistedChallengeHost({
             challengeId,
             screenId: nextScreenId,
             updatedOn: getToday(),
+            trackInterruption,
           })
         },
         onStartProgress: () => {
@@ -213,6 +228,7 @@ function ReadyPersistedChallengeHost({
             challengeId,
             ...(initialScreenId ? { screenId: initialScreenId } : {}),
             updatedOn: getToday(),
+            trackInterruption,
           })
         },
         onStartFromBeginning: () => {
@@ -227,6 +243,7 @@ function ReadyPersistedChallengeHost({
             challengeId,
             screenId: firstScreenId,
             updatedOn: getToday(),
+            trackInterruption,
           })
         },
         onToggleSaveChallenge: () => {
@@ -288,6 +305,7 @@ export function PersistedChallengeHost({
   readAgain = false,
   rereadSessionKey,
   onExit,
+  trackInterruption,
   exitLabel,
   eyebrow,
   banner,
@@ -344,6 +362,7 @@ export function PersistedChallengeHost({
       effectiveReturnOnFinish={effectiveReturnOnFinish}
       onFinish={onFinish}
       onCompletionDispatched={onCompletionDispatched}
+      trackInterruption={trackInterruption}
       onExit={handleExit}
       exitLabel={effectiveExitLabel}
       eyebrow={eyebrow}

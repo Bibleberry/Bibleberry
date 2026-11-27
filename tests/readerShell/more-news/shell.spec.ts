@@ -4,7 +4,13 @@ import { handleGatewayRequest } from '../../../src/gateway/handler.ts'
 import { createDefaultReaderProfile } from '../../../src/readerProfile/model.ts'
 import { READER_PROFILE_STORAGE_KEY } from '../../../src/readerProfile/types.ts'
 import { expect as baseExpect, test } from '../../smoke/helpers/frameSafeTest.ts'
-import { buildGuestParticipationStorageValue, navigationKey, participationKey, todayDocumentId } from '../fixtures/m1aGatewayFixtures.ts'
+import {
+  buildGuestParticipationStorageValue,
+  buildReaderProfileStorageValue,
+  navigationKey,
+  participationKey,
+  todayDocumentId,
+} from '../fixtures/m1aGatewayFixtures.ts'
 
 const expect = baseExpect.configure({ timeout: 12_000 })
 
@@ -193,6 +199,12 @@ test('keeps More entries available with empty or failed News and suppresses a wi
 
 test('opens the same News index from Today and returns to Today after filtering', async ({ page }) => {
   const feed = await useNewsGateway(page)
+  await page.addInitScript(
+    ({ key, value }) => {
+      if (localStorage.getItem(key) === null) localStorage.setItem(key, value)
+    },
+    { key: READER_PROFILE_STORAGE_KEY, value: buildReaderProfileStorageValue() },
+  )
   await page.goto(url)
   const shortcut = page.getByRole('button', { name: 'Ministry News' })
   await shortcut.click()
