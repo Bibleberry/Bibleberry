@@ -202,7 +202,7 @@ export function areParticipationDataEqual(
     && areRecordMapsEqual(
       left.inProgressChallenges,
       right.inProgressChallenges,
-      (a, b) => a.screenId === b.screenId && a.updatedOn === b.updatedOn,
+      (a, b) => a.screenId === b.screenId && a.updatedOn === b.updatedOn && a.interruptionOrder === b.interruptionOrder,
     )
     && areRecordMapsEqual(
       left.savedChallenges,
@@ -232,7 +232,7 @@ function stabilizeParticipationData(
   const inProgressChallenges = areRecordMapsEqual(
     prev.inProgressChallenges,
     next.inProgressChallenges,
-    (a, b) => a.screenId === b.screenId && a.updatedOn === b.updatedOn,
+    (a, b) => a.screenId === b.screenId && a.updatedOn === b.updatedOn && a.interruptionOrder === b.interruptionOrder,
   )
     ? prev.inProgressChallenges
     : next.inProgressChallenges

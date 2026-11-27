@@ -269,6 +269,7 @@ export function ReleasedChallengeHost({
       admittedChallenge={state.admittedChallenge}
       challenge={state.challenge}
       expectedNamespace="cms"
+      trackInterruption={requireGatewayAuthorization}
       origin={resolvedOrigin}
       onReturn={onReturn}
       onCompletionDispatched={completionWrite => {

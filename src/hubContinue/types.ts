@@ -25,12 +25,12 @@ import type { ShelfState } from '../shelf/types.ts'
  * - Never infers access from guessed slugs, unverified device time, or untrusted local dates.
  * - Keeps incidental Library browsing separate from deliberate active focus.
  * - Never creates missed-day backlogs, streak pressure, attendance scoreboards, or award prompts.
- * - Leaves the deferred first-post-rollover resume heuristic untouched.
  */
 
 export type HubContinueSuggestionKind = 'resumeInProgress'
 
 type HubContinueSuggestionReason =
+  | 'inProgressAfterRollover'
   | 'inProgressInActiveFocus'
   | 'noSavedChallengeInActiveFocus'
   | 'activeFocusComplete'
@@ -51,7 +51,8 @@ interface HubContinueFocus {
   readonly preservesFormalFocus: true
 }
 
-export interface HubContinueSuggestion extends HubContinueFocus {
+export interface HubContinueSuggestion extends Omit<HubContinueFocus, 'formalFocusMonth'> {
+  readonly formalFocusMonth: PublicationYearMonth | null
   readonly kind: HubContinueSuggestionKind
   readonly challengeId: CanonicalChallengeId
   readonly challengeDocumentId: string

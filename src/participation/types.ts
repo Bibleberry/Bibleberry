@@ -52,6 +52,8 @@ export interface ChallengeResumeRecord {
    */
   readonly screenId?: ChallengeScreenId
   readonly updatedOn: LocalCalendarDate
+  /** Relative order of explicitly tracked reader progress within local unfinished Challenges. */
+  readonly interruptionOrder?: number
 }
 
 export interface SavedChallengeRecord {
@@ -195,6 +197,7 @@ export type ParticipationCommand =
       readonly challengeId: CanonicalChallengeId
       readonly screenId?: ChallengeScreenId
       readonly updatedOn: LocalCalendarDate
+      readonly trackInterruption?: boolean
     }
   | {
       readonly type: 'setChallengeSaved'
