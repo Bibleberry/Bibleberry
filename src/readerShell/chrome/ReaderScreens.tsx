@@ -249,6 +249,7 @@ function CurrentScreen({
             onOpenAbout={() => send({ type: 'push', route: { kind: 'detail', screen: 'aboutBibleberry' } })}
             onOpenAccountProgress={() => send({ type: 'push', route: { kind: 'detail', screen: 'accountProgress' } })}
             onReplayIntroduction={() => send({ type: 'openIntro' })}
+            onReplayTutorial={renderGuidedTutorial ? () => send({ type: 'openTutorial' }) : undefined}
           />
         )
     }

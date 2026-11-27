@@ -7,6 +7,7 @@ export default defineConfig({
     'month-shelf.spec.ts',
     'responsiveAccessibility.spec.ts',
     'foundations-overview.spec.ts',
+    'guided-tutorial/shell.spec.ts',
   ],
   fullyParallel: false,
   timeout: 60_000,

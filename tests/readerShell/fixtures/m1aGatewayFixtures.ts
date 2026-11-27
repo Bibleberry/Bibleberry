@@ -566,7 +566,7 @@ export function buildReaderProfileStorageValue(seed?: {
     origin: 'defaults',
     profile: {
       introStatus: seed?.introStatus ?? 'completed',
-      tutorialStatus: seed?.tutorialStatus ?? 'pending',
+      tutorialStatus: seed?.tutorialStatus ?? 'completed',
       guestInviteDismissed: false,
       appearance: { mode: 'followSeasons', chosenPaletteId: null },
       contrastMode: 'system',
