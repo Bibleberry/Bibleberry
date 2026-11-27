@@ -102,6 +102,10 @@ async function buildArtifact(sourceCommit, directory, cacheDirectory) {
   if (git(['rev-parse', '--verify', sourceCommit + '^{commit}']) !== sourceCommit) {
     throw new Error('Build source must be an exact commit.')
   }
+  const trackedEntries = git(['ls-tree', '-r', '-z', sourceCommit]).split('\0').filter(Boolean)
+  if (trackedEntries.some(entry => !/^100(?:644|755) blob /.test(entry))) {
+    throw new Error('Pinned source must contain regular tracked files only.')
+  }
   if (process.platform !== 'linux' || process.arch !== 'x64' || Number(process.versions.node.split('.')[0]) < 22) {
     throw new Error('Use Linux x64 and Node 22 or later. Match recorded versions for a byte-for-byte rebuild.')
   }
