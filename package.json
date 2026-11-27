@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:r06": "VITE_ENABLE_R06_SHELL=true VITE_ENABLE_RELEASE_GATEWAY_SOURCE=true vite",
     "dev:pilot": "VITE_ENABLE_CHALLENGE_PILOT=true vite",
     "dev:participation-pilot": "VITE_ENABLE_PARTICIPATION_PILOT=true vite",
     "dev:released-challenge": "VITE_ENABLE_RELEASED_CHALLENGE_ROUTE=true vite",

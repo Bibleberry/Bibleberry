@@ -8,8 +8,9 @@
 - "Bibleberry" is a provisional app name; Realigned is a separate podcast.
 
 ## Actual codebase
-- Reader: React 19, TypeScript and Vite in `src/`; see `src/App.tsx`, `src/components/`, `src/data/`. Preserve existing mobile UI and accessibility.
-- Sanity 6 Studio is a separate `studio/` workspace; schemas: `studio/schemaTypes/`; templates: `studio/initialValues/`. The reader is NOT yet connected to it. Sanity is for editorial content, not private user progress.
+- Reader: React 19, TypeScript and Vite in `src/`. **The active reader is the R06 shell in `src/readerShell/`** (start with `src/readerShell/README.md`), selected in `src/main.tsx` when `VITE_ENABLE_R06_SHELL=true`. Run it locally with `npm run dev:r06`. Its hosts reuse the screens in `src/components/` and the engines and stores elsewhere in `src/`. Preserve existing mobile UI and accessibility.
+- **Legacy shell is frozen.** Without the flag, `src/main.tsx` mounts the legacy prototype `src/App.tsx` (with `src/data/` fixtures). It is bug-fix-only until the owner-approved WP-11 retirement ([R06 audit](../docs/project/r06-production-implementation-audit.md)). Land reader fixes and features in the R06 path. A fix made only in `App.tsx` does not reach R06.
+- Sanity 6 Studio is a separate `studio/` workspace; schemas: `studio/schemaTypes/`; templates: `studio/initialValues/`. The R06 reader gets published content only through the release gateway (`src/gateway/`). The R06 release build rejects direct Sanity query code, so do not add it. Sanity is for editorial content, not private user progress.
 - Developer Studio and Interactive Challenge Lab are **testing-only**. Preserve `VITE_ENABLE_DEVELOPER_STUDIO`, isolated browser storage, and their exclusion from public builds.
 - Local prototype state is not cloud sync. Supabase and Google/Apple/email-code login are a **working direction, not build approval**. See `docs/architecture/user-accounts-and-sync.md`.
 
@@ -26,7 +27,7 @@
 - Never commit credentials or sensitive data, weaken security or fabricate production records. Flag auth, row-level security, privacy, migrations, recovery, costs and data-loss implications where applicable.
 
 ## Verification and review
-- Reader: `npm ci`, `npm run build`, `npm run lint` (separate pre-existing lint findings). Studio: `cd studio && npm ci && npm run typecheck && npm run build`. CI builds both on PRs.
+- Reader: `npm ci`, `npm run build`, `npm run lint` (lint is clean; do not introduce findings), and `npm run test:reader-shell` plus `npx playwright test --config tests/readerShell/playwright.config.ts` for R06 changes. Studio: `cd studio && npm ci && npm run typecheck && npm run build`. CI builds both on PRs.
 - Test changed behavior and regression risks. For UI changes check mobile, keyboard and screen readers; verify normal production builds omit testing tools.
 - Report changed files, exact checks/results, untested areas and risks. Never claim unrun tests; compilation alone is not functional proof.
 - Follow [AI Development Protocol §5A](../docs/ai-development-protocol.md#5a-incidental-findings-and-engineering-knowledge-preservation) for timely durable reporting of material incidental findings, including discoveries outside scope and during corrections. Use the PR section or originating Issue, explicitly state if none, and preserve findings without unauthorized fixes.
