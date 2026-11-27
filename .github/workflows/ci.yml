@@ -102,6 +102,15 @@ jobs:
         if: steps.scope.outputs.should_run == 'true'
         run: npx playwright test --config tests/readerShell/playwright.config.ts
 
+      - name: Upload Silent Observatory browser evidence
+        if: always() && steps.scope.outputs.should_run == 'true' && hashFiles('test-results/issue-355/*.png') != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: silent-observatory-browser-evidence-${{ github.sha }}
+          path: test-results/issue-355/*.png
+          if-no-files-found: ignore
+          retention-days: 30
+
       - name: Run Library-to-Shelf unit and browser coverage
         if: steps.scope.outputs.should_run == 'true'
         run: npm run test:library-shelf
