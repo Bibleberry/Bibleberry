@@ -260,3 +260,34 @@ export function applyNativeIngress(
   }
   return applyNavigationAction(navigation, { type: 'unavailable', problem: 'challengeUnavailable' })
 }
+
+/** Replaces first-use guidance in place on the Today landing without pushing extra history frames. */
+export function replaceFirstUseGuidance(
+  navigation: BrowserNavigation,
+  step: 'intro' | 'tutorial' | 'none',
+): NavigationUpdate {
+  const { state } = navigation
+  if (
+    state.problem !== null ||
+    state.activeTab !== 'today' ||
+    state.stacks.today.length > 0 ||
+    state.focused?.kind === 'challenge' ||
+    state.focused?.kind === 'monthIntro'
+  ) {
+    return noHistory(navigation)
+  }
+  const focused =
+    step === 'intro'
+      ? ({ kind: 'intro' } as const)
+      : step === 'tutorial'
+        ? ({
+            kind: 'tutorial',
+            shownTab: state.focused?.kind === 'tutorial' ? state.focused.shownTab : 'today',
+          } as const)
+        : null
+  const nextState: NavigationState = { ...state, focused }
+  if (sameFrame(frameFor(nextState), frameFor(state)) && navigation.currentId !== null) {
+    return noHistory(navigation, nextState)
+  }
+  return writeEntry(navigation, nextState, 'replace')
+}

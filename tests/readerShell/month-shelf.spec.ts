@@ -13,11 +13,13 @@ import {
   buildHistoricalMonthProgressPayload,
   buildLibraryMonthsPayload,
   buildMonthPayload,
+  buildReaderProfileStorageValue,
   currentMonthId,
   currentMonthTitle,
   monthId,
   monthTitle,
   participationKey,
+  readerProfileKey,
   shelfKey,
   serverContext,
 } from './fixtures/m1aGatewayFixtures.ts'
@@ -68,6 +70,18 @@ test.afterAll(async () => {
 
 test.beforeEach(async ({ page }) => {
   await page.clock.setFixedTime(new Date('2026-11-10T12:00:00Z'))
+  await page.addInitScript(
+    ({ key, value }) => {
+      try {
+        if (localStorage.getItem(key) === null && localStorage.getItem('bibleberry-prototype-v1') === null) {
+          localStorage.setItem(key, value)
+        }
+      } catch {
+        // Leave storage untouched when a test intentionally blocks it.
+      }
+    },
+    { key: readerProfileKey, value: buildReaderProfileStorageValue() },
+  )
   await page.route('https://**', route => route.abort())
   await page.route('**/api/**', route => route.fulfill({ status: 404, json: { ok: false } }))
   await page.route('**/api/library/months**', route => route.fulfill({ json: buildLibraryMonthsPayload() }))

@@ -761,6 +761,15 @@ test.describe('Marble Harbor (#312): flag-on R06 Library and durable Shelf', () 
   })
 
   test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => {
+      try {
+        if (localStorage.getItem('bibleberry-prototype-v1') === null) {
+          localStorage.setItem('bibleberry-prototype-v1', JSON.stringify({ onboarded: true }))
+        }
+      } catch {
+        // Leave storage untouched when a test intentionally blocks it.
+      }
+    })
     await page.route('https://**', route => route.abort())
     await mockGatewayRoutes(page)
   })

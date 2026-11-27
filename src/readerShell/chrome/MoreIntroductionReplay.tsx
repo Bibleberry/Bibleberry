@@ -1,9 +1,17 @@
 import { useEffect, useState } from 'react'
 import { ReplayableOnboarding } from '../../components/onboardingReplay/ReplayableOnboarding.tsx'
 import { createPlatformReaderProfileStore } from '../../readerProfile/platformStore.ts'
+import type { ReaderProfileStore } from '../../readerProfile/store.ts'
 
-export function MoreIntroductionReplay({ onBack }: { readonly onBack: () => void }) {
-  const [store] = useState(createPlatformReaderProfileStore)
+export function MoreIntroductionReplay({
+  onBack,
+  store: injectedStore,
+}: {
+  readonly onBack: () => void
+  readonly store?: ReaderProfileStore
+}) {
+  const [fallbackStore] = useState(() => injectedStore ?? createPlatformReaderProfileStore())
+  const store = injectedStore ?? fallbackStore
   const [reminderTime, setReminderTime] = useState<string>()
 
   useEffect(() => {
