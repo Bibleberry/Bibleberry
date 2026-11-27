@@ -1,4 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  hasPendingMonthAwardReconciliation,
+  subscribeToMonthAwardReconciliation,
+} from '../../cms/reader/monthAwardReconciliation.ts'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { ArrowRight, CheckCircle2, RotateCcw } from 'lucide-react'
 import {
   createHubContinueAppInput,
@@ -23,10 +27,18 @@ import { defaultGuestParticipationStore } from '../../participation/defaultGuest
 import type { ReaderParticipationStore } from '../../participation/store.ts'
 import type { CanonicalAwardId, PublicationYearMonth } from '../../participation/types.ts'
 import type { AnnouncementPreferencesStore } from '../../components/announcements/announcementPreferencesStorage.ts'
+import { useHubCardAnnouncements } from '../../components/announcements/useHubCardAnnouncements.ts'
 import { useReaderParticipation } from '../../participation/useReaderParticipation.ts'
+import { createPlatformReaderProfileStore } from '../../readerProfile/platformStore.ts'
+import type { ReaderProfileStore } from '../../readerProfile/store.ts'
+import { useReaderProfile } from '../../readerProfile/useReaderProfile.ts'
 import { defaultGuestShelfStore } from '../../shelfPersistence/defaultGuestShelfStore.ts'
 import type { GuestShelfStore } from '../../shelfPersistence/store.ts'
 import { useGuestShelfStore } from '../../shelfPersistence/useGuestShelfStore.ts'
+import {
+  deriveGuestInviteEligibility,
+  hasPendingEnabledCardAnnouncement,
+} from './guestInviteModel.ts'
 import {
   deriveTodayPrimaryAction,
   type OpenChallengeIntent,
@@ -35,7 +47,8 @@ import {
   type TodayExploreReason,
   type TodayMonthSource,
 } from './primaryActionModel.ts'
-import { TodayCardAnnouncement } from './TodayCardAnnouncement.tsx'
+import { TodayCardAnnouncementView } from './TodayCardAnnouncement.tsx'
+import { TodayGuestInvite } from './TodayGuestInvite.tsx'
 import { loadAuthorizedTodayMonth } from './todayMonthLoader.ts'
 import type { TodayRolloverContext } from './todayShelfRollover.ts'
 import { useTodayShelfRollover } from './useTodayShelfRollover.ts'
@@ -44,9 +57,11 @@ export interface TodayHostProps {
   readonly onOpenChallenge: (intent: OpenChallengeIntent) => void
   readonly onOpenMonth: (intent: OpenMonthIntent) => void
   readonly onOpenNews?: () => void
+  readonly onOpenAccountProgress?: () => void
   /** Opens the focused gallery for exactly the award IDs one Today announcement presented. */
   readonly onViewDiscoveries?: (awardIds: readonly CanonicalAwardId[]) => boolean
   readonly announcementPreferencesStore?: AnnouncementPreferencesStore
+  readonly profileStore?: ReaderProfileStore
   readonly monthProvider?: MonthGatewayProvider
   readonly catalogProvider?: ReleasedCatalogProvider
   readonly participationStore?: ReaderParticipationStore
@@ -116,8 +131,10 @@ export function TodayHost({
   onOpenChallenge,
   onOpenMonth,
   onOpenNews,
+  onOpenAccountProgress,
   onViewDiscoveries,
   announcementPreferencesStore,
+  profileStore,
   monthProvider = defaultGatewayMonthProvider,
   catalogProvider = defaultGatewayCatalogProvider,
   participationStore = defaultGuestParticipationStore,
@@ -126,8 +143,17 @@ export function TodayHost({
   bootstrapYearMonth,
   getNow,
 }: TodayHostProps) {
+  const [ownedProfileStore] = useState(() => profileStore ?? createPlatformReaderProfileStore())
+  const activeProfileStore = profileStore ?? ownedProfileStore
   const participationSnapshot = useReaderParticipation(participationStore)
   const shelfSnapshot = useGuestShelfStore(shelfStore)
+  const profileState = useReaderProfile(activeProfileStore)
+  const announcementController = useHubCardAnnouncements({
+    store: participationStore,
+    preferencesStore: announcementPreferencesStore,
+    isHubActive: true,
+    awardSource: 'committed',
+  })
   const todayHeadingRef = useRef<HTMLHeadingElement>(null)
 
   const effectiveTimeZone = useMemo(
@@ -286,6 +312,49 @@ export function TodayHost({
   const authorizedHubSuggestion =
     secondary && hubContinueResult?.status === 'suggestion' ? hubContinueResult.suggestion : null
 
+  const committedParticipationData =
+    participationSnapshot.status === 'ready' &&
+    (participationSnapshot.health === 'ok' || participationSnapshot.health === 'writeFailed')
+      ? participationSnapshot.committedData
+      : null
+
+  const checkingMonthAwards = useSyncExternalStore(
+    subscribeToMonthAwardReconciliation,
+    () => hasPendingMonthAwardReconciliation(participationStore),
+    () => false,
+  )
+  const hasPendingCardAnnouncement =
+    (announcementController.announcementsEnabled && checkingMonthAwards) ||
+    hasPendingEnabledCardAnnouncement({
+      participationReady: announcementController.participationReady,
+      preferencesReady: announcementController.preferencesReady,
+      isOpen: announcementController.isOpen,
+      announcementsEnabled: announcementController.announcementsEnabled,
+      committedParticipationData,
+    })
+
+  const guestInvite = useMemo(
+    () =>
+      deriveGuestInviteEligibility({
+        participationStatus: participationSnapshot.status,
+        participationHealth: participationSnapshot.health,
+        committedParticipationData,
+        profileStatus: profileState.status,
+        profileHealth: profileState.health,
+        profile: profileState.profile,
+        hasPendingCardAnnouncement,
+      }),
+    [
+      participationSnapshot.status,
+      participationSnapshot.health,
+      committedParticipationData,
+      profileState.status,
+      profileState.health,
+      profileState.profile,
+      hasPendingCardAnnouncement,
+    ],
+  )
+
   return (
     <div className="r06-landing r06-today" data-testid="r06-today-landing">
       <header className="r06-today__header">
@@ -424,13 +493,22 @@ export function TodayHost({
 
       {/* Coastal Osprey: subordinate to today's teaching and shown only on Today. */}
       <div className="r06-today__announcement-slot">
-        <TodayCardAnnouncement
-          participationStore={participationStore}
-          preferencesStore={announcementPreferencesStore}
+        <TodayCardAnnouncementView
+          controller={announcementController}
           onViewDiscoveries={onViewDiscoveries}
           returnFocusRef={todayHeadingRef}
         />
       </div>
+
+      {/* Arctic Sextant: optional 3-Finish guest invitation, never alongside pending announcement. */}
+      {guestInvite.eligible && (
+        <TodayGuestInvite
+          distinctCompletedCount={guestInvite.distinctCompletedCount}
+          onDismiss={() => activeProfileStore.dismissGuestInvite()}
+          onOpenAccountProgress={onOpenAccountProgress}
+          returnFocusRef={todayHeadingRef}
+        />
+      )}
 
       {secondary && authorizedHubSuggestion && (
         <div className="r06-today__continue" data-testid="today-continue-study">

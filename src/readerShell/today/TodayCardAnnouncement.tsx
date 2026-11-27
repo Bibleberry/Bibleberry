@@ -2,7 +2,10 @@ import { useId } from 'react'
 import { Sparkles } from 'lucide-react'
 import type { AnnouncementPreferencesStore } from '../../components/announcements/announcementPreferencesStorage.ts'
 import { buildCombinedAnnouncementCopy } from '../../components/announcements/hubCardAnnouncementModel.ts'
-import { useHubCardAnnouncements } from '../../components/announcements/useHubCardAnnouncements.ts'
+import {
+  useHubCardAnnouncements,
+  type UseHubCardAnnouncementsResult,
+} from '../../components/announcements/useHubCardAnnouncements.ts'
 import type { ReaderParticipationStore } from '../../participation/store.ts'
 import type { CanonicalAwardId } from '../../participation/types.ts'
 import { handOffDiscoveriesBatch } from './discoveriesBatch.ts'
@@ -16,6 +19,12 @@ export interface TodayCardAnnouncementProps {
    */
   readonly onViewDiscoveries?: (awardIds: readonly CanonicalAwardId[]) => boolean
   /** Where focus goes once the notice leaves Today (the Today heading). */
+  readonly returnFocusRef: { readonly current: HTMLElement | null }
+}
+
+export interface TodayCardAnnouncementViewProps {
+  readonly controller: UseHubCardAnnouncementsResult
+  readonly onViewDiscoveries?: (awardIds: readonly CanonicalAwardId[]) => boolean
   readonly returnFocusRef: { readonly current: HTMLElement | null }
 }
 
@@ -36,13 +45,28 @@ export function TodayCardAnnouncement({
   onViewDiscoveries,
   returnFocusRef,
 }: TodayCardAnnouncementProps) {
-  const headingId = useId()
   const controller = useHubCardAnnouncements({
     store: participationStore,
     preferencesStore,
     isHubActive: true,
     awardSource: 'committed',
   })
+
+  return (
+    <TodayCardAnnouncementView
+      controller={controller}
+      onViewDiscoveries={onViewDiscoveries}
+      returnFocusRef={returnFocusRef}
+    />
+  )
+}
+
+export function TodayCardAnnouncementView({
+  controller,
+  onViewDiscoveries,
+  returnFocusRef,
+}: TodayCardAnnouncementViewProps) {
+  const headingId = useId()
 
   if (!controller.isOpen) return null
 

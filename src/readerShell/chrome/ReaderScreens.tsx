@@ -16,6 +16,7 @@ import { activeRoute, type NavigationAction, type NavigationState } from '../nav
 import { activeScreenKey } from '../navigation/routeTable.ts'
 import { MoreLanding } from './MoreLanding.tsx'
 import { MoreIntroductionReplay } from './MoreIntroductionReplay.tsx'
+import { AccountProgressScreen } from './AccountProgressScreen.tsx'
 import { CollectionsLanding } from '../collections/CollectionsLanding.tsx'
 import { TodayHost } from '../today/TodayHost.tsx'
 import { encodeDiscoveriesBatch, VIEW_DISCOVERIES_SCREEN } from '../today/discoveriesBatch.ts'
@@ -44,9 +45,10 @@ function Landing({ title, children }: { title: string; children: ReactNode }) {
   return <div className="r06-landing"><h1>{title}</h1>{children}</div>
 }
 
-function TodayLanding({ send }: { send: Send }) {
+function TodayLanding({ send, profileStore }: { send: Send; profileStore: ReaderProfileStore }) {
   return (
     <TodayHost
+      profileStore={profileStore}
       onOpenChallenge={intent => {
         send({
           type: 'openChallenge',
@@ -56,6 +58,7 @@ function TodayLanding({ send }: { send: Send }) {
       }}
       onOpenMonth={intent => openMonth(send, intent.yearMonth)}
       onOpenNews={() => send(openNews)}
+      onOpenAccountProgress={() => send({ type: 'push', route: { kind: 'detail', screen: 'accountProgress' } })}
       onViewDiscoveries={awardIds => {
         const id = encodeDiscoveriesBatch(awardIds)
         if (!id) return false
@@ -230,7 +233,7 @@ function CurrentScreen({
   if (route.kind === 'landing') {
     switch (route.tab) {
       case 'today':
-        return <TodayLanding send={send} />
+        return <TodayLanding send={send} profileStore={profileStore} />
       case 'collections':
         return (
           <CollectionsLanding
@@ -244,6 +247,7 @@ function CurrentScreen({
             onOpenFeatured={documentId => openNewsArticle(send, documentId)}
             onOpenNews={() => send(openNews)}
             onOpenAbout={() => send({ type: 'push', route: { kind: 'detail', screen: 'aboutBibleberry' } })}
+            onOpenAccountProgress={() => send({ type: 'push', route: { kind: 'detail', screen: 'accountProgress' } })}
             onReplayIntroduction={() => send({ type: 'openIntro' })}
           />
         )
@@ -300,6 +304,15 @@ function CurrentScreen({
             <p>Bibleberry is offered by Spiritually Hungry.</p>
             <Action onClick={() => send(back)}>Back to More</Action>
           </Landing>
+        )
+      }
+      if (route.screen === 'accountProgress') {
+        return (
+          <AccountProgressScreen
+            profileStore={profileStore}
+            onBack={() => send(back)}
+            backLabel={state.activeTab === 'more' ? 'Back to More' : 'Back to Today'}
+          />
         )
       }
       return <UnavailableDetail screen={route.screen} send={send} />

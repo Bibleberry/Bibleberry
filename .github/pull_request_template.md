@@ -30,6 +30,13 @@ List the actual commands run, results, and anything not tested. Mark inapplicabl
 ## Known Issues or Limitations
 List unresolved problems or write None.
 
+## Incidental Findings
+Document material engineering discoveries, including pre-existing and out-of-scope findings. Provide observed and expected behavior, affected component, conditions/checkpoint, reproduction evidence, apparent origin and implications where applicable. Distinguish observations from suspected causes. Reference existing Issues or recorded dispositions; do not expand scope. Update during review corrections or link supplementary durable PR comments. Handle sensitive findings through a restricted mechanism.
+
+If none were discovered, state: **No material incidental findings discovered.**
+
+See [AI Development Protocol §5A](../docs/ai-development-protocol.md#5a-incidental-findings-and-engineering-knowledge-preservation).
+
 ## Review Notes
 Explain anything Aaron should inspect before accepting this pull request.
 
@@ -37,4 +44,5 @@ Explain anything Aaron should inspect before accepting this pull request.
 - [ ] No unrelated modifications
 - [ ] No credentials, API secrets, or private keys committed
 - [ ] No unapproved product or editorial changes
+- [ ] Material incidental findings have been preserved in accordance with the AI Development Protocol.
 - [ ] Ready for human review
