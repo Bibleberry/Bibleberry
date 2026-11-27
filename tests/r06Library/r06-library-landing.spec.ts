@@ -69,9 +69,10 @@ test.describe('Juniper Signal (#289): R06 Functional Shelf-Centered Library Land
         const bodyText = (await page.locator('.r06-library-landing').textContent()) ?? ''
         expect(GUILT_PATTERN.test(bodyText)).toBe(false)
       } else {
-        await expect(page.locator('.shelf-card[data-year-month="2026-10"]')).toContainText(
-          'Walk in Gratitude',
-        )
+        // Title and progress come from the gateway Month lookup (Saffron Ledger #351).
+        const octoberCard = page.locator('.shelf-card[data-year-month="2026-10"]')
+        await expect(octoberCard).toContainText('Walk in Gratitude')
+        await expect(octoberCard.getByText('0 of 31 Challenges', { exact: true })).toBeVisible()
       }
 
       // Persistent Browse All Months and Foundations actions are visible & enabled at every capacity
@@ -123,15 +124,19 @@ test.describe('Juniper Signal (#289): R06 Functional Shelf-Centered Library Land
       JSON.stringify([{ yearMonth: '2026-10', origin: 'shelf' }]),
     )
 
-    // In Browse All Months with tainted catalogue, current/future months cannot be added or opened
+    // In Browse All Months with tainted catalogue, current/future months are withheld entirely
+    // (Willow Quay #347): no card, title, Add or Open control is rendered for them.
     await page.goto(`${harnessRootUrl}?scenario=unauthorized-catalogue`)
     await page.getByTestId('r06-library-entrance-browse-all-months').click()
     await expect(page.getByRole('heading', { name: 'Historical Library', level: 1 })).toBeVisible()
 
-    await page.getByRole('button', { name: 'Add November 2026 to Shelf' }).click()
-    await page.getByRole('button', { name: 'Add December 2026 to Shelf' }).click()
-    await page.getByRole('button', { name: /Open November 2026/ }).click()
-    await page.getByRole('button', { name: /Open December 2026/ }).click()
+    await expect(page.locator('.library-card')).toHaveCount(3)
+    await expect(page.locator('.library-card[data-year-month="2026-11"]')).toHaveCount(0)
+    await expect(page.locator('.library-card[data-year-month="2026-12"]')).toHaveCount(0)
+    await expect(
+      page.getByText(/Future Month Must Be Blocked|Current Month Must Be Blocked/),
+    ).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /(?:November|December) 2026/ })).toHaveCount(0)
 
     await expect(page.getByTestId('opened-months')).toHaveText('[]')
     const shelfJson = await page.getByTestId('shelf-json').textContent()
