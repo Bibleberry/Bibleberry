@@ -908,57 +908,63 @@ test('G09 J2 warm external ingress during deferred getInitialUrl holds pending w
   }
 })
 
-test('G09 J2 cancelled cold authorization cannot commit while a warm Challenge is pending', async ({
-  context,
-  page,
-}) => {
-  await mockGateway(context)
+for (const coldSource of ['adapter', 'same-origin path'] as const) {
+  test(`G09 J2 cancelled ${coldSource} cold authorization cannot commit while a warm Challenge is pending`, async ({
+    context,
+    page,
+  }) => {
+    await mockGateway(context)
+    page.setDefaultTimeout(10_000)
 
-  const coldRequested = page.waitForRequest(`**/api/challenges/${todaySlug}`)
-  const coldCancelled = page.waitForEvent('requestfailed', {
-    predicate: request => new URL(request.url()).pathname === `/api/challenges/${todaySlug}`,
+    const coldRequested = page.waitForRequest(`**/api/challenges/${todaySlug}`)
+    const coldCancelled = page.waitForEvent('requestfailed', {
+      predicate: request => new URL(request.url()).pathname === `/api/challenges/${todaySlug}`,
+    })
+    const warmRequested = page.waitForRequest(`**/api/challenges/${teachingSlug}`)
+    const { promise: coldGate, resolve: releaseCold } = Promise.withResolvers<void>()
+    const { promise: warmGate, resolve: releaseWarm } = Promise.withResolvers<void>()
+
+    await page.route(`**/api/challenges/${todaySlug}`, async route => {
+      await coldGate
+      await route.fulfill({ json: { ok: true, challenge: todayChallenge } })
+    })
+    await page.route(`**/api/challenges/${teachingSlug}`, async route => {
+      await warmGate
+      await route.fulfill({ json: { ok: true, challenge } })
+    })
+
+    const root = serverUrl(seamServer)
+    if (coldSource === 'adapter') {
+      await page.addInitScript(slug => {
+        const w = window as Window & { __r06InitialExternalUrl?: string }
+        w.__r06InitialExternalUrl = `https://reader.example.test/challenge/${slug}`
+      }, todaySlug)
+    }
+
+    try {
+      await page.goto(coldSource === 'adapter' ? root : `${root}challenge/${todaySlug}`)
+      await coldRequested
+      await expect(page.getByRole('status')).toHaveText('Opening Bibleberry…')
+
+      await page.evaluate(slug => {
+        const w = window as Window & { __r06EmitWarmExternalUrl?: (url: string) => void }
+        w.__r06EmitWarmExternalUrl!(`https://reader.example.test/challenge/${slug}`)
+      }, teachingSlug)
+      await warmRequested
+      await coldCancelled
+      await page.evaluate(() => new Promise<void>(resolve => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+      }))
+
+      await expect(page.getByRole('heading', { name: 'Challenge unavailable' })).toHaveCount(0)
+      await expect(page.getByRole('status')).toHaveText('Opening Bibleberry…')
+
+      releaseWarm()
+      await expect(page.getByRole('heading', { name: 'Reading screen 1' })).toBeVisible()
+      await expect(page).toHaveURL(new RegExp(`/#/challenge/${teachingSlug}$`))
+    } finally {
+      releaseCold()
+      releaseWarm()
+    }
   })
-  const warmRequested = page.waitForRequest(`**/api/challenges/${teachingSlug}`)
-  const { promise: coldGate, resolve: releaseCold } = Promise.withResolvers<void>()
-  const { promise: warmGate, resolve: releaseWarm } = Promise.withResolvers<void>()
-
-  await page.route(`**/api/challenges/${todaySlug}`, async route => {
-    await coldGate
-    await route.fulfill({ json: { ok: true, challenge: todayChallenge } })
-  })
-  await page.route(`**/api/challenges/${teachingSlug}`, async route => {
-    await warmGate
-    await route.fulfill({ json: { ok: true, challenge } })
-  })
-
-  await page.addInitScript(slug => {
-    const w = window as Window & { __r06InitialExternalUrl?: string }
-    w.__r06InitialExternalUrl = `https://reader.example.test/challenge/${slug}`
-  }, todaySlug)
-
-  try {
-    await page.goto(serverUrl(seamServer))
-    await coldRequested
-    await expect(page.getByRole('status')).toHaveText('Opening Bibleberry…')
-
-    await page.evaluate(slug => {
-      const w = window as Window & { __r06EmitWarmExternalUrl?: (url: string) => void }
-      w.__r06EmitWarmExternalUrl!(`https://reader.example.test/challenge/${slug}`)
-    }, teachingSlug)
-    await warmRequested
-    await coldCancelled
-    await page.evaluate(() => new Promise<void>(resolve => {
-      requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
-    }))
-
-    await expect(page.getByRole('heading', { name: 'Challenge unavailable' })).toHaveCount(0)
-    await expect(page.getByRole('status')).toHaveText('Opening Bibleberry…')
-
-    releaseWarm()
-    await expect(page.getByRole('heading', { name: 'Reading screen 1' })).toBeVisible()
-    await expect(page).toHaveURL(new RegExp(`/#/challenge/${teachingSlug}$`))
-  } finally {
-    releaseCold()
-    releaseWarm()
-  }
-})
+}

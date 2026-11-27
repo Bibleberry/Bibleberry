@@ -35,7 +35,7 @@ export function createVerifiedChallengeIngressProvider(
     challengeProvider: {
       async loadChallenge(slug, options) {
         const detail = await baseProvider.loadChallenge(slug, options)
-        if (detail.status !== 'ready') {
+        if (options?.signal?.aborted || detail.status !== 'ready') {
           return detail
         }
         const admitted = deriveReleasedChallengeDetailState(detail, slug, now())
@@ -168,6 +168,12 @@ export function createR06ExternalIngressBridge(
   let stopped = false
   let inResumedOpen = false
   let directCallDepth = 0
+  let startupSuperseded = false
+
+  function supersedeStartup() {
+    startupSuperseded = true
+    sameOriginController.stop()
+  }
 
   const wrappedSource: ExternalDeepLinkSourceAdapter | undefined = options.source
     ? {
@@ -192,6 +198,7 @@ export function createR06ExternalIngressBridge(
     challengeProvider: {
       async loadChallenge(slug, loadOptions) {
         if (started && !stopped && inResumedOpen && directCallDepth === 0) {
+          supersedeStartup()
           options.onWarmIngressStart?.(slug)
         }
         return verified.challengeProvider.loadChallenge(slug, loadOptions)
@@ -202,11 +209,13 @@ export function createR06ExternalIngressBridge(
     source: wrappedSource,
     onNavigate(outcome) {
       if (outcome.sourceEvent.trigger === 'resumedSession' && directCallDepth === 0) {
+        supersedeStartup()
         options.onOutcome?.(outcome, resolveVerified(outcome))
       }
     },
     onUnavailable(outcome) {
       if (outcome.sourceEvent.trigger === 'resumedSession' && directCallDepth === 0) {
+        supersedeStartup()
         options.onOutcome?.(outcome, undefined)
       }
     },
@@ -231,7 +240,7 @@ export function createR06ExternalIngressBridge(
       started = true
 
       const externalOutcome = await externalController.start()
-      if (stopped) return null
+      if (stopped || startupSuperseded) return null
       if (externalOutcome) {
         return {
           outcome: externalOutcome,
@@ -244,11 +253,13 @@ export function createR06ExternalIngressBridge(
         return null
       }
 
+      // Start the controller lifecycle so a resumed request can cancel this fallback.
+      void sameOriginController.start()
       const pathOutcome = await sameOriginController.handleIncomingUrl(
         `https://${internalSameOriginHost}${rawTarget}`,
         'coldStart',
       )
-      if (stopped) return null
+      if (stopped || startupSuperseded) return null
       return {
         outcome: pathOutcome,
         verifiedProvider: resolveVerified(pathOutcome),

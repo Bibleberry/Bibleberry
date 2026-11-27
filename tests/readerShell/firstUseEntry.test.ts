@@ -550,7 +550,7 @@ test('createR06ExternalIngressBridge fires onWarmIngressStart only for resumedSe
   bridge.stop()
 })
 
-test('createR06ExternalIngressBridge fires onWarmIngressStart when resumedSession arrives during deferred getInitialUrl', async () => {
+test('resumed ingress during deferred getInitialUrl prevents same-origin cold fallback', async () => {
   let warmListener: ((url: string) => void) | null = null
   let resolveInitial!: (url: string | null) => void
   const initialPromise = new Promise<string | null>(resolve => {
@@ -560,14 +560,17 @@ test('createR06ExternalIngressBridge fires onWarmIngressStart when resumedSessio
   const challengeGate = new Promise<void>(resolve => {
     resolveChallenge = resolve
   })
+  const requestedSlugs: string[] = []
   const warmStarts: string[] = []
   const outcomes: DeepLinkIngressOutcome[] = []
 
   const bridge = createR06ExternalIngressBridge({
     destinationOptions: routeOptions,
+    locationHref: () => 'http://127.0.0.1:4173/challenge/cold-path',
     challengeProvider: {
       async loadChallenge(slug) {
-        await challengeGate
+        requestedSlugs.push(slug)
+        if (slug === 'warm-during-cold') await challengeGate
         return {
           status: 'ready',
           source: 'gateway',
@@ -600,6 +603,7 @@ test('createR06ExternalIngressBridge fires onWarmIngressStart when resumedSessio
 
   resolveInitial(null)
   assert.equal(await startPromise, null)
+  assert.deepEqual(requestedSlugs, ['warm-during-cold'])
   assert.equal(outcomes.length, 0)
 
   resolveChallenge()
