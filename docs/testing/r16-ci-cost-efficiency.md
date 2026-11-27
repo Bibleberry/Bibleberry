@@ -1,8 +1,8 @@
 # R16-CI-Cost: GitHub Actions Cost Efficiency & Safe Concurrency Architecture
 
 **Date:** 2026-11-12  
-**Issue:** [#148](https://github.com/ContraPhilosophy/Bibleberry/issues/148)  
-**Pull Request:** [#149](https://github.com/ContraPhilosophy/Bibleberry/pull/149)  
+**Issue:** [#148](https://github.com/Bibleberry/Bibleberry/issues/148)  
+**Pull Request:** [#149](https://github.com/Bibleberry/Bibleberry/pull/149)  
 **Branch:** `chore/ci-cost-efficiency`  
 **Status:** Completed & Verified  
 

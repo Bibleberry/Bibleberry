@@ -26,7 +26,7 @@ Try: open and finish Nov 6, then open and finish Nov 8, to earn the first themat
 
 ## Boundaries for engineering
 
-1. **Authoritative product rules remain in** [Approved Reader Experience & Month Screen](../../product/2026-11-08-approved-reader-experience-and-month-screen.md), supplemented by [Issue #61](https://github.com/ContraPhilosophy/Bibleberry/issues/61). This prototype is a design aid, not a replacement product contract.
+1. **Authoritative product rules remain in** [Approved Reader Experience & Month Screen](../../product/2026-11-08-approved-reader-experience-and-month-screen.md), supplemented by [Issue #61](https://github.com/Bibleberry/Bibleberry/issues/61). This prototype is a design aid, not a replacement product contract.
 2. Dates, progress, discovery qualification and access state in the prototype are fake client-side data, held only in memory. Real publication access requires the existing **server-authoritative release gateway** and the reader-local publication-date contract.
 3. The example's discovery-to-day mappings are fictitious internal test fixtures. They must **never** become user-facing source-Challenge lists, and real reward rules are derived from Alexis's published teaching.
 4. Production must use persistent user/account records, idempotent Finish/completion semantics, retained reader positions, origin-aware navigation, and Hub-only combined earned-card announcements. The sample intentionally does **not** implement any Hub, Shelf, Library, account, CMS or Field Notebook integration.

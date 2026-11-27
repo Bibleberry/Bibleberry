@@ -2,7 +2,7 @@
 
 **Related:** Issue #169, PR #168 (`docs/operations/public-repository-ci-cutover.md`)
 
-Because `ContraPhilosophy/Bibleberry` is a public repository running GitHub-hosted CI, every workflow change must treat external Actions, fork pull requests, and `GITHUB_TOKEN` permissions as security boundaries.
+Because `Bibleberry/Bibleberry` is a public repository running GitHub-hosted CI, every workflow change must treat external Actions, fork pull requests, and `GITHUB_TOKEN` permissions as security boundaries.
 
 ## Approved External Actions Allowlist
 

@@ -35,7 +35,7 @@ In GitHub:
 Alternative command once GitHub CLI is configured on BigMac:
 
 ```bash
-gh workflow run ci-linux-cms-pilot.yml --repo ContraPhilosophy/Bibleberry --ref main
+gh workflow run ci-linux-cms-pilot.yml --repo Bibleberry/Bibleberry --ref main
 ```
 
 ## Migration boundary
