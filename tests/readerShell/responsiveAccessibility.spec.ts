@@ -100,6 +100,9 @@ test.afterAll(async () => { await server?.close() })
 test.beforeEach(async ({ page }) => {
   await page.clock.setFixedTime(new Date('2026-11-10T12:00:00Z'))
   await page.route('https://**', route => route.abort())
+  await page.addInitScript(({ key, value }) => {
+    if (!localStorage.getItem(key)) localStorage.setItem(key, value)
+  }, { key: fixtures.readerProfileKey, value: fixtures.buildReaderProfileStorageValue() })
 })
 
 for (const width of [320, 375]) {
