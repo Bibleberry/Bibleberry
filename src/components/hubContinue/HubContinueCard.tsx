@@ -58,7 +58,7 @@ export function HubContinueCard({
       data-preserves-formal-focus={String(suggestion.preservesFormalFocus)}
     >
       <div className="hub-continue__body">
-        <p className="hub-continue__eyebrow">Active Focus</p>
+        {suggestion.formalFocusMonth && <p className="hub-continue__eyebrow">Active Focus</p>}
         <h2 id={headingId} className="hub-continue__title">
           {title}
         </h2>

@@ -232,6 +232,8 @@ export function parseParticipationEnvelope(
       inProgressChallenges[challengeId] = Object.freeze({
         ...(screenId !== undefined ? { screenId } : {}),
         updatedOn,
+        ...(typeof value.interruptionOrder === 'number' && Number.isSafeInteger(value.interruptionOrder)
+          && value.interruptionOrder > 0 ? { interruptionOrder: value.interruptionOrder } : {}),
       })
     }
   }
