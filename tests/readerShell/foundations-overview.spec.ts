@@ -1,5 +1,6 @@
 import { createServer, type ViteDevServer } from 'vite'
 import type { Page } from '@playwright/test'
+import { parseParticipationEnvelope } from '../../src/participation/persistence.ts'
 import { expect, test } from '../smoke/helpers/frameSafeTest.ts'
 import * as fixtures from './fixtures/m1aGatewayFixtures.ts'
 
@@ -194,31 +195,67 @@ test('visiting Foundations overview makes no unintended participation, progress,
   await page.setViewportSize({ width: 375, height: 640 })
   await mockGateway(page)
 
+  const completedChallengeId = `cms:${fixtures.documentId}`
+  const inProgressChallengeId = `cms:${fixtures.todayDocumentId}`
   const seededParticipation = {
     schemaVersion: 3,
     data: {
       completedChallenges: {
-        'cms:challenge-oct-25': {
-          completedAt: '2026-10-25T14:00:00.000Z',
-          source: 'guest',
+        [completedChallengeId]: {
+          completedOn: '2026-10-25',
         },
       },
+      inProgressChallenges: {
+        [inProgressChallengeId]: {
+          screenId: 'step-2',
+          updatedOn: '2026-11-10',
+          interruptionOrder: 1,
+        },
+      },
+      savedChallenges: {},
       earnedAwards: {
         [fixtures.currentThematicAwardId]: {
+          awardId: fixtures.currentThematicAwardId,
+          kind: 'thematic',
+          publicationYearMonth: fixtures.currentMonthId,
+          discoveryId: `discovery:${fixtures.currentMonthId}:november-reading`,
           earnedOn: fixtures.serverContext.authorizedLocalDate,
+          hubAnnouncementAcked: true,
+          cardViewed: false,
           earnedCard: fixtures.currentThematicEarnedCard,
         },
       },
       savedScriptures: [
         {
-          id: 'saved-1',
           reference: 'Psalm 23:1',
-          text: 'Yahweh is my shepherd: I shall lack nothing.',
-          savedAt: '2026-10-25T14:05:00.000Z',
+          translation: 'WEBP',
+          savedOn: '2026-10-25',
         },
       ],
+      lastOpenedChallenge: null,
     },
   }
+
+  // Nonvacuous precondition: prove the seeded V3 envelope parses cleanly through the real persistence parser.
+  const preSeedParsed = parseParticipationEnvelope(JSON.stringify(seededParticipation), 'cms')
+  expect(preSeedParsed.health).toBe('ok')
+  expect(preSeedParsed.data.completedChallenges[completedChallengeId]).toEqual({ completedOn: '2026-10-25' })
+  expect(preSeedParsed.data.inProgressChallenges[inProgressChallengeId]).toEqual({
+    screenId: 'step-2',
+    updatedOn: '2026-11-10',
+    interruptionOrder: 1,
+  })
+  expect(Object.keys(preSeedParsed.data.earnedAwards)).toEqual([fixtures.currentThematicAwardId])
+  expect(preSeedParsed.data.earnedAwards[fixtures.currentThematicAwardId]?.earnedCard?.cardDocumentId).toBe(
+    fixtures.currentThematicEarnedCard.cardDocumentId,
+  )
+  expect(preSeedParsed.data.savedScriptures).toHaveLength(1)
+  expect(preSeedParsed.data.savedScriptures[0]).toMatchObject({
+    reference: 'Psalm 23:1',
+    translation: 'WEBP',
+    savedOn: '2026-10-25',
+  })
+
   const seededShelf = {
     schemaVersion: 1,
     state: {
@@ -247,8 +284,21 @@ test('visiting Foundations overview makes no unintended participation, progress,
   )
 
   await page.goto(url)
+
+  // Verify the runtime stores genuinely hydrated the seeded completion, Card, Saved Scripture, and Shelf.
+  await selectTab(page, 'More')
+  await page.getByRole('button', { name: /Account & Progress/i }).click()
+  await expect(page.getByTestId('account-progress-screen')).toBeVisible()
+  await expect(page.getByTestId('account-summary-completed')).toHaveText('1')
+  await expect(page.getByTestId('account-summary-cards')).toHaveText('1')
+  await expect(page.getByTestId('account-summary-scripture')).toHaveText('1')
+  await expect(page.getByTestId('account-summary-shelf')).toHaveText('1 of 3')
+  await page.getByTestId('account-progress-back').click()
+
   await selectTab(page, 'Library')
-  await expect(page.getByRole('main', { name: 'Shelf', exact: true })).toBeVisible()
+  const shelfMain = page.getByRole('main', { name: 'Shelf', exact: true })
+  await expect(shelfMain).toBeVisible()
+  await expect(shelfMain).toContainText(/October 2026/i)
 
   const readStorage = () =>
     page.evaluate(
@@ -269,8 +319,22 @@ test('visiting Foundations overview makes no unintended participation, progress,
   await page.getByRole('button', { name: 'Foundations', exact: true }).click()
   await expect(page.getByTestId('foundations-overview')).toBeVisible()
   await page.getByTestId('foundations-back').click()
-  await expect(page.getByRole('main', { name: 'Shelf', exact: true })).toBeVisible()
+  await expect(shelfMain).toBeVisible()
+  await expect(shelfMain).toContainText(/October 2026/i)
 
   const after = await readStorage()
   expect(after).toEqual(before)
+
+  const postVisitParsed = parseParticipationEnvelope(after.participation, 'cms')
+  expect(postVisitParsed.health).toBe('ok')
+  expect(postVisitParsed.data).toEqual(preSeedParsed.data)
+
+  // Reload and confirm hydrated runtime records still survive intact.
+  await page.reload()
+  await selectTab(page, 'More')
+  await page.getByRole('button', { name: /Account & Progress/i }).click()
+  await expect(page.getByTestId('account-summary-completed')).toHaveText('1')
+  await expect(page.getByTestId('account-summary-cards')).toHaveText('1')
+  await expect(page.getByTestId('account-summary-scripture')).toHaveText('1')
+  await expect(page.getByTestId('account-summary-shelf')).toHaveText('1 of 3')
 })
