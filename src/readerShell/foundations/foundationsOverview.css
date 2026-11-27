@@ -1,0 +1,98 @@
+.r06-foundations {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  min-width: 0;
+}
+
+.r06-foundations__back {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.r06-foundations .button {
+  min-height: 44px;
+  max-width: 100%;
+  white-space: normal;
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+
+.r06-foundations__header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.r06-foundations__header .eyebrow {
+  margin: 0;
+}
+
+.r06-foundations__header h1 {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.r06-foundations__intro {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.r06-foundations__card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  min-width: 0;
+  padding: clamp(1rem, 3vw, 1.25rem);
+  border: 1px solid var(--rule);
+  border-radius: 0.375rem;
+  background: var(--surface);
+}
+
+.r06-foundations__badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.r06-foundations__status-pill {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-height: 1.5rem;
+  padding: 0.125rem 0.625rem;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--ink);
+  background: var(--selected);
+  overflow-wrap: anywhere;
+}
+
+.r06-foundations__title {
+  margin: 0;
+  font-size: 1.125rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.r06-foundations__status-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  min-width: 0;
+}
+
+.r06-foundations__body {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
