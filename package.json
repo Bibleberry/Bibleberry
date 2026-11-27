@@ -20,6 +20,7 @@
     "test:library-shelf": "node --experimental-strip-types --test tests/libraryShelf/libraryShelfModel.test.ts && playwright test --config tests/libraryShelf/playwright.config.ts",
     "test:performance": "node --experimental-strip-types --test tests/performance/*.test.ts",
     "test:collections": "node scripts/testing/run-collections-browser-tests.mjs",
+    "test:month-accessibility": "playwright test --config tests/monthAccessibility/playwright.config.ts",
     "test:smoke": "node --experimental-strip-types scripts/run-smoke-suite.ts",
     "perf:baseline": "node --experimental-strip-types scripts/performance-baseline.ts",
     "perf:compare": "node --experimental-strip-types scripts/performance/compare-r21-baselines.ts",
