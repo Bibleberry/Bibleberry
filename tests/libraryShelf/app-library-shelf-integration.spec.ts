@@ -4,6 +4,11 @@ import { createServer, type ViteDevServer } from 'vite'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseParticipationEnvelope } from '../../src/participation/persistence.ts'
+import {
+  createDefaultReaderProfile,
+  READER_PROFILE_STORAGE_KEY,
+  serializeReaderProfileEnvelope,
+} from '../../src/readerProfile/index.ts'
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const PROTOTYPE_STORAGE_KEY = 'bibleberry-prototype-v1'
@@ -761,15 +766,26 @@ test.describe('Marble Harbor (#312): flag-on R06 Library and durable Shelf', () 
   })
 
   test.beforeEach(async ({ page }) => {
-    await page.addInitScript(() => {
-      try {
-        if (localStorage.getItem('bibleberry-prototype-v1') === null) {
-          localStorage.setItem('bibleberry-prototype-v1', JSON.stringify({ onboarded: true }))
+    const completedFirstUseProfile = serializeReaderProfileEnvelope(
+      {
+        ...createDefaultReaderProfile(),
+        introStatus: 'completed',
+        tutorialStatus: 'completed',
+      },
+      'defaults',
+    )
+    await page.addInitScript(
+      ({ profileKey, profileValue }) => {
+        try {
+          if (localStorage.getItem(profileKey) === null) {
+            localStorage.setItem(profileKey, profileValue)
+          }
+        } catch {
+          // Leave storage untouched when a test intentionally blocks it.
         }
-      } catch {
-        // Leave storage untouched when a test intentionally blocks it.
-      }
-    })
+      },
+      { profileKey: READER_PROFILE_STORAGE_KEY, profileValue: completedFirstUseProfile },
+    )
     await page.route('https://**', route => route.abort())
     await mockGatewayRoutes(page)
   })
@@ -856,7 +872,15 @@ test.describe('Marble Harbor (#312): flag-on R06 Library and durable Shelf', () 
         },
       })
     })
-    await page.addInitScript(({ key, raw }) => {
+    const completedFirstUseProfile = serializeReaderProfileEnvelope(
+      {
+        ...createDefaultReaderProfile(),
+        introStatus: 'completed',
+        tutorialStatus: 'completed',
+      },
+      'defaults',
+    )
+    await page.addInitScript(({ key, raw, profileKey, profileValue }) => {
       const shelfLoad = new Promise(resolve => {
         Object.assign(window, { finishShelfHydration: () => resolve({ value: raw }) })
       })
@@ -867,11 +891,19 @@ test.describe('Marble Harbor (#312): flag-on R06 Library and durable Shelf', () 
             name: 'Preferences',
             methods: ['get', 'set', 'remove'].map(name => ({ name, rtype: 'promise' })),
           }],
-          nativePromise: (_plugin: string, method: string, options: { key: string }) =>
-            method === 'get' && options.key === key ? shelfLoad : Promise.resolve({ value: null }),
+          nativePromise: (_plugin: string, method: string, options: { key: string }) => {
+            if (method === 'get' && options.key === key) return shelfLoad
+            if (method === 'get' && options.key === profileKey) return Promise.resolve({ value: profileValue })
+            return Promise.resolve({ value: null })
+          },
         },
       })
-    }, { key: SHELF_STORAGE_KEY, raw: shelfRecord(1) })
+    }, {
+      key: SHELF_STORAGE_KEY,
+      raw: shelfRecord(1),
+      profileKey: READER_PROFILE_STORAGE_KEY,
+      profileValue: completedFirstUseProfile,
+    })
     await page.goto(reader.baseUrl)
     await page.getByRole('navigation', { name: 'Primary navigation' })
       .getByRole('button', { name: 'Library', exact: true }).click()

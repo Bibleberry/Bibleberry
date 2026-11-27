@@ -1,25 +1,26 @@
 import type { Page } from '@playwright/test'
 import { createServer, type ViteDevServer } from 'vite'
+import { parseParticipationEnvelope } from '../../../src/participation/persistence.ts'
 import { expect, test } from '../../smoke/helpers/frameSafeTest.ts'
 import {
   SYNTHETIC_CARD_SVG,
-  awardId,
   buildCurrentMonthProgressPayload,
   buildDefaultCurrentMonthPayload,
   buildDefaultHistoricalMonthPayload,
-  buildGuestParticipationStorageValue,
-  buildGuestShelfStorageValue,
   buildHistoricalMonthProgressPayload,
   buildLibraryMonthsPayload,
   buildNewsPayload,
   buildReaderProfileStorageValue,
   challenge,
   currentMonthId,
+  currentThematicAwardId,
   currentThematicCardImageUrl,
+  currentThematicEarnedCard,
   documentId,
   monthId,
   participationKey,
   readerProfileKey,
+  serverContext,
   shelfKey,
   teachingSlug,
   todayChallenge,
@@ -275,28 +276,75 @@ test('More → App Tutorial replay starts at Today, returns reliably to More wit
   await page.setViewportSize({ width: 375, height: 640 })
   await mockGateway(context)
 
-  const seededParticipation = buildGuestParticipationStorageValue({
-    completedIds: [documentId],
-    earnedAwards: [
-      {
-        awardId,
-        monthId,
-        earnedAt: '2026-10-15T12:00:00.000Z',
-        openedAt: null,
+  const completedChallengeId = `cms:${documentId}`
+  const inProgressChallengeId = `cms:${todayDocumentId}`
+  const seededParticipation = {
+    schemaVersion: 3,
+    data: {
+      completedChallenges: {
+        [completedChallengeId]: {
+          completedOn: '2026-10-25',
+        },
       },
-    ],
-  })
-  const seededShelf = buildGuestShelfStorageValue({
-    activeFocusMonth: monthId,
-    months: [
-      {
-        yearMonth: monthId,
-        admittedAt: '2026-10-01T00:00:00.000Z',
-        admissionKind: 'readerSelected',
-        isProtected: false,
+      inProgressChallenges: {
+        [inProgressChallengeId]: {
+          screenId: 'step-2',
+          updatedOn: '2026-11-10',
+          interruptionOrder: 1,
+        },
       },
-    ],
+      savedChallenges: {},
+      earnedAwards: {
+        [currentThematicAwardId]: {
+          awardId: currentThematicAwardId,
+          kind: 'thematic',
+          publicationYearMonth: currentMonthId,
+          discoveryId: `discovery:${currentMonthId}:november-reading`,
+          earnedOn: serverContext.authorizedLocalDate,
+          hubAnnouncementAcked: true,
+          cardViewed: false,
+          earnedCard: currentThematicEarnedCard,
+        },
+      },
+      savedScriptures: [
+        {
+          reference: 'Psalm 23:1',
+          translation: 'WEBP',
+          savedOn: '2026-10-25',
+        },
+      ],
+      lastOpenedChallenge: null,
+    },
+  }
+
+  // Nonvacuous precondition: prove the seeded V3 envelope parses cleanly through the real persistence parser.
+  const preSeedParsed = parseParticipationEnvelope(JSON.stringify(seededParticipation), 'cms')
+  expect(preSeedParsed.health).toBe('ok')
+  expect(preSeedParsed.data.completedChallenges[completedChallengeId]).toEqual({ completedOn: '2026-10-25' })
+  expect(preSeedParsed.data.inProgressChallenges[inProgressChallengeId]).toEqual({
+    screenId: 'step-2',
+    updatedOn: '2026-11-10',
+    interruptionOrder: 1,
   })
+  expect(Object.keys(preSeedParsed.data.earnedAwards)).toEqual([currentThematicAwardId])
+  expect(preSeedParsed.data.earnedAwards[currentThematicAwardId]?.earnedCard?.cardDocumentId).toBe(
+    currentThematicEarnedCard.cardDocumentId,
+  )
+  expect(preSeedParsed.data.savedScriptures).toHaveLength(1)
+
+  const seededShelf = {
+    schemaVersion: 1,
+    state: {
+      activeFocusMonth: monthId,
+      months: [
+        {
+          yearMonth: monthId,
+          admissionKind: 'readerSelected',
+          isProtected: true,
+        },
+      ],
+    },
+  }
   const seededProfile = buildReaderProfileStorageValue({
     introStatus: 'skipped',
     tutorialStatus: 'completed',
@@ -312,16 +360,36 @@ test('More → App Tutorial replay starts at Today, returns reliably to More wit
     },
     [
       { key: readerProfileKey, value: seededProfile },
-      { key: participationKey, value: seededParticipation },
-      { key: shelfKey, value: seededShelf },
+      { key: participationKey, value: JSON.stringify(seededParticipation) },
+      { key: shelfKey, value: JSON.stringify(seededShelf) },
     ],
   )
 
   await page.goto(serverUrl())
   await primaryNav(page).getByRole('button', { name: 'More' }).click()
+
+  // Verify the runtime stores genuinely hydrated the seeded completion, Card, Saved Scripture, and Shelf before replay.
+  await page.getByTestId('more-account-progress-button').click()
+  await expect(page.getByTestId('account-progress-screen')).toBeVisible()
+  await expect(page.getByTestId('account-summary-completed')).toHaveText('1')
+  await expect(page.getByTestId('account-summary-cards')).toHaveText('1')
+  await expect(page.getByTestId('account-summary-scripture')).toHaveText('1')
+  await expect(page.getByTestId('account-summary-shelf')).toHaveText('1 of 3')
+  await page.getByTestId('account-progress-back').click()
+
+  const readStorage = () =>
+    page.evaluate(
+      ({ pKey, sKey, profKey }) => ({
+        participation: localStorage.getItem(pKey),
+        shelf: localStorage.getItem(sKey),
+        profile: localStorage.getItem(profKey),
+      }),
+      { pKey: participationKey, sKey: shelfKey, profKey: readerProfileKey },
+    )
+
   const replayButton = page.getByTestId('more-app-tutorial-button')
   await expect(replayButton).toBeVisible()
-  const shelfBeforeReplay = await page.evaluate(key => localStorage.getItem(key), shelfKey)
+  const storageBeforeReplay = await readStorage()
   await replayButton.focus()
   await page.keyboard.press('Enter')
 
@@ -354,19 +422,32 @@ test('More → App Tutorial replay starts at Today, returns reliably to More wit
   await page.keyboard.press('Escape')
   await expect(page.getByRole('heading', { name: 'More', exact: true })).toBeVisible()
 
-  // Verify profile, participation, earned Cards, and Shelf are completely unchanged
+  // Verify profile, participation, earned Cards, Saved Scripture, and Shelf are completely unchanged
+  const storageAfterReplay = await readStorage()
+  expect(storageAfterReplay).toEqual(storageBeforeReplay)
+
+  const postReplayParsed = parseParticipationEnvelope(storageAfterReplay.participation, 'cms')
+  expect(postReplayParsed.health).toBe('ok')
+  expect(postReplayParsed.data).toEqual(preSeedParsed.data)
+
   expect((await storedProfile(page)).profile).toMatchObject({
     introStatus: 'skipped',
     tutorialStatus: 'completed',
     reminder: { enabled: true, time: '06:45' },
   })
-  expect(await page.evaluate(key => localStorage.getItem(key), participationKey)).toBe(seededParticipation)
-  const shelfAfterReplay = await page.evaluate(key => localStorage.getItem(key), shelfKey)
-  expect(shelfAfterReplay).toBe(shelfBeforeReplay)
-  expect(JSON.parse(shelfAfterReplay!).state).toMatchObject({
+  expect(JSON.parse(storageAfterReplay.shelf!).state).toMatchObject({
     activeFocusMonth: monthId,
-    months: [{ yearMonth: monthId, admissionKind: 'readerSelected', isProtected: false }],
+    months: [{ yearMonth: monthId, admissionKind: 'readerSelected', isProtected: true }],
   })
+
+  // Reload and confirm hydrated runtime records still survive intact
+  await page.reload()
+  await primaryNav(page).getByRole('button', { name: 'More' }).click()
+  await page.getByTestId('more-account-progress-button').click()
+  await expect(page.getByTestId('account-summary-completed')).toHaveText('1')
+  await expect(page.getByTestId('account-summary-cards')).toHaveText('1')
+  await expect(page.getByTestId('account-summary-scripture')).toHaveText('1')
+  await expect(page.getByTestId('account-summary-shelf')).toHaveText('1 of 3')
 })
 
 test('nonvisual text guide, missing target fallback, resize repositioning, reduced motion, 320/375px and 200% text reflow', async ({
