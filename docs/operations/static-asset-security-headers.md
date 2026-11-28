@@ -1,6 +1,6 @@
 # Static-asset security headers: decision record
 
-**Origin:** [Anthropic Addresses #369](https://github.com/Bibleberry/Bibleberry/issues/369), finding 5 · **Date:** 2026-11-27 · **Status:** baseline implemented in `public/_headers`. Resource CSP and HSTS deferred to before beta. Owner acceptance is pending through the PR.
+**Origin:** [Anthropic Addresses #369](https://github.com/Bibleberry/Bibleberry/issues/369), finding 5 · **Date:** 2026-11-27 · **Status:** **Accepted 2026-11-28.** The owner accepted Independent Review's recommendation on [PR #374](https://github.com/Bibleberry/Bibleberry/pull/374#issuecomment-7230945609): baseline headers now, resource CSP and HSTS explicitly deferred, subject to proof on the R06 release path. The acceptance was given in the directing Claude Code session and is relayed on the PR; it is not a GitHub-native approval.
 
 ## Context
 
@@ -27,7 +27,17 @@ The reader embeds third-party media: YouTube (`youtube-nocookie.com`) and Simple
 
 The Release Gateway's `/api/*` responses come from the Worker and are not affected by this file. They are JSON with `Cache-Control: no-store` and unchanged CORS. Adding headers there was not part of this decision.
 
+## Release path
+
+The R06 release build (`scripts/release/r06-client-build.mjs`) keeps `publicDir: false` and copies exactly two public files: `favicon.svg` and `_headers`. `scripts/release/r06-staging-profile.mjs` pins the approved rules in `staticHeaders`. The reader-file allowlist admits only the exact name `_headers`; every other `public/` file (`images/`, `worksheets/`, `_redirects`) is still rejected. The artifact fails closed if `_headers` is missing, has an extra or changed rule, or repeats a path or header. Because the file is inside `dist/`, it is part of the manifest inventory and `artifactSha256`, so `verify` rejects any later change to it.
+
+`r06-verify-staging.mjs smoke` now serves the verified artifact's own `worker.js` and `dist/` in local workerd (`wrangler dev --local`, reviewed staging profile, no network) before the browser smoke. It checks that:
+- `/`, SPA routes, `favicon.svg` and every hashed JS/CSS asset return the artifact's bytes with exactly the approved headers;
+- `/_headers` does not serve the file itself;
+- `GET /api/months/2099-01`, `GET /api/preflight-unknown-route` and `OPTIONS /api/news` return the gateway's unchanged bodies with `Cache-Control: no-store` and none of the static headers.
+
 ## Verification
 
 - `tests/ci/static-asset-headers.test.ts` guards the baseline and the deferrals. It fails if a resource CSP or HSTS appears without a new decision, or if `Permissions-Policy` denies a feature the media iframes delegate.
+- `tests/release/r06-preflight.test.mjs` covers the release-profile rules: required, exact, allowlisted by exact name, and part of the manifest hash.
 - Local check: `npm run build` (which copies `public/_headers` into `dist/`), then `npx wrangler dev --config wrangler.staging.jsonc --local`. `/`, an SPA route such as `/today`, and a hashed asset under `/assets/` all returned the headers above; `/api/*` did not. Not yet verified on the deployed staging Worker.

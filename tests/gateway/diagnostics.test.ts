@@ -442,7 +442,7 @@ test('single Challenge 404s record whether Sanity returned nothing or projection
     fetchImpl: respondWith(() => jsonResult(null)),
   })
   assert.equal(missingRes.status, 404)
-  assert.deepEqual(missing.events.map(e => [e.event, (e as { stage?: string }).stage, (e as { reason?: string }).reason, (e as { slug?: string }).slug]), [
+  assert.deepEqual(missing.events.map(e => [e.event, (e as { stage?: string }).stage, (e as { reason?: string }).reason, (e as { requestedSlug?: string }).requestedSlug]), [
     ['contentUnavailable', 'upstream', 'noEligibleDocument', 'some-slug'],
   ])
 

@@ -58,7 +58,50 @@ const forbiddenClientText = [
   /sabbath-development-study|weekly-rhythm-pilot-journal/i,
 ]
 
-export const readerFilePattern = /^(?:index\.html|favicon\.svg|assets\/[\w.-]+\.(?:js|css|svg|png|webp|woff2?))$/
+export const readerFilePattern = /^(?:index\.html|favicon\.svg|_headers|assets\/[\w.-]+\.(?:js|css|svg|png|webp|woff2?))$/
+
+// Approved static-asset security headers (Anthropic Addresses #369,
+// docs/operations/static-asset-security-headers.md). The artifact must carry exactly these
+// rules; a missing, extra or changed rule fails closed. /api/* responses come from the Worker.
+export const staticHeaders = Object.freeze({
+  '/*': Object.freeze({
+    'x-content-type-options': 'nosniff',
+    'referrer-policy': 'strict-origin-when-cross-origin',
+    'x-frame-options': 'DENY',
+    'content-security-policy': "frame-ancestors 'none'",
+    'permissions-policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
+  }),
+})
+
+/** Parses a Cloudflare `_headers` file into { path: { lower-case header: value } }. */
+export function parseStaticHeaders(text) {
+  const rules = {}
+  let current = null
+  for (const line of text.split('\n')) {
+    if (line.trim() === '' || line.trimStart().startsWith('#')) continue
+    if (!/^\s/.test(line)) {
+      const path = line.trim()
+      if (Object.hasOwn(rules, path)) throw new Error('Static headers repeat a path rule.')
+      current = rules[path] = {}
+      continue
+    }
+    const separator = line.indexOf(':')
+    if (!current || separator < 1) throw new Error('Static headers file is malformed.')
+    const name = line.slice(0, separator).trim().toLowerCase()
+    if (Object.hasOwn(current, name)) throw new Error('Static headers repeat a header.')
+    current[name] = line.slice(separator + 1).trim()
+  }
+  return rules
+}
+
+export function assertStaticHeaders(bytes) {
+  if (!bytes?.length) throw new Error('Reader dist must include the approved static headers file.')
+  try {
+    deepStrictEqual(parseStaticHeaders(bytes.toString('utf8')), structuredClone(staticHeaders))
+  } catch {
+    throw new Error('Reader dist static headers differ from the approved policy.')
+  }
+}
 
 export function assertReaderFiles(files) {
   for (const [name, bytes] of files) {
@@ -72,6 +115,7 @@ export function assertReaderFiles(files) {
   if (!entry || !files.has(entry) || !files.get('favicon.svg')?.length) {
     throw new Error('Reader dist must include a root-relative entry script and a favicon.')
   }
+  assertStaticHeaders(files.get('_headers'))
   const js = [...files].filter(([name]) => name.endsWith('.js')).map(([, bytes]) => bytes.toString('utf8')).join('\n')
   for (const endpoint of ['/api/challenges', '/api/months/', '/api/library/months', '/api/news']) {
     if (!js.includes(endpoint)) throw new Error('Reader dist lacks an expected release gateway route.')

@@ -10,6 +10,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import { parseStaticHeaders, staticHeaders } from '../../scripts/release/r06-staging-profile.mjs'
 
 const HEADERS_PATH = path.resolve(import.meta.dirname, '../../public/_headers')
 
@@ -41,6 +42,21 @@ test('public/_headers applies the approved baseline to every static path', () =>
   assert.equal(all.get('referrer-policy'), 'strict-origin-when-cross-origin')
   assert.equal(all.get('x-frame-options'), 'DENY')
   assert.equal(all.get('content-security-policy'), "frame-ancestors 'none'")
+})
+
+test('public/_headers is the policy the R06 release artifact pins', () => {
+  const text = fs.readFileSync(HEADERS_PATH, 'utf8')
+  assert.deepEqual(parseStaticHeaders(text), structuredClone(staticHeaders))
+})
+
+test('the R06 release build copies only favicon.svg and _headers from public/', () => {
+  const build = fs.readFileSync(path.resolve(import.meta.dirname, '../../scripts/release/r06-client-build.mjs'), 'utf8')
+  assert.match(build, /publicDir: false/)
+  const copies = [...build.matchAll(/copyFile\('([^']+)', '([^']+)'\)/g)].map(m => [m[1], m[2]])
+  assert.deepEqual(copies, [
+    ['public/favicon.svg', 'dist/favicon.svg'],
+    ['public/_headers', 'dist/_headers'],
+  ])
 })
 
 test('CSP stays limited to frame-ancestors until the resource CSP decision is made', () => {

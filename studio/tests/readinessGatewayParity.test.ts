@@ -294,7 +294,8 @@ const INTENDED_DIFFERENCES: Record<string, string> = {
     'reports checksPass with an informational "ready to set scheduled" finding, while the gateway ' +
     'only serves editorialStatus "scheduled". This is the one difference where Studio is more ' +
     'lenient than the gateway; it is safe only because the finding tells the editor the month is ' +
-    'not yet scheduled (asserted below). Owner decision pending on whether this should be needsReview.',
+    'not yet scheduled (asserted below). Owner accepted on 2026-11-28 (PR #374): this is readiness to ' +
+    'schedule, not reader availability, so it stays checksPass.',
   'Challenge emergency-withdrawn (immediate, roster unchanged)':
     'Gateway Option 4A: an emergency-withdrawn Challenge is suppressed immediately and the month ' +
     'stays live with that day unavailable. Readiness still blocks so the editor completes the formal ' +

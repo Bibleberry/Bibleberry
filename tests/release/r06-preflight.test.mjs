@@ -1,10 +1,12 @@
 import { deepEqual, rejects, throws } from 'node:assert/strict'
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import { describeFiles, sha256, verifyArtifact } from '../../scripts/release/r06-preflight.mjs'
-import { assertReaderFiles, assertReaderModules, assertStagingConfig, flags, staging } from '../../scripts/release/r06-staging-profile.mjs'
+import {
+  assertReaderFiles, assertReaderModules, assertStagingConfig, flags, parseStaticHeaders, staging, staticHeaders,
+} from '../../scripts/release/r06-staging-profile.mjs'
 import { isAccessChallenge } from '../../scripts/release/r06-verify-staging.mjs'
 
 const commit = 'a'.repeat(40)
@@ -13,7 +15,35 @@ const reader = new Map([
   ['index.html', Buffer.from('<script type="module" src="/assets/entry.js"></script>')],
   ['favicon.svg', Buffer.from('<svg/>')],
   [entry, Buffer.from('/api/challenges /api/months/ /api/library/months /api/news')],
+  ['_headers', await readFile(new URL('../../public/_headers', import.meta.url))],
 ])
+
+test('reader dist must carry exactly the approved static headers (#369)', () => {
+  assertReaderFiles(reader)
+  const without = new Map(reader)
+  without.delete('_headers')
+  throws(() => assertReaderFiles(without), /approved static headers file/)
+  const approved = reader.get('_headers').toString('utf8')
+  const variants = [
+    approved.replace("frame-ancestors 'none'", "frame-ancestors 'none'; script-src *"),
+    approved.replace('  X-Frame-Options: DENY\n', ''),
+    approved + '  Strict-Transport-Security: max-age=31536000\n',
+    approved + '/api/*\n  X-Frame-Options: DENY\n',
+    approved + '  x-frame-options: SAMEORIGIN\n',
+    approved + '/*\n  X-Robots-Tag: noindex\n',
+    'not a headers file',
+  ]
+  for (const text of variants) {
+    throws(() => assertReaderFiles(new Map([...reader, ['_headers', Buffer.from(text)]])), /static headers/)
+  }
+  deepEqual(parseStaticHeaders(approved), structuredClone(staticHeaders))
+})
+
+test('only the exact _headers name is admitted from public/', () => {
+  for (const name of ['_redirects', 'worksheets/journal.pdf', 'images/cover.png', 'assets/_headers', '_headers.bak']) {
+    throws(() => assertReaderFiles(new Map([...reader, [name, Buffer.from('x')]])), /Unexpected/, name)
+  }
+})
 
 test('staging configuration rejects production and extra configuration', () => {
   assertStagingConfig(structuredClone(staging))
@@ -82,6 +112,12 @@ test('artifact verification requires an external manifest hash, exact source and
     await writeFile(join(root, 'dist/assets/extra.js'), 'unexpected')
     await rejects(verifyArtifact(root, commit, digest), /file contents/)
     await rm(join(root, 'dist/assets/extra.js'))
+    await writeFile(join(root, 'dist/_headers'), '/*\n  X-Frame-Options: SAMEORIGIN\n')
+    await rejects(verifyArtifact(root, commit, digest), /file contents|static headers/)
+    await rm(join(root, 'dist/_headers'))
+    await rejects(verifyArtifact(root, commit, digest), /file contents|static headers/)
+    await writeFile(join(root, 'dist/_headers'), files.get('dist/_headers'))
+    deepEqual((await verifyArtifact(root, commit, digest)).manifest.files.some(f => f.path === 'dist/_headers'), true)
     await symlink('entry.js', join(root, 'dist/assets/link.js'))
     await rejects(verifyArtifact(root, commit, digest), /link/)
   } finally {

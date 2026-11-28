@@ -10,7 +10,8 @@ import type { ValidationFailureReason } from './projection.ts'
  * PRIVACY CONTRACT: an event may carry only the fields declared below. The values are
  * gateway-chosen enums, HTTP status numbers, counts, durations, configuration *names*, and
  * request identifiers that have already passed route validation (a `YYYY-MM` month or a
- * slug matching the slug pattern). Events never carry the Sanity token, upstream URLs or
+ * requested slug matching the slug pattern). Request identifiers are untrusted input; no
+ * value is ever copied from an upstream payload. Events never carry the Sanity token, upstream URLs or
  * query text, upstream response bodies, document bodies, titles, Scripture, review notes,
  * or any other unreleased content.
  */
@@ -93,8 +94,13 @@ export interface ContentUnavailableEvent extends GatewayDiagnosticBase {
   readonly reason: ContentUnavailableReason
   /** Present on month routes; already validated as `YYYY-MM`. */
   readonly yearMonth?: string
-  /** Present on the single-Challenge route; already validated against the slug pattern. */
-  readonly slug?: string
+  /**
+   * Present on the single-Challenge route. This is the slug the *request* asked for, after it
+   * passed the route's slug pattern (`[A-Za-z0-9_-]`, at most 128 characters). It is untrusted
+   * request input, not confirmation that a published Challenge has that slug, and it is never
+   * taken from an upstream document.
+   */
+  readonly requestedSlug?: string
 }
 
 export interface ItemsRejectedEvent extends GatewayDiagnosticBase {

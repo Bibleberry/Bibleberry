@@ -531,7 +531,7 @@ async function handleSingleChallengeRequest(
       responseStatus: 404,
       stage: 'upstream',
       reason: 'noEligibleDocument',
-      slug,
+      requestedSlug: slug,
     })
     return errorResponse('notFound', 'Challenge not found', 404, corsHeaders)
   }
@@ -549,7 +549,7 @@ async function handleSingleChallengeRequest(
       responseStatus: 404,
       stage: 'projection',
       reason: projected.reason,
-      slug,
+      requestedSlug: slug,
     })
     return errorResponse('notFound', 'Challenge not found', 404, corsHeaders)
   }

@@ -28,7 +28,7 @@ Every event carries `source`, `event`, `level` (`info`, `warn` or `error`), `rou
 
 - `route`: `catalog`, `challenge`, `monthPreview`, `monthDetail`, `monthProgress`, `libraryMonths`, `news`, or `unknown`.
 - `upstreamFailure`: `failure`, plus `upstreamStatus`, `upstreamStatusHint`, `elapsedMs` and `timeoutMs` when applicable.
-- `contentUnavailable`: `stage`, `reason`, plus `yearMonth` (month routes) or `slug` (single Challenge). Both are logged only after they pass route validation.
+- `contentUnavailable`: `stage`, `reason`, plus `yearMonth` (month routes) or `requestedSlug` (single Challenge). Both are request input, logged only after they pass route validation. `requestedSlug` is what the reader asked for, not confirmation that a published Challenge has that slug.
 - `itemsRejected`: `inspected`, `rejected`, `reasons` (counts).
 - `configurationError`: `bindings` (names only).
 
