@@ -31,6 +31,8 @@ export const SCHEMA_VALIDATION_DISCLAIMER =
   'Evaluates metadata-only projections against Bibleberry’s monthly schema contracts. Full teaching bodies, artwork URLs, and raw Sanity payloads are not queried; run Studio’s full document validation on the editor form before publishing.'
 
 const VALID_EDITORIAL_STATUSES = new Set(['draft', 'inReview', 'approved', 'scheduled'])
+/** Mirrors the challengeType options in schemaTypes/documents/challenge.ts and the gateway allowlist. */
+const READER_CHALLENGE_TYPES = new Set(['teaching', 'discipline', 'reflection', 'memorization'])
 
 export function isAuthorizedDataset(dataset: string | undefined | null): dataset is AuthorizedDataset {
   return dataset === 'production' || dataset === 'staging'
@@ -151,6 +153,22 @@ function evaluateChallengeMetadata(
   if (target.withdrawn === true) {
     isWithdrawn = true
     blockingIssues.push(`Challenge "${baseId}" is marked withdrawn in its ${published ? 'published' : 'draft'} document.`)
+  }
+
+  // Reader-visible identity the Release Gateway requires for every scheduled, non-withdrawn slot
+  // (src/gateway/monthlyProjection.ts). Without these the gateway withholds the whole month.
+  if (target.withdrawn !== true) {
+    if (!isNonEmptyString(target.title)) {
+      blockingIssues.push(`Challenge "${baseId}" is missing a reader-visible title.`)
+    }
+    if (!isNonEmptyString(target.slug)) {
+      blockingIssues.push(`Challenge "${baseId}" is missing a slug.`)
+    }
+    if (typeof target.challengeType !== 'string' || !READER_CHALLENGE_TYPES.has(target.challengeType)) {
+      blockingIssues.push(
+        `Challenge "${baseId}" has challengeType "${String(target.challengeType ?? 'unset')}" (must be one of ${[...READER_CHALLENGE_TYPES].join(', ')}).`,
+      )
+    }
   }
 
   if (target.adaptationReviewed !== true) {

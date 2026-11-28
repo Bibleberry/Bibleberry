@@ -1,3 +1,5 @@
+import type { GatewayLogger } from './diagnostics.ts'
+
 /**
  * Environment bindings required by the Cloudflare Worker gateway.
  */
@@ -48,6 +50,17 @@ export interface GatewayOptions {
    * Defaults to global `fetch`.
    */
   readonly fetchImpl?: GatewayFetch
+  /**
+   * Receives structured, content-free diagnostic events (see `diagnostics.ts`).
+   * Defaults to one JSON line per event on the console, which Workers Logs indexes.
+   */
+  readonly logger?: GatewayLogger
+  /**
+   * Upper bound, in milliseconds, for one complete upstream Sanity exchange (headers and body).
+   * Defaults to `DEFAULT_UPSTREAM_TIMEOUT_MS`. A timeout answers with the same 502 as any
+   * other upstream failure.
+   */
+  readonly upstreamTimeoutMs?: number
 }
 
 export type GatewayErrorKind =

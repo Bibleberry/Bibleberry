@@ -184,6 +184,18 @@ test('CI scope evaluation: Studio fixtures in src/gateway/fixtures run both stud
   assert.equal(readerResult.shouldRun, true, 'Reader must run when src/ changes');
 });
 
+test('CI scope evaluation: gateway validation source runs Studio readiness parity', () => {
+  for (const file of ['src/gateway/monthlyProjection.ts', 'src/gateway/projection.ts', 'src/gateway/localRelease.ts']) {
+    assert.equal(evaluateScope('studio', [file], 'pull_request').shouldRun, true, `Studio must run for ${file}`);
+    assert.equal(evaluateScope('release-gateway', [file], 'pull_request').shouldRun, true);
+  }
+  assert.equal(
+    evaluateScope('studio', ['src/lib/libraryMonthSearch.ts'], 'pull_request').shouldRun,
+    false,
+    'non-gateway source must not trigger Studio',
+  );
+});
+
 test('CI scope evaluation: Reader UI change triggers reader and collections but skips Studio', () => {
   const readerFiles = ['src/components/Reader.tsx', 'src/screens/MonthScreen.tsx'];
 
