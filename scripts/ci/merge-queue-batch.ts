@@ -1,9 +1,8 @@
-import { appendFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { inflateRawSync } from 'node:zlib';
 import {
   abortBatch,
   AUTH_MANIFEST_ARTIFACT_PREFIX,
-  buildAuthorizedManifest,
   COMPARE_FILES_TRUNCATION_LIMIT,
   DEFAULT_INTEGRATION_POLICY,
   DEFAULT_MERGE_METHOD,
@@ -12,6 +11,7 @@ import {
   handlePullRequestClosed,
   handlePullRequestSynchronize,
   parseBatchEntries,
+  prepareAuthorizedManifest,
   reconcileBatch,
   runPreflight,
   startBatch,
@@ -822,7 +822,24 @@ async function main(): Promise<void> {
     return;
   }
 
-  // `emit-manifest` writes the immutable start-run authorization manifest JSON for upload-artifact.
+  // `status` renders directly from BATCH_STATE_JSON (vars.MERGE_QUEUE_BATCH_STATE) with zero write credentials.
+  if (command === 'status' && process.env.BATCH_STATE_JSON !== undefined) {
+    const rawJson = process.env.BATCH_STATE_JSON.trim();
+    const state = rawJson ? (JSON.parse(rawJson) as StoredBatchState) : null;
+    writeStepSummary(
+      formatSummaryMarkdown({
+        title: 'Copper Turnstile Batch Status',
+        state,
+        message: state ? undefined : `No batch state recorded in ${STATE_VARIABLE_NAME}.`,
+      }),
+    );
+    return;
+  }
+
+  const client = createGitHubClient(getToken(), process.env.GITHUB_TOKEN);
+
+  // `emit-manifest` validates entries against live GitHub PRs, captures exact verified
+  // `reviewCommentDigest`s, and writes the immutable start-run manifest JSON BEFORE upload-artifact.
   if (command === 'emit-manifest') {
     const rawEntries =
       (typeof flags.entries === 'string' ? flags.entries : undefined) ?? process.env.BATCH_ENTRIES ?? '';
@@ -847,7 +864,7 @@ async function main(): Promise<void> {
     if (!outPath) {
       throw new Error('emit-manifest requires MANIFEST_OUT or --out.');
     }
-    const manifest = buildAuthorizedManifest({
+    const prepared = await prepareAuthorizedManifest(client, {
       owner,
       repo,
       workflowRunId,
@@ -855,29 +872,25 @@ async function main(): Promise<void> {
       mergeMethod,
       integrationPolicy,
       entries,
+      requireWorkflowApprovalRecord,
     });
-    writeFileSync(outPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+    if (!prepared.ok || !prepared.manifest) {
+      writeStepSummary(
+        formatSummaryMarkdown({
+          title: 'Copper Turnstile Manifest Preparation (Failed)',
+          preflightResults: prepared.preflightResults,
+          message: prepared.error ?? 'Failed to prepare digest-bound authorization manifest.',
+        }),
+      );
+      process.exitCode = 1;
+      return;
+    }
+    writeFileSync(outPath, `${JSON.stringify(prepared.manifest, null, 2)}\n`, 'utf8');
     console.log(
-      `Emitted immutable authorization manifest for run ${workflowRunId} (${entries.length} entries, sha256=${manifest.manifestSha256.slice(0, 12)}).`,
+      `Emitted digest-bound immutable authorization manifest for run ${workflowRunId} (${entries.length} entries, sha256=${prepared.manifest.manifestSha256.slice(0, 12)}).`,
     );
     return;
   }
-
-  // `status` renders directly from BATCH_STATE_JSON (vars.MERGE_QUEUE_BATCH_STATE) with zero write credentials.
-  if (command === 'status' && process.env.BATCH_STATE_JSON !== undefined) {
-    const rawJson = process.env.BATCH_STATE_JSON.trim();
-    const state = rawJson ? (JSON.parse(rawJson) as StoredBatchState) : null;
-    writeStepSummary(
-      formatSummaryMarkdown({
-        title: 'Copper Turnstile Batch Status',
-        state,
-        message: state ? undefined : `No batch state recorded in ${STATE_VARIABLE_NAME}.`,
-      }),
-    );
-    return;
-  }
-
-  const client = createGitHubClient(getToken(), process.env.GITHUB_TOKEN);
 
   if (command === 'preflight') {
     const rawEntries =
@@ -932,6 +945,11 @@ async function main(): Promise<void> {
       workflowRunId && process.env.GITHUB_SERVER_URL
         ? `${process.env.GITHUB_SERVER_URL}/${owner}/${repo}/actions/runs/${workflowRunId}`
         : undefined;
+    const manifestPath =
+      (typeof flags.manifest === 'string' ? flags.manifest : undefined) ?? process.env.MANIFEST_PATH;
+    const authorizedManifest = manifestPath
+      ? (JSON.parse(readFileSync(manifestPath, 'utf8')) as AuthorizedBatchManifest)
+      : undefined;
 
     const outcome = await startBatch(client, {
       owner,
@@ -944,6 +962,7 @@ async function main(): Promise<void> {
       requireWorkflowApprovalRecord,
       workflowRunId,
       workflowRunUrl,
+      authorizedManifest,
     });
 
     writeStepSummary(

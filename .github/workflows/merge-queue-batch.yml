@@ -78,7 +78,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '24'
+          node-version-file: .nvmrc
       - name: Validate batch entries (zero writes)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -118,7 +118,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '24'
+          node-version-file: .nvmrc
       - name: Detect configured runtime credentials
         id: cred_check
         env:
@@ -143,6 +143,9 @@ jobs:
           repositories: ${{ github.event.repository.name }}
       - name: Emit immutable start-run authorization manifest
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COPPER_TURNSTILE_TOKEN: ${{ steps.app_token.outputs.token }}
+          MERGE_QUEUE_TOKEN: ${{ secrets.MERGE_QUEUE_TOKEN }}
           BATCH_ENTRIES: ${{ inputs.entries }}
           MERGE_METHOD: ${{ inputs.merge_method || 'squash' }}
           MANIFEST_OUT: ${{ runner.temp }}/copper-turnstile-auth-manifest.json
@@ -161,6 +164,7 @@ jobs:
           MERGE_QUEUE_TOKEN: ${{ secrets.MERGE_QUEUE_TOKEN }}
           BATCH_ENTRIES: ${{ inputs.entries }}
           MERGE_METHOD: ${{ inputs.merge_method || 'squash' }}
+          MANIFEST_PATH: ${{ runner.temp }}/copper-turnstile-auth-manifest.json
         run: node --experimental-strip-types scripts/ci/merge-queue-batch.ts start
 
   advance-or-stop:
@@ -211,7 +215,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: ${{ steps.cred_check.outputs.mode != 'none' }}
         with:
-          node-version: '24'
+          node-version-file: .nvmrc
       - name: Mint repository-scoped GitHub App token
         id: app_token
         if: ${{ steps.cred_check.outputs.mode == 'app' }}
@@ -292,7 +296,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: ${{ steps.cred_check.outputs.mode != 'none' }}
         with:
-          node-version: '24'
+          node-version-file: .nvmrc
       - name: Mint repository-scoped GitHub App token
         id: app_token
         if: ${{ steps.cred_check.outputs.mode == 'app' }}
@@ -325,7 +329,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '24'
+          node-version-file: .nvmrc
       - name: Read batch status without write credentials
         env:
           BATCH_STATE_JSON: ${{ vars.MERGE_QUEUE_BATCH_STATE }}
@@ -362,7 +366,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '24'
+          node-version-file: .nvmrc
       - name: Detect configured runtime credentials
         id: cred_check
         env:
@@ -423,7 +427,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '24'
+          node-version-file: .nvmrc
       - name: Detect configured runtime credentials
         id: cred_check
         env:

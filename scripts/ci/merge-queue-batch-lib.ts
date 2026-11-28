@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 
 export const FULL_SHA_PATTERN = /^[0-9a-f]{40}$/i;
+export const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/i;
 export const DEFAULT_REQUIRED_CHECKS = [
   'Build reader application',
   'Verify Sanity Studio',
@@ -64,6 +65,7 @@ export interface AuthorizedBatchManifest {
     prNumber: number;
     expectedHeadSha: string;
     reviewCommentId?: string;
+    reviewCommentDigest?: string;
   }>;
   manifestSha256: string;
 }
@@ -415,9 +417,9 @@ export function computeCommentBodyDigest(body: string): string {
 
 /**
  * Computes a deterministic SHA-256 consistency checksum over repo, ordered batch entries
- * (including owner-attested reviewCommentId), integration policy, and merge method.
- * (Not a cryptographic signature; authorization binding is enforced against the immutable
- * workflow-run manifest artifact and live run metadata/approvals.)
+ * (including owner-attested reviewCommentId and reviewCommentDigest), integration policy,
+ * and merge method. (Not a cryptographic signature; authorization binding is enforced
+ * against the immutable workflow-run manifest artifact and live run metadata/approvals.)
  */
 export function computeStateChecksum(params: {
   owner: string;
@@ -435,6 +437,7 @@ export function computeStateChecksum(params: {
       prNumber: e.prNumber,
       expectedHeadSha: e.expectedHeadSha.toLowerCase(),
       ...(e.reviewCommentId ? { reviewCommentId: e.reviewCommentId } : {}),
+      ...(e.reviewCommentDigest ? { reviewCommentDigest: e.reviewCommentDigest.toLowerCase() } : {}),
     })),
   });
   return createHash('sha256').update(canonical).digest('hex');
@@ -442,7 +445,8 @@ export function computeStateChecksum(params: {
 
 /**
  * Builds the canonical immutable authorization manifest uploaded as a run-bound artifact
- * by the owner-approved `start` run and re-verified on every continuation step.
+ * by the owner-approved `start` run (with live-verified `reviewCommentDigest`s bound
+ * BEFORE artifact upload) and re-verified on start and every continuation step.
  */
 export function buildAuthorizedManifest(params: {
   owner: string;
@@ -457,6 +461,7 @@ export function buildAuthorizedManifest(params: {
     prNumber: e.prNumber,
     expectedHeadSha: e.expectedHeadSha.toLowerCase(),
     ...(e.reviewCommentId ? { reviewCommentId: e.reviewCommentId } : {}),
+    ...(e.reviewCommentDigest ? { reviewCommentDigest: e.reviewCommentDigest.toLowerCase() } : {}),
   }));
   const payload = {
     version: 2 as const,
@@ -1058,6 +1063,7 @@ export function evaluateIndependentReviewComments(options: {
   reviewedHeadSha: string;
   attestedCommentId?: string;
   expectedCommentDigest?: string;
+  requireCommentDigest?: boolean;
   trustedCommentPosters?: string[];
 }): CommentReviewEvaluation {
   const {
@@ -1065,6 +1071,7 @@ export function evaluateIndependentReviewComments(options: {
     reviewedHeadSha,
     attestedCommentId,
     expectedCommentDigest,
+    requireCommentDigest = false,
     trustedCommentPosters = DEFAULT_TRUSTED_COMMENT_POSTERS,
   } = options;
 
@@ -1193,7 +1200,17 @@ export function evaluateIndependentReviewComments(options: {
   }
 
   const actualDigest = computeCommentBodyDigest(attestedNode.body ?? '');
-  if (expectedCommentDigest && actualDigest !== expectedCommentDigest) {
+  if (requireCommentDigest) {
+    if (!expectedCommentDigest || !SHA256_HEX_PATTERN.test(expectedCommentDigest)) {
+      return {
+        truncated: false,
+        blocked: false,
+        approved: false,
+        attestationError: `Owner-attested review comment #${attestedCommentId} on PR #${pr.number} is missing a valid bound reviewCommentDigest (fail-closed).`,
+      };
+    }
+  }
+  if (expectedCommentDigest && actualDigest !== expectedCommentDigest.toLowerCase()) {
     return {
       truncated: false,
       blocked: false,
@@ -1249,6 +1266,7 @@ export function evaluateReviewEligibility(options: {
   candidateHeadSha: string;
   attestedCommentId?: string;
   expectedCommentDigest?: string;
+  requireCommentDigest?: boolean;
   policy?: RepositoryPolicy | null;
   authorizedNativeReviewers?: string[];
   trustedCommentPosters?: string[];
@@ -1259,6 +1277,7 @@ export function evaluateReviewEligibility(options: {
     candidateHeadSha,
     attestedCommentId,
     expectedCommentDigest,
+    requireCommentDigest = false,
     policy,
     authorizedNativeReviewers = DEFAULT_AUTHORIZED_NATIVE_REVIEWERS,
     trustedCommentPosters = DEFAULT_TRUSTED_COMMENT_POSTERS,
@@ -1295,6 +1314,7 @@ export function evaluateReviewEligibility(options: {
     reviewedHeadSha: normalizedReviewed,
     attestedCommentId,
     expectedCommentDigest,
+    requireCommentDigest,
     trustedCommentPosters,
   });
   if (commentEval.blocked && commentEval.blockReason) {
@@ -1376,7 +1396,23 @@ export function evaluateReviewEligibility(options: {
     }
   } else {
     // requiredApprovingReviewCount === 0: MUST STILL FAIL CLOSED without authorized independent approval!
-    if (exactReviewedAuthorizedNative.length > 0) {
+    // When an explicit owner-attested #REVIEW_COMMENT_ID is supplied, validate it directly so
+    // reviewCommentId always carries a verified reviewCommentDigest binding.
+    if (attestedCommentId) {
+      if (commentEval.approved && commentEval.evidence) {
+        evidence = commentEval.evidence;
+      } else if (commentEval.attestationError) {
+        reasons.push(commentEval.attestationError);
+      } else if (commentEval.staleApprovedSha) {
+        reasons.push(
+          `PR #${pr.number} owner-attested Independent Review comment #${attestedCommentId} is stale (bound to ${commentEval.staleApprovedSha.slice(0, 12)}, not reviewed HEAD ${normalizedReviewed.slice(0, 12)}).`,
+        );
+      } else if (!commentEval.blocked) {
+        reasons.push(
+          `PR #${pr.number} owner-attested review comment #${attestedCommentId} failed verification for ${normalizedReviewed.slice(0, 12)}.`,
+        );
+      }
+    } else if (exactReviewedAuthorizedNative.length > 0) {
       const first = exactReviewedAuthorizedNative[0];
       evidence = {
         source: 'native-review',
@@ -1439,6 +1475,7 @@ export function evaluatePullRequestPreflight(
     observedBaseSha?: string;
     expectedHeadOverride?: string;
     allowPendingChecks?: boolean;
+    requireCommentDigest?: boolean;
     authorizedNativeReviewers?: string[];
     trustedCommentPosters?: string[];
     now?: () => string;
@@ -1497,6 +1534,7 @@ export function evaluatePullRequestPreflight(
     candidateHeadSha: expectedSha,
     attestedCommentId: entry.reviewCommentId,
     expectedCommentDigest: entry.reviewCommentDigest,
+    requireCommentDigest: options?.requireCommentDigest,
     policy: options?.policy,
     authorizedNativeReviewers: options?.authorizedNativeReviewers,
     trustedCommentPosters: options?.trustedCommentPosters,
@@ -1540,6 +1578,7 @@ export async function runPreflight(
   options?: {
     mergeMethod?: string;
     requireVerifiedProtection?: boolean;
+    requireCommentDigest?: boolean;
     authorizedNativeReviewers?: string[];
     trustedCommentPosters?: string[];
     now?: () => string;
@@ -1584,6 +1623,7 @@ export async function runPreflight(
       evaluatePullRequestPreflight(pr, entry, expectedRepo, requiredChecks, {
         policy,
         observedBaseSha: observedMainSha,
+        requireCommentDigest: options?.requireCommentDigest,
         authorizedNativeReviewers: options?.authorizedNativeReviewers,
         trustedCommentPosters: options?.trustedCommentPosters,
         now: options?.now,
@@ -1637,7 +1677,7 @@ export async function verifyIntegrationUpdateProvenance(
     prNumber: number;
     previousHeadSha: string;
     newHeadSha: string;
-    expectedBaseSha: string;
+    expectedBaseSha?: string;
     currentMainSha: string;
     requestedAt: string;
     now?: () => string;
@@ -1649,7 +1689,6 @@ export async function verifyIntegrationUpdateProvenance(
     prNumber,
     previousHeadSha,
     newHeadSha,
-    expectedBaseSha,
     currentMainSha,
     requestedAt,
     now = () => new Date().toISOString(),
@@ -1671,11 +1710,16 @@ export async function verifyIntegrationUpdateProvenance(
     };
   }
 
-  const normalizedExpectedBase = expectedBaseSha.toLowerCase();
+  // Always prove the second parent against live accepted `main` (`currentMainSha`),
+  // never skipping ancestry verification based on mutable state's `expectedBaseSha`.
   const normalizedCurrentMain = currentMainSha.toLowerCase();
-  if (parentBaseSha !== normalizedExpectedBase && parentBaseSha !== normalizedCurrentMain) {
+  if (parentBaseSha !== normalizedCurrentMain) {
     const ancestry = await client.compareCommits(owner, repo, parentBaseSha, normalizedCurrentMain);
-    if (ancestry.behindBy !== 0 || (ancestry.status !== 'ahead' && ancestry.status !== 'identical')) {
+    if (
+      ancestry.behindBy !== 0 ||
+      (ancestry.status !== 'ahead' && ancestry.status !== 'identical') ||
+      ancestry.mergeBaseSha.toLowerCase() !== parentBaseSha
+    ) {
       return {
         ok: false,
         reason: `PR #${prNumber} updated commit ${newHeadSha.slice(0, 12)} second parent ${parentBaseSha.slice(0, 12)} is not an accepted commit on main (${normalizedCurrentMain.slice(0, 12)}).`,
@@ -1689,6 +1733,12 @@ export async function verifyIntegrationUpdateProvenance(
     return {
       ok: false,
       reason: `Unable to establish merge-base between main@${parentBaseSha.slice(0, 12)} and PR@${parentPrSha.slice(0, 12)}.`,
+    };
+  }
+  if (parentBaseSha === mergeBaseSha) {
+    return {
+      ok: false,
+      reason: `PR #${prNumber} updated commit ${newHeadSha.slice(0, 12)} second parent ${parentBaseSha.slice(0, 12)} is already an ancestor of ${parentPrSha.slice(0, 12)} (not a valid main advancement integration).`,
     };
   }
 
@@ -1727,10 +1777,21 @@ export async function verifyIntegrationUpdateProvenance(
   const deltaFromPr = toFileMap(prToNewHead.files);
   const deltaFromMain = toFileMap(mainToNewHead.files);
 
+  const prTouchedPaths = new Set<string>();
+  for (const [filename, file] of prFiles.entries()) {
+    prTouchedPaths.add(filename);
+    if (file.previousFilename) prTouchedPaths.add(file.previousFilename);
+  }
+  const mainTouchedPaths = new Set<string>();
+  for (const [filename, file] of mainFiles.entries()) {
+    mainTouchedPaths.add(filename);
+    if (file.previousFilename) mainTouchedPaths.add(file.previousFilename);
+  }
+
   const overlappingFiles: string[] = [];
-  for (const filename of prFiles.keys()) {
-    if (mainFiles.has(filename)) {
-      overlappingFiles.push(filename);
+  for (const path of prTouchedPaths) {
+    if (mainTouchedPaths.has(path)) {
+      overlappingFiles.push(path);
     }
   }
   const overlappingSet = new Set(overlappingFiles);
@@ -1780,6 +1841,157 @@ export async function verifyIntegrationUpdateProvenance(
       overlappingFiles: overlappingFiles.sort(),
       provenanceVerified: true,
     },
+  };
+}
+
+export interface IntegrationChainVerificationResult {
+  ok: boolean;
+  reason?: string;
+  steps: IntegrationUpdateRecord[];
+  overlappingFiles: string[];
+}
+
+/**
+ * Independently proves from live Git commit history that `candidateHeadSha` descends from
+ * the immutable owner-authorized `authorizedHeadSha` solely through `1..maxSteps` strict
+ * 2-parent mechanical `main`-into-PR integration merges against accepted `main`
+ * (`currentMainSha`), verifying parents, ancestry, non-truncated diffs, commit count,
+ * blob integrity, and file disjointness at EVERY step without trusting any boolean or
+ * provenance record stored in mutable `MERGE_QUEUE_BATCH_STATE`.
+ */
+export async function verifyIntegrationChainFromAuthorizedHead(
+  client: GitHubBatchClient,
+  options: {
+    owner: string;
+    repo: string;
+    prNumber: number;
+    authorizedHeadSha: string;
+    candidateHeadSha: string;
+    currentMainSha: string;
+    maxSteps?: number;
+    requestedAt?: string;
+    now?: () => string;
+  },
+): Promise<IntegrationChainVerificationResult> {
+  const {
+    owner,
+    repo,
+    prNumber,
+    authorizedHeadSha,
+    candidateHeadSha,
+    currentMainSha,
+    maxSteps = DEFAULT_MAX_INTEGRATION_UPDATES_PER_PR,
+    requestedAt,
+    now = () => new Date().toISOString(),
+  } = options;
+
+  const normalizedAuthorized = authorizedHeadSha.toLowerCase();
+  const normalizedCandidate = candidateHeadSha.toLowerCase();
+
+  if (!FULL_SHA_PATTERN.test(normalizedAuthorized) || !FULL_SHA_PATTERN.test(normalizedCandidate)) {
+    return {
+      ok: false,
+      reason: `PR #${prNumber} integration chain verification requires full 40-character commit SHAs.`,
+      steps: [],
+      overlappingFiles: [],
+    };
+  }
+
+  if (normalizedCandidate === normalizedAuthorized) {
+    return { ok: true, steps: [], overlappingFiles: [] };
+  }
+
+  // Walk backwards along first-parent edges from candidateHeadSha to immutable authorizedHeadSha.
+  const reverseSteps: Array<{ fromHeadSha: string; toHeadSha: string; mergedBaseSha: string }> = [];
+  const visited = new Set<string>([normalizedCandidate]);
+  let cursor = normalizedCandidate;
+
+  for (let depth = 0; depth < maxSteps && cursor !== normalizedAuthorized; depth += 1) {
+    let commit: CommitDetails;
+    try {
+      commit = await client.getCommit(owner, repo, cursor);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return {
+        ok: false,
+        reason: `PR #${prNumber} could not read commit ${cursor.slice(0, 12)} while independently proving integration chain from immutable authorized HEAD ${normalizedAuthorized.slice(0, 12)}: ${msg}`,
+        steps: [],
+        overlappingFiles: [],
+      };
+    }
+
+    if (commit.parents.length !== 2) {
+      return {
+        ok: false,
+        reason: `PR #${prNumber} commit ${cursor.slice(0, 12)} has ${commit.parents.length} parent(s); expected a 2-parent mechanical integration merge commit traceable to immutable authorized HEAD ${normalizedAuthorized.slice(0, 12)}.`,
+        steps: [],
+        overlappingFiles: [],
+      };
+    }
+
+    const [parentPrSha, parentBaseSha] = commit.parents.map((p) => p.toLowerCase());
+    if (visited.has(parentPrSha)) {
+      return {
+        ok: false,
+        reason: `PR #${prNumber} commit ancestry cycle detected at ${parentPrSha.slice(0, 12)}.`,
+        steps: [],
+        overlappingFiles: [],
+      };
+    }
+    visited.add(parentPrSha);
+    reverseSteps.push({
+      fromHeadSha: parentPrSha,
+      toHeadSha: cursor,
+      mergedBaseSha: parentBaseSha,
+    });
+    cursor = parentPrSha;
+  }
+
+  if (cursor !== normalizedAuthorized) {
+    return {
+      ok: false,
+      reason: `PR #${prNumber} candidate HEAD ${normalizedCandidate.slice(0, 12)} is not reachable from immutable authorized HEAD ${normalizedAuthorized.slice(0, 12)} within ${maxSteps} mechanical 2-parent integration merge step(s) (stopped at ${cursor.slice(0, 12)}).`,
+      steps: [],
+      overlappingFiles: [],
+    };
+  }
+
+  const orderedSteps = reverseSteps.reverse();
+  const verifiedSteps: IntegrationUpdateRecord[] = [];
+  const overlappingSet = new Set<string>();
+
+  for (const step of orderedSteps) {
+    const stepProvenance = await verifyIntegrationUpdateProvenance(client, {
+      owner,
+      repo,
+      prNumber,
+      previousHeadSha: step.fromHeadSha,
+      newHeadSha: step.toHeadSha,
+      expectedBaseSha: currentMainSha,
+      currentMainSha,
+      requestedAt: requestedAt ?? now(),
+      now,
+    });
+    if (!stepProvenance.ok || !stepProvenance.record) {
+      return {
+        ok: false,
+        reason:
+          stepProvenance.reason ??
+          `PR #${prNumber} failed independent provenance verification on step ${step.fromHeadSha.slice(0, 12)} -> ${step.toHeadSha.slice(0, 12)}.`,
+        steps: verifiedSteps,
+        overlappingFiles: [...overlappingSet].sort(),
+      };
+    }
+    verifiedSteps.push(stepProvenance.record);
+    for (const file of stepProvenance.record.overlappingFiles) {
+      overlappingSet.add(file);
+    }
+  }
+
+  return {
+    ok: true,
+    steps: verifiedSteps,
+    overlappingFiles: [...overlappingSet].sort(),
   };
 }
 
@@ -1859,6 +2071,25 @@ export interface StartBatchOptions extends RuntimePolicyOptions {
   integrationPolicy?: IntegrationPolicy;
   workflowRunId?: string;
   workflowRunUrl?: string;
+  authorizedManifest?: AuthorizedBatchManifest;
+}
+
+export interface PrepareManifestOptions extends RuntimePolicyOptions {
+  owner: string;
+  repo: string;
+  entries: BatchEntry[];
+  authorizedBy: string;
+  workflowRunId: string;
+  mergeMethod?: string;
+  integrationPolicy?: IntegrationPolicy;
+}
+
+export interface PrepareManifestOutcome {
+  ok: boolean;
+  manifest?: AuthorizedBatchManifest;
+  preflightResults: PreflightResult[];
+  observedMainSha?: string;
+  error?: string;
 }
 
 export interface StartBatchOutcome {
@@ -1917,6 +2148,234 @@ function formatCompletedSummary(completedMerges: CompletedMergeRecord[], complet
   return 'none';
 }
 
+function validateEntryCommentDigestBinding(
+  entry: BatchEntry,
+  contextLabel: string,
+): { ok: boolean; reason?: string } {
+  if (entry.reviewCommentId) {
+    if (!entry.reviewCommentDigest || !SHA256_HEX_PATTERN.test(entry.reviewCommentDigest)) {
+      return {
+        ok: false,
+        reason: `${contextLabel} PR #${entry.prNumber} attests review comment #${entry.reviewCommentId} but is missing a valid 64-char SHA-256 reviewCommentDigest.`,
+      };
+    }
+  } else if (entry.reviewCommentDigest) {
+    return {
+      ok: false,
+      reason: `${contextLabel} PR #${entry.prNumber} specifies reviewCommentDigest without an attested reviewCommentId.`,
+    };
+  }
+  return { ok: true };
+}
+
+/**
+ * Validates all requested batch entries against live GitHub PRs, branch protection, and
+ * Independent Review comments, captures the exact verified SHA-256 `reviewCommentDigest`
+ * for every owner-attested comment entry, and builds the canonical immutable start-run
+ * `AuthorizedBatchManifest` BEFORE artifact upload.
+ */
+export async function prepareAuthorizedManifest(
+  client: GitHubBatchClient,
+  options: PrepareManifestOptions,
+): Promise<PrepareManifestOutcome> {
+  const {
+    owner,
+    repo,
+    entries,
+    authorizedBy,
+    workflowRunId,
+    mergeMethod: rawMergeMethod = DEFAULT_MERGE_METHOD,
+    integrationPolicy = DEFAULT_INTEGRATION_POLICY,
+    requiredChecks = DEFAULT_REQUIRED_CHECKS,
+    authorizedOwners = DEFAULT_AUTHORIZED_OWNERS,
+    authorizedNativeReviewers = DEFAULT_AUTHORIZED_NATIVE_REVIEWERS,
+    trustedCommentPosters = DEFAULT_TRUSTED_COMMENT_POSTERS,
+    requireWorkflowApprovalRecord = false,
+    now = () => new Date().toISOString(),
+  } = options;
+
+  if (!workflowRunId) {
+    return {
+      ok: false,
+      preflightResults: [],
+      error: 'Cannot prepare immutable authorization manifest without workflowRunId.',
+    };
+  }
+
+  if (requireWorkflowApprovalRecord || client.verifyWorkflowApproval) {
+    const auth = await verifyOwnerAuthorization(client, {
+      owner,
+      repo,
+      actor: authorizedBy,
+      workflowRunId,
+      authorizedOwners,
+      expectations: {
+        expectedStartApprovalJobName: START_APPROVAL_JOB_NAME,
+      },
+    });
+    if (!auth.ok) {
+      return {
+        ok: false,
+        preflightResults: [],
+        error: `Manifest authorization failed (fail-closed): ${auth.reason}`,
+      };
+    }
+  }
+
+  const preflight = await runPreflight(client, owner, repo, entries, requiredChecks, {
+    mergeMethod: rawMergeMethod,
+    requireVerifiedProtection: true,
+    authorizedNativeReviewers,
+    trustedCommentPosters,
+    now,
+  });
+
+  if (preflight.policyError) {
+    return {
+      ok: false,
+      preflightResults: preflight.results,
+      observedMainSha: preflight.observedMainSha,
+      error: preflight.policyError,
+    };
+  }
+
+  if (!preflight.ok) {
+    return {
+      ok: false,
+      preflightResults: preflight.results,
+      observedMainSha: preflight.observedMainSha,
+      error: 'Preflight failed while preparing immutable authorization manifest. No manifest was emitted.',
+    };
+  }
+
+  const boundEntries: BatchEntry[] = [];
+  for (let i = 0; i < entries.length; i += 1) {
+    const entry = entries[i];
+    const evidence = preflight.results[i]?.reviewEvidence;
+    if (entry.reviewCommentId) {
+      const digest = evidence?.commentDigest?.toLowerCase();
+      if (!digest || !SHA256_HEX_PATTERN.test(digest)) {
+        return {
+          ok: false,
+          preflightResults: preflight.results,
+          observedMainSha: preflight.observedMainSha,
+          error: `PR #${entry.prNumber} attests comment #${entry.reviewCommentId} but no verified reviewCommentDigest was captured during manifest preparation.`,
+        };
+      }
+      boundEntries.push({
+        prNumber: entry.prNumber,
+        expectedHeadSha: entry.expectedHeadSha.toLowerCase(),
+        reviewCommentId: entry.reviewCommentId,
+        reviewCommentDigest: digest,
+      });
+    } else {
+      boundEntries.push({
+        prNumber: entry.prNumber,
+        expectedHeadSha: entry.expectedHeadSha.toLowerCase(),
+      });
+    }
+  }
+
+  const mergeMethod = rawMergeMethod.trim().toLowerCase() as MergeMethod;
+  const manifest = buildAuthorizedManifest({
+    owner,
+    repo,
+    workflowRunId,
+    authorizedBy,
+    mergeMethod,
+    integrationPolicy,
+    entries: boundEntries,
+  });
+
+  return {
+    ok: true,
+    manifest,
+    preflightResults: preflight.results,
+    observedMainSha: preflight.observedMainSha,
+  };
+}
+
+export function verifyManifestMatchesStartRequest(
+  manifest: AuthorizedBatchManifest,
+  request: {
+    owner: string;
+    repo: string;
+    workflowRunId?: string;
+    authorizedBy: string;
+    mergeMethod: MergeMethod;
+    integrationPolicy: IntegrationPolicy;
+    entries: BatchEntry[];
+  },
+): { ok: boolean; reason?: string } {
+  const expected = buildAuthorizedManifest({
+    owner: manifest.owner,
+    repo: manifest.repo,
+    workflowRunId: manifest.workflowRunId,
+    authorizedBy: manifest.authorizedBy,
+    mergeMethod: manifest.mergeMethod,
+    integrationPolicy: manifest.integrationPolicy,
+    entries: manifest.entries,
+  });
+
+  if (manifest.manifestSha256 !== expected.manifestSha256) {
+    return {
+      ok: false,
+      reason: `Authorized manifest artifact for run ${manifest.workflowRunId} failed internal SHA-256 verification.`,
+    };
+  }
+
+  if (
+    manifest.owner.toLowerCase() !== request.owner.toLowerCase() ||
+    manifest.repo.toLowerCase() !== request.repo.toLowerCase() ||
+    (request.workflowRunId && manifest.workflowRunId !== request.workflowRunId) ||
+    manifest.authorizedBy.toLowerCase() !== request.authorizedBy.toLowerCase() ||
+    manifest.mergeMethod !== request.mergeMethod ||
+    manifest.integrationPolicy !== request.integrationPolicy
+  ) {
+    return {
+      ok: false,
+      reason: `Start request metadata (repo/run/actor/method/policy) does not match immutable start-run manifest for run ${manifest.workflowRunId}.`,
+    };
+  }
+
+  if (manifest.entries.length !== request.entries.length) {
+    return {
+      ok: false,
+      reason: `Start request entry count (${request.entries.length}) does not match immutable start-run manifest (${manifest.entries.length}) for run ${manifest.workflowRunId}.`,
+    };
+  }
+
+  for (let i = 0; i < manifest.entries.length; i += 1) {
+    const m = manifest.entries[i];
+    const e = request.entries[i];
+    if (
+      m.prNumber !== e.prNumber ||
+      m.expectedHeadSha.toLowerCase() !== e.expectedHeadSha.toLowerCase() ||
+      (m.reviewCommentId ?? '') !== (e.reviewCommentId ?? '')
+    ) {
+      return {
+        ok: false,
+        reason: `Start request entry #${i + 1} (PR #${e.prNumber}@${e.expectedHeadSha.slice(0, 12)}) does not match immutable manifest entry (PR #${m.prNumber}@${m.expectedHeadSha.slice(0, 12)}) for run ${manifest.workflowRunId}.`,
+      };
+    }
+    const digestBinding = validateEntryCommentDigestBinding(
+      m,
+      `Immutable manifest for run ${manifest.workflowRunId}`,
+    );
+    if (!digestBinding.ok) {
+      return digestBinding;
+    }
+    if (e.reviewCommentDigest && e.reviewCommentDigest.toLowerCase() !== (m.reviewCommentDigest ?? '').toLowerCase()) {
+      return {
+        ok: false,
+        reason: `Start request entry #${i + 1} (PR #${e.prNumber}) reviewCommentDigest does not match immutable manifest digest for run ${manifest.workflowRunId}.`,
+      };
+    }
+  }
+
+  return { ok: true };
+}
+
 function verifyManifestMatchesState(
   manifest: AuthorizedBatchManifest,
   state: BatchState,
@@ -1964,14 +2423,26 @@ function verifyManifestMatchesState(
   for (let i = 0; i < manifest.entries.length; i += 1) {
     const m = manifest.entries[i];
     const s = state.entries[i];
+    const manifestDigestCheck = validateEntryCommentDigestBinding(
+      m,
+      `Immutable manifest for run ${state.workflowRunId}`,
+    );
+    if (!manifestDigestCheck.ok) {
+      return manifestDigestCheck;
+    }
+    const stateDigestCheck = validateEntryCommentDigestBinding(s, `Persisted batch ${state.batchId}`);
+    if (!stateDigestCheck.ok) {
+      return stateDigestCheck;
+    }
     if (
       m.prNumber !== s.prNumber ||
       m.expectedHeadSha.toLowerCase() !== s.expectedHeadSha.toLowerCase() ||
-      (m.reviewCommentId ?? '') !== (s.reviewCommentId ?? '')
+      (m.reviewCommentId ?? '') !== (s.reviewCommentId ?? '') ||
+      (m.reviewCommentDigest ?? '').toLowerCase() !== (s.reviewCommentDigest ?? '').toLowerCase()
     ) {
       return {
         ok: false,
-        reason: `Persisted batch ${state.batchId} entry #${i + 1} (PR #${s.prNumber}@${s.expectedHeadSha.slice(0, 12)}${s.reviewCommentId ? `#${s.reviewCommentId}` : ''}) does not match immutable manifest entry (PR #${m.prNumber}@${m.expectedHeadSha.slice(0, 12)}${m.reviewCommentId ? `#${m.reviewCommentId}` : ''}) for approved start run ${state.workflowRunId}.`,
+        reason: `Persisted batch ${state.batchId} entry #${i + 1} (PR #${s.prNumber}@${s.expectedHeadSha.slice(0, 12)}${s.reviewCommentId ? `#${s.reviewCommentId}` : ''}) does not match immutable manifest entry (including reviewCommentDigest) for approved start run ${state.workflowRunId}.`,
       };
     }
   }
@@ -1988,14 +2459,16 @@ async function verifyPersistedBatchAuthority(
     authorizedOwners: string[];
     requireWorkflowApprovalRecord?: boolean;
     isOriginatingStartRun?: boolean;
+    authorizedManifest?: AuthorizedBatchManifest;
   },
-): Promise<{ ok: boolean; reason?: string }> {
+): Promise<{ ok: boolean; reason?: string; manifest?: AuthorizedBatchManifest }> {
   const {
     owner,
     repo,
     authorizedOwners,
     requireWorkflowApprovalRecord = false,
     isOriginatingStartRun = false,
+    authorizedManifest,
   } = options;
   const allowed = new Set(authorizedOwners.map((u) => u.toLowerCase()));
   if (!allowed.has(state.authorizedBy.toLowerCase())) {
@@ -2003,6 +2476,39 @@ async function verifyPersistedBatchAuthority(
       ok: false,
       reason: `Persisted batch ${state.batchId} authorizedBy "${state.authorizedBy}" is not an authorized owner.`,
     };
+  }
+
+  if (!Number.isInteger(state.nextIndex) || state.nextIndex < 0 || state.nextIndex > state.entries.length) {
+    return {
+      ok: false,
+      reason: `Persisted batch ${state.batchId} has invalid nextIndex (${state.nextIndex}) for ${state.entries.length} entries.`,
+    };
+  }
+
+  if (state.nextIndex < state.entries.length) {
+    const activeEntry = state.entries[state.nextIndex];
+    if (state.activePrNumber !== null && state.activePrNumber !== activeEntry.prNumber) {
+      return {
+        ok: false,
+        reason: `Persisted batch ${state.batchId} activePrNumber (#${state.activePrNumber}) does not match entry #${state.nextIndex + 1} (PR #${activeEntry.prNumber}).`,
+      };
+    }
+    if (
+      state.activeReviewedHeadSha &&
+      state.activeReviewedHeadSha.toLowerCase() !== activeEntry.expectedHeadSha.toLowerCase()
+    ) {
+      return {
+        ok: false,
+        reason: `Persisted batch ${state.batchId} activeReviewedHeadSha (${state.activeReviewedHeadSha.slice(0, 12)}) does not match entry #${state.nextIndex + 1} immutable reviewed SHA (${activeEntry.expectedHeadSha.slice(0, 12)}).`,
+      };
+    }
+  }
+
+  for (const entry of state.entries) {
+    const digestCheck = validateEntryCommentDigestBinding(entry, `Persisted batch ${state.batchId}`);
+    if (!digestCheck.ok) {
+      return digestCheck;
+    }
   }
 
   const expectedChecksum = computeStateChecksum({
@@ -2015,7 +2521,7 @@ async function verifyPersistedBatchAuthority(
   if (state.stateChecksum !== expectedChecksum) {
     return {
       ok: false,
-      reason: `Persisted batch ${state.batchId} failed stateChecksum consistency check (entries or policy do not match stored checksum).`,
+      reason: `Persisted batch ${state.batchId} failed stateChecksum consistency check (entries, reviewCommentDigest, or policy do not match stored checksum).`,
     };
   }
 
@@ -2025,6 +2531,8 @@ async function verifyPersistedBatchAuthority(
       reason: `Persisted batch ${state.batchId} is missing an owner-approved workflowRunId record; refusing unattended execution.`,
     };
   }
+
+  let verifiedManifest: AuthorizedBatchManifest | undefined;
 
   if (state.workflowRunId) {
     if (!client.verifyWorkflowApproval) {
@@ -2053,9 +2561,16 @@ async function verifyPersistedBatchAuthority(
       };
     }
 
-    // Bind persisted state to the immutable manifest artifact uploaded by the approved start run
-    // on every continuation/reconciliation run (eliminating mutable-state substitution attacks).
-    if (!isOriginatingStartRun && (requireWorkflowApprovalRecord || client.getAuthorizedManifest)) {
+    // Bind persisted state (including reviewCommentDigest) to the immutable manifest artifact
+    // uploaded by the approved start run on start (when supplied/available) and on every
+    // continuation/reconciliation run (defeating mutable-state substitution and digest stripping).
+    if (authorizedManifest) {
+      const manifestCheck = verifyManifestMatchesState(authorizedManifest, state, owner, repo);
+      if (!manifestCheck.ok) {
+        return manifestCheck;
+      }
+      verifiedManifest = authorizedManifest;
+    } else if (!isOriginatingStartRun && (requireWorkflowApprovalRecord || client.getAuthorizedManifest)) {
       if (!client.getAuthorizedManifest) {
         return {
           ok: false,
@@ -2073,10 +2588,11 @@ async function verifyPersistedBatchAuthority(
       if (!manifestCheck.ok) {
         return manifestCheck;
       }
+      verifiedManifest = manifest;
     }
   }
 
-  return { ok: true };
+  return { ok: true, manifest: verifiedManifest };
 }
 
 async function stopBatchState(
@@ -2180,12 +2696,14 @@ async function driveBatchProgress(
     repo: string;
     fromReconcile?: boolean;
     isOriginatingStartRun?: boolean;
+    authorizedManifest?: AuthorizedBatchManifest;
   } & RuntimePolicyOptions,
 ): Promise<AdvanceOutcome> {
   const {
     owner,
     repo,
     isOriginatingStartRun = false,
+    authorizedManifest,
     requiredChecks = DEFAULT_REQUIRED_CHECKS,
     authorizedOwners = DEFAULT_AUTHORIZED_OWNERS,
     authorizedNativeReviewers = DEFAULT_AUTHORIZED_NATIVE_REVIEWERS,
@@ -2206,11 +2724,13 @@ async function driveBatchProgress(
     authorizedOwners,
     requireWorkflowApprovalRecord,
     isOriginatingStartRun,
+    authorizedManifest,
   });
   if (!authority.ok) {
     const stopped = await stopBatchState(client, owner, repo, state, authority.reason!, now);
     return { action: 'stopped', state: stopped, message: stopped.stopReason! };
   }
+  const authoritativeEntries: BatchEntry[] = authority.manifest ? authority.manifest.entries : state.entries;
 
   const maxIterations = state.entries.length + 2;
   for (let iter = 0; iter < maxIterations; iter += 1) {
@@ -2243,7 +2763,7 @@ async function driveBatchProgress(
       };
     }
 
-    const entry = state.entries[state.nextIndex];
+    const entry = authoritativeEntries[state.nextIndex];
     const [currentMainSha, policy, pr] = await Promise.all([
       client.getBranchHeadSha(owner, repo, 'main'),
       client.getRepositoryPolicy(owner, repo),
@@ -2307,6 +2827,42 @@ async function driveBatchProgress(
         mergeCommitSha &&
         FULL_SHA_PATTERN.test(mergeCommitSha)
       ) {
+        const mergedViaIntegration =
+          pendingMerge.expectedHeadSha.toLowerCase() !== entry.expectedHeadSha.toLowerCase();
+        if (mergedViaIntegration) {
+          const recoveryChain = await verifyIntegrationChainFromAuthorizedHead(client, {
+            owner,
+            repo,
+            prNumber: entry.prNumber,
+            authorizedHeadSha: entry.expectedHeadSha,
+            candidateHeadSha: pendingMerge.expectedHeadSha,
+            currentMainSha,
+            maxSteps: maxIntegrationUpdatesPerPr,
+            now,
+          });
+          if (
+            !recoveryChain.ok ||
+            state.integrationPolicy === 'hold-on-update' ||
+            recoveryChain.overlappingFiles.length > 0
+          ) {
+            const detail = !recoveryChain.ok
+              ? recoveryChain.reason
+              : state.integrationPolicy === 'hold-on-update'
+                ? 'integrationPolicy=hold-on-update forbids auto-merging an updated HEAD'
+                : `overlapping files (${recoveryChain.overlappingFiles.join(', ')}) require fresh Independent Review`;
+            const stopped = await stopBatchState(
+              client,
+              owner,
+              repo,
+              state,
+              `Active PR #${entry.prNumber} was merged at ${pr.headRefOid.slice(0, 12)}, which failed independent integration-chain verification from immutable authorized HEAD ${entry.expectedHeadSha.slice(0, 12)}: ${detail}`,
+              now,
+              { observedMainSha: currentMainSha },
+            );
+            return { action: 'stopped', state: stopped, message: stopped.stopReason! };
+          }
+        }
+
         const mergeRecord: CompletedMergeRecord = {
           prNumber: entry.prNumber,
           reviewedHeadSha: entry.expectedHeadSha,
@@ -2314,7 +2870,7 @@ async function driveBatchProgress(
           mergeCommitSha,
           mergedAt: pr.mergedAt ?? now(),
           mergeMethod: state.mergeMethod,
-          viaIntegrationUpdate: pendingMerge.expectedHeadSha.toLowerCase() !== entry.expectedHeadSha.toLowerCase(),
+          viaIntegrationUpdate: mergedViaIntegration,
         };
         const completedPrNumbers = state.completedPrNumbers.includes(entry.prNumber)
           ? [...state.completedPrNumbers]
@@ -2424,40 +2980,55 @@ async function driveBatchProgress(
         };
       }
 
-      // New commit landed on PR branch — conclusively verify mechanical integration provenance!
-      const provenance = await verifyIntegrationUpdateProvenance(client, {
+      // New commit landed on PR branch — independently prove the COMPLETE integration chain
+      // from immutable `entry.expectedHeadSha` all the way to live `pr.headRefOid` against
+      // accepted `main` (`currentMainSha`), without trusting mutable `pendingUpdate` state!
+      const chainProvenance = await verifyIntegrationChainFromAuthorizedHead(client, {
         owner,
         repo,
         prNumber: entry.prNumber,
-        previousHeadSha: pendingUpdate.expectedHeadSha,
-        newHeadSha: pr.headRefOid,
-        expectedBaseSha: pendingUpdate.observedMainSha,
+        authorizedHeadSha: entry.expectedHeadSha,
+        candidateHeadSha: pr.headRefOid,
         currentMainSha,
+        maxSteps: maxIntegrationUpdatesPerPr,
         requestedAt: pendingUpdate.startedAt,
         now,
       });
 
-      if (!provenance.ok || !provenance.record) {
+      const latestStep = chainProvenance.steps[chainProvenance.steps.length - 1];
+      if (
+        !chainProvenance.ok ||
+        !latestStep ||
+        latestStep.fromHeadSha.toLowerCase() !== pendingUpdate.expectedHeadSha.toLowerCase()
+      ) {
+        const reason = !chainProvenance.ok
+          ? chainProvenance.reason
+          : `latest integration step parent ${latestStep?.fromHeadSha.slice(0, 12) ?? 'unknown'} does not match pending update base ${pendingUpdate.expectedHeadSha.slice(0, 12)}.`;
         const stopped = await stopBatchState(
           client,
           owner,
           repo,
           state,
-          `Rejected post-update commit ${pr.headRefOid.slice(0, 12)} on PR #${entry.prNumber}: ${provenance.reason}`,
+          `Rejected post-update commit ${pr.headRefOid.slice(0, 12)} on PR #${entry.prNumber}: ${reason}`,
           now,
           { observedMainSha: currentMainSha },
         );
         return { action: 'stopped', state: stopped, message: stopped.stopReason! };
       }
 
+      const refreshedIntegrationUpdates = [
+        ...state.integrationUpdates.filter((u) => u.prNumber !== entry.prNumber),
+        ...chainProvenance.steps,
+      ];
+
       // Hold immediately on overlapping files before waiting on CI to fail fast for Independent Review!
-      if (provenance.record.overlappingFiles.length > 0 && state.integrationPolicy === 'integration-only') {
-        const holdReason = `PR #${entry.prNumber}@${pr.headRefOid.slice(0, 12)} merged overlapping file(s) also changed on main (${provenance.record.overlappingFiles.join(', ')}); under §2C bounded integration-only policy, overlapping file merges require fresh Independent Review.`;
+      if (chainProvenance.overlappingFiles.length > 0 && state.integrationPolicy === 'integration-only') {
+        const holdReason = `PR #${entry.prNumber}@${pr.headRefOid.slice(0, 12)} merged overlapping file(s) also changed on main (${chainProvenance.overlappingFiles.join(', ')}); under §2C bounded integration-only policy, overlapping file merges require fresh Independent Review.`;
         const nextAction = `Independent Review must inspect overlapping file integration on PR #${entry.prNumber}@${pr.headRefOid.slice(0, 12)} before merge.`;
         const held = await holdBatchState(client, owner, repo, state, holdReason, nextAction, now, {
           activeHeadSha: pr.headRefOid.toLowerCase(),
           observedMainSha: currentMainSha,
-          integrationUpdates: [...state.integrationUpdates, provenance.record],
+          integrationUpdates: refreshedIntegrationUpdates,
         });
         return { action: 'held', state: held, message: holdReason };
       }
@@ -2476,8 +3047,8 @@ async function driveBatchProgress(
         observedMainSha: currentMainSha,
         pendingOperation: null,
         awaitingChecksSince: now(),
-        integrationUpdates: [...state.integrationUpdates, provenance.record],
-        nextAction: `Awaiting ordinary PR CI on PR #${entry.prNumber}@${pr.headRefOid.slice(0, 12)} (merged main@${provenance.record.mergedBaseSha.slice(0, 12)}).`,
+        integrationUpdates: refreshedIntegrationUpdates,
+        nextAction: `Awaiting ordinary PR CI on PR #${entry.prNumber}@${pr.headRefOid.slice(0, 12)} (merged main@${latestStep.mergedBaseSha.slice(0, 12)}).`,
       };
       await client.saveBatchState(owner, repo, awaitingState);
       state = awaitingState;
@@ -2536,7 +3107,9 @@ async function driveBatchProgress(
       return { action: 'stopped', state: stopped, message: stopped.stopReason! };
     }
 
-    // 5. Verify exact tracked HEAD (reject any unauthorized HEAD drift / push / rebase).
+    // 5. Verify exact tracked HEAD and independently re-prove any changed HEAD from immutable
+    // `entry.expectedHeadSha` against live Git commits and accepted `main` BEFORE any mutation
+    // (never trusting `activeHeadSha` or `integrationUpdates[].provenanceVerified` in mutable state).
     const trackedHeadSha = (state.activeHeadSha ?? entry.expectedHeadSha).toLowerCase();
     if (pr.headRefOid.toLowerCase() !== trackedHeadSha) {
       const stopped = await stopBatchState(
@@ -2549,6 +3122,46 @@ async function driveBatchProgress(
         { observedMainSha: currentMainSha },
       );
       return { action: 'stopped', state: stopped, message: stopped.stopReason! };
+    }
+
+    const viaIntegrationUpdate = trackedHeadSha !== entry.expectedHeadSha.toLowerCase();
+    let verifiedChain: IntegrationChainVerificationResult | null = null;
+    if (viaIntegrationUpdate) {
+      verifiedChain = await verifyIntegrationChainFromAuthorizedHead(client, {
+        owner,
+        repo,
+        prNumber: entry.prNumber,
+        authorizedHeadSha: entry.expectedHeadSha,
+        candidateHeadSha: trackedHeadSha,
+        currentMainSha,
+        maxSteps: maxIntegrationUpdatesPerPr,
+        now,
+      });
+      if (!verifiedChain.ok || verifiedChain.steps.length === 0) {
+        const stopped = await stopBatchState(
+          client,
+          owner,
+          repo,
+          state,
+          `PR #${entry.prNumber}@${trackedHeadSha.slice(0, 12)} failed independent Git integration-chain verification from immutable authorized HEAD ${entry.expectedHeadSha.slice(0, 12)}: ${verifiedChain.reason ?? 'no verified mechanical integration path'}`,
+          now,
+          { observedMainSha: currentMainSha },
+        );
+        return { action: 'stopped', state: stopped, message: stopped.stopReason! };
+      }
+
+      if (state.integrationPolicy === 'integration-only' && verifiedChain.overlappingFiles.length > 0) {
+        const holdReason = `PR #${entry.prNumber}@${trackedHeadSha.slice(0, 12)} modified file(s) also changed on main (${verifiedChain.overlappingFiles.join(', ')}); under §2C bounded integration-only policy, overlapping file merges require fresh Independent Review.`;
+        const nextAction = `Independent Review must inspect overlapping file integration on PR #${entry.prNumber}@${trackedHeadSha.slice(0, 12)} before merge.`;
+        const held = await holdBatchState(client, owner, repo, state, holdReason, nextAction, now, {
+          observedMainSha: currentMainSha,
+          integrationUpdates: [
+            ...state.integrationUpdates.filter((u) => u.prNumber !== entry.prNumber),
+            ...verifiedChain.steps,
+          ],
+        });
+        return { action: 'held', state: held, message: holdReason };
+      }
     }
 
     // 6. Validate merge method and non-check structural/independent-review eligibility before any mutation.
@@ -2565,6 +3178,7 @@ async function driveBatchProgress(
       observedBaseSha: currentMainSha,
       expectedHeadOverride: trackedHeadSha,
       allowPendingChecks: state.status === 'awaiting_checks',
+      requireCommentDigest: true,
       authorizedNativeReviewers,
       trustedCommentPosters,
       now,
@@ -2600,9 +3214,12 @@ async function driveBatchProgress(
     const isBehind = pr.mergeStateStatus === 'BEHIND' || comparison.behindBy > 0;
 
     if (isBehind) {
-      const updatesForPr = state.integrationUpdates.filter((u) => u.prNumber === entry.prNumber);
-      if (updatesForPr.length >= maxIntegrationUpdatesPerPr) {
-        const holdReason = `PR #${entry.prNumber} fell behind main@${currentMainSha.slice(0, 12)} again after ${updatesForPr.length} automatic branch update(s) (max=${maxIntegrationUpdatesPerPr}). Holding to prevent update loops.`;
+      const updatesForPrCount = Math.max(
+        state.integrationUpdates.filter((u) => u.prNumber === entry.prNumber).length,
+        verifiedChain?.steps.length ?? 0,
+      );
+      if (updatesForPrCount >= maxIntegrationUpdatesPerPr) {
+        const holdReason = `PR #${entry.prNumber} fell behind main@${currentMainSha.slice(0, 12)} again after ${updatesForPrCount} automatic branch update(s) (max=${maxIntegrationUpdatesPerPr}). Holding to prevent update loops.`;
         const held = await holdBatchState(
           client,
           owner,
@@ -2794,27 +3411,26 @@ async function driveBatchProgress(
       return { action: 'stopped', state: stopped, message: stopped.stopReason! };
     }
 
-    // 9. All fresh checks PASSED on current main! Enforce §2C integration policy & provenance invariants.
-    const viaIntegrationUpdate = trackedHeadSha !== entry.expectedHeadSha.toLowerCase();
+    // 9. All fresh checks PASSED on current main! Enforce §2C integration policy using ONLY
+    // the independently re-proven Git commit chain from immutable `entry.expectedHeadSha`
+    // (never trusting `provenanceVerified` or `overlappingFiles` from mutable state).
     if (viaIntegrationUpdate) {
-      const updateRecords = state.integrationUpdates.filter((u) => u.prNumber === entry.prNumber);
-      const latestUpdate = updateRecords[updateRecords.length - 1];
-
-      if (!latestUpdate || !latestUpdate.provenanceVerified || latestUpdate.toHeadSha !== trackedHeadSha) {
+      if (!verifiedChain || !verifiedChain.ok || verifiedChain.steps.length === 0) {
         const stopped = await stopBatchState(
           client,
           owner,
           repo,
           state,
-          `PR #${entry.prNumber}@${trackedHeadSha.slice(0, 12)} lacks verified integration provenance record; refusing to merge.`,
+          `PR #${entry.prNumber}@${trackedHeadSha.slice(0, 12)} lacks independently verified Git integration chain from immutable authorized HEAD ${entry.expectedHeadSha.slice(0, 12)}; refusing to merge.`,
           now,
           { observedMainSha: currentMainSha, lastVerification: verification },
         );
         return { action: 'stopped', state: stopped, message: stopped.stopReason! };
       }
 
+      const latestVerifiedStep = verifiedChain.steps[verifiedChain.steps.length - 1];
       if (state.integrationPolicy === 'hold-on-update') {
-        const holdReason = `PR #${entry.prNumber} was cleanly updated from reviewed SHA ${entry.expectedHeadSha.slice(0, 12)} to integration SHA ${trackedHeadSha.slice(0, 12)} (merging main@${latestUpdate.mergedBaseSha.slice(0, 12)}) and passed ordinary PR CI; holding because batch was started with hold-on-update policy.`;
+        const holdReason = `PR #${entry.prNumber} was cleanly updated from reviewed SHA ${entry.expectedHeadSha.slice(0, 12)} to integration SHA ${trackedHeadSha.slice(0, 12)} (merging main@${latestVerifiedStep.mergedBaseSha.slice(0, 12)}) and passed ordinary PR CI; holding because batch was started with hold-on-update policy.`;
         const nextAction = `Independent Review and Aaron: inspect PR #${entry.prNumber}@${trackedHeadSha.slice(0, 12)}, merge or re-authorize remaining entries with updated SHA, or abort this held batch.`;
         const held = await holdBatchState(client, owner, repo, state, holdReason, nextAction, now, {
           observedMainSha: currentMainSha,
@@ -2824,10 +3440,8 @@ async function driveBatchProgress(
         return { action: 'held', state: held, message: holdReason };
       }
 
-      const overlapping = updateRecords.flatMap((u) => u.overlappingFiles);
-      if (overlapping.length > 0) {
-        const uniqueOverlapping = [...new Set(overlapping)].sort();
-        const holdReason = `PR #${entry.prNumber}@${trackedHeadSha.slice(0, 12)} modified file(s) also changed on main (${uniqueOverlapping.join(', ')}); under §2C bounded integration-only policy, overlapping file merges require fresh Independent Review.`;
+      if (verifiedChain.overlappingFiles.length > 0) {
+        const holdReason = `PR #${entry.prNumber}@${trackedHeadSha.slice(0, 12)} modified file(s) also changed on main (${verifiedChain.overlappingFiles.join(', ')}); under §2C bounded integration-only policy, overlapping file merges require fresh Independent Review.`;
         const nextAction = `Independent Review must review overlapping file integration on PR #${entry.prNumber}@${trackedHeadSha.slice(0, 12)} before merge.`;
         const held = await holdBatchState(client, owner, repo, state, holdReason, nextAction, now, {
           observedMainSha: currentMainSha,
@@ -3049,6 +3663,7 @@ export async function startBatch(
     integrationPolicy = DEFAULT_INTEGRATION_POLICY,
     workflowRunId,
     workflowRunUrl,
+    authorizedManifest,
     requiredChecks = DEFAULT_REQUIRED_CHECKS,
     authorizedOwners = DEFAULT_AUTHORIZED_OWNERS,
     authorizedNativeReviewers = DEFAULT_AUTHORIZED_NATIVE_REVIEWERS,
@@ -3062,6 +3677,9 @@ export async function startBatch(
   } = options;
 
   let approvedBy: string | undefined;
+  let resolvedManifest: AuthorizedBatchManifest | undefined = authorizedManifest;
+  const normalizedMethod = rawMergeMethod.trim().toLowerCase() as MergeMethod;
+
   if (!dryRun) {
     if (requireWorkflowApprovalRecord && !workflowRunId) {
       return {
@@ -3092,6 +3710,40 @@ export async function startBatch(
       };
     }
     approvedBy = auth.approvedBy;
+
+    // Resolve and verify the digest-bound immutable start-run manifest BEFORE preflight & writes!
+    if (!resolvedManifest && workflowRunId && client.getAuthorizedManifest) {
+      resolvedManifest = (await client.getAuthorizedManifest(owner, repo, workflowRunId)) ?? undefined;
+    }
+    if (requireWorkflowApprovalRecord && !resolvedManifest) {
+      return {
+        ok: false,
+        dryRun: false,
+        action: 'stopped',
+        preflightResults: [],
+        error: `Authorization failed (fail-closed): missing immutable authorization manifest for approved start run ${workflowRunId}. Emit and upload the digest-bound manifest before starting.`,
+      };
+    }
+    if (resolvedManifest) {
+      const manifestMatch = verifyManifestMatchesStartRequest(resolvedManifest, {
+        owner,
+        repo,
+        workflowRunId,
+        authorizedBy,
+        mergeMethod: normalizedMethod,
+        integrationPolicy,
+        entries,
+      });
+      if (!manifestMatch.ok) {
+        return {
+          ok: false,
+          dryRun: false,
+          action: 'stopped',
+          preflightResults: [],
+          error: `Authorization failed (fail-closed): ${manifestMatch.reason}`,
+        };
+      }
+    }
   }
 
   const existingState = await client.getBatchState(owner, repo);
@@ -3109,9 +3761,13 @@ export async function startBatch(
     };
   }
 
-  const preflight = await runPreflight(client, owner, repo, entries, requiredChecks, {
+  // When a digest-bound start manifest is present, enforce its bound reviewCommentDigest on start preflight too!
+  const entriesForPreflight: BatchEntry[] = resolvedManifest ? resolvedManifest.entries : entries;
+
+  const preflight = await runPreflight(client, owner, repo, entriesForPreflight, requiredChecks, {
     mergeMethod: rawMergeMethod,
     requireVerifiedProtection: !dryRun,
+    requireCommentDigest: !dryRun && Boolean(resolvedManifest),
     authorizedNativeReviewers,
     trustedCommentPosters,
     now,
@@ -3150,12 +3806,35 @@ export async function startBatch(
     };
   }
 
-  const mergeMethod = rawMergeMethod.trim().toLowerCase() as MergeMethod;
-  // Capture verified comment body digests at start time to detect post-authorization edits.
-  const boundEntries: BatchEntry[] = entries.map((entry, idx) => {
-    const digest = preflight.results[idx]?.reviewEvidence?.commentDigest;
-    return digest ? { ...entry, reviewCommentDigest: digest } : { ...entry };
-  });
+  const mergeMethod = normalizedMethod;
+  // Bind verified comment body digests (from immutable manifest when present, else live preflight).
+  const boundEntries: BatchEntry[] = [];
+  for (let idx = 0; idx < entriesForPreflight.length; idx += 1) {
+    const entry = entriesForPreflight[idx];
+    const digest = (entry.reviewCommentDigest ?? preflight.results[idx]?.reviewEvidence?.commentDigest)?.toLowerCase();
+    const bound: BatchEntry = entry.reviewCommentId
+      ? {
+          prNumber: entry.prNumber,
+          expectedHeadSha: entry.expectedHeadSha.toLowerCase(),
+          reviewCommentId: entry.reviewCommentId,
+          reviewCommentDigest: digest,
+        }
+      : {
+          prNumber: entry.prNumber,
+          expectedHeadSha: entry.expectedHeadSha.toLowerCase(),
+        };
+    const digestBinding = validateEntryCommentDigestBinding(bound, 'Batch start');
+    if (!digestBinding.ok) {
+      return {
+        ok: false,
+        dryRun: false,
+        action: 'stopped',
+        preflightResults: preflight.results,
+        error: digestBinding.reason,
+      };
+    }
+    boundEntries.push(bound);
+  }
   const firstEntry = boundEntries[0];
   const createdAt = now();
   const initialRevision = (existingState?.revision ?? 0) + 1;
@@ -3203,6 +3882,7 @@ export async function startBatch(
     owner,
     repo,
     isOriginatingStartRun: true,
+    authorizedManifest: resolvedManifest,
     requiredChecks,
     authorizedOwners,
     authorizedNativeReviewers,

@@ -18,10 +18,12 @@ import {
   handlePullRequestSynchronize,
   parseBatchEntries,
   parseStructuredIndependentReviewComment,
+  prepareAuthorizedManifest,
   reconcileBatch,
   runPreflight,
   START_APPROVAL_JOB_NAME,
   startBatch,
+  verifyIntegrationChainFromAuthorizedHead,
   verifyIntegrationUpdateProvenance,
   type ApprovalVerificationResult,
   type AuthorizedBatchManifest,
@@ -504,12 +506,26 @@ test('unattended 3-PR batch merges current PR #1 without extra CI, then updates 
     { prNumber: 373, expectedHeadSha: SHA_2, reviewCommentId: COMMENT_ID_2 },
     { prNumber: 374, expectedHeadSha: SHA_3, reviewCommentId: COMMENT_ID_3 },
   ];
-  registerManifest(client, '5001', entries);
 
   client.mainSha = MAIN_0;
   client.prs.set(371, makePr({ number: 371, headRefOid: SHA_1, mergeStateStatus: 'CLEAN' }, COMMENT_ID_1));
   client.prs.set(373, makePr({ number: 373, headRefOid: SHA_2, mergeStateStatus: 'CLEAN' }, COMMENT_ID_2));
   client.prs.set(374, makePr({ number: 374, headRefOid: SHA_3, mergeStateStatus: 'CLEAN' }, COMMENT_ID_3));
+
+  // Emit digest-bound immutable manifest BEFORE artifact upload (matching workflow emit-manifest step).
+  const prepared = await prepareAuthorizedManifest(client, {
+    owner: 'Bibleberry',
+    repo: 'Bibleberry',
+    entries,
+    authorizedBy: 'ContraPhilosophy',
+    workflowRunId: '5001',
+    requireWorkflowApprovalRecord: true,
+    now,
+  });
+  assert.equal(prepared.ok, true);
+  assert.ok(prepared.manifest);
+  assert.ok(prepared.manifest.entries.every((e) => Boolean(e.reviewCommentDigest)));
+  client.manifestsByRunId.set('5001', prepared.manifest);
 
   client.onMerge = (prNum) => {
     if (prNum === 371) {
@@ -544,6 +560,7 @@ test('unattended 3-PR batch merges current PR #1 without extra CI, then updates 
     authorizedBy: 'ContraPhilosophy',
     workflowRunId: '5001',
     requireWorkflowApprovalRecord: true,
+    authorizedManifest: prepared.manifest,
     now,
   });
 
@@ -888,16 +905,18 @@ test('rejects arbitrary non-author external APPROVED reviews in public repos, qu
 test('defeats entry-list substitution attack using a recomputed checksum and an existing valid approved start run', async () => {
   const client = new MockGitHubClient();
 
-  // Original owner-approved run 5001 authorized ONLY PR #371@SHA_1#COMMENT_ID_1.
+  // Original owner-approved run 5001 authorized ONLY PR #371@SHA_1#COMMENT_ID_1 (with digest bound).
+  const digest1 = computeCommentBodyDigest(makeApprovedReviewComment(371, SHA_1, COMMENT_ID_1).body);
+  const digest2 = computeCommentBodyDigest(makeApprovedReviewComment(999, SHA_2, COMMENT_ID_2).body);
   const originalEntries: BatchEntry[] = [
-    { prNumber: 371, expectedHeadSha: SHA_1, reviewCommentId: COMMENT_ID_1 },
+    { prNumber: 371, expectedHeadSha: SHA_1, reviewCommentId: COMMENT_ID_1, reviewCommentDigest: digest1 },
   ];
   registerManifest(client, '5001', originalEntries);
 
   // Attacker modifies MERGE_QUEUE_BATCH_STATE to substitute PR #999@SHA_2, RECOMPUTES a valid
   // stateChecksum, and points workflowRunId to the genuinely approved run 5001!
   const substitutedEntries: BatchEntry[] = [
-    { prNumber: 999, expectedHeadSha: SHA_2, reviewCommentId: COMMENT_ID_2 },
+    { prNumber: 999, expectedHeadSha: SHA_2, reviewCommentId: COMMENT_ID_2, reviewCommentDigest: digest2 },
   ];
   client.prs.set(999, makePr({ number: 999, headRefOid: SHA_2 }, COMMENT_ID_2));
   client.state = {
@@ -1230,7 +1249,10 @@ test('handles concurrent manual merges, interrupted merge recovery, legacy v1 pr
 
   // External manual merge outside merging stage stops instead of counting as verified batch completion.
   const cExt = new MockGitHubClient();
-  const extEntries: BatchEntry[] = [{ prNumber: 371, expectedHeadSha: SHA_1, reviewCommentId: COMMENT_ID_1 }];
+  const extCommentDigest = computeCommentBodyDigest(makeApprovedReviewComment(371, SHA_1, COMMENT_ID_1).body);
+  const extEntries: BatchEntry[] = [
+    { prNumber: 371, expectedHeadSha: SHA_1, reviewCommentId: COMMENT_ID_1, reviewCommentDigest: extCommentDigest },
+  ];
   cExt.state = {
     version: 2,
     revision: 2,
@@ -1309,10 +1331,15 @@ test('workflow enforces default-branch control plane, main-only runtime environm
   assert.match(workflow, /^ {2}pull_request_target:\s*\n(?:\s*#.*\n)*\s*types: \[closed, synchronize\]\s*\n\s*branches: \[main\]/m);
   assert.match(workflow, /^ {2}workflow_run:\s*\n/m);
 
-  // Immutable start-run authorization manifest emitted & uploaded via SHA-pinned upload-artifact.
+  // Immutable start-run authorization manifest emitted with live tokens BEFORE upload-artifact and bound into start.
   assert.match(workflow, /scripts\/ci\/merge-queue-batch\.ts emit-manifest/);
+  assert.match(workflow, /MANIFEST_PATH: \$\{\{ runner\.temp \}\}\/copper-turnstile-auth-manifest\.json/);
   assert.match(workflow, /uses: actions\/upload-artifact@[0-9a-f]{40}/);
   assert.match(workflow, /name: copper-turnstile-auth-manifest-\$\{\{ github\.run_id \}\}/);
+
+  // Uses shared .nvmrc Node version pinning from accepted #375 across all 7 setup-node steps.
+  assert.equal((workflow.match(/node-version-file: \.nvmrc/g) ?? []).length, 7);
+  assert.doesNotMatch(workflow, /node-version:\s*['"]?\d+/);
 
   // Never lists coordinator itself in workflow_run and never downloads untrusted PR workflow artifacts.
   const workflowRunSection = workflow.slice(workflow.indexOf('  workflow_run:'), workflow.indexOf('  schedule:'));
@@ -1329,4 +1356,573 @@ test('workflow enforces default-branch control plane, main-only runtime environm
 
   assert.doesNotMatch(workflow, /github\.event\.pull_request\.(?:title|body|head\.ref|head\.label)/);
   assert.doesNotMatch(workflow, /github\.event\.workflow_run\.(?:display_title|head_commit\.message)/);
+});
+
+// ---------------------------------------------------------------------------
+// 7. Complete Authorization Integrity Tests:
+//    - reviewCommentDigest bound in immutable start manifest (changed/removed digest)
+//    - forged activeHeadSha + provenanceVerified / overlappingFiles attacks
+//    - genuine multi-step mechanical integration chain acceptance
+//    - #375 / #377 required-check reconciliation
+// ---------------------------------------------------------------------------
+
+test('binds reviewCommentDigest into immutable start manifest before upload and defeats removed or replaced digest attacks on start and continuation', async () => {
+  const client = new MockGitHubClient();
+  client.mainSha = MAIN_0;
+  const origComment = makeApprovedReviewComment(371, SHA_1, COMMENT_ID_1);
+  const origDigest = computeCommentBodyDigest(origComment.body);
+  client.prs.set(371, makePr({ number: 371, headRefOid: SHA_1, mergeStateStatus: 'CLEAN' }, COMMENT_ID_1));
+
+  // 1. prepareAuthorizedManifest captures exact reviewCommentDigest into immutable manifest BEFORE upload.
+  const prepared = await prepareAuthorizedManifest(client, {
+    owner: 'Bibleberry',
+    repo: 'Bibleberry',
+    entries: [{ prNumber: 371, expectedHeadSha: SHA_1, reviewCommentId: COMMENT_ID_1 }],
+    authorizedBy: 'ContraPhilosophy',
+    workflowRunId: '7001',
+    requireWorkflowApprovalRecord: true,
+  });
+  assert.equal(prepared.ok, true);
+  assert.equal(prepared.manifest?.entries[0].reviewCommentDigest, origDigest);
+  client.manifestsByRunId.set('7001', prepared.manifest!);
+
+  // 2. Manifest missing reviewCommentDigest for an attested reviewCommentId MUST fail closed at startBatch.
+  const digestlessManifest = buildAuthorizedManifest({
+    owner: 'Bibleberry',
+    repo: 'Bibleberry',
+    workflowRunId: '7002',
+    authorizedBy: 'ContraPhilosophy',
+    mergeMethod: 'squash',
+    integrationPolicy: 'integration-only',
+    entries: [{ prNumber: 371, expectedHeadSha: SHA_1, reviewCommentId: COMMENT_ID_1 }],
+  });
+  const startMissingDigest = await startBatch(client, {
+    owner: 'Bibleberry',
+    repo: 'Bibleberry',
+    entries: [{ prNumber: 371, expectedHeadSha: SHA_1, reviewCommentId: COMMENT_ID_1 }],
+    authorizedBy: 'ContraPhilosophy',
+    workflowRunId: '7002',
+    requireWorkflowApprovalRecord: true,
+    authorizedManifest: digestlessManifest,
+  });
+  assert.equal(startMissingDigest.ok, false);
+  assert.match(startMissingDigest.error ?? '', /missing a valid 64-char SHA-256 reviewCommentDigest/);
+  assert.equal(client.merges.length, 0);
+
+  // 3. Comment edited between emit-manifest and startBatch MUST fail closed on start!
+  const editedBody = `${origComment.body}\n(Edited after manifest preparation)`;
+  const editedDigest = computeCommentBodyDigest(editedBody);
+  client.prs.set(
+    371,
+    makePr({
+      number: 371,
+      headRefOid: SHA_1,
+      issueComments: {
+        pageInfo: { hasNextPage: false },
+        nodes: [{ ...origComment, body: editedBody }],
+      },
+    }),
+  );
+  const startEdited = await startBatch(client, {
+    owner: 'Bibleberry',
+    repo: 'Bibleberry',
+    entries: [{ prNumber: 371, expectedHeadSha: SHA_1, reviewCommentId: COMMENT_ID_1 }],
+    authorizedBy: 'ContraPhilosophy',
+    workflowRunId: '7001',
+    requireWorkflowApprovalRecord: true,
+    authorizedManifest: prepared.manifest,
+  });
+  assert.equal(startEdited.ok, false);
+  assert.match(startEdited.preflightResults[0]?.reasons.join(' ') ?? '', /comment digest mismatch/);
+  assert.equal(client.merges.length, 0);
+
+  // 4. Continuation attack A: Attacker REMOVES reviewCommentDigest from mutable state and recomputes stateChecksum.
+  const removedDigestEntries: BatchEntry[] = [
+    { prNumber: 371, expectedHeadSha: SHA_1, reviewCommentId: COMMENT_ID_1 },
+  ];
+  client.state = {
+    version: 2,
+    revision: 1,
+    batchId: 'batch-run-7001',
+    stateChecksum: computeStateChecksum({
+      owner: 'Bibleberry',
+      repo: 'Bibleberry',
+      entries: removedDigestEntries,
+      integrationPolicy: 'integration-only',
+      mergeMethod: 'squash',
+    }),
+    status: 'running',
+    createdAt: '2026-11-27T19:00:00.000Z',
+    updatedAt: '2026-11-27T19:00:00.000Z',
+    authorizedBy: 'ContraPhilosophy',
+    approvedBy: 'ContraPhilosophy',
+    integrationPolicy: 'integration-only',
+    mergeMethod: 'squash',
+    workflowRunId: '7001',
+    entries: removedDigestEntries,
+    nextIndex: 0,
+    activePrNumber: 371,
+    activeReviewedHeadSha: SHA_1,
+    activeHeadSha: SHA_1,
+    integrationUpdates: [],
+    completedPrNumbers: [],
+    completedMerges: [],
+    nextAction: 'Removed digest attack',
+  };
+  const removedRes = await reconcileBatch(client, {
+    owner: 'Bibleberry',
+    repo: 'Bibleberry',
+    requireWorkflowApprovalRecord: true,
+  });
+  assert.equal(removedRes.action, 'stopped');
+  assert.match(removedRes.message, /missing a valid 64-char SHA-256 reviewCommentDigest/);
+  assert.equal(client.merges.length, 0);
+
+  // 5. Continuation attack B: Attacker REPLACES reviewCommentDigest in mutable state with the edited comment's
+  //    new digest AND recomputes stateChecksum — immutable manifest catches the digest mismatch!
+  const replacedDigestEntries: BatchEntry[] = [
+    { prNumber: 371, expectedHeadSha: SHA_1, reviewCommentId: COMMENT_ID_1, reviewCommentDigest: editedDigest },
+  ];
+  client.state = {
+    ...(client.state as BatchState),
+    status: 'running',
+    entries: replacedDigestEntries,
+    stateChecksum: computeStateChecksum({
+      owner: 'Bibleberry',
+      repo: 'Bibleberry',
+      entries: replacedDigestEntries,
+      integrationPolicy: 'integration-only',
+      mergeMethod: 'squash',
+    }),
+  };
+  const replacedRes = await reconcileBatch(client, {
+    owner: 'Bibleberry',
+    repo: 'Bibleberry',
+    requireWorkflowApprovalRecord: true,
+  });
+  assert.equal(replacedRes.action, 'stopped');
+  assert.match(replacedRes.message, /does not match immutable manifest entry \(including reviewCommentDigest\)/);
+  assert.equal(client.merges.length, 0);
+});
+
+test('defeats forged activeHeadSha and provenanceVerified mutable-state attacks while accepting genuine multi-step mechanical integration chains', async () => {
+  const SHA_EVIL = 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+  const ROGUE_BASE = 'dddddddddddddddddddddddddddddddddddddddd';
+  const SHA_2_STEP2 = '222222222222222222222222222222222222222b';
+  const comment2 = makeApprovedReviewComment(373, SHA_2, COMMENT_ID_2);
+  const digest2 = computeCommentBodyDigest(comment2.body);
+  const validEntries: BatchEntry[] = [
+    { prNumber: 373, expectedHeadSha: SHA_2, reviewCommentId: COMMENT_ID_2, reviewCommentDigest: digest2 },
+  ];
+
+  function makeForgedContinuationState(
+    client: MockGitHubClient,
+    runId: string,
+    forgedActiveHeadSha: string,
+    extra: Partial<BatchState> = {},
+  ): BatchState {
+    registerManifest(client, runId, validEntries);
+    return {
+      version: 2,
+      revision: 3,
+      batchId: `batch-run-${runId}`,
+      stateChecksum: computeStateChecksum({
+        owner: 'Bibleberry',
+        repo: 'Bibleberry',
+        entries: validEntries,
+        integrationPolicy: 'integration-only',
+        mergeMethod: 'squash',
+      }),
+      status: 'awaiting_checks',
+      createdAt: '2026-11-27T19:00:00.000Z',
+      updatedAt: '2026-11-27T19:05:00.000Z',
+      authorizedBy: 'ContraPhilosophy',
+      approvedBy: 'ContraPhilosophy',
+      integrationPolicy: 'integration-only',
+      mergeMethod: 'squash',
+      workflowRunId: runId,
+      entries: validEntries,
+      nextIndex: 0,
+      activePrNumber: 373,
+      activeReviewedHeadSha: SHA_2,
+      activeHeadSha: forgedActiveHeadSha,
+      observedMainSha: MAIN_1,
+      awaitingChecksSince: '2026-11-27T19:01:00.000Z',
+      integrationUpdates: [
+        {
+          prNumber: 373,
+          fromHeadSha: SHA_2,
+          toHeadSha: forgedActiveHeadSha,
+          mergedBaseSha: MAIN_1,
+          mergeBaseSha: MAIN_0,
+          requestedAt: '2026-11-27T19:00:30.000Z',
+          verifiedAt: '2026-11-27T19:01:00.000Z',
+          overlappingFiles: [],
+          provenanceVerified: true,
+        },
+      ],
+      completedPrNumbers: [],
+      completedMerges: [],
+      nextAction: 'Forged provenance awaiting checks',
+      ...extra,
+    };
+  }
+
+  // Attack 1: Forged activeHeadSha is a 1-parent unreviewed commit pushed on top of SHA_2.
+  {
+    const client = new MockGitHubClient();
+    client.mainSha = MAIN_1;
+    client.commits.set(SHA_EVIL, { sha: SHA_EVIL, parents: [SHA_2], message: 'Unreviewed backdoor commit' });
+    client.prs.set(
+      373,
+      makePr({
+        number: 373,
+        headRefOid: SHA_EVIL,
+        mergeStateStatus: 'CLEAN',
+        issueComments: { pageInfo: { hasNextPage: false }, nodes: [comment2] },
+      }),
+    );
+    client.state = makeForgedContinuationState(client, '8001', SHA_EVIL);
+    const res = await handleChecksCompleted(client, {
+      owner: 'Bibleberry',
+      repo: 'Bibleberry',
+      headSha: SHA_EVIL,
+      requireWorkflowApprovalRecord: true,
+    });
+    assert.equal(res.action, 'stopped');
+    assert.match(res.message, /failed independent Git integration-chain verification.*1 parent\(s\)/);
+    assert.equal(client.merges.length, 0);
+  }
+
+  // Attack 2: Forged activeHeadSha is a 2-parent merge whose second parent is NOT on accepted main.
+  {
+    const client = new MockGitHubClient();
+    client.mainSha = MAIN_1;
+    client.commits.set(SHA_EVIL, {
+      sha: SHA_EVIL,
+      parents: [SHA_2, ROGUE_BASE],
+      message: 'Merge rogue branch into PR',
+    });
+    client.comparisons.set(`${ROGUE_BASE}...${MAIN_1}`, {
+      status: 'diverged',
+      aheadBy: 1,
+      behindBy: 1,
+      mergeBaseSha: MAIN_0,
+      totalCommits: 1,
+    });
+    client.prs.set(
+      373,
+      makePr({
+        number: 373,
+        headRefOid: SHA_EVIL,
+        mergeStateStatus: 'CLEAN',
+        issueComments: { pageInfo: { hasNextPage: false }, nodes: [comment2] },
+      }),
+    );
+    client.state = makeForgedContinuationState(client, '8002', SHA_EVIL);
+    const res = await handleChecksCompleted(client, {
+      owner: 'Bibleberry',
+      repo: 'Bibleberry',
+      headSha: SHA_EVIL,
+      requireWorkflowApprovalRecord: true,
+    });
+    assert.equal(res.action, 'stopped');
+    assert.match(res.message, /not an accepted commit on main/);
+    assert.equal(client.merges.length, 0);
+  }
+
+  // Attack 3: Forged activeHeadSha is a 2-parent evil merge [SHA_2, MAIN_1] that altered a reviewed PR blob.
+  {
+    const client = new MockGitHubClient();
+    client.mainSha = MAIN_1;
+    setupCleanIntegrationProvenance(client, {
+      mergeBaseSha: MAIN_0,
+      prevHeadSha: SHA_2,
+      baseSha: MAIN_1,
+      newHeadSha: SHA_EVIL,
+      prFiles: [{ filename: 'src/pr373.ts', status: 'modified', sha: 'blob-reviewed-373' }],
+      mainFiles: [{ filename: 'src/main-change.ts', status: 'modified', sha: 'blob-main-1' }],
+    });
+    // Tamper the PR file blob inside the merge commit!
+    client.comparisons.set(`${MAIN_1}...${SHA_EVIL}`, {
+      status: 'ahead',
+      aheadBy: 2,
+      behindBy: 0,
+      mergeBaseSha: MAIN_1,
+      totalCommits: 2,
+      files: [{ filename: 'src/pr373.ts', status: 'modified', sha: 'blob-EVIL-TAMPERED' }],
+    });
+    client.prs.set(
+      373,
+      makePr({
+        number: 373,
+        headRefOid: SHA_EVIL,
+        mergeStateStatus: 'CLEAN',
+        issueComments: { pageInfo: { hasNextPage: false }, nodes: [comment2] },
+      }),
+    );
+    client.state = makeForgedContinuationState(client, '8003', SHA_EVIL);
+    const res = await handleChecksCompleted(client, {
+      owner: 'Bibleberry',
+      repo: 'Bibleberry',
+      headSha: SHA_EVIL,
+      requireWorkflowApprovalRecord: true,
+    });
+    assert.equal(res.action, 'stopped');
+    assert.match(res.message, /altered reviewed PR file "src\/pr373\.ts"/);
+    assert.equal(client.merges.length, 0);
+  }
+
+  // Attack 4: Real 2-parent merge with OVERLAPPING file `src/shared.ts`, while forged state asserts `overlappingFiles: []`.
+  {
+    const client = new MockGitHubClient();
+    client.mainSha = MAIN_1;
+    setupCleanIntegrationProvenance(client, {
+      mergeBaseSha: MAIN_0,
+      prevHeadSha: SHA_2,
+      baseSha: MAIN_1,
+      newHeadSha: SHA_2_UPDATED,
+      prFiles: [{ filename: 'src/shared.ts', status: 'modified', sha: 'blob-pr-shared' }],
+      mainFiles: [{ filename: 'src/shared.ts', status: 'modified', sha: 'blob-main-shared' }],
+    });
+    client.prs.set(
+      373,
+      makePr({
+        number: 373,
+        headRefOid: SHA_2_UPDATED,
+        mergeStateStatus: 'CLEAN',
+        issueComments: { pageInfo: { hasNextPage: false }, nodes: [comment2] },
+      }),
+    );
+    client.state = makeForgedContinuationState(client, '8004', SHA_2_UPDATED);
+    const res = await handleChecksCompleted(client, {
+      owner: 'Bibleberry',
+      repo: 'Bibleberry',
+      headSha: SHA_2_UPDATED,
+      requireWorkflowApprovalRecord: true,
+    });
+    assert.equal(res.action, 'held');
+    assert.match(res.message, /modified file\(s\) also changed on main \(src\/shared\.ts\)/);
+    assert.equal(client.merges.length, 0);
+  }
+
+  // Attack 5: Forged `status: 'updating'` with tampered `pendingOperation.expectedHeadSha` = unreviewed SHA_EVIL,
+  //           followed by a clean update-branch merge on top of SHA_EVIL — full chain back to immutable SHA_2 fails!
+  {
+    const client = new MockGitHubClient();
+    client.mainSha = MAIN_1;
+    client.commits.set(SHA_EVIL, { sha: SHA_EVIL, parents: [SHA_2], message: 'Unreviewed commit' });
+    setupCleanIntegrationProvenance(client, {
+      mergeBaseSha: MAIN_0,
+      prevHeadSha: SHA_EVIL,
+      baseSha: MAIN_1,
+      newHeadSha: SHA_2_UPDATED,
+    });
+    client.prs.set(
+      373,
+      makePr({
+        number: 373,
+        headRefOid: SHA_2_UPDATED,
+        mergeStateStatus: 'CLEAN',
+        issueComments: { pageInfo: { hasNextPage: false }, nodes: [comment2] },
+      }),
+    );
+    client.state = makeForgedContinuationState(client, '8005', SHA_EVIL, {
+      status: 'updating',
+      pendingOperation: {
+        type: 'update-branch',
+        prNumber: 373,
+        expectedHeadSha: SHA_EVIL,
+        observedMainSha: MAIN_1,
+        startedAt: '2026-11-27T19:00:30.000Z',
+      },
+    });
+    const res = await handlePullRequestSynchronize(client, {
+      owner: 'Bibleberry',
+      repo: 'Bibleberry',
+      prNumber: 373,
+      requireWorkflowApprovalRecord: true,
+    });
+    assert.equal(res.action, 'stopped');
+    assert.match(res.message, /Rejected post-update commit.*1 parent\(s\)/);
+    assert.equal(client.merges.length, 0);
+  }
+
+  // Attack 6: Forged `status: 'merging'` with `pendingOperation.expectedHeadSha` = unreviewed SHA_EVIL
+  //           on an already-MERGED PR MUST NOT be accepted as verified coordinator completion!
+  {
+    const client = new MockGitHubClient();
+    client.mainSha = MAIN_2;
+    client.commits.set(SHA_EVIL, { sha: SHA_EVIL, parents: [SHA_2], message: 'Unreviewed manual commit' });
+    client.prs.set(
+      373,
+      makePr({
+        number: 373,
+        state: 'MERGED',
+        headRefOid: SHA_EVIL,
+        mergeCommit: { oid: MAIN_2 },
+        issueComments: { pageInfo: { hasNextPage: false }, nodes: [comment2] },
+      }),
+    );
+    client.state = makeForgedContinuationState(client, '8007', SHA_EVIL, {
+      status: 'merging',
+      pendingOperation: {
+        type: 'merge',
+        prNumber: 373,
+        expectedHeadSha: SHA_EVIL,
+        observedMainSha: MAIN_1,
+        startedAt: '2026-11-27T19:01:00.000Z',
+      },
+    });
+    const res = await reconcileBatch(client, {
+      owner: 'Bibleberry',
+      repo: 'Bibleberry',
+      requireWorkflowApprovalRecord: true,
+    });
+    assert.equal(res.action, 'stopped');
+    assert.match(res.message, /failed independent integration-chain verification.*1 parent\(s\)/);
+  }
+
+  // Genuine acceptance: 2-step mechanical integration chain (SHA_2 -> SHA_2_UPDATED [+MAIN_1] -> SHA_2_STEP2 [+MAIN_2])
+  // with disjoint files and unaltered blobs is independently proven from immutable SHA_2 and merges unattended!
+  {
+    const client = new MockGitHubClient();
+    client.mainSha = MAIN_2;
+
+    // Step 1: SHA_2 + MAIN_1 -> SHA_2_UPDATED (disjoint: src/pr373.ts vs src/main1.ts).
+    setupCleanIntegrationProvenance(client, {
+      mergeBaseSha: MAIN_0,
+      prevHeadSha: SHA_2,
+      baseSha: MAIN_1,
+      newHeadSha: SHA_2_UPDATED,
+      prFiles: [{ filename: 'src/pr373.ts', status: 'added', sha: 'blob-373' }],
+      mainFiles: [{ filename: 'src/main1.ts', status: 'added', sha: 'blob-main-1' }],
+    });
+    // MAIN_1 is a strict ancestor of current MAIN_2.
+    client.comparisons.set(`${MAIN_1}...${MAIN_2}`, {
+      status: 'ahead',
+      aheadBy: 1,
+      behindBy: 0,
+      mergeBaseSha: MAIN_1,
+      totalCommits: 1,
+      files: [{ filename: 'src/main2.ts', status: 'added', sha: 'blob-main-2' }],
+    });
+    // Step 2: SHA_2_UPDATED + MAIN_2 -> SHA_2_STEP2 (disjoint: src/pr373.ts vs src/main2.ts).
+    client.commits.set(SHA_2_STEP2, {
+      sha: SHA_2_STEP2,
+      parents: [SHA_2_UPDATED, MAIN_2],
+      message: "Merge branch 'main' into feat/pr-373 (step 2)",
+    });
+    client.comparisons.set(`${MAIN_2}...${SHA_2_UPDATED}`, {
+      status: 'diverged',
+      aheadBy: 2,
+      behindBy: 1,
+      mergeBaseSha: MAIN_1,
+      totalCommits: 2,
+      files: [{ filename: 'src/pr373.ts', status: 'added', sha: 'blob-373' }],
+    });
+    client.comparisons.set(`${SHA_2_UPDATED}...${SHA_2_STEP2}`, {
+      status: 'ahead',
+      aheadBy: 2,
+      behindBy: 0,
+      mergeBaseSha: SHA_2_UPDATED,
+      totalCommits: 2,
+      files: [{ filename: 'src/main2.ts', status: 'added', sha: 'blob-main-2' }],
+    });
+    client.comparisons.set(`${MAIN_2}...${SHA_2_STEP2}`, {
+      status: 'ahead',
+      aheadBy: 3,
+      behindBy: 0,
+      mergeBaseSha: MAIN_2,
+      totalCommits: 3,
+      files: [{ filename: 'src/pr373.ts', status: 'added', sha: 'blob-373' }],
+    });
+
+    // Direct unit check on verifyIntegrationChainFromAuthorizedHead:
+    const directChain = await verifyIntegrationChainFromAuthorizedHead(client, {
+      owner: 'Bibleberry',
+      repo: 'Bibleberry',
+      prNumber: 373,
+      authorizedHeadSha: SHA_2,
+      candidateHeadSha: SHA_2_STEP2,
+      currentMainSha: MAIN_2,
+    });
+    assert.equal(directChain.ok, true);
+    assert.equal(directChain.steps.length, 2);
+    assert.deepEqual(directChain.overlappingFiles, []);
+
+    // End-to-end unattended merge on workflow_run wakeup (even with empty mutable integrationUpdates):
+    client.prs.set(
+      373,
+      makePr({
+        number: 373,
+        headRefOid: SHA_2_STEP2,
+        mergeStateStatus: 'CLEAN',
+        issueComments: { pageInfo: { hasNextPage: false }, nodes: [comment2] },
+      }),
+    );
+    client.state = makeForgedContinuationState(client, '8006', SHA_2_STEP2, {
+      observedMainSha: MAIN_2,
+      integrationUpdates: [],
+    });
+    const res = await handleChecksCompleted(client, {
+      owner: 'Bibleberry',
+      repo: 'Bibleberry',
+      headSha: SHA_2_STEP2,
+      requireWorkflowApprovalRecord: true,
+    });
+    assert.equal(res.action, 'completed');
+    assert.deepEqual(client.merges, [{ prNumber: 373, expectedHeadSha: SHA_2_STEP2, mergeMethod: 'squash' }]);
+  }
+});
+
+test('reconciles #375 newly accepted CI jobs and #377 required-check configuration fail-closed without deadlocking scope-guarded SUCCESS skips', () => {
+  const policyWith377 = makePolicy({
+    requiredStatusChecks: [
+      'Build reader application',
+      'Verify Sanity Studio',
+      'Reader browser suites (Chromium)',
+      'Build and verify R06 release artifact',
+    ],
+  });
+
+  // Missing either #377 check fails closed once configured on main protection!
+  const missingBrowser = evaluatePullRequestPreflight(
+    makePr({ number: 380, headRefOid: SHA_1 }, COMMENT_ID_1),
+    { prNumber: 380, expectedHeadSha: SHA_1, reviewCommentId: COMMENT_ID_1 },
+    'Bibleberry/Bibleberry',
+    undefined,
+    { policy: policyWith377 },
+  );
+  assert.equal(missingBrowser.ok, false);
+  assert.match(missingBrowser.reasons.join(' '), /Required check "Reader browser suites \(Chromium\)" is missing/);
+  assert.match(missingBrowser.reasons.join(' '), /Required check "Build and verify R06 release artifact" is missing/);
+
+  // Passing (including scope-guarded SUCCESS conclusions from ci.yml) passes cleanly!
+  const allFourPassing = evaluatePullRequestPreflight(
+    makePr(
+      {
+        number: 380,
+        headRefOid: SHA_1,
+        statusCheckRollup: {
+          state: 'SUCCESS',
+          contexts: {
+            pageInfo: { hasNextPage: false },
+            nodes: [
+              { __typename: 'CheckRun', name: 'Build reader application', status: 'COMPLETED', conclusion: 'SUCCESS', headSha: SHA_1 },
+              { __typename: 'CheckRun', name: 'Verify Sanity Studio', status: 'COMPLETED', conclusion: 'SUCCESS', headSha: SHA_1 },
+              { __typename: 'CheckRun', name: 'Reader browser suites (Chromium)', status: 'COMPLETED', conclusion: 'SUCCESS', headSha: SHA_1 },
+              { __typename: 'CheckRun', name: 'Build and verify R06 release artifact', status: 'COMPLETED', conclusion: 'SUCCESS', headSha: SHA_1 },
+            ],
+          },
+        },
+      },
+      COMMENT_ID_1,
+    ),
+    { prNumber: 380, expectedHeadSha: SHA_1, reviewCommentId: COMMENT_ID_1 },
+    'Bibleberry/Bibleberry',
+    undefined,
+    { policy: policyWith377 },
+  );
+  assert.equal(allFourPassing.ok, true);
 });
