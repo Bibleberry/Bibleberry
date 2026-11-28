@@ -219,7 +219,7 @@ Planning authority to create Issues is not authority to approve their implementa
 
 ## 4. Codename Registry and Assignment Identity
 
-Engineering Issue Planning is the operational custodian of the organization-wide [Codename Registry](../codename-registry.md). Planning uses its allocation procedure for each authorized new engineering Issue and coordinates serialized allocation when departments could create Issues concurrently. Each department creates Issues within its own authorized scope.
+Engineering Issue Planning is the operational custodian of the organization-wide [Codename Registry](../codename-registry.md). Every authorized creator, including Planning, directly selects and verifies allocations within its own Issue-creation authority. Planning monitors live records independently and reconciles concurrent collisions and sequence anomalies using the registry's bounded procedure.
 
 Begin each new engineering Issue title with its allocated codename in brackets and record the three-digit registry sequence in the Issue body. Retain the originating Issue number, link and codename in transfers, corrections and associated PRs.
 
@@ -413,6 +413,8 @@ Changes to departmental boundaries require Aaron's approval.
 
 ### 7.4 Project Board Stewardship (within Planning)
 
+Planning observes [PR review status](../pr-review-status.md) for board and record reconciliation. Refer status conflicts to Independent Review or the authorized special-project coordinator. Review classification, technical disposition and merge readiness remain with the independent classifier.
+
 **Planning owns the Project Board Steward function** for the single existing Bibleberry Development GitHub Project. This responsibility is part of Planning and transfers with Planning's departmental handoff.
 
 Planning maintains board membership, routine item metadata, links to originating Issues/PRs, accurate Triage placement, status hygiene and evidence-based completion reconciliation. It investigates inconsistencies and records unresolved blockers or owner decisions rather than inventing a status.
@@ -519,7 +521,7 @@ Search current and historical Issues and PRs for duplicate, completed, overlappi
 For each qualified candidate within the authorized planning scope:
 
 1. Prepare the required Issue content, including relevant source and dependency links. Leave implementation ownership unassigned and identify Dev as the next responsible department.
-2. Use the [Codename Registry](../codename-registry.md) to allocate the codename, create the Issue with its registry sequence, and verify its content and identity.
+2. Use the [Codename Registry](../codename-registry.md) to select the codename directly, create the Issue with its registry sequence, and verify its content and identity.
 3. Ensure the verified Issue is represented in the existing Bibleberry Development Project as Triage.
 
 If Project board access is unavailable, create the Issue when authorized and report the board-association limitation without falsely claiming Triage placement.
@@ -590,6 +592,8 @@ When Aaron requests a departmental handoff, the outgoing Planning conversation m
 - Important owner decisions.
 
 ### 11.2 Verification Checkpoint
+
+Preserve any open registry collision or sequence discrepancy with the linked Issues, verified evidence and next reconciliation action. For relevant PRs, include the [common checkpoint](../handoff-standard.md#46-verification-checkpoint).
 
 - Last inspected repository and `main` SHA.
 - Date and time of verification.

@@ -131,7 +131,7 @@ Independent Review examines the implementation's correctness and conformance to 
 
 Checks & Merge evaluates the relevant CI evidence, required checks, and integration or merge readiness.
 
-Dev tracks the progression of these stages, coordinates corrective work, and adjusts subsequent scheduling accordingly.
+Dev tracks the progression of these stages, coordinates corrective work, and adjusts subsequent scheduling accordingly. Under the [shared PR review status policy](../pr-review-status.md), Dev removes ready status before changing an approved revision and marks a new or corrective submission awaiting review. Independent Review classifies ordinary PRs and designates merge readiness.
 
 Dev must distinguish:
 
@@ -304,7 +304,7 @@ Current Issues, PRs, commits, and verification evidence establish actual assignm
 
 ## 6. Assignment Identity and Codenames
 
-Dev must use the [Codename Registry](../codename-registry.md) for any new codenamed Issue it is authorized to create. Dev uses the originating Issue and its established codename when dispatching or continuing work.
+For any new Issue Dev is authorized to create, Dev directly selects, records and verifies the codename under the [Codename Registry](../codename-registry.md). Dev uses the originating Issue and its established codename when dispatching or continuing work.
 
 For every engineering assignment, Dev must preserve:
 
@@ -397,7 +397,7 @@ Identify whether the work is authorized, dispatched, actively being implemented,
 
 Record PRs awaiting independent Review, corrective implementation, Checks & Merge, or Aaron's decision.
 
-Include exact PR and Issue references and relevant blockers.
+Include the complete PR verification checkpoint required by the [common handoff standard](../handoff-standard.md#46-verification-checkpoint) for every relevant PR.
 
 ### 8.4 Immediate Development Sequence
 
