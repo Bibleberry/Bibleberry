@@ -44,6 +44,8 @@ export const TARGET_PATTERNS = {
     ...UNIVERSAL_PATTERNS,
     /^studio\//,
     /^src\/gateway\/fixtures\//,
+    // studio/tests/readinessGatewayParity.test.ts runs gateway month validation against Studio readiness.
+    /^src\/gateway\/[^/]+\.ts$/,
   ],
   'cms-adapter': [
     ...UNIVERSAL_PATTERNS,

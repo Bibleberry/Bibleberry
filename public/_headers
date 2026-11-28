@@ -1,0 +1,10 @@
+# Static-asset security headers — Anthropic Addresses #369.
+# Decision record: docs/operations/static-asset-security-headers.md
+# Cloudflare Workers Static Assets applies these to every asset and SPA response.
+# /api/* is answered by the Release Gateway Worker and is not affected by this file.
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Frame-Options: DENY
+  Content-Security-Policy: frame-ancestors 'none'
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
