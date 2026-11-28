@@ -6,16 +6,19 @@ export const DEFAULT_REQUIRED_CHECKS = [
   'Verify Sanity Studio',
 ];
 export const DEFAULT_AUTHORIZED_OWNERS = ['ContraPhilosophy'];
+export const DEFAULT_TRUSTED_REVIEWERS = ['ContraPhilosophy'];
 export const APPROVAL_ENVIRONMENT_NAME = 'merge-queue-approval';
+export const RUNTIME_ENVIRONMENT_NAME = 'copper-turnstile-runtime';
 export const DEFAULT_MERGE_METHOD: MergeMethod = 'squash';
-export const DEFAULT_INTEGRATION_POLICY: IntegrationPolicy = 'hold-on-update';
+export const DEFAULT_INTEGRATION_POLICY: IntegrationPolicy = 'integration-only';
 export const DEFAULT_CHECK_TIMEOUT_MS = 90 * 60 * 1000;
 export const DEFAULT_CHECK_STARTUP_GRACE_MS = 5 * 60 * 1000;
 export const DEFAULT_UPDATE_TIMEOUT_MS = 10 * 60 * 1000;
-export const DEFAULT_MAX_INTEGRATION_UPDATES_PER_PR = 1;
+export const DEFAULT_MAX_INTEGRATION_UPDATES_PER_PR = 2;
+export const COMPARE_FILES_TRUNCATION_LIMIT = 300;
 
 export type MergeMethod = 'squash' | 'merge' | 'rebase';
-export type IntegrationPolicy = 'hold-on-update' | 'integration-only';
+export type IntegrationPolicy = 'integration-only' | 'hold-on-update';
 
 export interface BatchEntry {
   prNumber: number;
@@ -37,8 +40,24 @@ export interface StatusContextNode {
 export interface PullRequestReviewNode {
   state: 'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED' | 'DISMISSED' | 'PENDING' | string;
   author: { login: string } | null;
-  commit: { oid: string } | null;
+  commit: { oid: string | null } | null;
   submittedAt?: string | null;
+}
+
+export interface PullRequestCommentNode {
+  id?: string;
+  author: { login: string } | null;
+  body: string;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface IndependentReviewEvidence {
+  source: 'native-review' | 'conversation-comment';
+  reviewedHeadSha: string;
+  reviewer: string;
+  recordedAt?: string | null;
+  commentId?: string;
 }
 
 export interface PullRequestSnapshot {
@@ -73,6 +92,10 @@ export interface PullRequestSnapshot {
   latestReviews?: {
     nodes: PullRequestReviewNode[];
   };
+  issueComments?: {
+    pageInfo?: { hasNextPage: boolean };
+    nodes: PullRequestCommentNode[];
+  };
   reviewThreads: {
     totalCount?: number;
     pageInfo?: { hasNextPage: boolean };
@@ -101,6 +124,10 @@ export interface RepositoryPolicy {
   dismissStaleReviews?: boolean;
   requiredConversationResolution?: boolean;
   enforceAdmins?: boolean;
+  allowForcePushes?: boolean;
+  allowDeletions?: boolean;
+  hasBypassAllowances?: boolean;
+  bypassAllowanceTargets?: string[];
 }
 
 export interface CommitDetails {
@@ -125,6 +152,7 @@ export interface CommitComparison {
   mergeBaseSha: string;
   totalCommits?: number;
   files?: CommitComparisonFile[];
+  filesTruncated?: boolean;
 }
 
 export interface VerificationEvidence {
@@ -181,6 +209,7 @@ export interface PreflightResult {
   reasons: string[];
   pr?: PullRequestSnapshot;
   verification?: VerificationEvidence;
+  reviewEvidence?: IndependentReviewEvidence;
   behindMain?: boolean;
 }
 
@@ -221,7 +250,14 @@ export interface BatchState {
   version: 2;
   revision: number;
   batchId: string;
-  authorizationDigest: string;
+  /**
+   * Plain SHA-256 consistency checksum over repo, ordered entries, integrationPolicy,
+   * and mergeMethod. This is an accidental-corruption consistency check, NOT a
+   * cryptographic signature; authorization authenticity is enforced by the main-only
+   * environment write boundary and live verification of `workflowRunId` against
+   * GitHub's `/actions/runs/{run_id}/approvals` API.
+   */
+  stateChecksum: string;
   status: BatchStatusV2;
   createdAt: string;
   updatedAt: string;
@@ -243,6 +279,7 @@ export interface BatchState {
   awaitingChecksSince?: string | null;
   integrationUpdates: IntegrationUpdateRecord[];
   lastVerification?: VerificationEvidence | null;
+  lastReviewEvidence?: IndependentReviewEvidence | null;
   completedPrNumbers: number[];
   completedMerges: CompletedMergeRecord[];
   nextAction: string;
@@ -308,11 +345,10 @@ export function isActiveBatchStatus(state: StoredBatchState | null): boolean {
 }
 
 /**
- * Computes a deterministic authorization digest binding the exact ordered batch entries,
- * repository, integration policy, and merge method so state cannot be tampered with to
- * substitute PRs, SHAs, or policies across workflow runs.
+ * Computes a deterministic SHA-256 consistency checksum over repo, ordered batch entries,
+ * integration policy, and merge method. (Not a cryptographic signature; see BatchState.stateChecksum.)
  */
-export function computeAuthorizationDigest(params: {
+export function computeStateChecksum(params: {
   owner: string;
   repo: string;
   entries: BatchEntry[];
@@ -404,6 +440,65 @@ export function validateMergeMethod(
   return { ok: true, mergeMethod: normalized };
 }
 
+/**
+ * Verifies effective branch protection invariants on `main` fail-closed before any write.
+ * Ensures strict status checks, enforce_admins, conversation resolution, no force-push/deletion,
+ * no PR bypass allowances, and presence of baseline required checks.
+ */
+export function evaluateBranchProtectionSafety(
+  policy: RepositoryPolicy,
+  baselineRequiredChecks: string[] = DEFAULT_REQUIRED_CHECKS,
+): { ok: boolean; reasons: string[] } {
+  const reasons: string[] = [];
+
+  if (!policy.protectionAccessible) {
+    return {
+      ok: false,
+      reasons: [
+        'Branch protection metadata for main is inaccessible (403/unavailable). Cannot verify strict protection and no-bypass invariants fail-closed before writes; ensure the Copper Turnstile GitHub App has Administration: Read-only.',
+      ],
+    };
+  }
+
+  if (policy.strictStatusChecks !== true) {
+    reasons.push('Branch protection on main does not enforce strict up-to-date status checks (strict=false).');
+  }
+
+  if (policy.enforceAdmins !== true) {
+    reasons.push('Branch protection on main does not enforce rules for administrators (enforce_admins=false).');
+  }
+
+  if (policy.requiredConversationResolution !== true) {
+    reasons.push(
+      'Branch protection on main does not require conversation resolution (required_conversation_resolution=false).',
+    );
+  }
+
+  if (policy.allowForcePushes !== false) {
+    reasons.push('Branch protection on main permits force pushes (allow_force_pushes!=false).');
+  }
+
+  if (policy.allowDeletions !== false) {
+    reasons.push('Branch protection on main permits branch deletion (allow_deletions!=false).');
+  }
+
+  if (policy.hasBypassAllowances === true) {
+    const targets = policy.bypassAllowanceTargets?.join(', ') || 'configured principals';
+    reasons.push(
+      `Branch protection on main grants pull-request bypass allowances (${targets}); refusing automated writes until bypass is removed or audited.`,
+    );
+  }
+
+  const activeContexts = new Set(policy.requiredStatusChecks ?? []);
+  for (const check of baselineRequiredChecks) {
+    if (!activeContexts.has(check)) {
+      reasons.push(`Branch protection on main is missing required check "${check}".`);
+    }
+  }
+
+  return { ok: reasons.length === 0, reasons };
+}
+
 export function resolveEffectiveRequiredChecks(
   policy: RepositoryPolicy | null | undefined,
   configuredChecks: string[] = DEFAULT_REQUIRED_CHECKS,
@@ -460,9 +555,10 @@ function classifyNode(node: StatusContextNode): ClassifiedCheckState {
 }
 
 function getContextName(node: StatusContextNode): string {
-  return (node.__typename === 'StatusContext' || (!node.name && node.context)
-    ? node.context
-    : node.name) ?? '(unnamed check)';
+  return (
+    (node.__typename === 'StatusContext' || (!node.name && node.context) ? node.context : node.name) ??
+    '(unnamed check)'
+  );
 }
 
 function getContextTimestamp(node: StatusContextNode): number {
@@ -509,7 +605,9 @@ export function evaluateCheckVerification(options: {
   if (!pr.statusCheckRollup) {
     missingChecks.push(...requiredChecks);
     if (allowStartupGrace) {
-      reasons.push(`PR #${pr.number}@${candidateHeadSha.slice(0, 12)} has no status checks reported yet; awaiting CI startup.`);
+      reasons.push(
+        `PR #${pr.number}@${candidateHeadSha.slice(0, 12)} has no status checks reported yet; awaiting CI startup.`,
+      );
       return {
         prNumber: pr.number,
         candidateHeadSha,
@@ -637,7 +735,6 @@ export function evaluateCheckVerification(options: {
       }
     } else if (latestState === 'neutral') {
       if (requiredSet.has(name)) {
-        // Required checks must record an actual SUCCESS execution.
         failingChecks.push(name);
         reasons.push(`Required check "${name}" concluded NEUTRAL instead of SUCCESS.`);
       } else {
@@ -695,17 +792,161 @@ export function evaluateCheckVerification(options: {
   };
 }
 
+const INDEPENDENT_REVIEW_HEADER_PATTERN =
+  /\b(?:Independent\s+(?:re-?review|review|documentary\s+review|source\s+review|technical\s+review)|Final\s+merge-readiness\s+review)\b/i;
+const REVIEWED_HEAD_SHA_PATTERN =
+  /\b(?:exact\s+HEAD|reviewed\s+head|head\s+SHA|review(?:ed)?\s+commit)\b[^\n0-9a-f]{0,16}`?([0-9a-f]{40})`?/i;
+const BLOCKING_DISPOSITION_PATTERN =
+  /\bDisposition:\s*(?:CHANGES\s+REQUESTED|HOLD|BLOCKED|REJECTED|DO\s+NOT\s+MERGE|NOT\s+APPROVED)\b/i;
+const APPROVING_DISPOSITION_PATTERN =
+  /\bDisposition:\s*(?:CODE\s+APPROVED|APPROVED(?:\s+FOR\s+OWNER\s+(?:MERGE|QUEUE\s+ENTRY))?)\b/i;
+
+export interface CommentReviewEvaluation {
+  truncated: boolean;
+  blocked: boolean;
+  blockReason?: string;
+  approved: boolean;
+  staleApprovedSha?: string;
+  evidence?: IndependentReviewEvidence;
+}
+
 /**
- * Evaluates review, unresolved-conversation, and stale/self-review eligibility
- * for a specific candidate HEAD SHA.
+ * Evaluates authoritative PR Conversation Independent Review comments authored by
+ * trusted reviewers. Chronologically latest disposition wins: any blocking disposition
+ * (CHANGES REQUESTED, HOLD, BLOCKED, REJECTED) supersedes earlier approvals, and an
+ * approving disposition must carry an Independent Review header plus the exact 40-char
+ * reviewed HEAD SHA.
+ */
+export function evaluateIndependentReviewComments(options: {
+  pr: PullRequestSnapshot;
+  reviewedHeadSha: string;
+  trustedReviewers?: string[];
+}): CommentReviewEvaluation {
+  const { pr, reviewedHeadSha, trustedReviewers = DEFAULT_TRUSTED_REVIEWERS } = options;
+
+  if (pr.issueComments?.pageInfo?.hasNextPage) {
+    return {
+      truncated: true,
+      blocked: true,
+      blockReason: `PR #${pr.number} conversation comments are truncated; cannot conclusively verify Independent Review disposition.`,
+      approved: false,
+    };
+  }
+
+  const allowedReviewers = new Set(trustedReviewers.map((login) => login.toLowerCase()));
+  const nodes = pr.issueComments?.nodes ?? [];
+
+  const ordered = nodes.map((node, index) => ({
+    node,
+    index,
+    ts: node.createdAt ? Date.parse(node.createdAt) : Number.NaN,
+  }));
+  if (ordered.every((item) => !Number.isNaN(item.ts))) {
+    ordered.sort((a, b) => (a.ts === b.ts ? a.index - b.index : a.ts - b.ts));
+  }
+
+  let latestVerdict:
+    | { kind: 'blocking'; reviewer: string; dispositionLine: string; citedSha?: string }
+    | { kind: 'approved'; reviewer: string; citedSha: string; createdAt?: string | null; commentId?: string }
+    | null = null;
+
+  for (const { node } of ordered) {
+    const authorLogin = node.author?.login ?? '';
+    if (!allowedReviewers.has(authorLogin.toLowerCase())) {
+      continue;
+    }
+
+    const body = node.body ?? '';
+    const hasReviewHeader = INDEPENDENT_REVIEW_HEADER_PATTERN.test(body);
+    const shaMatch = REVIEWED_HEAD_SHA_PATTERN.exec(body);
+    const citedSha = shaMatch?.[1]?.toLowerCase();
+
+    const blockingMatch = BLOCKING_DISPOSITION_PATTERN.exec(body);
+    if (blockingMatch) {
+      latestVerdict = {
+        kind: 'blocking',
+        reviewer: authorLogin,
+        dispositionLine: blockingMatch[0],
+        citedSha,
+      };
+      continue;
+    }
+
+    const approvingMatch = APPROVING_DISPOSITION_PATTERN.exec(body);
+    if (approvingMatch && hasReviewHeader && citedSha && FULL_SHA_PATTERN.test(citedSha)) {
+      latestVerdict = {
+        kind: 'approved',
+        reviewer: authorLogin,
+        citedSha,
+        createdAt: node.createdAt,
+        commentId: node.id,
+      };
+    }
+  }
+
+  if (!latestVerdict) {
+    return { truncated: false, blocked: false, approved: false };
+  }
+
+  if (latestVerdict.kind === 'blocking') {
+    const shaSuffix = latestVerdict.citedSha ? ` at ${latestVerdict.citedSha.slice(0, 12)}` : '';
+    return {
+      truncated: false,
+      blocked: true,
+      blockReason: `PR #${pr.number} has a blocking Independent Review conversation disposition from ${latestVerdict.reviewer} (${latestVerdict.dispositionLine}${shaSuffix}).`,
+      approved: false,
+    };
+  }
+
+  if (latestVerdict.citedSha !== reviewedHeadSha.toLowerCase()) {
+    return {
+      truncated: false,
+      blocked: false,
+      approved: false,
+      staleApprovedSha: latestVerdict.citedSha,
+    };
+  }
+
+  return {
+    truncated: false,
+    blocked: false,
+    approved: true,
+    evidence: {
+      source: 'conversation-comment',
+      reviewedHeadSha: reviewedHeadSha.toLowerCase(),
+      reviewer: latestVerdict.reviewer,
+      recordedAt: latestVerdict.createdAt ?? null,
+      commentId: latestVerdict.commentId,
+    },
+  };
+}
+
+/**
+ * Fail-closed review and independent-approval evaluator.
+ *
+ * Requires an independently verifiable exact-HEAD technical approval bound to
+ * `reviewedHeadSha` (either non-author native GitHub APPROVED review with non-null
+ * exact commit OID, or an authoritative trusted-reviewer PR Conversation Independent
+ * Review disposition when requiredApprovingReviewCount === 0). Zero reviews, null commit
+ * OIDs, self-approvals, stale approvals, blocking comments, and unresolved threads ALL fail closed.
  */
 export function evaluateReviewEligibility(options: {
   pr: PullRequestSnapshot;
+  reviewedHeadSha: string;
   candidateHeadSha: string;
   policy?: RepositoryPolicy | null;
-}): string[] {
-  const { pr, candidateHeadSha, policy } = options;
+  trustedReviewers?: string[];
+}): { ok: boolean; reasons: string[]; evidence?: IndependentReviewEvidence } {
+  const {
+    pr,
+    reviewedHeadSha,
+    candidateHeadSha,
+    policy,
+    trustedReviewers = DEFAULT_TRUSTED_REVIEWERS,
+  } = options;
   const reasons: string[] = [];
+  const normalizedReviewed = reviewedHeadSha.toLowerCase();
+  const normalizedCandidate = candidateHeadSha.toLowerCase();
 
   if (pr.reviewDecision === 'CHANGES_REQUESTED') {
     reasons.push(`PR #${pr.number} has requested changes (reviewDecision=CHANGES_REQUESTED).`);
@@ -720,43 +961,6 @@ export function evaluateReviewEligibility(options: {
     reasons.push(`PR #${pr.number} has active CHANGES_REQUESTED review(s) from [${reviewers}].`);
   }
 
-  const prAuthor = pr.author?.login?.toLowerCase() ?? '';
-  const approvedReviews = latestReviews.filter((r) => r.state === 'APPROVED');
-  const independentApproved = approvedReviews.filter(
-    (r) => !prAuthor || (r.author?.login?.toLowerCase() ?? '') !== prAuthor,
-  );
-  const currentHeadApproved = independentApproved.filter(
-    (r) => !r.commit?.oid || r.commit.oid.toLowerCase() === candidateHeadSha.toLowerCase(),
-  );
-  const staleApproved = independentApproved.filter(
-    (r) => r.commit?.oid && r.commit.oid.toLowerCase() !== candidateHeadSha.toLowerCase(),
-  );
-
-  const requiredApprovalCount = policy?.requiredApprovingReviewCount ?? 0;
-  if (requiredApprovalCount > 0) {
-    if (currentHeadApproved.length < requiredApprovalCount) {
-      if (staleApproved.length > 0) {
-        reasons.push(
-          `PR #${pr.number} approving review is stale (bound to ${staleApproved[0].commit?.oid?.slice(0, 12)}, not current HEAD ${candidateHeadSha.slice(0, 12)}).`,
-        );
-      } else if (approvedReviews.length > 0 && independentApproved.length === 0) {
-        reasons.push(`PR #${pr.number} only has self-approval by PR author; independent approving review is required.`);
-      } else {
-        reasons.push(
-          `PR #${pr.number} has ${currentHeadApproved.length}/${requiredApprovalCount} required independent approving review(s) on HEAD ${candidateHeadSha.slice(0, 12)}.`,
-        );
-      }
-    }
-  } else if (approvedReviews.length > 0) {
-    if (independentApproved.length === 0) {
-      reasons.push(`PR #${pr.number} has an invalid self-approval by PR author.`);
-    } else if (currentHeadApproved.length === 0 && staleApproved.length > 0) {
-      reasons.push(
-        `PR #${pr.number} approving review is stale (bound to older commit ${staleApproved[0].commit?.oid?.slice(0, 12)}, not current HEAD ${candidateHeadSha.slice(0, 12)}).`,
-      );
-    }
-  }
-
   const unresolvedCount = pr.reviewThreads.nodes.filter((thread) => !thread.isResolved).length;
   if (unresolvedCount > 0) {
     reasons.push(`PR #${pr.number} has ${unresolvedCount} unresolved review conversation(s).`);
@@ -766,11 +970,116 @@ export function evaluateReviewEligibility(options: {
     );
   }
 
-  return reasons;
+  // Evaluate authoritative PR Conversation Independent Review comments.
+  const commentEval = evaluateIndependentReviewComments({
+    pr,
+    reviewedHeadSha: normalizedReviewed,
+    trustedReviewers,
+  });
+  if (commentEval.blocked && commentEval.blockReason) {
+    reasons.push(commentEval.blockReason);
+  }
+
+  // Evaluate native GitHub reviews strictly (null commit OIDs are NEVER accepted as current).
+  const prAuthor = pr.author?.login?.toLowerCase() ?? '';
+  const approvedReviews = latestReviews.filter((r) => r.state === 'APPROVED');
+  const independentApproved = approvedReviews.filter(
+    (r) => !prAuthor || (r.author?.login?.toLowerCase() ?? '') !== prAuthor,
+  );
+  const nullOidApproved = independentApproved.filter(
+    (r) => !r.commit?.oid || !FULL_SHA_PATTERN.test(r.commit.oid),
+  );
+  const exactReviewedNative = independentApproved.filter(
+    (r) => Boolean(r.commit?.oid && r.commit.oid.toLowerCase() === normalizedReviewed),
+  );
+  const exactCandidateNative = independentApproved.filter(
+    (r) => Boolean(r.commit?.oid && r.commit.oid.toLowerCase() === normalizedCandidate),
+  );
+  const staleNativeForReviewed = independentApproved.filter(
+    (r) =>
+      Boolean(r.commit?.oid && FULL_SHA_PATTERN.test(r.commit.oid)) &&
+      r.commit!.oid!.toLowerCase() !== normalizedReviewed,
+  );
+  const staleNativeForCandidate = independentApproved.filter(
+    (r) =>
+      Boolean(r.commit?.oid && FULL_SHA_PATTERN.test(r.commit.oid)) &&
+      r.commit!.oid!.toLowerCase() !== normalizedCandidate,
+  );
+
+  const requiredApprovalCount = policy?.requiredApprovingReviewCount ?? 0;
+  let evidence: IndependentReviewEvidence | undefined;
+
+  if (requiredApprovalCount > 0) {
+    if (exactCandidateNative.length < requiredApprovalCount) {
+      if (nullOidApproved.length > 0) {
+        reasons.push(
+          `PR #${pr.number} has a native approving review with missing/null commit OID, which cannot verify exact HEAD ${normalizedCandidate.slice(0, 12)}.`,
+        );
+      } else if (staleNativeForCandidate.length > 0) {
+        reasons.push(
+          `PR #${pr.number} native approving review is stale (bound to ${staleNativeForCandidate[0].commit?.oid?.slice(0, 12)}, not current HEAD ${normalizedCandidate.slice(0, 12)}).`,
+        );
+      } else if (approvedReviews.length > 0 && independentApproved.length === 0) {
+        reasons.push(
+          `PR #${pr.number} only has self-approval by PR author; independent approving review is required.`,
+        );
+      } else {
+        reasons.push(
+          `PR #${pr.number} has ${exactCandidateNative.length}/${requiredApprovalCount} required independent native approving review(s) bound to exact HEAD ${normalizedCandidate.slice(0, 12)}.`,
+        );
+      }
+    } else {
+      const first = exactCandidateNative[0];
+      evidence = {
+        source: 'native-review',
+        reviewedHeadSha: normalizedCandidate,
+        reviewer: first.author?.login ?? 'unknown',
+        recordedAt: first.submittedAt ?? null,
+      };
+    }
+  } else {
+    // requiredApprovingReviewCount === 0: MUST STILL FAIL CLOSED without verified exact-HEAD approval!
+    if (exactReviewedNative.length > 0) {
+      const first = exactReviewedNative[0];
+      evidence = {
+        source: 'native-review',
+        reviewedHeadSha: normalizedReviewed,
+        reviewer: first.author?.login ?? 'unknown',
+        recordedAt: first.submittedAt ?? null,
+      };
+    } else if (commentEval.approved && commentEval.evidence) {
+      evidence = commentEval.evidence;
+    } else {
+      // Fail closed with the most diagnostic reason.
+      if (approvedReviews.length > 0 && independentApproved.length === 0) {
+        reasons.push(
+          `PR #${pr.number} has only an invalid self-approval by PR author and no independent exact-HEAD review approval for ${normalizedReviewed.slice(0, 12)}.`,
+        );
+      } else if (nullOidApproved.length > 0) {
+        reasons.push(
+          `PR #${pr.number} native approving review has missing/null commit OID and cannot satisfy exact-HEAD approval for ${normalizedReviewed.slice(0, 12)}.`,
+        );
+      } else if (staleNativeForReviewed.length > 0) {
+        reasons.push(
+          `PR #${pr.number} native approving review is stale (bound to ${staleNativeForReviewed[0].commit?.oid?.slice(0, 12)}, not reviewed HEAD ${normalizedReviewed.slice(0, 12)}).`,
+        );
+      } else if (commentEval.staleApprovedSha) {
+        reasons.push(
+          `PR #${pr.number} Independent Review conversation approval is stale (bound to ${commentEval.staleApprovedSha.slice(0, 12)}, not reviewed HEAD ${normalizedReviewed.slice(0, 12)}).`,
+        );
+      } else if (!commentEval.blocked) {
+        reasons.push(
+          `PR #${pr.number} has no verified exact-HEAD Independent Review approval for ${normalizedReviewed.slice(0, 12)} (an owner-submitted SHA and passing CI are not substitutes for independent review).`,
+        );
+      }
+    }
+  }
+
+  return { ok: reasons.length === 0, reasons, evidence };
 }
 
 /**
- * Evaluates whether a pull request satisfies all preflight policy, revision, review,
+ * Evaluates whether a pull request satisfies all preflight policy, revision, independent-review,
  * and verification requirements. Branch-out-of-date alone (`mergeStateStatus === 'BEHIND'`
  * with `mergeable === 'MERGEABLE'`) is allowed during preflight so the active PR can be
  * updated via GitHub's supported update-branch API when its turn arrives.
@@ -785,6 +1094,7 @@ export function evaluatePullRequestPreflight(
     observedBaseSha?: string;
     expectedHeadOverride?: string;
     allowPendingChecks?: boolean;
+    trustedReviewers?: string[];
     now?: () => string;
   },
 ): PreflightResult {
@@ -835,12 +1145,14 @@ export function evaluatePullRequestPreflight(
     reasons.push(`PR #${entry.prNumber} mergeability is UNKNOWN; wait for GitHub to finish computing mergeability.`);
   }
 
-  const reviewReasons = evaluateReviewEligibility({
+  const reviewEval = evaluateReviewEligibility({
     pr,
+    reviewedHeadSha: entry.expectedHeadSha,
     candidateHeadSha: expectedSha,
     policy: options?.policy,
+    trustedReviewers: options?.trustedReviewers,
   });
-  reasons.push(...reviewReasons);
+  reasons.push(...reviewEval.reasons);
 
   const effectiveRequired = resolveEffectiveRequiredChecks(options?.policy, requiredChecks);
   const verification = evaluateCheckVerification({
@@ -865,6 +1177,7 @@ export function evaluatePullRequestPreflight(
     reasons,
     pr,
     verification,
+    reviewEvidence: reviewEval.evidence,
     behindMain: pr.mergeStateStatus === 'BEHIND',
   };
 }
@@ -877,6 +1190,8 @@ export async function runPreflight(
   requiredChecks: string[] = DEFAULT_REQUIRED_CHECKS,
   options?: {
     mergeMethod?: string;
+    requireVerifiedProtection?: boolean;
+    trustedReviewers?: string[];
     now?: () => string;
   },
 ): Promise<{
@@ -885,6 +1200,7 @@ export async function runPreflight(
   observedMainSha: string;
   policy: RepositoryPolicy;
   policyError?: string;
+  protectionNotice?: string;
 }> {
   const expectedRepo = `${owner}/${repo}`;
   const [observedMainSha, policy] = await Promise.all([
@@ -893,25 +1209,44 @@ export async function runPreflight(
   ]);
 
   const methodCheck = validateMergeMethod(options?.mergeMethod ?? DEFAULT_MERGE_METHOD, policy);
-  const results: PreflightResult[] = [];
+  const protectionCheck = evaluateBranchProtectionSafety(policy, requiredChecks);
 
+  let policyError: string | undefined;
+  let protectionNotice: string | undefined;
+
+  if (!methodCheck.ok) {
+    policyError = methodCheck.reason;
+  } else if (policy.protectionAccessible && !protectionCheck.ok) {
+    policyError = protectionCheck.reasons.join(' ');
+  } else if (!policy.protectionAccessible) {
+    if (options?.requireVerifiedProtection) {
+      policyError = protectionCheck.reasons.join(' ');
+    } else {
+      protectionNotice =
+        'Read-only token could not read /branches/main/protection (403); live protection invariants (strict checks, enforce_admins, conversation resolution, no bypass) will be verified fail-closed by the copper-turnstile-runtime GitHub App token before any writes.';
+    }
+  }
+
+  const results: PreflightResult[] = [];
   for (const entry of entries) {
     const pr = await client.getPullRequest(owner, repo, entry.prNumber);
     results.push(
       evaluatePullRequestPreflight(pr, entry, expectedRepo, requiredChecks, {
         policy,
         observedBaseSha: observedMainSha,
+        trustedReviewers: options?.trustedReviewers,
         now: options?.now,
       }),
     );
   }
 
   return {
-    ok: methodCheck.ok && results.every((r) => r.ok),
+    ok: !policyError && results.every((r) => r.ok),
     results,
     observedMainSha,
     policy,
-    policyError: methodCheck.ok ? undefined : methodCheck.reason,
+    policyError,
+    protectionNotice,
   };
 }
 
@@ -930,10 +1265,18 @@ function toFileMap(files: CommitComparisonFile[] | undefined): Map<string, Commi
   return map;
 }
 
+function isCompareTruncated(comp: CommitComparison): boolean {
+  return Boolean(comp.filesTruncated) || (comp.files?.length ?? 0) >= COMPARE_FILES_TRUNCATION_LIMIT;
+}
+
 /**
- * Verifies that a post-update PR HEAD commit is strictly a clean, two-parent
- * main-into-PR integration merge commit with no rewritten history, extra commits,
- * unauthorized source edits, or unexpected tree mutations.
+ * Conclusively verifies that a post-update PR HEAD commit is strictly a clean, two-parent
+ * main-into-PR mechanical integration merge commit with:
+ * - parents === [previousHeadSha, acceptedMainCommit]
+ * - non-truncated file diffs (<300 files)
+ * - exact commit-count preservation (no extra PR commits)
+ * - zero unauthorized source changes or blob hash mismatches
+ * - exact recording of any overlapping files (which MUST HOLD under §2C)
  */
 export async function verifyIntegrationUpdateProvenance(
   client: GitHubBatchClient,
@@ -980,7 +1323,6 @@ export async function verifyIntegrationUpdateProvenance(
   const normalizedExpectedBase = expectedBaseSha.toLowerCase();
   const normalizedCurrentMain = currentMainSha.toLowerCase();
   if (parentBaseSha !== normalizedExpectedBase && parentBaseSha !== normalizedCurrentMain) {
-    // Verify parentBaseSha is an accepted ancestor of current main.
     const ancestry = await client.compareCommits(owner, repo, parentBaseSha, normalizedCurrentMain);
     if (ancestry.behindBy !== 0 || (ancestry.status !== 'ahead' && ancestry.status !== 'identical')) {
       return {
@@ -990,7 +1332,6 @@ export async function verifyIntegrationUpdateProvenance(
     }
   }
 
-  // Verify the single-commit history delta from previousHeadSha to newHeadSha has no extra PR commits.
   const baseToPr = await client.compareCommits(owner, repo, parentBaseSha, parentPrSha);
   const mergeBaseSha = baseToPr.mergeBaseSha.toLowerCase();
   if (!FULL_SHA_PATTERN.test(mergeBaseSha)) {
@@ -1007,6 +1348,29 @@ export async function verifyIntegrationUpdateProvenance(
     client.compareCommits(owner, repo, parentBaseSha, newHeadSha),
   ]);
 
+  if (
+    isCompareTruncated(mergeBaseToPr) ||
+    isCompareTruncated(mergeBaseToMain) ||
+    isCompareTruncated(prToNewHead) ||
+    isCompareTruncated(mainToNewHead)
+  ) {
+    return {
+      ok: false,
+      reason: `PR #${prNumber} integration diff exceeded GitHub's ${COMPARE_FILES_TRUNCATION_LIMIT}-file comparison limit; cannot conclusively prove disjoint mechanical integration.`,
+    };
+  }
+
+  if (
+    typeof mergeBaseToPr.totalCommits === 'number' &&
+    typeof mainToNewHead.totalCommits === 'number' &&
+    mainToNewHead.totalCommits !== mergeBaseToPr.totalCommits + 1
+  ) {
+    return {
+      ok: false,
+      reason: `PR #${prNumber} integration commit count relative to main is ${mainToNewHead.totalCommits}, expected ${mergeBaseToPr.totalCommits + 1} (unexpected commits detected).`,
+    };
+  }
+
   const prFiles = toFileMap(mergeBaseToPr.files);
   const mainFiles = toFileMap(mergeBaseToMain.files);
   const deltaFromPr = toFileMap(prToNewHead.files);
@@ -1020,7 +1384,6 @@ export async function verifyIntegrationUpdateProvenance(
   }
   const overlappingSet = new Set(overlappingFiles);
 
-  // Every file changed between previous PR HEAD and new HEAD must have been changed by main.
   for (const [filename, changed] of deltaFromPr.entries()) {
     const mainFile = mainFiles.get(filename);
     if (!mainFile) {
@@ -1037,7 +1400,6 @@ export async function verifyIntegrationUpdateProvenance(
     }
   }
 
-  // Every file changed between main and new HEAD must belong to the reviewed PR's file set.
   for (const [filename, changed] of deltaFromMain.entries()) {
     const prFile = prFiles.get(filename);
     if (!prFile) {
@@ -1119,7 +1481,8 @@ async function verifyOwnerAuthorization(
 export interface RuntimePolicyOptions {
   requiredChecks?: string[];
   authorizedOwners?: string[];
-  allowIntegrationOnlyPolicy?: boolean;
+  trustedReviewers?: string[];
+  requireWorkflowApprovalRecord?: boolean;
   maxIntegrationUpdatesPerPr?: number;
   checkTimeoutMs?: number;
   checkStartupGraceMs?: number;
@@ -1147,10 +1510,20 @@ export interface StartBatchOutcome {
   state?: StoredBatchState;
   error?: string;
   message?: string;
+  protectionNotice?: string;
 }
 
 export interface AdvanceOutcome {
-  action: 'ignored' | 'merged' | 'updating' | 'awaiting_checks' | 'waiting' | 'held' | 'completed' | 'stopped' | 'reconciled';
+  action:
+    | 'ignored'
+    | 'merged'
+    | 'updating'
+    | 'awaiting_checks'
+    | 'waiting'
+    | 'held'
+    | 'completed'
+    | 'stopped'
+    | 'reconciled';
   state: StoredBatchState | null;
   message: string;
   preflightResult?: PreflightResult;
@@ -1185,12 +1558,17 @@ function formatCompletedSummary(completedMerges: CompletedMergeRecord[], complet
   return 'none';
 }
 
-function verifyStateIntegrity(
+async function verifyPersistedBatchAuthority(
+  client: GitHubBatchClient,
   state: BatchState,
-  owner: string,
-  repo: string,
-  authorizedOwners: string[],
-): { ok: boolean; reason?: string } {
+  options: {
+    owner: string;
+    repo: string;
+    authorizedOwners: string[];
+    requireWorkflowApprovalRecord?: boolean;
+  },
+): Promise<{ ok: boolean; reason?: string }> {
+  const { owner, repo, authorizedOwners, requireWorkflowApprovalRecord = false } = options;
   const allowed = new Set(authorizedOwners.map((u) => u.toLowerCase()));
   if (!allowed.has(state.authorizedBy.toLowerCase())) {
     return {
@@ -1198,19 +1576,50 @@ function verifyStateIntegrity(
       reason: `Persisted batch ${state.batchId} authorizedBy "${state.authorizedBy}" is not an authorized owner.`,
     };
   }
-  const expectedDigest = computeAuthorizationDigest({
+
+  const expectedChecksum = computeStateChecksum({
     owner,
     repo,
     entries: state.entries,
     integrationPolicy: state.integrationPolicy,
     mergeMethod: state.mergeMethod,
   });
-  if (state.authorizationDigest !== expectedDigest) {
+  if (state.stateChecksum !== expectedChecksum) {
     return {
       ok: false,
-      reason: `Persisted batch ${state.batchId} failed authorizationDigest verification (batch entries or policy do not match signed authorization).`,
+      reason: `Persisted batch ${state.batchId} failed stateChecksum consistency check (entries or policy do not match stored checksum).`,
     };
   }
+
+  if (requireWorkflowApprovalRecord && !state.workflowRunId) {
+    return {
+      ok: false,
+      reason: `Persisted batch ${state.batchId} is missing an owner-approved workflowRunId record; refusing unattended execution.`,
+    };
+  }
+
+  if (state.workflowRunId) {
+    if (!client.verifyWorkflowApproval) {
+      return {
+        ok: false,
+        reason: `Persisted batch ${state.batchId} requires live run-approval verification for run ${state.workflowRunId}, but verifyWorkflowApproval is unavailable.`,
+      };
+    }
+    const approval = await client.verifyWorkflowApproval(
+      owner,
+      repo,
+      state.workflowRunId,
+      APPROVAL_ENVIRONMENT_NAME,
+      authorizedOwners,
+    );
+    if (!approval.ok) {
+      return {
+        ok: false,
+        reason: `Persisted batch ${state.batchId} failed live owner-approval verification for workflow run ${state.workflowRunId}: ${approval.reason}`,
+      };
+    }
+  }
+
   return { ok: true };
 }
 
@@ -1301,9 +1710,11 @@ async function checkConcurrentStateGuard(
 
 /**
  * Core re-entrant state driver for an active v2 batch.
- * Evaluates the active candidate against live main, performs protected direct merge
- * when current and verified, updates branch when behind, verifies integration provenance,
- * awaits ordinary PR CI, and enforces §2C HOLD unless integration-only policy is explicitly enabled.
+ * Re-verifies persisted owner run-approval, live branch protection invariants,
+ * exact-HEAD independent technical approval, integration provenance, and fresh CI
+ * before every mutation. Advances automatically across clean disjoint-file mechanical
+ * integration updates under amended §2C, stopping/holding whenever human or Review
+ * intervention is genuinely required.
  */
 async function driveBatchProgress(
   client: GitHubBatchClient,
@@ -1319,7 +1730,8 @@ async function driveBatchProgress(
     repo,
     requiredChecks = DEFAULT_REQUIRED_CHECKS,
     authorizedOwners = DEFAULT_AUTHORIZED_OWNERS,
-    allowIntegrationOnlyPolicy = false,
+    trustedReviewers = DEFAULT_TRUSTED_REVIEWERS,
+    requireWorkflowApprovalRecord = false,
     maxIntegrationUpdatesPerPr = DEFAULT_MAX_INTEGRATION_UPDATES_PER_PR,
     checkTimeoutMs = DEFAULT_CHECK_TIMEOUT_MS,
     checkStartupGraceMs = DEFAULT_CHECK_STARTUP_GRACE_MS,
@@ -1329,13 +1741,17 @@ async function driveBatchProgress(
 
   let state = initialState;
 
-  const integrity = verifyStateIntegrity(state, owner, repo, authorizedOwners);
-  if (!integrity.ok) {
-    const stopped = await stopBatchState(client, owner, repo, state, integrity.reason!, now);
+  const authority = await verifyPersistedBatchAuthority(client, state, {
+    owner,
+    repo,
+    authorizedOwners,
+    requireWorkflowApprovalRecord,
+  });
+  if (!authority.ok) {
+    const stopped = await stopBatchState(client, owner, repo, state, authority.reason!, now);
     return { action: 'stopped', state: stopped, message: stopped.stopReason! };
   }
 
-  // Loop safely through consecutive merges (e.g., if multiple PRs are current, bounded by entries.length).
   const maxIterations = state.entries.length + 2;
   for (let iter = 0; iter < maxIterations; iter += 1) {
     if (state.abortRequestedBy) {
@@ -1374,6 +1790,21 @@ async function driveBatchProgress(
       client.getPullRequest(owner, repo, entry.prNumber),
     ]);
 
+    // Fail closed if live main branch protection cannot be verified or is unsafe.
+    const protectionCheck = evaluateBranchProtectionSafety(policy, requiredChecks);
+    if (!protectionCheck.ok) {
+      const stopped = await stopBatchState(
+        client,
+        owner,
+        repo,
+        state,
+        `Branch protection safety verification failed (fail-closed): ${protectionCheck.reasons.join(' ')}`,
+        now,
+        { observedMainSha: currentMainSha },
+      );
+      return { action: 'stopped', state: stopped, message: stopped.stopReason! };
+    }
+
     if (!pr) {
       const stopped = await stopBatchState(
         client,
@@ -1403,9 +1834,10 @@ async function driveBatchProgress(
 
     // 2. Handle MERGED PR (distinguishing confirmed coordinator merge vs unverified manual merge).
     if (pr.state === 'MERGED') {
-      const pendingMerge = state.pendingOperation?.type === 'merge' && state.pendingOperation.prNumber === entry.prNumber
-        ? state.pendingOperation
-        : null;
+      const pendingMerge =
+        state.pendingOperation?.type === 'merge' && state.pendingOperation.prNumber === entry.prNumber
+          ? state.pendingOperation
+          : null;
       const mergeCommitSha = pr.mergeCommit?.oid?.toLowerCase();
 
       if (
@@ -1479,7 +1911,6 @@ async function driveBatchProgress(
         continue;
       }
 
-      // External / unverified manual merge must NEVER be mistaken for verified batch completion.
       const stopped = await stopBatchState(
         client,
         owner,
@@ -1494,10 +1925,10 @@ async function driveBatchProgress(
 
     // 3. Handle in-flight branch update (`status === 'updating'`).
     if (state.status === 'updating') {
-      const pendingUpdate = state.pendingOperation?.type === 'update-branch'
-        && state.pendingOperation.prNumber === entry.prNumber
-        ? state.pendingOperation
-        : null;
+      const pendingUpdate =
+        state.pendingOperation?.type === 'update-branch' && state.pendingOperation.prNumber === entry.prNumber
+          ? state.pendingOperation
+          : null;
 
       if (!pendingUpdate) {
         const stopped = await stopBatchState(
@@ -1533,7 +1964,7 @@ async function driveBatchProgress(
         };
       }
 
-      // New commit landed on PR branch — verify integration provenance before trusting it!
+      // New commit landed on PR branch — conclusively verify mechanical integration provenance!
       const provenance = await verifyIntegrationUpdateProvenance(client, {
         owner,
         repo,
@@ -1559,6 +1990,18 @@ async function driveBatchProgress(
         return { action: 'stopped', state: stopped, message: stopped.stopReason! };
       }
 
+      // Hold immediately on overlapping files before waiting on CI to fail fast for Independent Review!
+      if (provenance.record.overlappingFiles.length > 0 && state.integrationPolicy === 'integration-only') {
+        const holdReason = `PR #${entry.prNumber}@${pr.headRefOid.slice(0, 12)} merged overlapping file(s) also changed on main (${provenance.record.overlappingFiles.join(', ')}); under §2C bounded integration-only policy, overlapping file merges require fresh Independent Review.`;
+        const nextAction = `Independent Review must inspect overlapping file integration on PR #${entry.prNumber}@${pr.headRefOid.slice(0, 12)} before merge.`;
+        const held = await holdBatchState(client, owner, repo, state, holdReason, nextAction, now, {
+          activeHeadSha: pr.headRefOid.toLowerCase(),
+          observedMainSha: currentMainSha,
+          integrationUpdates: [...state.integrationUpdates, provenance.record],
+        });
+        return { action: 'held', state: held, message: holdReason };
+      }
+
       const guard = await checkConcurrentStateGuard(client, owner, repo, state.batchId, state.revision);
       if (!guard.ok) {
         return { action: 'ignored', state: guard.latest, message: guard.reason! };
@@ -1578,18 +2021,17 @@ async function driveBatchProgress(
       };
       await client.saveBatchState(owner, repo, awaitingState);
       state = awaitingState;
-      // Continue loop to evaluate checks immediately (in case checks already reported/completed).
       continue;
     }
 
     // 4. Handle interrupted `merging` state when PR is still OPEN.
     if (state.status === 'merging') {
-      const pendingMerge = state.pendingOperation?.type === 'merge' && state.pendingOperation.prNumber === entry.prNumber
-        ? state.pendingOperation
-        : null;
+      const pendingMerge =
+        state.pendingOperation?.type === 'merge' && state.pendingOperation.prNumber === entry.prNumber
+          ? state.pendingOperation
+          : null;
 
       if (pendingMerge && pr.headRefOid.toLowerCase() === pendingMerge.expectedHeadSha.toLowerCase()) {
-        // Check if main moved concurrently while our merge response was lost (meaning GitHub rejected merge as BEHIND).
         const comparison = await client.compareCommits(owner, repo, currentMainSha, pr.headRefOid);
         const nowBehind = pr.mergeStateStatus === 'BEHIND' || comparison.behindBy > 0;
         if (!nowBehind) {
@@ -1604,7 +2046,6 @@ async function driveBatchProgress(
           );
           return { action: 'stopped', state: stopped, message: stopped.stopReason! };
         }
-        // Main advanced concurrently while merge was rejected -> clear pendingOperation and transition to running so behind-branch policy applies.
         const guard = await checkConcurrentStateGuard(client, owner, repo, state.batchId, state.revision);
         if (!guard.ok) {
           return { action: 'ignored', state: guard.latest, message: guard.reason! };
@@ -1650,7 +2091,7 @@ async function driveBatchProgress(
       return { action: 'stopped', state: stopped, message: stopped.stopReason! };
     }
 
-    // 6. Validate merge method and non-check structural/review eligibility before any mutation.
+    // 6. Validate merge method and non-check structural/independent-review eligibility before any mutation.
     const methodCheck = validateMergeMethod(state.mergeMethod, policy);
     if (!methodCheck.ok) {
       const stopped = await stopBatchState(client, owner, repo, state, methodCheck.reason!, now, {
@@ -1659,23 +2100,17 @@ async function driveBatchProgress(
       return { action: 'stopped', state: stopped, message: stopped.stopReason! };
     }
 
-    const structuralCheck = evaluatePullRequestPreflight(
-      pr,
-      entry,
-      `${owner}/${repo}`,
-      requiredChecks,
-      {
-        policy,
-        observedBaseSha: currentMainSha,
-        expectedHeadOverride: trackedHeadSha,
-        allowPendingChecks: state.status === 'awaiting_checks',
-        now,
-      },
-    );
+    const structuralCheck = evaluatePullRequestPreflight(pr, entry, `${owner}/${repo}`, requiredChecks, {
+      policy,
+      observedBaseSha: currentMainSha,
+      expectedHeadOverride: trackedHeadSha,
+      allowPendingChecks: state.status === 'awaiting_checks',
+      trustedReviewers,
+      now,
+    });
 
-    // Separate structural/review failures from check failures during awaiting_checks.
     const nonCheckReasons = structuralCheck.reasons.filter(
-      (r) => !(structuralCheck.verification?.reasons.includes(r)),
+      (r) => !structuralCheck.verification?.reasons.includes(r),
     );
     if (nonCheckReasons.length > 0) {
       const stopped = await stopBatchState(
@@ -1685,7 +2120,11 @@ async function driveBatchProgress(
         state,
         `PR #${entry.prNumber} failed eligibility recheck: ${nonCheckReasons.join(' ')}`,
         now,
-        { observedMainSha: currentMainSha, lastVerification: structuralCheck.verification },
+        {
+          observedMainSha: currentMainSha,
+          lastVerification: structuralCheck.verification,
+          lastReviewEvidence: structuralCheck.reviewEvidence ?? null,
+        },
       );
       return {
         action: 'stopped',
@@ -1711,12 +2150,15 @@ async function driveBatchProgress(
           holdReason,
           `Review PR #${entry.prNumber} against main@${currentMainSha.slice(0, 12)}, then abort and restart batch when ready.`,
           now,
-          { observedMainSha: currentMainSha, lastVerification: structuralCheck.verification },
+          {
+            observedMainSha: currentMainSha,
+            lastVerification: structuralCheck.verification,
+            lastReviewEvidence: structuralCheck.reviewEvidence ?? null,
+          },
         );
         return { action: 'held', state: held, message: holdReason, preflightResult: structuralCheck };
       }
 
-      // If PR is behind and we haven't updated yet, ensure its reviewed checks weren't already failing!
       if (state.status !== 'awaiting_checks' && structuralCheck.verification?.verdict === 'failed') {
         const stopped = await stopBatchState(
           client,
@@ -1730,7 +2172,6 @@ async function driveBatchProgress(
         return { action: 'stopped', state: stopped, message: stopped.stopReason!, preflightResult: structuralCheck };
       }
 
-      // Write-ahead state before calling update-branch.
       const guardBeforeWrite = await checkConcurrentStateGuard(client, owner, repo, state.batchId, state.revision);
       if (!guardBeforeWrite.ok) {
         return { action: 'ignored', state: guardBeforeWrite.latest, message: guardBeforeWrite.reason! };
@@ -1752,11 +2193,11 @@ async function driveBatchProgress(
           startedAt: updateStartedAt,
         },
         lastVerification: structuralCheck.verification,
+        lastReviewEvidence: structuralCheck.reviewEvidence ?? null,
         nextAction: `Updating behind PR #${entry.prNumber}@${trackedHeadSha.slice(0, 12)} against main@${currentMainSha.slice(0, 12)}.`,
       };
       await client.saveBatchState(owner, repo, updatingState);
 
-      // Re-read state immediately before invoking update-branch to block concurrent abort races.
       const guardBeforeApi = await checkConcurrentStateGuard(client, owner, repo, state.batchId, pendingRevision);
       if (!guardBeforeApi.ok) {
         return { action: 'ignored', state: guardBeforeApi.latest, message: guardBeforeApi.reason! };
@@ -1766,7 +2207,6 @@ async function driveBatchProgress(
         await client.updatePullRequestBranch(owner, repo, entry.prNumber, trackedHeadSha);
       } catch (err) {
         const reason = err instanceof Error ? err.message : String(err);
-        // Reconcile against live PR in case update succeeded remotely before timeout/network drop.
         let recheckPr: PullRequestSnapshot | null = null;
         try {
           recheckPr = await client.getPullRequest(owner, repo, entry.prNumber);
@@ -1775,7 +2215,6 @@ async function driveBatchProgress(
         }
 
         if (recheckPr && recheckPr.state === 'OPEN' && recheckPr.headRefOid.toLowerCase() !== trackedHeadSha) {
-          // Update landed remotely despite client error — loop back into `updating` provenance verification!
           state = updatingState;
           continue;
         }
@@ -1795,11 +2234,10 @@ async function driveBatchProgress(
         return {
           action: 'updating',
           state: updatingState,
-          message: `Branch update response for PR #${entry.prNumber} was indeterminate (${reason}). Write-ahead status=updating preserved; reconcile/synchronize will recover without duplicate update.`,
+          message: `Branch update response for PR #${entry.prNumber} was indeterminate (${reason}). Write-ahead status=updating preserved; synchronize/reconcile will recover without duplicate update.`,
         };
       }
 
-      // Update accepted (202): check if new commit is already visible on PR branch.
       const afterPr = await client.getPullRequest(owner, repo, entry.prNumber);
       if (afterPr && afterPr.state === 'OPEN' && afterPr.headRefOid.toLowerCase() !== trackedHeadSha) {
         state = updatingState;
@@ -1819,9 +2257,7 @@ async function driveBatchProgress(
       ? Date.parse(now()) - Date.parse(state.awaitingChecksSince)
       : 0;
     const withinStartupGrace =
-      state.status === 'awaiting_checks' &&
-      !Number.isNaN(elapsedWaitMs) &&
-      elapsedWaitMs < checkStartupGraceMs;
+      state.status === 'awaiting_checks' && !Number.isNaN(elapsedWaitMs) && elapsedWaitMs < checkStartupGraceMs;
 
     const verification = evaluateCheckVerification({
       pr,
@@ -1897,7 +2333,7 @@ async function driveBatchProgress(
       return { action: 'stopped', state: stopped, message: stopped.stopReason! };
     }
 
-    // 9. All checks PASSED on current main! Enforce §2C exact-HEAD & integration-only policy.
+    // 9. All fresh checks PASSED on current main! Enforce §2C integration policy & provenance invariants.
     const viaIntegrationUpdate = trackedHeadSha !== entry.expectedHeadSha.toLowerCase();
     if (viaIntegrationUpdate) {
       const updateRecords = state.integrationUpdates.filter((u) => u.prNumber === entry.prNumber);
@@ -1916,37 +2352,27 @@ async function driveBatchProgress(
         return { action: 'stopped', state: stopped, message: stopped.stopReason! };
       }
 
-      if (state.integrationPolicy !== 'integration-only' || !allowIntegrationOnlyPolicy) {
-        const holdReason = `PR #${entry.prNumber} was cleanly updated from reviewed SHA ${entry.expectedHeadSha.slice(0, 12)} to integration SHA ${trackedHeadSha.slice(0, 12)} (merging main@${latestUpdate.mergedBaseSha.slice(0, 12)}) and passed ordinary PR CI, but default §2C exact-HEAD policy holds before merging any new HEAD SHA.`;
+      if (state.integrationPolicy === 'hold-on-update') {
+        const holdReason = `PR #${entry.prNumber} was cleanly updated from reviewed SHA ${entry.expectedHeadSha.slice(0, 12)} to integration SHA ${trackedHeadSha.slice(0, 12)} (merging main@${latestUpdate.mergedBaseSha.slice(0, 12)}) and passed ordinary PR CI; holding because batch was started with hold-on-update policy.`;
         const nextAction = `Independent Review and Aaron: inspect PR #${entry.prNumber}@${trackedHeadSha.slice(0, 12)}, merge or re-authorize remaining entries with updated SHA, or abort this held batch.`;
-        const held = await holdBatchState(
-          client,
-          owner,
-          repo,
-          state,
-          holdReason,
-          nextAction,
-          now,
-          { observedMainSha: currentMainSha, lastVerification: verification },
-        );
+        const held = await holdBatchState(client, owner, repo, state, holdReason, nextAction, now, {
+          observedMainSha: currentMainSha,
+          lastVerification: verification,
+          lastReviewEvidence: structuralCheck.reviewEvidence ?? null,
+        });
         return { action: 'held', state: held, message: holdReason };
       }
 
       const overlapping = updateRecords.flatMap((u) => u.overlappingFiles);
       if (overlapping.length > 0) {
         const uniqueOverlapping = [...new Set(overlapping)].sort();
-        const holdReason = `PR #${entry.prNumber}@${trackedHeadSha.slice(0, 12)} modified file(s) also changed on main (${uniqueOverlapping.join(', ')}); even under integration-only policy, overlapping file merges require fresh independent review.`;
+        const holdReason = `PR #${entry.prNumber}@${trackedHeadSha.slice(0, 12)} modified file(s) also changed on main (${uniqueOverlapping.join(', ')}); under §2C bounded integration-only policy, overlapping file merges require fresh Independent Review.`;
         const nextAction = `Independent Review must review overlapping file integration on PR #${entry.prNumber}@${trackedHeadSha.slice(0, 12)} before merge.`;
-        const held = await holdBatchState(
-          client,
-          owner,
-          repo,
-          state,
-          holdReason,
-          nextAction,
-          now,
-          { observedMainSha: currentMainSha, lastVerification: verification },
-        );
+        const held = await holdBatchState(client, owner, repo, state, holdReason, nextAction, now, {
+          observedMainSha: currentMainSha,
+          lastVerification: verification,
+          lastReviewEvidence: structuralCheck.reviewEvidence ?? null,
+        });
         return { action: 'held', state: held, message: holdReason };
       }
     }
@@ -1974,11 +2400,11 @@ async function driveBatchProgress(
       },
       awaitingChecksSince: null,
       lastVerification: verification,
+      lastReviewEvidence: structuralCheck.reviewEvidence ?? null,
       nextAction: `Executing protected direct ${state.mergeMethod} merge of PR #${entry.prNumber}@${trackedHeadSha.slice(0, 12)} into main@${currentMainSha.slice(0, 12)}.`,
     };
     await client.saveBatchState(owner, repo, mergingState);
 
-    // Re-read immediately before calling PUT /pulls/{n}/merge to block concurrent abort races.
     const guardBeforeMerge = await checkConcurrentStateGuard(client, owner, repo, state.batchId, pendingRevision);
     if (!guardBeforeMerge.ok) {
       return { action: 'ignored', state: guardBeforeMerge.latest, message: guardBeforeMerge.reason! };
@@ -1986,13 +2412,7 @@ async function driveBatchProgress(
 
     let mergeResult: { sha: string; merged: boolean; message: string };
     try {
-      mergeResult = await client.mergePullRequest(
-        owner,
-        repo,
-        entry.prNumber,
-        trackedHeadSha,
-        state.mergeMethod,
-      );
+      mergeResult = await client.mergePullRequest(owner, repo, entry.prNumber, trackedHeadSha, state.mergeMethod);
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       let recheckPr: PullRequestSnapshot | null = null;
@@ -2011,7 +2431,6 @@ async function driveBatchProgress(
         recheckPr.headRefOid.toLowerCase() === trackedHeadSha &&
         recheckPr.mergeCommit?.oid
       ) {
-        // Merge actually succeeded remotely before connection dropped!
         state = mergingState;
         continue;
       }
@@ -2020,11 +2439,9 @@ async function driveBatchProgress(
         recheckPr?.state === 'OPEN' &&
         recheckPr.headRefOid.toLowerCase() === trackedHeadSha &&
         recheckMainSha &&
-        (recheckMainSha.toLowerCase() !== currentMainSha.toLowerCase() ||
-          recheckPr.mergeStateStatus === 'BEHIND') &&
+        (recheckMainSha.toLowerCase() !== currentMainSha.toLowerCase() || recheckPr.mergeStateStatus === 'BEHIND') &&
         isBaseModifiedOrBehindError(err)
       ) {
-        // Concurrent manual merge advanced main right before our merge call -> transition cleanly to behind-branch path.
         const recoveredRunning: BatchState = {
           ...mergingState,
           revision: mergingState.revision + 1,
@@ -2169,11 +2586,12 @@ export async function startBatch(
     dryRun = false,
     mergeMethod: rawMergeMethod = DEFAULT_MERGE_METHOD,
     integrationPolicy = DEFAULT_INTEGRATION_POLICY,
-    allowIntegrationOnlyPolicy = false,
     workflowRunId,
     workflowRunUrl,
     requiredChecks = DEFAULT_REQUIRED_CHECKS,
     authorizedOwners = DEFAULT_AUTHORIZED_OWNERS,
+    trustedReviewers = DEFAULT_TRUSTED_REVIEWERS,
+    requireWorkflowApprovalRecord = false,
     maxIntegrationUpdatesPerPr = DEFAULT_MAX_INTEGRATION_UPDATES_PER_PR,
     checkTimeoutMs = DEFAULT_CHECK_TIMEOUT_MS,
     checkStartupGraceMs = DEFAULT_CHECK_STARTUP_GRACE_MS,
@@ -2181,19 +2599,17 @@ export async function startBatch(
     now = () => new Date().toISOString(),
   } = options;
 
-  if (integrationPolicy === 'integration-only' && !allowIntegrationOnlyPolicy) {
-    return {
-      ok: false,
-      dryRun,
-      action: 'stopped',
-      preflightResults: [],
-      error:
-        'Integration-only auto-merge policy is disabled by default under AI Development Protocol §2C and cannot be activated without explicit owner governance approval.',
-    };
-  }
-
   let approvedBy: string | undefined;
   if (!dryRun) {
+    if (requireWorkflowApprovalRecord && !workflowRunId) {
+      return {
+        ok: false,
+        dryRun: false,
+        action: 'stopped',
+        preflightResults: [],
+        error: 'Authorization failed (fail-closed): missing GITHUB_RUN_ID for owner environment approval verification.',
+      };
+    }
     const auth = await verifyOwnerAuthorization(client, {
       owner,
       repo,
@@ -2230,6 +2646,8 @@ export async function startBatch(
 
   const preflight = await runPreflight(client, owner, repo, entries, requiredChecks, {
     mergeMethod: rawMergeMethod,
+    requireVerifiedProtection: !dryRun,
+    trustedReviewers,
     now,
   });
 
@@ -2240,6 +2658,7 @@ export async function startBatch(
       action: 'stopped',
       preflightResults: preflight.results,
       error: preflight.policyError,
+      protectionNotice: preflight.protectionNotice,
     };
   }
 
@@ -2250,6 +2669,7 @@ export async function startBatch(
       action: 'stopped',
       preflightResults: preflight.results,
       error: 'Preflight failed for one or more entries. No PRs were updated or merged.',
+      protectionNotice: preflight.protectionNotice,
     };
   }
 
@@ -2259,7 +2679,8 @@ export async function startBatch(
       dryRun: true,
       action: 'dry-run',
       preflightResults: preflight.results,
-      message: `Dry-run passed for ${entries.length} PR(s) against main@${preflight.observedMainSha.slice(0, 12)}. Zero writes were performed.`,
+      protectionNotice: preflight.protectionNotice,
+      message: `Dry-run passed for ${entries.length} PR(s) against main@${preflight.observedMainSha.slice(0, 12)} (policy: ${integrationPolicy}). Zero writes were performed.${preflight.protectionNotice ? ` Note: ${preflight.protectionNotice}` : ''}`,
     };
   }
 
@@ -2267,7 +2688,7 @@ export async function startBatch(
   const firstEntry = entries[0];
   const createdAt = now();
   const initialRevision = (existingState?.revision ?? 0) + 1;
-  const authorizationDigest = computeAuthorizationDigest({
+  const stateChecksum = computeStateChecksum({
     owner,
     repo,
     entries,
@@ -2279,7 +2700,7 @@ export async function startBatch(
     version: 2,
     revision: initialRevision,
     batchId: `batch-${createdAt.replace(/[:.]/g, '-')}`,
-    authorizationDigest,
+    stateChecksum,
     status: 'running',
     createdAt,
     updatedAt: createdAt,
@@ -2299,6 +2720,7 @@ export async function startBatch(
     awaitingChecksSince: null,
     integrationUpdates: [],
     lastVerification: preflight.results[0]?.verification ?? null,
+    lastReviewEvidence: preflight.results[0]?.reviewEvidence ?? null,
     completedPrNumbers: [],
     completedMerges: [],
     nextAction: `Evaluate PR #${firstEntry.prNumber}@${firstEntry.expectedHeadSha.slice(0, 12)} against main@${preflight.observedMainSha.slice(0, 12)}.`,
@@ -2311,7 +2733,8 @@ export async function startBatch(
     repo,
     requiredChecks,
     authorizedOwners,
-    allowIntegrationOnlyPolicy,
+    trustedReviewers,
+    requireWorkflowApprovalRecord,
     maxIntegrationUpdatesPerPr,
     checkTimeoutMs,
     checkStartupGraceMs,
@@ -2340,7 +2763,7 @@ export async function startBatch(
 }
 
 /**
- * Handles `pull_request: closed` events for the active batch.
+ * Handles `pull_request_target: closed` events for the active batch.
  * Duplicate events for already-completed PRs are ignored cleanly.
  * Unrelated manual merges into main trigger reconciliation for the active PR.
  */
@@ -2382,7 +2805,6 @@ export async function handlePullRequestClosed(
 
   if (state.activePrNumber !== prNumber) {
     if (merged) {
-      // Concurrent manual merge of an unrelated PR advanced main -> reconcile active PR cleanly.
       return driveBatchProgress(client, state, { ...options, fromReconcile: true });
     }
     return {
@@ -2396,7 +2818,8 @@ export async function handlePullRequestClosed(
 }
 
 /**
- * Handles `pull_request: synchronize` events (e.g., after update-branch or unexpected push).
+ * Handles `pull_request_target: synchronize` events (treated purely as a wakeup;
+ * re-reads live PR, commits, provenance, checks, and reviews from GitHub API).
  */
 export async function handlePullRequestSynchronize(
   client: GitHubBatchClient,
@@ -2429,7 +2852,9 @@ export async function handlePullRequestSynchronize(
 }
 
 /**
- * Handles `check_suite: completed` (or workflow completion) events while awaiting ordinary PR CI.
+ * Handles `workflow_run: completed` wakeups from ordinary PR CI workflows.
+ * Never trusts workflow_run payloads or artifacts; treats the event strictly as a
+ * wakeup signal and re-reads live PR, main, checks, reviews, and protection from GitHub API.
  */
 export async function handleChecksCompleted(
   client: GitHubBatchClient,
@@ -2459,7 +2884,7 @@ export async function handleChecksCompleted(
     return {
       action: 'ignored',
       state,
-      message: `Check completion for ${headSha.slice(0, 12)} does not match active PR #${state.activePrNumber} HEAD ${state.activeHeadSha.slice(0, 12)}.`,
+      message: `Workflow completion wakeup for ${headSha.slice(0, 12)} does not match active PR #${state.activePrNumber} HEAD ${state.activeHeadSha.slice(0, 12)}.`,
     };
   }
 
@@ -2695,7 +3120,6 @@ export async function abortBatch(
     };
   }
 
-  // Handle unresolved legacy v1 batch safely.
   if (isLegacyBatchState(state)) {
     const abortIntent: LegacyBatchStateV1 = {
       ...state,
@@ -2743,7 +3167,6 @@ export async function abortBatch(
     };
   }
 
-  // Persist abort intent immediately so any concurrent writer halts before calling GitHub mutation APIs.
   const previousStage = state.status;
   const abortIntentState: BatchState = {
     ...state,
@@ -2755,7 +3178,6 @@ export async function abortBatch(
   };
   await client.saveBatchState(owner, repo, abortIntentState);
 
-  // Check if an in-flight merge actually landed right as abort arrived so we report completed merges accurately!
   const completedPrNumbers = [...abortIntentState.completedPrNumbers];
   const completedMerges = [...abortIntentState.completedMerges];
   if (
@@ -2765,11 +3187,7 @@ export async function abortBatch(
   ) {
     try {
       const activePr = await client.getPullRequest(owner, repo, abortIntentState.activePrNumber);
-      if (
-        activePr?.state === 'MERGED' &&
-        activePr.mergeCommit?.oid &&
-        !completedPrNumbers.includes(activePr.number)
-      ) {
+      if (activePr?.state === 'MERGED' && activePr.mergeCommit?.oid && !completedPrNumbers.includes(activePr.number)) {
         const entry = abortIntentState.entries.find((e) => e.prNumber === activePr.number);
         completedPrNumbers.push(activePr.number);
         completedMerges.push({
@@ -2830,18 +3248,21 @@ export function formatSummaryMarkdown(options: {
 
   if (options.preflightResults && options.preflightResults.length > 0) {
     lines.push('### Preflight Results', '');
-    lines.push('| PR | Reviewed SHA | Status | Behind `main` | Details |');
-    lines.push('| --- | --- | --- | --- | --- |');
+    lines.push('| PR | Reviewed SHA | Independent Review | Status | Behind `main` | Details |');
+    lines.push('| --- | --- | --- | --- | --- | --- |');
     for (const res of options.preflightResults) {
       const status = res.ok ? 'PASS' : 'FAIL';
-      const behind = res.behindMain ? 'Yes (update required)' : 'No (current)';
+      const reviewCol = res.reviewEvidence
+        ? `${res.reviewEvidence.source} (${res.reviewEvidence.reviewer})`
+        : 'Missing / Blocked';
+      const behind = res.behindMain ? 'Yes (auto-update when active)' : 'No (current)';
       const details = res.ok
         ? res.behindMain
-          ? 'Eligible; will update branch when active'
+          ? 'Eligible; will update branch & await ordinary PR CI when active'
           : 'Eligible for direct protected merge without branch update'
         : res.reasons.join('; ');
       lines.push(
-        `| #${res.entry.prNumber} | \`${res.entry.expectedHeadSha.slice(0, 12)}\` | ${status} | ${behind} | ${details} |`,
+        `| #${res.entry.prNumber} | \`${res.entry.expectedHeadSha.slice(0, 12)}\` | ${reviewCol} | ${status} | ${behind} | ${details} |`,
       );
     }
     lines.push('');
@@ -2856,7 +3277,7 @@ export function formatSummaryMarkdown(options: {
     lines.push(`- **Authorized by:** ${s.authorizedBy}`);
     if (!isLegacyBatchState(s)) {
       if (s.approvedBy) {
-        lines.push(`- **Environment approved by:** ${s.approvedBy}`);
+        lines.push(`- **Environment approved by:** ${s.approvedBy} (run \`${s.workflowRunId ?? 'local'}\`)`);
       }
       lines.push(`- **Merge method:** \`${s.mergeMethod}\``);
       lines.push(`- **Integration policy:** \`${s.integrationPolicy}\``);
@@ -2866,15 +3287,18 @@ export function formatSummaryMarkdown(options: {
       lines.push(
         `- **Active PR:** ${s.activePrNumber ? `#${s.activePrNumber} (reviewed \`${s.activeReviewedHeadSha?.slice(0, 12)}\`, current \`${s.activeHeadSha?.slice(0, 12)}\`)` : 'None'}`,
       );
-      lines.push(
-        `- **Completed merges:** ${formatCompletedSummary(s.completedMerges, s.completedPrNumbers)}`,
-      );
+      lines.push(`- **Completed merges:** ${formatCompletedSummary(s.completedMerges, s.completedPrNumbers)}`);
+      if (s.lastReviewEvidence) {
+        lines.push(
+          `- **Verified Independent Review:** \`${s.lastReviewEvidence.source}\` by ${s.lastReviewEvidence.reviewer} on \`${s.lastReviewEvidence.reviewedHeadSha.slice(0, 12)}\``,
+        );
+      }
       if (s.integrationUpdates.length > 0) {
         lines.push(
           `- **Integration updates:** ${s.integrationUpdates
             .map(
               (u) =>
-                `#${u.prNumber} (\`${u.fromHeadSha.slice(0, 12)}\` -> \`${u.toHeadSha.slice(0, 12)}\` + \`main@${u.mergedBaseSha.slice(0, 12)}\`${u.overlappingFiles.length > 0 ? `, overlapping: ${u.overlappingFiles.join(', ')}` : ''})`,
+                `#${u.prNumber} (\`${u.fromHeadSha.slice(0, 12)}\` -> \`${u.toHeadSha.slice(0, 12)}\` + \`main@${u.mergedBaseSha.slice(0, 12)}\`${u.overlappingFiles.length > 0 ? `, overlapping: ${u.overlappingFiles.join(', ')}` : ', disjoint'})`,
             )
             .join('; ')}`,
         );

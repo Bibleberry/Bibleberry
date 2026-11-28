@@ -1,6 +1,8 @@
 import { appendFileSync } from 'node:fs';
 import {
   abortBatch,
+  COMPARE_FILES_TRUNCATION_LIMIT,
+  DEFAULT_INTEGRATION_POLICY,
   DEFAULT_MERGE_METHOD,
   formatSummaryMarkdown,
   handleChecksCompleted,
@@ -14,6 +16,8 @@ import {
   type CommitComparison,
   type CommitDetails,
   type GitHubBatchClient,
+  type IntegrationPolicy,
+  type PullRequestCommentNode,
   type PullRequestSnapshot,
   type RepositoryPolicy,
   type StatusContextNode,
@@ -22,6 +26,7 @@ import {
 
 const STATE_VARIABLE_NAME = 'MERGE_QUEUE_BATCH_STATE';
 const GITHUB_API_BASE = 'https://api.github.com';
+const MAX_COMMENT_PAGES = 10;
 
 const PR_SNAPSHOT_QUERY = `
 query DirectBatchPullRequest($owner: String!, $repo: String!, $prNumber: Int!) {
@@ -128,7 +133,7 @@ interface RawGraphQLContextNode extends StatusContextNode {
   } | null;
 }
 
-interface RawGraphQLPullRequest extends Omit<PullRequestSnapshot, 'statusCheckRollup'> {
+interface RawGraphQLPullRequest extends Omit<PullRequestSnapshot, 'statusCheckRollup' | 'issueComments'> {
   statusCheckRollup: {
     state: string;
     contexts: {
@@ -142,6 +147,14 @@ interface WorkflowRunApproval {
   environments?: Array<{ name?: string }>;
   state?: string;
   user?: { login?: string };
+}
+
+interface RestIssueComment {
+  id: number;
+  body?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  user?: { login?: string } | null;
 }
 
 export function createGitHubClient(token: string, readToken?: string): GitHubBatchClient {
@@ -202,6 +215,40 @@ export function createGitHubClient(token: string, readToken?: string): GitHubBat
     return (await response.json()) as T;
   }
 
+  async function fetchAllIssueComments(
+    owner: string,
+    repo: string,
+    prNumber: number,
+  ): Promise<{ pageInfo: { hasNextPage: boolean }; nodes: PullRequestCommentNode[] }> {
+    const nodes: PullRequestCommentNode[] = [];
+    let hasNextPage = false;
+
+    for (let page = 1; page <= MAX_COMMENT_PAGES; page += 1) {
+      const batch = await restJson<RestIssueComment[]>(
+        'GET',
+        `/repos/${owner}/${repo}/issues/${prNumber}/comments?per_page=100&page=${page}`,
+      );
+      for (const c of batch) {
+        nodes.push({
+          id: String(c.id),
+          author: c.user?.login ? { login: c.user.login } : null,
+          body: c.body ?? '',
+          createdAt: c.created_at ?? null,
+          updatedAt: c.updated_at ?? null,
+        });
+      }
+      if (batch.length < 100) {
+        hasNextPage = false;
+        break;
+      }
+      if (page === MAX_COMMENT_PAGES) {
+        hasNextPage = true;
+      }
+    }
+
+    return { pageInfo: { hasNextPage }, nodes };
+  }
+
   return {
     async getPullRequest(owner, repo, prNumber): Promise<PullRequestSnapshot | null> {
       const data = await graphql<{
@@ -210,8 +257,11 @@ export function createGitHubClient(token: string, readToken?: string): GitHubBat
       const raw = data.repository?.pullRequest;
       if (!raw) return null;
 
+      const issueComments = await fetchAllIssueComments(owner, repo, prNumber);
+
       return {
         ...raw,
+        issueComments,
         statusCheckRollup: raw.statusCheckRollup
           ? {
               state: raw.statusCheckRollup.state,
@@ -282,9 +332,16 @@ export function createGitHubClient(token: string, readToken?: string): GitHubBat
           required_pull_request_reviews?: {
             required_approving_review_count?: number;
             dismiss_stale_reviews?: boolean;
+            bypass_pull_request_allowances?: {
+              users?: Array<{ login?: string }>;
+              teams?: Array<{ slug?: string }>;
+              apps?: Array<{ slug?: string }>;
+            };
           };
           required_conversation_resolution?: { enabled?: boolean };
           enforce_admins?: { enabled?: boolean };
+          allow_force_pushes?: { enabled?: boolean };
+          allow_deletions?: { enabled?: boolean };
         };
         const contexts = new Set<string>();
         for (const c of prot.required_status_checks?.contexts ?? []) {
@@ -293,14 +350,26 @@ export function createGitHubClient(token: string, readToken?: string): GitHubBat
         for (const c of prot.required_status_checks?.checks ?? []) {
           if (c.context) contexts.add(c.context);
         }
+
+        const bypass = prot.required_pull_request_reviews?.bypass_pull_request_allowances;
+        const bypassTargets: string[] = [
+          ...(bypass?.users ?? []).map((u) => `user:${u.login ?? 'unknown'}`),
+          ...(bypass?.teams ?? []).map((t) => `team:${t.slug ?? 'unknown'}`),
+          ...(bypass?.apps ?? []).map((a) => `app:${a.slug ?? 'unknown'}`),
+        ];
+
         policy.protectionAccessible = true;
-        policy.strictStatusChecks = prot.required_status_checks?.strict;
+        policy.strictStatusChecks = prot.required_status_checks?.strict === true;
         policy.requiredStatusChecks = [...contexts];
         policy.requiredApprovingReviewCount =
           prot.required_pull_request_reviews?.required_approving_review_count ?? 0;
         policy.dismissStaleReviews = prot.required_pull_request_reviews?.dismiss_stale_reviews ?? false;
-        policy.requiredConversationResolution = prot.required_conversation_resolution?.enabled ?? false;
-        policy.enforceAdmins = prot.enforce_admins?.enabled ?? false;
+        policy.requiredConversationResolution = prot.required_conversation_resolution?.enabled === true;
+        policy.enforceAdmins = prot.enforce_admins?.enabled === true;
+        policy.allowForcePushes = prot.allow_force_pushes?.enabled ?? true;
+        policy.allowDeletions = prot.allow_deletions?.enabled ?? true;
+        policy.hasBypassAllowances = bypassTargets.length > 0;
+        policy.bypassAllowanceTargets = bypassTargets;
       }
 
       return policy;
@@ -339,18 +408,21 @@ export function createGitHubClient(token: string, readToken?: string): GitHubBat
         }>;
       }>('GET', `/repos/${owner}/${repo}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`);
 
+      const files = (data.files ?? []).map((f) => ({
+        filename: f.filename,
+        status: f.status,
+        sha: f.sha,
+        previousFilename: f.previous_filename,
+      }));
+
       return {
         status: data.status,
         aheadBy: data.ahead_by,
         behindBy: data.behind_by,
         totalCommits: data.total_commits,
         mergeBaseSha: (data.merge_base_commit?.sha ?? '').toLowerCase(),
-        files: (data.files ?? []).map((f) => ({
-          filename: f.filename,
-          status: f.status,
-          sha: f.sha,
-          previousFilename: f.previous_filename,
-        })),
+        files,
+        filesTruncated: files.length >= COMPARE_FILES_TRUNCATION_LIMIT,
       };
     },
 
@@ -446,9 +518,7 @@ export function createGitHubClient(token: string, readToken?: string): GitHubBat
 
       const match = approvals.find((entry) => {
         const isApproved = entry.state === 'approved';
-        const hasEnv = Boolean(
-          entry.environments?.some((env) => env.name === environmentName),
-        );
+        const hasEnv = Boolean(entry.environments?.some((env) => env.name === environmentName));
         const login = entry.user?.login?.toLowerCase() ?? '';
         return isApproved && hasEnv && allowedLogins.has(login);
       });
@@ -518,15 +588,27 @@ function getToken(): string {
     process.env.GITHUB_TOKEN;
   if (!token) {
     throw new Error(
-      'Missing GitHub token. Configure the repository-scoped GitHub App (COPPER_TURNSTILE_APP_ID + COPPER_TURNSTILE_APP_PRIVATE_KEY), MERGE_QUEUE_TOKEN, GH_TOKEN, or GITHUB_TOKEN (for read-only preflight).',
+      'Missing GitHub token. Configure the repository-scoped GitHub App in the main-only copper-turnstile-runtime environment (COPPER_TURNSTILE_APP_CLIENT_ID + COPPER_TURNSTILE_APP_PRIVATE_KEY), or GH_TOKEN/GITHUB_TOKEN for read-only preflight.',
     );
   }
   return token;
 }
 
+function resolveIntegrationPolicy(raw: string | boolean | undefined): IntegrationPolicy {
+  const value = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
+  if (!value || value === 'integration-only') {
+    return DEFAULT_INTEGRATION_POLICY;
+  }
+  if (value === 'hold-on-update') {
+    return 'hold-on-update';
+  }
+  throw new Error(`Invalid integration policy "${value}". Expected "integration-only" or "hold-on-update".`);
+}
+
 async function main(): Promise<void> {
   const { command, flags } = parseCliArgs(process.argv.slice(2));
   const { owner, repo } = resolveRepo(flags);
+  const requireWorkflowApprovalRecord = process.env.GITHUB_ACTIONS === 'true';
 
   if (!command || flags.help) {
     console.log(
@@ -535,7 +617,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  // `status` can render directly from the Actions variable injected as BATCH_STATE_JSON without write credentials.
+  // `status` renders directly from BATCH_STATE_JSON (vars.MERGE_QUEUE_BATCH_STATE) with zero write credentials.
   if (command === 'status' && process.env.BATCH_STATE_JSON !== undefined) {
     const rawJson = process.env.BATCH_STATE_JSON.trim();
     const state = rawJson ? (JSON.parse(rawJson) as StoredBatchState) : null;
@@ -552,25 +634,29 @@ async function main(): Promise<void> {
   const client = createGitHubClient(getToken(), process.env.GITHUB_TOKEN);
 
   if (command === 'preflight') {
-    const rawEntries = typeof flags.entries === 'string' ? flags.entries : '';
+    const rawEntries =
+      (typeof flags.entries === 'string' ? flags.entries : undefined) ?? process.env.BATCH_ENTRIES ?? '';
     const mergeMethod =
-      typeof flags['merge-method'] === 'string' ? flags['merge-method'] : DEFAULT_MERGE_METHOD;
+      (typeof flags['merge-method'] === 'string' ? flags['merge-method'] : undefined) ??
+      process.env.MERGE_METHOD ??
+      DEFAULT_MERGE_METHOD;
     const entries = parseBatchEntries(rawEntries);
-    const { ok, results, observedMainSha, policyError } = await runPreflight(
+    const { ok, results, observedMainSha, policyError, protectionNotice } = await runPreflight(
       client,
       owner,
       repo,
       entries,
       undefined,
-      { mergeMethod },
+      { mergeMethod, requireVerifiedProtection: false },
     );
+    const baseMsg = ok
+      ? `All ${entries.length} PR(s) passed preflight against main@${observedMainSha.slice(0, 12)} (merge method: ${mergeMethod}). Zero writes were performed.`
+      : policyError ?? 'Preflight failed for one or more PRs. Zero writes were performed.';
     writeStepSummary(
       formatSummaryMarkdown({
         title: 'Copper Turnstile Preflight (Read-Only)',
         preflightResults: results,
-        message: ok
-          ? `All ${entries.length} PR(s) passed preflight against main@${observedMainSha.slice(0, 12)} (merge method: ${mergeMethod}). Zero writes were performed.`
-          : policyError ?? 'Preflight failed for one or more PRs. Zero writes were performed.',
+        message: protectionNotice ? `${baseMsg}\n\n> ${protectionNotice}` : baseMsg,
       }),
     );
     if (!ok) {
@@ -580,11 +666,17 @@ async function main(): Promise<void> {
   }
 
   if (command === 'start') {
-    const rawEntries = typeof flags.entries === 'string' ? flags.entries : '';
+    const rawEntries =
+      (typeof flags.entries === 'string' ? flags.entries : undefined) ?? process.env.BATCH_ENTRIES ?? '';
     const entries = parseBatchEntries(rawEntries);
     const dryRun = Boolean(flags['dry-run']);
     const mergeMethod =
-      typeof flags['merge-method'] === 'string' ? flags['merge-method'] : DEFAULT_MERGE_METHOD;
+      (typeof flags['merge-method'] === 'string' ? flags['merge-method'] : undefined) ??
+      process.env.MERGE_METHOD ??
+      DEFAULT_MERGE_METHOD;
+    const integrationPolicy = resolveIntegrationPolicy(
+      flags['integration-policy'] ?? process.env.INTEGRATION_POLICY,
+    );
     const actor =
       (typeof flags.actor === 'string' && flags.actor) ||
       process.env.GITHUB_ACTOR ||
@@ -595,7 +687,6 @@ async function main(): Promise<void> {
         ? `${process.env.GITHUB_SERVER_URL}/${owner}/${repo}/actions/runs/${workflowRunId}`
         : undefined;
 
-    // Default §2C policy: hold-on-update. Integration-only auto-merge is never activated here without explicit governance approval.
     const outcome = await startBatch(client, {
       owner,
       repo,
@@ -603,8 +694,8 @@ async function main(): Promise<void> {
       authorizedBy: actor,
       dryRun,
       mergeMethod,
-      integrationPolicy: 'hold-on-update',
-      allowIntegrationOnlyPolicy: false,
+      integrationPolicy,
+      requireWorkflowApprovalRecord,
       workflowRunId,
       workflowRunUrl,
     });
@@ -627,16 +718,17 @@ async function main(): Promise<void> {
   }
 
   if (command === 'advance') {
-    const prNumber = Number(flags.pr);
-    const merged = String(flags.merged) === 'true';
+    const prNumber = Number(flags.pr ?? process.env.EVENT_PR_NUMBER);
+    const merged = String(flags.merged ?? process.env.EVENT_PR_MERGED) === 'true';
     if (!Number.isInteger(prNumber) || prNumber <= 0) {
-      throw new Error('advance requires --pr <positive-integer>');
+      throw new Error('advance requires --pr <positive-integer> or EVENT_PR_NUMBER');
     }
     const outcome = await handlePullRequestClosed(client, {
       owner,
       repo,
       prNumber,
       merged,
+      requireWorkflowApprovalRecord,
     });
     writeStepSummary(
       formatSummaryMarkdown({
@@ -653,14 +745,15 @@ async function main(): Promise<void> {
   }
 
   if (command === 'sync') {
-    const prNumber = Number(flags.pr);
+    const prNumber = Number(flags.pr ?? process.env.EVENT_PR_NUMBER);
     if (!Number.isInteger(prNumber) || prNumber <= 0) {
-      throw new Error('sync requires --pr <positive-integer>');
+      throw new Error('sync requires --pr <positive-integer> or EVENT_PR_NUMBER');
     }
     const outcome = await handlePullRequestSynchronize(client, {
       owner,
       repo,
       prNumber,
+      requireWorkflowApprovalRecord,
     });
     writeStepSummary(
       formatSummaryMarkdown({
@@ -677,15 +770,18 @@ async function main(): Promise<void> {
   }
 
   if (command === 'checks') {
-    const headSha = typeof flags['head-sha'] === 'string' ? flags['head-sha'] : undefined;
+    const headSha =
+      (typeof flags['head-sha'] === 'string' ? flags['head-sha'] : undefined) ??
+      (process.env.EVENT_WORKFLOW_HEAD_SHA || undefined);
     const outcome = await handleChecksCompleted(client, {
       owner,
       repo,
       headSha,
+      requireWorkflowApprovalRecord,
     });
     writeStepSummary(
       formatSummaryMarkdown({
-        title: `Copper Turnstile Checks Completed (${outcome.action})`,
+        title: `Copper Turnstile CI Completion Wakeup (${outcome.action})`,
         preflightResults: outcome.preflightResult ? [outcome.preflightResult] : undefined,
         state: outcome.state,
         message: outcome.message,
@@ -706,6 +802,7 @@ async function main(): Promise<void> {
     const outcome = await reconcileBatch(client, {
       owner,
       repo,
+      requireWorkflowApprovalRecord,
       requireApproval: requireApproval
         ? { actor, workflowRunId: process.env.GITHUB_RUN_ID }
         : undefined,
@@ -741,7 +838,10 @@ async function main(): Promise<void> {
       (typeof flags.actor === 'string' && flags.actor) ||
       process.env.GITHUB_ACTOR ||
       'unknown';
-    const reason = typeof flags.reason === 'string' ? flags.reason : 'Aborted by operator';
+    const reason =
+      (typeof flags.reason === 'string' ? flags.reason : undefined) ??
+      process.env.ABORT_REASON ??
+      'Aborted by operator';
     const outcome = await abortBatch(client, {
       owner,
       repo,
