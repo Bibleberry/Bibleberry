@@ -20,6 +20,7 @@ export function ReaderNavigation({
         <button
           key={tab}
           type="button"
+          data-tutorial-target={`tab-${tab}`}
           aria-current={tab === activeTab ? 'page' : undefined}
           onClick={() => onSelectTab(tab)}
         >

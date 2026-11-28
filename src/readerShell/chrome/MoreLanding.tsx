@@ -13,6 +13,7 @@ interface MoreLandingProps {
   readonly onOpenAppearanceSettings?: () => void
   readonly onOpenAccountProgress?: () => void
   readonly onReplayIntroduction: () => void
+  readonly onReplayTutorial?: () => void
   readonly announcementPreferencesStore?: AnnouncementPreferencesStore
 }
 
@@ -44,6 +45,7 @@ export function MoreLanding({
   onOpenAppearanceSettings,
   onOpenAccountProgress,
   onReplayIntroduction,
+  onReplayTutorial,
   announcementPreferencesStore = defaultAnnouncementPreferencesStore,
 }: MoreLandingProps) {
   return (
@@ -86,8 +88,15 @@ export function MoreLanding({
           <button type="button" className="button button--secondary" onClick={onReplayIntroduction}>Review Introduction</button>
         </li>
         <li>
-          <strong>App Tutorial</strong>
-          <p>Unavailable in this reader.</p>
+          <button
+            type="button"
+            className="button button--secondary"
+            data-testid="more-app-tutorial-button"
+            onClick={onReplayTutorial}
+            disabled={!onReplayTutorial}
+          >
+            App Tutorial
+          </button>
         </li>
       </ul>
     </div>

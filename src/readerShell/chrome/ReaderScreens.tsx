@@ -251,6 +251,7 @@ function CurrentScreen({
             onOpenAppearanceSettings={() => send({ type: 'push', route: { kind: 'detail', screen: 'appearanceSettings' } })}
             onOpenAccountProgress={() => send({ type: 'push', route: { kind: 'detail', screen: 'accountProgress' } })}
             onReplayIntroduction={() => send({ type: 'openIntro' })}
+            onReplayTutorial={renderGuidedTutorial ? () => send({ type: 'openTutorial' }) : undefined}
           />
         )
     }

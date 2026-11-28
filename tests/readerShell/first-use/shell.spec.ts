@@ -215,34 +215,43 @@ test('G09 J1 ordinary fresh launch shows 3-screen Introduction with keyboard/a11
   await expect(stepHeading).toContainText('A quiet place tomeet with Scripture.')
   await expect(primaryNav(page)).toBeHidden()
 
-  // Walk through Step 1 -> Step 2 -> Step 3, choose a reminder time, and Finish -> Today (never Foundations)
+  // Walk through Step 1 -> Step 2 -> Step 3, choose a reminder time, and Finish -> Guided App Tutorial -> Today (never Foundations)
   await page.getByTestId('onboarding-continue-button').click()
   await page.getByTestId('onboarding-continue-button').click()
   await expect(liveRegion).toHaveText('Welcome step 3 of 3: Make room for a daily pause.')
   await page.getByLabel('Suggested reminder time').fill('07:15')
   await page.getByTestId('onboarding-finish-button').click()
 
-  await expect(page.getByRole('heading', { name: 'Today', exact: true })).toBeVisible()
+  await expect(page.getByTestId('guided-app-tutorial')).toBeVisible()
   await expect(primaryNav(page)).toBeVisible()
   await expect(primaryNav(page).getByRole('button', { name: 'Today' })).toHaveAttribute(
     'aria-current',
     'page',
   )
-  await expect(page.getByTestId('today-primary-cta')).toHaveText('Open Today’s Reading')
-
   expect((await storedProfile(page)).profile).toMatchObject({
     introStatus: 'completed',
     tutorialStatus: 'pending',
     reminder: { enabled: true, time: '07:15' },
   })
+
+  // Skip Tutorial -> reaches Today with independent durable statuses and zero participation changes
+  await page.getByTestId('tutorial-skip-button').click()
+  await expect(page.getByRole('heading', { name: 'Today', exact: true })).toBeVisible()
+  await expect(page.getByTestId('today-primary-cta')).toHaveText('Open Today’s Reading')
+
+  expect((await storedProfile(page)).profile).toMatchObject({
+    introStatus: 'completed',
+    tutorialStatus: 'skipped',
+    reminder: { enabled: true, time: '07:15' },
+  })
   expect(await storedParticipation(page)).toBeUndefined()
 
-  // Reload and fresh-session launch (new tab sharing localStorage) both stay on Today without repeating Introduction
+  // Reload and fresh-session launch (new tab sharing localStorage) both stay on Today without repeating Introduction or Tutorial
   await page.reload()
-  await expect(page.getByRole('heading', { name: 'Today', exact: true })).toBeVisible()
+  await expect(page.getByTestId('today-primary-cta')).toHaveText('Open Today’s Reading')
   const nextLaunchTab = await context.newPage()
   await nextLaunchTab.goto(serverUrl())
-  await expect(nextLaunchTab.getByRole('heading', { name: 'Today', exact: true })).toBeVisible()
+  await expect(nextLaunchTab.getByTestId('today-primary-cta')).toHaveText('Open Today’s Reading')
   await nextLaunchTab.close()
 })
 
@@ -254,14 +263,14 @@ test('G09 J1 honors Introduction Skip and Step 2 Continue to Today independently
   await page.goto(serverUrl())
   await page.getByTestId('onboarding-skip-button').click()
 
-  await expect(page.getByRole('heading', { name: 'Today', exact: true })).toBeVisible()
+  await expect(page.getByTestId('guided-app-tutorial')).toBeVisible()
   expect((await storedProfile(page)).profile).toMatchObject({
     introStatus: 'skipped',
     tutorialStatus: 'pending',
     reminder: { enabled: false, time: '08:00' },
   })
 
-  // Separate clean page verifies Step 2 "Continue to Today"
+  // Separate clean page verifies Step 2 "Continue to Today" advances to pending Guided App Tutorial
   const secondContext = await context.browser()!.newContext()
   try {
     const page2 = await secondContext.newPage()
@@ -272,7 +281,7 @@ test('G09 J1 honors Introduction Skip and Step 2 Continue to Today independently
     await page2.getByTestId('onboarding-continue-button').click()
     await page2.getByTestId('onboarding-continue-today-button').click()
 
-    await expect(page2.getByRole('heading', { name: 'Today', exact: true })).toBeVisible()
+    await expect(page2.getByTestId('guided-app-tutorial')).toBeVisible()
     expect((await storedProfile(page2)).profile).toMatchObject({
       introStatus: 'completed',
       tutorialStatus: 'pending',

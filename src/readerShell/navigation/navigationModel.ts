@@ -207,7 +207,7 @@ export function navigationReducer(state: NavigationState, action: NavigationActi
       if (focused || problem || activeRoute(state).kind !== 'landing' || (activeTab !== 'today' && activeTab !== 'more')) {
         return state
       }
-      return { ...state, focused: action.type === 'openIntro' ? { kind: 'intro' } : { kind: 'tutorial', shownTab: activeTab } }
+      return { ...state, focused: action.type === 'openIntro' ? { kind: 'intro' } : { kind: 'tutorial', shownTab: 'today' } }
     case 'showTutorialTab':
       return focused?.kind === 'tutorial' && focused.shownTab !== action.tab
         ? { ...state, focused: { ...focused, shownTab: action.tab } }

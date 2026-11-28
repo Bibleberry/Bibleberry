@@ -13,14 +13,16 @@ import { useReaderNavigation } from './chrome/useReaderNavigation.ts'
 import type { GuidedTutorialRenderer } from './entry/index.ts'
 import { activeRestoration, globalNavigation, type RouteRestoration } from './navigation/index.ts'
 import { readerRouteOptions } from './navigation/routeTable.ts'
+import { GuidedAppTutorial } from './tutorial/index.ts'
 import '../App.css'
 import './readerShell.css'
 
 const routeOptions = readerRouteOptions()
+const defaultGuidedTutorial: GuidedTutorialRenderer = props => <GuidedAppTutorial {...props} />
 
 export interface R06ReaderShellProps {
   readonly profileStore?: ReaderProfileStore
-  readonly renderGuidedTutorial?: GuidedTutorialRenderer
+  readonly renderGuidedTutorial?: GuidedTutorialRenderer | null
   readonly externalIngressSource?: ExternalDeepLinkSourceAdapter
   readonly externalIngressPolicy?: ExternalLinkIngressPolicy
   readonly lifecycleEvents?: AppLifecycleEventSource
@@ -33,6 +35,8 @@ export default function R06ReaderShell({
   externalIngressPolicy,
   lifecycleEvents,
 }: R06ReaderShellProps = {}) {
+  const guidedTutorialRenderer =
+    renderGuidedTutorial === undefined ? defaultGuidedTutorial : renderGuidedTutorial
   const [defaultProfileStore] = useState(() => injectedProfileStore ?? createPlatformReaderProfileStore())
   const profileStore = injectedProfileStore ?? defaultProfileStore
   const viewport = useRef<HTMLDivElement>(null)
@@ -67,7 +71,7 @@ export default function R06ReaderShell({
     completeFirstUseTutorial,
   } = useReaderNavigation(routeOptions, captureRestoration, {
     profileStore,
-    tutorialAvailable: Boolean(renderGuidedTutorial),
+    tutorialAvailable: Boolean(guidedTutorialRenderer),
     externalIngressSource,
     externalIngressPolicy,
     lifecycleEvents,
@@ -123,7 +127,7 @@ export default function R06ReaderShell({
           onFirstUseTutorialContinueSessionOnly={sourceRevision =>
             continueFirstUseSessionOnly(sourceRevision, 'tutorial')
           }
-          renderGuidedTutorial={renderGuidedTutorial}
+          renderGuidedTutorial={guidedTutorialRenderer ?? undefined}
         />
       </div>
       {!pending && navState !== 'hidden' && (

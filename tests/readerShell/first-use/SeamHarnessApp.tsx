@@ -79,7 +79,7 @@ export function SeamHarnessRoot() {
         allowedCustomSchemes: ['bibleberry'],
       }}
       renderGuidedTutorial={
-        tutorialEnabled ? props => <SyntheticTutorialSeam {...props} /> : undefined
+        tutorialEnabled ? props => <SyntheticTutorialSeam {...props} /> : null
       }
     />
   )
