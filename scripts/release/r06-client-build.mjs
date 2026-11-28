@@ -52,3 +52,5 @@ await build({
   build: { outDir: 'dist', emptyOutDir: true, sourcemap: false },
 })
 await copyFile('public/favicon.svg', 'dist/favicon.svg')
+// Approved static-asset security headers (#369); r06-staging-profile.mjs pins their exact rules.
+await copyFile('public/_headers', 'dist/_headers')

@@ -25,6 +25,19 @@ import {
   parseYearMonth,
   resolveAuthorizedReaderDate,
 } from './localRelease.ts'
+import {
+  RejectionTally,
+  classifyUpstreamStatus,
+  createRouteDiagnostics,
+} from './diagnostics.ts'
+import type {
+  ContentUnavailableReason,
+  ContentUnavailableStage,
+  GatewayLogLevel,
+  GatewayRouteId,
+  RouteDiagnostics,
+  UpstreamFailureKind,
+} from './diagnostics.ts'
 import type {
   GatewayCatalogResponse,
   GatewayCatalogSummary,
@@ -58,6 +71,8 @@ const MAX_LIBRARY_SCAN_ROUNDS = 4
 const SANITY_PROJECT_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/
 const SANITY_DATASET_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/
 const DISALLOWED_DATASETS = new Set(['berrymark-development'])
+/** Bound for one complete upstream Sanity exchange (response headers and JSON body). */
+export const DEFAULT_UPSTREAM_TIMEOUT_MS = 8000
 const ALLOWED_NEWS_CATEGORIES = new Set<GatewayNewsCategory>([
   'monthlyPreview',
   'ministryUpdate',
@@ -136,6 +151,18 @@ function errorResponse(
   )
 }
 
+function resolveRouteId(pathname: string | null): GatewayRouteId {
+  if (pathname === null) return 'unknown'
+  if (pathname === '/api/challenges') return 'catalog'
+  if (/^\/api\/challenges\/[^/]+$/.test(pathname)) return 'challenge'
+  if (/^\/api\/months\/[^/]+\/preview$/.test(pathname)) return 'monthPreview'
+  if (PROGRESS_ROUTE_REGEX.test(pathname)) return 'monthProgress'
+  if (/^\/api\/months\/[^/]+$/.test(pathname)) return 'monthDetail'
+  if (pathname === '/api/library/months') return 'libraryMonths'
+  if (pathname === '/api/news') return 'news'
+  return 'unknown'
+}
+
 function safeNormalizePathname(requestUrl: string): string | null {
   try {
     const parsed = new URL(requestUrl)
@@ -178,6 +205,15 @@ export async function handleGatewayRequest(
 
   // 3. Validate environment configuration
   if (!env.SANITY_PROJECT_ID || !env.SANITY_DATASET || !env.SANITY_READ_TOKEN) {
+    const missing = (['SANITY_PROJECT_ID', 'SANITY_DATASET', 'SANITY_READ_TOKEN'] as const).filter(
+      name => !env[name],
+    )
+    createRouteDiagnostics(resolveRouteId(rawPathname), options.logger).configurationError({
+      event: 'configurationError',
+      level: 'error',
+      responseStatus: 500,
+      bindings: missing,
+    })
     return errorResponse(
       'serverConfigurationError',
       'Gateway configuration error',
@@ -240,12 +276,70 @@ export async function handleGatewayRequest(
   return errorResponse('notFound', 'Not found', 404, corsHeaders)
 }
 
-async function fetchSanityQueryResult(
+function upstreamErrorResponse(corsHeaders: Headers): Response {
+  return errorResponse('upstreamError', 'Upstream content service unavailable', 502, corsHeaders)
+}
+
+function resolveUpstreamTimeoutMs(configured: number | undefined): number {
+  return typeof configured === 'number' && Number.isFinite(configured) && configured > 0
+    ? configured
+    : DEFAULT_UPSTREAM_TIMEOUT_MS
+}
+
+const UPSTREAM_FAILURE_LEVELS: Record<UpstreamFailureKind, GatewayLogLevel> = {
+  network: 'warn',
+  timeout: 'warn',
+  httpStatus: 'error',
+  invalidJson: 'error',
+  missingResult: 'error',
+  unexpectedResultShape: 'error',
+  libraryScanIncomplete: 'error',
+}
+
+/**
+ * Logs a gateway-detected upstream failure and returns the unchanged public 502.
+ */
+function failUpstream(
+  diagnostics: RouteDiagnostics,
+  corsHeaders: Headers,
+  failure: UpstreamFailureKind,
+  details: { upstreamStatus?: number; elapsedMs?: number; timeoutMs?: number } = {},
+): Response {
+  let level = UPSTREAM_FAILURE_LEVELS[failure]
+  const statusFields: { upstreamStatus?: number; upstreamStatusHint?: ReturnType<typeof classifyUpstreamStatus> } = {}
+  if (details.upstreamStatus !== undefined) {
+    const hint = classifyUpstreamStatus(details.upstreamStatus)
+    statusFields.upstreamStatus = details.upstreamStatus
+    statusFields.upstreamStatusHint = hint
+    // Transient upstream conditions are warnings; credential, routing and request errors are not.
+    if (hint === 'rateLimited' || hint === 'serverError') level = 'warn'
+  }
+  diagnostics.upstreamFailure({
+    event: 'upstreamFailure',
+    level,
+    responseStatus: 502,
+    failure,
+    ...statusFields,
+    ...(details.elapsedMs !== undefined ? { elapsedMs: details.elapsedMs } : {}),
+    ...(details.timeoutMs !== undefined ? { timeoutMs: details.timeoutMs } : {}),
+  })
+  return upstreamErrorResponse(corsHeaders)
+}
+
+type UpstreamExchangeOutcome =
+  | { readonly kind: 'ok'; readonly result: unknown }
+  | { readonly kind: 'network' }
+  | { readonly kind: 'timeout' }
+  | { readonly kind: 'httpStatus'; readonly status: number }
+  | { readonly kind: 'invalidJson' }
+  | { readonly kind: 'missingResult' }
+
+async function performSanityExchange(
   upstreamUrl: URL,
   env: GatewayEnv,
   fetchImpl: GatewayFetch,
-  corsHeaders: Headers,
-): Promise<{ ok: true; result: unknown } | { ok: false; response: Response }> {
+  signal: AbortSignal,
+): Promise<UpstreamExchangeOutcome> {
   let upstreamResponse: Response
   try {
     upstreamResponse = await fetchImpl(upstreamUrl, {
@@ -255,59 +349,75 @@ async function fetchSanityQueryResult(
         Authorization: `Bearer ${env.SANITY_READ_TOKEN}`,
       },
       cache: 'no-store',
+      signal,
     })
   } catch {
-    return {
-      ok: false,
-      response: errorResponse(
-        'upstreamError',
-        'Upstream content service unavailable',
-        502,
-        corsHeaders,
-      ),
-    }
+    return { kind: 'network' }
   }
 
   if (!upstreamResponse.ok) {
-    return {
-      ok: false,
-      response: errorResponse(
-        'upstreamError',
-        'Upstream content service unavailable',
-        502,
-        corsHeaders,
-      ),
-    }
+    // The error body is never read or logged; release it.
+    upstreamResponse.body?.cancel().catch(() => undefined)
+    return { kind: 'httpStatus', status: upstreamResponse.status }
   }
 
   let payload: unknown
   try {
     payload = await upstreamResponse.json()
   } catch {
-    return {
-      ok: false,
-      response: errorResponse(
-        'upstreamError',
-        'Upstream content service unavailable',
-        502,
-        corsHeaders,
-      ),
-    }
+    return { kind: 'invalidJson' }
   }
 
   if (!payload || typeof payload !== 'object' || !('result' in payload)) {
-    return {
-      ok: false,
-      response: errorResponse(
-        'upstreamError',
-        'Upstream content service unavailable',
-        502,
-        corsHeaders,
-      ),
-    }
+    return { kind: 'missingResult' }
   }
 
-  return { ok: true, result: (payload as { result?: unknown }).result }
+  return { kind: 'ok', result: (payload as { result?: unknown }).result }
+}
+
+async function fetchSanityQueryResult(
+  upstreamUrl: URL,
+  env: GatewayEnv,
+  options: GatewayOptions,
+  corsHeaders: Headers,
+  diagnostics: RouteDiagnostics,
+): Promise<{ ok: true; result: unknown } | { ok: false; response: Response }> {
+  const fetchImpl: GatewayFetch = options.fetchImpl ?? fetch
+  const timeoutMs = resolveUpstreamTimeoutMs(options.upstreamTimeoutMs)
+  const controller = new AbortController()
+  const startedAt = Date.now()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  // The deadline covers the whole exchange, including a body that stalls after headers arrive.
+  const deadline = new Promise<UpstreamExchangeOutcome>(resolve => {
+    timer = setTimeout(() => {
+      resolve({ kind: 'timeout' })
+      controller.abort()
+    }, timeoutMs)
+  })
+
+  let outcome: UpstreamExchangeOutcome
+  try {
+    outcome = await Promise.race([
+      performSanityExchange(upstreamUrl, env, fetchImpl, controller.signal),
+      deadline,
+    ])
+  } finally {
+    clearTimeout(timer)
+  }
+
+  if (outcome.kind === 'ok') {
+    return { ok: true, result: outcome.result }
+  }
+
+  const elapsedMs = Date.now() - startedAt
+  return {
+    ok: false,
+    response: failUpstream(diagnostics, corsHeaders, outcome.kind, {
+      elapsedMs,
+      ...(outcome.kind === 'httpStatus' ? { upstreamStatus: outcome.status } : {}),
+      ...(outcome.kind === 'timeout' ? { timeoutMs } : {}),
+    }),
+  }
 }
 
 function buildRequestReleaseContext(
@@ -332,8 +442,8 @@ async function handleCatalogRequest(
   options: GatewayOptions,
   corsHeaders: Headers,
 ): Promise<Response> {
+  const diagnostics = createRouteDiagnostics('catalog', options.logger)
   const { nowUtc, nowTime, serverContext } = buildRequestReleaseContext(request, options)
-  const fetchImpl = options.fetchImpl ?? fetch
 
   const upstreamUrl = buildSanityQueryUrl(
     env.SANITY_PROJECT_ID,
@@ -346,31 +456,29 @@ async function handleCatalogRequest(
     },
   )
 
-  const upstream = await fetchSanityQueryResult(upstreamUrl, env, fetchImpl, corsHeaders)
+  const upstream = await fetchSanityQueryResult(upstreamUrl, env, options, corsHeaders, diagnostics)
   if (!upstream.ok) {
     return upstream.response
   }
 
   if (!Array.isArray(upstream.result)) {
-    return errorResponse(
-      'upstreamError',
-      'Upstream content service unavailable',
-      502,
-      corsHeaders,
-    )
+    return failUpstream(diagnostics, corsHeaders, 'unexpectedResultShape')
   }
 
   const validatedSummaries: GatewayCatalogSummary[] = []
+  const rejections = new RejectionTally()
   for (const item of upstream.result) {
     const projected = validateAndProjectCatalogSummary(
       item,
       nowTime,
       serverContext.authorizedLocalDate,
     )
+    rejections.record(projected)
     if (projected.ok) {
       validatedSummaries.push(projected.document)
     }
   }
+  rejections.report(diagnostics, 200)
 
   return jsonResponse(
     {
@@ -394,8 +502,8 @@ async function handleSingleChallengeRequest(
     return errorResponse('notFound', 'Challenge not found', 404, corsHeaders)
   }
 
+  const diagnostics = createRouteDiagnostics('challenge', options.logger)
   const { nowUtc, nowTime, serverContext } = buildRequestReleaseContext(request, options)
-  const fetchImpl = options.fetchImpl ?? fetch
 
   const upstreamUrl = buildSanityQueryUrl(
     env.SANITY_PROJECT_ID,
@@ -409,7 +517,7 @@ async function handleSingleChallengeRequest(
     },
   )
 
-  const upstream = await fetchSanityQueryResult(upstreamUrl, env, fetchImpl, corsHeaders)
+  const upstream = await fetchSanityQueryResult(upstreamUrl, env, options, corsHeaders, diagnostics)
   if (!upstream.ok) {
     return upstream.response
   }
@@ -417,6 +525,14 @@ async function handleSingleChallengeRequest(
   const rawDoc = upstream.result
   if (!rawDoc || typeof rawDoc !== 'object') {
     // Challenge does not exist, or was filtered out by GROQ (unreviewed or future release)
+    diagnostics.contentUnavailable({
+      event: 'contentUnavailable',
+      level: 'info',
+      responseStatus: 404,
+      stage: 'upstream',
+      reason: 'noEligibleDocument',
+      requestedSlug: slug,
+    })
     return errorResponse('notFound', 'Challenge not found', 404, corsHeaders)
   }
 
@@ -427,6 +543,14 @@ async function handleSingleChallengeRequest(
   )
   if (!projected.ok) {
     // Server-side validation failed closed (e.g. unapproved blocks, embargoed, draft, withdrawn)
+    diagnostics.contentUnavailable({
+      event: 'contentUnavailable',
+      level: projected.reason === 'embargoed' ? 'info' : 'warn',
+      responseStatus: 404,
+      stage: 'projection',
+      reason: projected.reason,
+      requestedSlug: slug,
+    })
     return errorResponse('notFound', 'Challenge not found', 404, corsHeaders)
   }
 
@@ -445,14 +569,39 @@ function monthNotFoundResponse(corsHeaders: Headers): Response {
   return errorResponse('notFound', 'Month not found', 404, corsHeaders)
 }
 
+/**
+ * Records why a validated month answered 404, then returns the same neutral 404 as every
+ * other month failure. Not-yet-released and embargoed outcomes are expected (`info`); a
+ * month that reached projection and was rejected for any other reason is an editorial or
+ * data problem an operator should see (`warn`).
+ */
+function monthUnavailableResponse(
+  diagnostics: RouteDiagnostics,
+  corsHeaders: Headers,
+  yearMonth: string,
+  stage: ContentUnavailableStage,
+  reason: ContentUnavailableReason,
+): Response {
+  const expected = reason === 'notYetReleased' || reason === 'embargoed' || reason === 'noEligibleDocument'
+  diagnostics.contentUnavailable({
+    event: 'contentUnavailable',
+    level: expected ? 'info' : 'warn',
+    responseStatus: 404,
+    stage,
+    reason,
+    yearMonth,
+  })
+  return monthNotFoundResponse(corsHeaders)
+}
+
 async function fetchMonthDocument(
   yearMonth: string,
   query: string,
   env: GatewayEnv,
   options: GatewayOptions,
   corsHeaders: Headers,
+  diagnostics: RouteDiagnostics,
 ): Promise<{ ok: true; rawDoc: unknown } | { ok: false; response: Response }> {
-  const fetchImpl = options.fetchImpl ?? fetch
   const upstreamUrl = buildSanityQueryUrl(
     env.SANITY_PROJECT_ID,
     env.SANITY_DATASET,
@@ -464,13 +613,16 @@ async function fetchMonthDocument(
     },
   )
 
-  const upstream = await fetchSanityQueryResult(upstreamUrl, env, fetchImpl, corsHeaders)
+  const upstream = await fetchSanityQueryResult(upstreamUrl, env, options, corsHeaders, diagnostics)
   if (!upstream.ok) {
     return upstream
   }
 
   if (!isPlainObject(upstream.result)) {
-    return { ok: false, response: monthNotFoundResponse(corsHeaders) }
+    return {
+      ok: false,
+      response: monthUnavailableResponse(diagnostics, corsHeaders, yearMonth, 'upstream', 'noEligibleDocument'),
+    }
   }
 
   return { ok: true, rawDoc: upstream.result }
@@ -488,10 +640,11 @@ async function handleMonthPreviewRequest(
     return monthNotFoundResponse(corsHeaders)
   }
 
+  const diagnostics = createRouteDiagnostics('monthPreview', options.logger)
   const { serverContext } = buildRequestReleaseContext(request, options)
   const previewStartDate = computeAdvancePreviewStartDate(parsedYM.year, parsedYM.month)
   if (serverContext.authorizedLocalDate < previewStartDate) {
-    return monthNotFoundResponse(corsHeaders)
+    return monthUnavailableResponse(diagnostics, corsHeaders, rawYearMonth, 'releaseGate', 'notYetReleased')
   }
 
   const fetched = await fetchMonthDocument(
@@ -500,6 +653,7 @@ async function handleMonthPreviewRequest(
     env,
     options,
     corsHeaders,
+    diagnostics,
   )
   if (!fetched.ok) {
     return fetched.response
@@ -507,7 +661,7 @@ async function handleMonthPreviewRequest(
 
   const projected = validateAndProjectMonthPreview(fetched.rawDoc, rawYearMonth, serverContext)
   if (!projected.ok) {
-    return monthNotFoundResponse(corsHeaders)
+    return monthUnavailableResponse(diagnostics, corsHeaders, rawYearMonth, 'projection', projected.reason)
   }
 
   return jsonResponse(projected.document, 200, corsHeaders)
@@ -525,9 +679,10 @@ async function handleMonthDetailRequest(
     return monthNotFoundResponse(corsHeaders)
   }
 
+  const diagnostics = createRouteDiagnostics('monthDetail', options.logger)
   const { serverContext } = buildRequestReleaseContext(request, options)
   if (serverContext.authorizedLocalDate < `${rawYearMonth}-01`) {
-    return monthNotFoundResponse(corsHeaders)
+    return monthUnavailableResponse(diagnostics, corsHeaders, rawYearMonth, 'releaseGate', 'notYetReleased')
   }
 
   const fetched = await fetchMonthDocument(
@@ -536,6 +691,7 @@ async function handleMonthDetailRequest(
     env,
     options,
     corsHeaders,
+    diagnostics,
   )
   if (!fetched.ok) {
     return fetched.response
@@ -546,7 +702,7 @@ async function handleMonthDetailRequest(
     sanityDataset: env.SANITY_DATASET,
   })
   if (!projected.ok) {
-    return monthNotFoundResponse(corsHeaders)
+    return monthUnavailableResponse(diagnostics, corsHeaders, rawYearMonth, 'projection', projected.reason)
   }
 
   return jsonResponse(projected.document, 200, corsHeaders)
@@ -734,9 +890,10 @@ async function handleMonthProgressRequest(
     return parsedBody.response
   }
 
+  const diagnostics = createRouteDiagnostics('monthProgress', options.logger)
   const { serverContext } = buildRequestReleaseContext(request, options)
   if (serverContext.authorizedLocalDate < `${rawYearMonth}-01`) {
-    return monthNotFoundResponse(corsHeaders)
+    return monthUnavailableResponse(diagnostics, corsHeaders, rawYearMonth, 'releaseGate', 'notYetReleased')
   }
 
   const fetched = await fetchMonthDocument(
@@ -745,6 +902,7 @@ async function handleMonthProgressRequest(
     env,
     options,
     corsHeaders,
+    diagnostics,
   )
   if (!fetched.ok) {
     return fetched.response
@@ -761,7 +919,7 @@ async function handleMonthProgressRequest(
     },
   )
   if (!evaluated.ok) {
-    return monthNotFoundResponse(corsHeaders)
+    return monthUnavailableResponse(diagnostics, corsHeaders, rawYearMonth, 'projection', evaluated.reason)
   }
 
   return jsonResponse(evaluated.document, 200, corsHeaders)
@@ -787,8 +945,8 @@ async function handleNewsRequest(
     categoryFilter = candidate as GatewayNewsCategory
   }
 
+  const diagnostics = createRouteDiagnostics('news', options.logger)
   const { serverContext } = buildRequestReleaseContext(request, options)
-  const fetchImpl = options.fetchImpl ?? fetch
 
   const upstreamUrl = buildSanityQueryUrl(
     env.SANITY_PROJECT_ID,
@@ -801,31 +959,29 @@ async function handleNewsRequest(
     },
   )
 
-  const upstream = await fetchSanityQueryResult(upstreamUrl, env, fetchImpl, corsHeaders)
+  const upstream = await fetchSanityQueryResult(upstreamUrl, env, options, corsHeaders, diagnostics)
   if (!upstream.ok) {
     return upstream.response
   }
 
   if (!Array.isArray(upstream.result)) {
-    return errorResponse(
-      'upstreamError',
-      'Upstream content service unavailable',
-      502,
-      corsHeaders,
-    )
+    return failUpstream(diagnostics, corsHeaders, 'unexpectedResultShape')
   }
 
   const articles: GatewayNewsArticle[] = []
+  const rejections = new RejectionTally()
   for (const item of upstream.result) {
     const projected = validateAndProjectNewsArticle(
       item,
       serverContext.authorizedLocalDate,
       categoryFilter,
     )
+    rejections.record(projected)
     if (projected.ok) {
       articles.push(projected.document)
     }
   }
+  rejections.report(diagnostics, 200)
 
   articles.sort((a, b) => {
     if (a.publishedOn !== b.publishedOn) return a.publishedOn < b.publishedOn ? 1 : -1
@@ -942,7 +1098,14 @@ async function handleLibraryMonthsRequest(
   options: GatewayOptions,
   corsHeaders: Headers,
 ): Promise<Response> {
+  const diagnostics = createRouteDiagnostics('libraryMonths', options.logger)
   if (!validateSanityTargetEnv(env)) {
+    diagnostics.configurationError({
+      event: 'configurationError',
+      level: 'error',
+      responseStatus: 500,
+      bindings: ['SANITY_PROJECT_ID', 'SANITY_DATASET', 'SANITY_READ_TOKEN'],
+    })
     return errorResponse(
       'serverConfigurationError',
       'Gateway configuration error',
@@ -963,7 +1126,6 @@ async function handleLibraryMonthsRequest(
     cursor && cursor < currentYearMonth ? cursor : currentYearMonth
   const batchSize = Math.min(Math.max(limit * 2 + 1, 5), MAX_LIBRARY_SCAN_BATCH_SIZE)
 
-  const fetchImpl = options.fetchImpl ?? fetch
   const byYearMonth = new Map<string, GatewayLibraryMonthSummary>()
   const projectionOptions = {
     sanityProjectId: env.SANITY_PROJECT_ID.trim(),
@@ -973,6 +1135,7 @@ async function handleLibraryMonthsRequest(
   let scanUpperBound = upperBoundYearMonth
   let upstreamExhausted = false
   let round = 0
+  const rejections = new RejectionTally()
 
   while (round < MAX_LIBRARY_SCAN_ROUNDS) {
     round += 1
@@ -987,18 +1150,13 @@ async function handleLibraryMonthsRequest(
       },
     )
 
-    const upstream = await fetchSanityQueryResult(upstreamUrl, env, fetchImpl, corsHeaders)
+    const upstream = await fetchSanityQueryResult(upstreamUrl, env, options, corsHeaders, diagnostics)
     if (!upstream.ok) {
       return upstream.response
     }
 
     if (!Array.isArray(upstream.result)) {
-      return errorResponse(
-        'upstreamError',
-        'Upstream content service unavailable',
-        502,
-        corsHeaders,
-      )
+      return failUpstream(diagnostics, corsHeaders, 'unexpectedResultShape')
     }
 
     const batch = upstream.result
@@ -1021,6 +1179,7 @@ async function handleLibraryMonthsRequest(
         serverContext,
         projectionOptions,
       )
+      rejections.record(projected)
       if (!projected.ok) {
         continue
       }
@@ -1043,12 +1202,7 @@ async function handleLibraryMonthsRequest(
     }
 
     if (minBatchYearMonth === null) {
-      return errorResponse(
-        'upstreamError',
-        'Upstream content service unavailable',
-        502,
-        corsHeaders,
-      )
+      return failUpstream(diagnostics, corsHeaders, 'libraryScanIncomplete')
     }
 
     scanUpperBound = minBatchYearMonth
@@ -1074,12 +1228,7 @@ async function handleLibraryMonthsRequest(
     // Bounded scan limit reached before exhausting upstream.
     // Only expose canonical YYYY-MM continuation cursors; fail closed with 502 otherwise.
     if (!parseYearMonth(scanUpperBound) || scanUpperBound >= upperBoundYearMonth) {
-      return errorResponse(
-        'upstreamError',
-        'Upstream content service unavailable',
-        502,
-        corsHeaders,
-      )
+      return failUpstream(diagnostics, corsHeaders, 'libraryScanIncomplete')
     }
     hasMore = true
     const boundary = calendarMonthsBefore(upperBoundYearMonth, batchSize * MAX_LIBRARY_SCAN_ROUNDS)
@@ -1088,6 +1237,8 @@ async function handleLibraryMonthsRequest(
     const inspectedBoundary = boundary >= scanUpperBound ? boundary : calendarMonthsBefore(upperBoundYearMonth, 1)
     nextCursor = items.at(-1)?.yearMonth ?? inspectedBoundary
   }
+
+  rejections.report(diagnostics, 200)
 
   return jsonResponse(
     {

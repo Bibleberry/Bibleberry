@@ -1,8 +1,12 @@
 import { chromium, expect } from '@playwright/test'
 import { verifyArtifact } from './r06-preflight.mjs'
-import { staging } from './r06-staging-profile.mjs'
-import { resolve } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { staging, staticHeaders } from './r06-staging-profile.mjs'
+import { spawn } from 'node:child_process'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { createServer } from 'node:net'
+import { tmpdir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const stagingOrigin = staging.vars.ALLOWED_ORIGINS.split(',')[0]
 const browserOrigin = 'https://r06-preflight.test'
@@ -144,13 +148,144 @@ async function smokeReader(reader) {
   }
 }
 
+const approvedHeaders = Object.entries(staticHeaders['/*'])
+const neutralMonthNotFound = JSON.stringify({ ok: false, error: { kind: 'notFound', message: 'Month not found' } })
+const neutralRouteNotFound = JSON.stringify({ ok: false, error: { kind: 'notFound', message: 'Not found' } })
+
+function freePort() {
+  return new Promise((resolvePort, reject) => {
+    const server = createServer()
+    server.unref()
+    server.on('error', reject)
+    server.listen(0, '127.0.0.1', () => {
+      const { port } = server.address()
+      server.close(() => resolvePort(port))
+    })
+  })
+}
+
+/**
+ * Serves the verified artifact's own worker.js and dist/ in local workerd (wrangler dev
+ * --local) with the reviewed staging profile, then checks real responses: every static path
+ * carries exactly the approved headers, the headers file itself is not served, and /api/*
+ * keeps the gateway's own unchanged responses without the static headers. No network
+ * request leaves the machine: the probed API routes answer before any upstream call.
+ */
+export async function verifyServedStaticHeaders(directory, reader) {
+  const wrangler = join(dirname(fileURLToPath(import.meta.url)), '../../node_modules/wrangler/bin/wrangler.js')
+  const work = await mkdtemp(join(tmpdir(), 'bibleberry-r06-headers-'))
+  const { $schema: _schema, ...profile } = staging
+  const config = {
+    ...profile,
+    main: join(directory, 'worker.js'),
+    no_bundle: true,
+    assets: { ...staging.assets, directory: join(directory, 'dist') },
+  }
+  await mkdir(join(work, 'home'))
+  await writeFile(join(work, 'wrangler.json'), JSON.stringify(config))
+  const port = await freePort()
+  const origin = `http://127.0.0.1:${port}`
+  const child = spawn(process.execPath, [wrangler, 'dev', '--config', join(work, 'wrangler.json'), '--local',
+    '--ip', '127.0.0.1', '--port', String(port), '--persist-to', join(work, 'state'),
+    '--var', 'SANITY_READ_TOKEN:r06-local-header-check'], {
+    cwd: work,
+    detached: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: {
+      PATH: process.env.PATH,
+      HOME: join(work, 'home'),
+      XDG_CONFIG_HOME: join(work, 'home', '.config'),
+      CI: 'true',
+      WRANGLER_SEND_METRICS: 'false',
+    },
+  })
+  let output = ''
+  child.stdout.on('data', chunk => { output += chunk })
+  child.stderr.on('data', chunk => { output += chunk })
+  const exited = new Promise(resolveExit => child.once('exit', resolveExit))
+
+  try {
+    const deadline = Date.now() + 60_000
+    for (;;) {
+      if (child.exitCode !== null) throw new Error('Local workerd exited before serving the artifact.')
+      try {
+        if ((await fetch(origin + '/', { signal: AbortSignal.timeout(2000) })).ok) break
+      } catch {
+        // Not listening yet.
+      }
+      if (Date.now() > deadline) throw new Error('Local workerd did not serve the artifact in time.')
+      await new Promise(next => setTimeout(next, 250))
+    }
+
+    const get = async (path, init = {}) => {
+      const response = await fetch(origin + path, { redirect: 'manual', ...init, signal: AbortSignal.timeout(8000) })
+      return { response, body: Buffer.from(await response.arrayBuffer()) }
+    }
+
+    const assets = [...reader.keys()].filter(name => /^assets\/.+\.(?:js|css)$/.test(name))
+    const staticPaths = [
+      ['/', 'index.html'],
+      ['/today', 'index.html'],
+      ['/challenge/preflight-unavailable', 'index.html'],
+      ['/favicon.svg', 'favicon.svg'],
+      ...assets.map(name => ['/' + name, name]),
+    ]
+    for (const [path, file] of staticPaths) {
+      const { response, body } = await get(path)
+      if (response.status !== 200 || !body.equals(reader.get(file))) {
+        throw new Error(`Local workerd did not serve the artifact's ${file} for ${path}.`)
+      }
+      for (const [name, value] of approvedHeaders) {
+        if (response.headers.get(name) !== value) throw new Error(`Static response ${path} lacks approved ${name}.`)
+      }
+    }
+    console.log(`Approved static headers served from the artifact on ${staticPaths.length} paths.`)
+
+    const headersFile = await get('/_headers')
+    if (headersFile.body.equals(reader.get('_headers')) || headersFile.body.includes('Permissions-Policy')) {
+      throw new Error('The static headers file itself is publicly served.')
+    }
+
+    const apiCases = [
+      { path: '/api/months/2099-01', status: 404, body: neutralMonthNotFound },
+      { path: '/api/preflight-unknown-route', status: 404, body: neutralRouteNotFound },
+      { path: '/api/news', status: 204, body: '', init: { method: 'OPTIONS', headers: { Origin: 'https://r06-preflight.test' } } },
+    ]
+    for (const { path, status, body, init } of apiCases) {
+      const { response, body: bytes } = await get(path, init)
+      if (response.status !== status || bytes.toString('utf8') !== body || response.headers.get('cache-control') !== 'no-store') {
+        throw new Error(`Release Gateway response changed for ${init?.method ?? 'GET'} ${path}.`)
+      }
+      for (const [name] of approvedHeaders) {
+        if (response.headers.has(name)) throw new Error(`Static header ${name} leaked onto ${path}.`)
+      }
+    }
+    console.log('Release Gateway /api/* responses unchanged and carry no static-asset headers.')
+  } catch (error) {
+    // Wrangler output can include local paths but never secrets; keep it for diagnosis.
+    console.error(output.slice(-4000))
+    throw error
+  } finally {
+    try {
+      process.kill(-child.pid, 'SIGTERM')
+    } catch {
+      // Already gone.
+    }
+    await Promise.race([exited, new Promise(next => setTimeout(next, 5000))])
+    await rm(work, { recursive: true, force: true })
+  }
+}
+
 async function main([command, commit, digest, directory, teamHost, liveAsset, ...rest]) {
   if (rest.length || !commit || !digest || !directory ||
       !(command === 'smoke' && !teamHost && !liveAsset || command === 'perimeter' && teamHost && liveAsset)) {
     throw new Error('Usage: r06-verify-staging.mjs smoke <commit> <manifest-sha256> <dir> | perimeter <commit> <manifest-sha256> <dir> <confirmed-access-team-host> <live-hashed-asset-path>')
   }
   const { reader } = await verifyArtifact(resolve(directory), commit, digest)
-  if (command === 'smoke') await smokeReader(reader)
+  if (command === 'smoke') {
+    await verifyServedStaticHeaders(resolve(directory), reader)
+    await smokeReader(reader)
+  }
   else await verifyPerimeter(reader, teamHost, liveAsset)
 }
 
