@@ -10,8 +10,8 @@ Because the development workstation runs Linux (`no xcodebuild`, Apple SDK, or C
 
 | Field | Observed Value |
 |---|---|
-| Workflow / Run / Job | `Native iOS simulator build` — [Run 43103006600](https://github.com/ContraPhilosophy/Bibleberry/actions/runs/43103006600) / Job [`130799014358`](https://github.com/ContraPhilosophy/Bibleberry/actions/runs/43103006600/job/130799014358) |
-| Regular PR CI | `Bibleberry CI` — [Run 43103006673](https://github.com/ContraPhilosophy/Bibleberry/actions/runs/43103006673) (all 4 jobs succeeded: `130799014555`, `130799014813`, `130799014840`, `130799014847`) |
+| Workflow / Run / Job | `Native iOS simulator build` — [Run 43103006600](https://github.com/Bibleberry/Bibleberry/actions/runs/43103006600) / Job [`130799014358`](https://github.com/Bibleberry/Bibleberry/actions/runs/43103006600/job/130799014358) |
+| Regular PR CI | `Bibleberry CI` — [Run 43103006673](https://github.com/Bibleberry/Bibleberry/actions/runs/43103006673) (all 4 jobs succeeded: `130799014555`, `130799014813`, `130799014840`, `130799014847`) |
 | Runner Image | `macos-26-arm64`, Image Version `20261102.0473.1` (`Provisioner 20261028.624`), `Built with macOS 26.7.2` |
 | Source PR Head SHA | `904d187be0e43914f4b11e2f63bf1c14919d047e` (rebased onto `main` `5f88542f413bef1f6cf871010c6125acdacf8b03`) |
 | Synthetic Merge SHA (`GITHUB_SHA`) | `fb854dd19c09e198f914f14d20aa00c2f2033127` |

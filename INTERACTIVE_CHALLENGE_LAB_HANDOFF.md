@@ -254,7 +254,7 @@ The final `dist/` was rebuilt afterward with `VITE_ENABLE_DEVELOPER_STUDIO=true`
 
 ### Static checks
 
-TypeScript and the production build complete successfully. `npm run lint` continues to report the same 11 pre-existing findings (10 errors and 1 warning) in legacy `App.tsx` effects and unused shadcn/ui scaffold files. No new lab-specific lint finding was introduced; those unrelated scaffold files were not speculatively rewritten.
+TypeScript and the production build complete successfully. `npm run lint` continues to report the same 11 pre-existing findings (10 errors and 1 warning) in legacy `App.tsx` effects and unused shadcn/ui scaffold files. No new lab-specific lint finding was introduced; those unrelated scaffold files were not speculatively rewritten. *[Historical, November 27, 2026: those findings no longer occur and the scaffold was removed under [Shannon States #368](https://github.com/Bibleberry/Bibleberry/issues/368). `npm run lint` now reports no findings.]*
 
 ## Phone-width screenshot inventory
 

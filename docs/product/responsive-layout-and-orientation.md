@@ -2,8 +2,8 @@
 
 **Decision:** Approved by Aaron Waid, November 5, 2026  
 **Status:** Binding product/UX direction; implementation details and ministry-facing visual mockups still require review  
-**Design issue:** [#22 — Hub, personal exploration, What's New](https://github.com/ContraPhilosophy/Bibleberry/issues/22)  
-**Related requirements:** [R06, R19 and R21 in the application roadmap](application-development-roadmap.md); [#37 — low-end Android performance](https://github.com/ContraPhilosophy/Bibleberry/issues/37)
+**Design issue:** [#22 — Hub, personal exploration, What's New](https://github.com/Bibleberry/Bibleberry/issues/22)  
+**Related requirements:** [R06, R19 and R21 in the application roadmap](application-development-roadmap.md); [#37 — low-end Android performance](https://github.com/Bibleberry/Bibleberry/issues/37)
 
 ## The decision
 
@@ -26,7 +26,7 @@ Tablet landscape should be supported without needing its own product design. A s
 
 ## How to evaluate proposed UX designs
 
-During [#22](https://github.com/ContraPhilosophy/Bibleberry/issues/22) mockup review and eventual implementation:
+During [#22](https://github.com/Bibleberry/Bibleberry/issues/22) mockup review and eventual implementation:
 
 1. Review the **phone portrait** and **tablet portrait** experiences first.
 2. Show how **tablet landscape** behaves with the *same centered composition and comfortable side padding*, rather than creating a distinct landscape dashboard.
