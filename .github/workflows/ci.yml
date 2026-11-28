@@ -32,7 +32,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '22'
+          node-version-file: .nvmrc
           cache: npm
 
       - name: Evaluate change scope
@@ -91,6 +91,16 @@ jobs:
           tests/news/newsProvider.test.ts
           tests/library/historicalLibraryHost.test.ts
           tests/library/historicalLibraryModel.test.ts
+          tests/accountAuth/supabaseGoTrueProvider.test.ts
+          tests/accountDatabase/accountSb3Static.test.ts
+          tests/accountDatabase/accountSchemaStatic.test.ts
+          tests/accountDatabase/accountTransactionStatic.test.ts
+          tests/accountDatabase/accountVerify1Static.test.ts
+          tests/appIntegration/teachingScripture.test.ts
+          tests/challenge/challengeReaderControls.test.ts
+          tests/r06Library/r06LibraryModel.test.ts
+          tests/releaseAudit/monthlyPublicationAudit.test.ts
+          tests/shelfUI/shelfModel.test.ts
 
       - name: Install Playwright Chromium
         # Runner image supplies OS libraries; avoid apt mirrors during browser provisioning.
@@ -144,6 +154,159 @@ jobs:
         run: |
           echo "Change-scope skip (irrelevant files; not Draft PR suppression): Reader application tests skipped because no reader source or shared dependencies changed."
 
+  reader-browser-suites:
+    name: Reader browser suites (Chromium)
+    # Claude Says (#367): hermetic Playwright suites that previously had no workflow invocation.
+    # Standard ephemeral GitHub-hosted Ubuntu runner; no dependency on home machines.
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Evaluate change scope
+        id: scope
+        run: node scripts/ci/check-scope.mjs --target reader
+
+      - name: Install dependencies
+        if: steps.scope.outputs.should_run == 'true'
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        # Runner image supplies OS libraries; avoid apt mirrors during browser provisioning.
+        if: steps.scope.outputs.should_run == 'true'
+        run: npx playwright install chromium
+
+      - name: Run performance logic tests
+        # Some of these tests launch Chromium, so they run after browser provisioning.
+        if: steps.scope.outputs.should_run == 'true'
+        run: npm run test:performance
+
+      - name: Run App integration browser suite
+        if: steps.scope.outputs.should_run == 'true'
+        run: npx playwright test --config tests/appIntegration/playwright.config.ts
+
+      - name: Run Card Sharing browser suite
+        if: steps.scope.outputs.should_run == 'true'
+        run: npx playwright test --config tests/cardSharing/playwright.config.ts
+
+      - name: Run Challenge reader controls browser suite
+        if: steps.scope.outputs.should_run == 'true'
+        run: npx playwright test --config tests/challenge/playwright.config.ts
+
+      - name: Run Hub Continue browser suite
+        if: steps.scope.outputs.should_run == 'true'
+        run: npx playwright test --config tests/hubContinue/playwright.config.ts
+
+      - name: Run Historical Library browser suite
+        if: steps.scope.outputs.should_run == 'true'
+        run: npx playwright test --config tests/library/playwright.config.ts
+
+      - name: Run Month Screen accessibility browser suite
+        # Builds its own Month-Screen-flagged bundle outside dist/ and serves it with vite preview.
+        if: steps.scope.outputs.should_run == 'true'
+        run: npm run test:month-accessibility
+
+      - name: Run News browser suite
+        if: steps.scope.outputs.should_run == 'true'
+        run: npx playwright test --config tests/news/playwright.config.ts
+
+      - name: Run Onboarding Replay browser suite
+        if: steps.scope.outputs.should_run == 'true'
+        run: npx playwright test --config tests/onboardingReplay/playwright.config.ts
+
+      - name: Run R06 Library landing browser suite
+        if: steps.scope.outputs.should_run == 'true'
+        run: npx playwright test --config tests/r06Library/playwright.config.ts
+
+      - name: Run Scripture Capture browser suite
+        if: steps.scope.outputs.should_run == 'true'
+        run: npx playwright test --config tests/scriptureCapture/playwright.config.ts
+
+      - name: Run Shelf UI browser suite
+        if: steps.scope.outputs.should_run == 'true'
+        run: npx playwright test --config tests/shelfUI/playwright.config.ts
+
+      - name: Upload browser failure artifacts
+        if: failure() && steps.scope.outputs.should_run == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: reader-browser-suites-failure-artifacts
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Report skipped reader browser suites
+        if: steps.scope.outputs.should_run != 'true'
+        run: |
+          echo "Change-scope skip (irrelevant files; not Draft PR suppression): Reader browser suites skipped because no reader source or shared dependencies changed."
+
+  r06-release-artifact:
+    name: Build and verify R06 release artifact
+    # Claude Says (#367): builds the shipped R06 staging artifact (not the ordinary legacy build)
+    # with the reviewed preflight tooling, then verifies and smoke-tests it. No deployment.
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Evaluate change scope
+        id: scope
+        run: node scripts/ci/check-scope.mjs --target reader
+
+      - name: Install dependencies
+        if: steps.scope.outputs.should_run == 'true'
+        run: npm ci
+
+      - name: Run R06 preflight tooling tests
+        if: steps.scope.outputs.should_run == 'true'
+        run: node --test tests/release/r06-preflight.test.mjs
+
+      - name: Install Playwright Chromium
+        if: steps.scope.outputs.should_run == 'true'
+        run: npx playwright install chromium
+
+      - name: Build, verify and smoke-test the R06 artifact
+        if: steps.scope.outputs.should_run == 'true'
+        run: |
+          set -euo pipefail
+          commit="$(git rev-parse HEAD)"
+          output="$RUNNER_TEMP/r06-artifact"
+          node scripts/release/r06-preflight.mjs build "$commit" "$output" "$HOME/.npm" | tee "$RUNNER_TEMP/r06-build.log"
+          manifest_sha256="$(grep -oE '"manifestSha256": "[a-f0-9]{64}"' "$RUNNER_TEMP/r06-build.log" | cut -d'"' -f4)"
+          artifact_sha256="$(grep -oE '"artifactSha256": "[a-f0-9]{64}"' "$RUNNER_TEMP/r06-build.log" | cut -d'"' -f4)"
+          test -n "$manifest_sha256" && test -n "$artifact_sha256"
+          node scripts/release/r06-preflight.mjs verify "$commit" "$manifest_sha256" "$output"
+          node scripts/release/r06-verify-staging.mjs smoke "$commit" "$manifest_sha256" "$output"
+          {
+            echo "### R06 release artifact (CI rehearsal, not deployed)"
+            echo ""
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| Built commit | \`$commit\` |"
+            echo "| Node | \`$(node --version)\` |"
+            echo "| Manifest SHA-256 | \`$manifest_sha256\` |"
+            echo "| Artifact SHA-256 | \`$artifact_sha256\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report skipped R06 release artifact verification
+        if: steps.scope.outputs.should_run != 'true'
+        run: |
+          echo "Change-scope skip (irrelevant files; not Draft PR suppression): R06 release artifact build skipped because no reader source or shared dependencies changed."
+
   cms-adapter-tests:
     name: Verify CMS adapters and BerryMark preview
     # Standard ephemeral GitHub-hosted Ubuntu runner; no dependency on home machines.
@@ -156,7 +319,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '24'
+          node-version-file: .nvmrc
           cache: npm
 
       - name: Evaluate change scope
@@ -192,7 +355,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '24'
+          node-version-file: .nvmrc
           cache: npm
 
       - name: Evaluate change scope
