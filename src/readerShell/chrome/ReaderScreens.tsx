@@ -17,6 +17,7 @@ import { activeScreenKey } from '../navigation/routeTable.ts'
 import { MoreLanding } from './MoreLanding.tsx'
 import { MoreIntroductionReplay } from './MoreIntroductionReplay.tsx'
 import { AccountProgressScreen } from './AccountProgressScreen.tsx'
+import { AppearanceSettingsScreen } from '../appearance/index.ts'
 import { CollectionsLanding } from '../collections/CollectionsLanding.tsx'
 import { FoundationsOverview } from '../foundations/index.ts'
 import { TodayHost } from '../today/TodayHost.tsx'
@@ -247,6 +248,7 @@ function CurrentScreen({
             onOpenFeatured={documentId => openNewsArticle(send, documentId)}
             onOpenNews={() => send(openNews)}
             onOpenAbout={() => send({ type: 'push', route: { kind: 'detail', screen: 'aboutBibleberry' } })}
+            onOpenAppearanceSettings={() => send({ type: 'push', route: { kind: 'detail', screen: 'appearanceSettings' } })}
             onOpenAccountProgress={() => send({ type: 'push', route: { kind: 'detail', screen: 'accountProgress' } })}
             onReplayIntroduction={() => send({ type: 'openIntro' })}
           />
@@ -307,6 +309,14 @@ function CurrentScreen({
             <p>Bibleberry is offered by Spiritually Hungry.</p>
             <Action onClick={() => send(back)}>Back to More</Action>
           </Landing>
+        )
+      }
+      if (route.screen === 'appearanceSettings') {
+        return (
+          <AppearanceSettingsScreen
+            profileStore={profileStore}
+            onBack={() => send(back)}
+          />
         )
       }
       if (route.screen === 'accountProgress') {
