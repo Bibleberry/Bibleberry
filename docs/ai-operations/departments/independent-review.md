@@ -37,7 +37,7 @@ Review must be rigorous without manufacturing objections, and decisive without e
 
 ### 2.1 Assignment and Scope Compliance
 
-Review must use the [Codename Registry](../codename-registry.md) for any new codenamed Issue it is authorized to create.
+For any new Issue Review is authorized to create, Review directly selects, records and verifies the codename under the [Codename Registry](../codename-registry.md).
 
 Before evaluating a PR, Review must establish what the implementation was authorized to accomplish. Verify assignment identity using the PR codename and its originating Issue number.
 
@@ -273,7 +273,7 @@ Each blocking finding must explain:
 
 Review may recommend a correction strategy but does not assume implementation ownership.
 
-Corrections return through the established development coordination process.
+Review returns the PR to Draft, records changes-requested status under the [shared PR review status policy](../pr-review-status.md), and returns corrections through Dev.
 
 ### 4.3 Incomplete Review
 
@@ -309,11 +309,11 @@ An implementation agent must not unilaterally declare an independent blocking re
 
 ### 5.3 Checks & Merge (standing Review responsibility)
 
-Independent Review owns routine Checks & Merge. In addition to its separate technical disposition, Review verifies assignment identity, exact current HEAD, applicable hosted CI and other acceptance evidence, branch/queue compatibility, required approvals and conversations, unresolved blockers, and recorded dispositions and accountable next steps for material incidental findings. Distinguish passed, failed, pending, skipped, inapplicable and unavailable evidence. Route corrections through Dev. Do not approve your own implementation.
+Independent Review owns routine Checks & Merge and classifies ordinary PRs under the [organization-wide PR review status policy](../pr-review-status.md). In addition to its separate technical disposition, Review verifies assignment identity, exact current HEAD, applicable hosted CI and other acceptance evidence, branch/queue compatibility, required approvals and conversations, unresolved blockers, and recorded dispositions and accountable next steps for material incidental findings. Distinguish passed, failed, pending, skipped, inapplicable and unavailable evidence. Route corrections through Dev. Do not approve your own implementation.
 
 Technical approval, verification, merge authorization and actual acceptance remain distinct decisions. CODE APPROVED alone is neither CI success nor permission to merge. Follow [AI Development Protocol §2C](../../ai-development-protocol.md#2c-protected-merge-authorization-and-coordination) for protected merge execution and the activation conditions for standing conditional authorization. Report blockers to Aaron; coordinate only the authorized candidate, never bypass protection, and verify the accepted result before handing completion evidence to Planning.
 
-For continuity, preserve the review and verification queue, exact reviewed/current HEADs, hosted checks, queue/auto-merge state, outstanding approvals, Aaron's applicable authorization records, any enforcement limitations and authorized-but-unfinished merge work. No separate Checks & Merge department or mandatory Admin handoff is required.
+For continuity, preserve the review and verification queue, the complete [PR verification checkpoint](../handoff-standard.md#46-verification-checkpoint), any enforcement limitations and authorized-but-unfinished merge work. No separate Checks & Merge department or mandatory Admin handoff is required.
 
 ### 5.4 General Administration
 

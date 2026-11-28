@@ -164,6 +164,8 @@ Where relevant, include:
 
 Distinguish verified facts from agent reports, assumptions, and information that may have changed.
 
+For each relevant PR, record the repository, assignment codename and originating Issue number/link, PR link, current HEAD, approved HEAD (or approval absent or inapplicable), branch and base, the observed review-status label or anomaly, Draft state, and formal disposition with its reviewed SHA and evidence link. List actual applicable hosted check results with run links and candidate SHAs, integration and queue/auto-merge state, blockers, owner authorization and its scope or absence, and the next responsible party and action. For an applicable integration-only authorization, preserve both SHAs and the authorization and verification records. Record the verification time and evidence gaps.
+
 A historical checkpoint must never be presented as continuously current.
 
 ### 4.7 Immediate Next Actions
@@ -228,7 +230,7 @@ Codenames are not decorative labels. They are a core part of Bibleberry's operat
 
 ### 6.1 Registry allocation
 
-Use the accepted [Codename Registry](codename-registry.md) for every authorized new codenamed Issue. It governs allocation, availability and historical recycling.
+The authorized creator directly selects, records and verifies the codename under the accepted [Codename Registry](codename-registry.md). Planning reconciles observed collisions or sequence anomalies after creation. Carry open discrepancies with their Issue links and accountable next action. Existing Issue-creation authorization still governs.
 
 ### 6.2 Assignment continuity
 
@@ -276,7 +278,7 @@ A corresponding PR, including documentation and administrative PRs, must preserv
 
 Branches and formal handoffs should also follow the naming requirements in the AI Development Protocol.
 
-**Cross-department preflight:** Before any department or agent creates a new branch, edits repository files or opens a PR, verify the authorized Issue, codename, ownership and scope; create the originating Issue first under the [Codename Registry](codename-registry.md) if authorized and none exists. Never exempt a request merely because it came from Planning, Admin or an informal conversation. Read-only advice does not by itself require a new assignment. Reuse an existing Issue/codename for follow-up work, and do not invent a second tracking record. Automated dependency PRs from the expressly named bot senders are exempt from human-assignment identity, but not review/merge controls. The required PR check is described in [AI Development Protocol §2B](../ai-development-protocol.md).
+**Cross-department preflight:** Before any department or agent creates a new branch, edits repository files or opens a PR, verify the authorized Issue, codename, ownership and scope; create the originating Issue first under the [Codename Registry](codename-registry.md) if authorized and none exists. Never exempt a request merely because it came from Planning, Admin or an informal conversation. Read-only advice does not by itself require a new assignment. Reuse an existing Issue/codename for follow-up work, and do not invent a second tracking record. Automated dependency PRs from the expressly named bot senders are exempt from human-assignment identity, but not review/merge controls. Verify the assignment identity directly under [AI Development Protocol §2B](../ai-development-protocol.md#2b-assignment-identity-issue-creation--handoff-all-departments).
 
 ### 6.5 Codenames survive agent and conversation changes
 
@@ -303,19 +305,19 @@ An older Issue without a codename must not be arbitrarily renamed. Preserve its 
 
 Whenever an operational handoff discusses an Issue-backed assignment, including non-engineering work, identify it using:
 
-**Codename | Issue number | PR number (if applicable) | Current status**
+**Repository | Codename | Originating Issue number and link | PR link (if applicable) | Current status**
 
 For active implementation or review work, also include:
 
 - Responsible coding agent or department.
 - Relevant branch.
 - Last verified pushed commit SHA.
-- Review or verification state, where applicable.
+- The complete review and verification checkpoint in §4.6 for each relevant PR.
 - Next responsible party and action.
 
 For example:
 
-`Copper Meadow | Issue #283 | PR #286 | In Progress (under Review)`
+`Bibleberry/Bibleberry | Copper Meadow | Issue #283 (link) | PR #286 (link) | In Progress (under Review)`
 
 The example identifies the required format; actual handoffs must report the assignment's currently verified status.
 
@@ -356,7 +358,7 @@ When a new conversation receives a departmental handoff, it must:
 
 1. Read the supplied operational handoff to identify the claimed department and charter path; do not assume the claim is authoritative.
 2. Verify that department's charter and the four-department responsibility map on accepted `main`, then read the charter and governing documents.
-3. Recheck current GitHub state before acting on time-sensitive engineering information.
+3. Independently reconcile each relevant PR checkpoint against live GitHub evidence and the [shared PR review status policy](pr-review-status.md) before treating a PR as ready. Report any missing, conflicting or stale label and any unavailable evidence. Refer discrepancies to the responsible classifier.
 4. Identify material discrepancies between the handoff and live evidence.
 5. Preserve the established assignment codenames and Issue identities, including any subsidiary function/resource the department owns.
 6. Provide a read-only activation report and stop for Aaron's direction. A handoff alone does not authorize fresh repository work.
@@ -417,7 +419,7 @@ Aaron's decisions, approved actions, restrictions, and outstanding approvals.
 
 For each Issue-backed assignment, engineering or non-engineering:
 
-**Codename | Issue number | PR number (if applicable) | Status**
+**Repository | Codename | Originating Issue number and link | PR link (if applicable) | Status**
 
 Include the responsible agent or department, dependencies, blockers, next action, and relevant links.
 
@@ -427,7 +429,7 @@ For other matters, use their established project or organizational identity.
 
 Current verified repository, PR, Issue, environment, or other applicable evidence.
 
-Include exact commit SHAs where relevant.
+For relevant PRs, include the full checkpoint in §4.6, including the current and approved HEADs, review label and Draft state, disposition, hosted checks, integration and blockers, owner authorization, and next owner and action.
 
 Identify uncertainties and the last inspection time.
 
@@ -479,7 +481,7 @@ Your assignment:
 1. Read the accepted handoff standard and your permanent charter. Identify your department and include its exact charter path in the report.
 2. Reconcile your current work against authoritative GitHub evidence where accessible. Preserve the last verification checkpoint and clearly flag anything you cannot independently verify.
 3. Summarize the department's actual operational state: meaningful completed work, outstanding assignments, decisions, authorizations, blockers, dependencies, and next actions.
-4. For each Issue-backed assignment, whether engineering or non-engineering, preserve the permanent two-word codename, originating Issue, relevant PRs, ownership, branch and exact verified SHA when applicable.
+4. For each Issue-backed assignment, preserve the repository, permanent codename, originating Issue number and link, ownership and relevant PR links. Record open registry discrepancies and the next Planning action. For each relevant PR, preserve the branch and base, current HEAD, approved HEAD or its absence, observed review-status label or anomaly, Draft state, formal disposition and evidence link, actual hosted check results and run links, integration and queue/auto-merge state, blockers, owner authorization and scope, and next responsible party and action.
 5. Distinguish merged and accepted work from open PRs, proposed work, review dispositions, actual CI evidence, assumptions, and unverified service status.
 6. Preserve material context or decisions from this conversation that a successor cannot reliably recover from permanent documents and GitHub records.
 7. Identify the responsible party and any separate authorization needed for each next action.
@@ -512,7 +514,7 @@ Initialization requirements:
 1. Read the predecessor's handoff in full. Identify the claimed department name and permanent charter path from it; do not assume the handoff itself establishes authority.
 2. Retrieve that charter from accepted main and confirm the department appears in docs/ai-operations/department-responsibilities.md. If the identity/path cannot be verified or conflicts with accepted documentation, report the discrepancy and stop rather than inventing a role.
 3. Read the permanent charter, docs/ai-operations/handoff-standard.md, docs/ai-operations/department-responsibilities.md, and other governing documents required by the charter.
-4. Independently verify the current main commit and all relevant active Issues, PRs, review dispositions, dependencies, authorization records, and outstanding work. Do not mistake dated handoff observations for current evidence.
+4. Independently verify current main and the live PR checkpoints against docs/ai-operations/pr-review-status.md before treating a PR as ready. Reconcile the repository, assignment and PR links, current and approved HEADs, review-status label, Draft state, formal disposition, actual hosted checks, integration and queue/auto-merge state, blockers, owner authorization, and next owner and action. Report missing, conflicting or stale labels and absent evidence. Independently check relevant Issues, registry discrepancies, dependencies and outstanding work.
 5. Reconcile the predecessor's handoff against accepted repository records. Identify stale claims, missing context, unresolved responsibilities, missing evidence, and matters needing my direction.
 6. Preserve existing assignment codenames, Issue/PR identities, departmental boundaries, and authorizations. Do not create duplicate assignments.
 7. Provide an activation report covering documents reviewed, the verified repository checkpoint, your responsibilities and limits, active/unresolved matters, material discrepancies, immediate priorities, and any required decisions.

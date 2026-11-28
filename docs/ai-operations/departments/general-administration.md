@@ -68,7 +68,7 @@ Aaron may assign General Administration investigations or projects outside its r
 
 These may include organizational research, technical comparisons, administrative audits, workflow design, or other tasks requiring dedicated attention.
 
-A special assignment does not automatically establish a new permanent departmental responsibility.
+A special assignment does not automatically establish a new permanent departmental responsibility. When Aaron authorizes a special-project coordinator to own review and checks, Admin records the coordinator, scope and continuity. The coordinator is independent of implementation and follows the [common PR review status policy](../pr-review-status.md).
 
 When appropriate, General Administration should refer findings to the department that normally owns the resulting work.
 
@@ -85,6 +85,8 @@ The objective is to improve Aaron's decision-making and reduce administrative bu
 ### 2.6 Exceptional verification and merge troubleshooting
 
 Independent Review owns routine Checks & Merge under its charter. Admin is not a mandatory participant in routine PR acceptance. At Aaron's request, Admin may investigate exceptional CI, GitHub, queue, permissions or integration problems and assist with governance and infrastructure changes through the applicable authorization and review process. Refer technical corrections to Dev and acceptance evidence to Review. A special assignment does not transfer routine ownership or grant merge authority.
+
+Admin maintains organization-wide label consistency and supporting repository links to the single [PR review status policy](../pr-review-status.md). Reconcile drift and access with the responsible repository maintainers and independent classifier.
 
 ## 3. Authority
 
@@ -150,7 +152,7 @@ General Administration does not independently commission coding work or assume i
 
 Engineering Issue Planning (Planning) investigates upcoming engineering requirements, examines accepted implementations and existing Issues, identifies dependencies, and creates bounded candidate engineering Issues within Aaron's authorized planning initiatives.
 
-Planning allocates permanent assignment codenames through the [Codename Registry](../codename-registry.md), establishes acceptance criteria and verification expectations, and places new candidate Issues in Triage on the existing Bibleberry Development Project. **Planning also owns Project Board Stewardship**, including routine board administration and evidence-based reconciliation without overruling Dev's implementation decisions.
+Planning maintains the [Codename Registry](../codename-registry.md) and reconciles allocation records. Authorized creators select and verify their own codenames. Planning establishes acceptance criteria and verification expectations, and places new candidate Issues in Triage on the existing Bibleberry Development Project. **Planning also owns Project Board Stewardship**, including routine board administration and evidence-based reconciliation without overruling Dev's implementation decisions.
 
 Development Management (Dev) evaluates readiness, manages engineering sequencing, selects coding agents, and dispatches authorized work.
 
@@ -181,7 +183,7 @@ A previous conversation's recollection is not sufficient evidence of current rep
 
 General Administration must recognize and consistently use Bibleberry's permanent two-word assignment codenames **for engineering and non-engineering PR-producing work**.
 
-The governing naming and authorization gate is in [AI Development Protocol §2B](../../ai-development-protocol.md) and the [AI Department Handoff Standard](../handoff-standard.md). **Before creating a branch, changing a file or opening a PR**, verify Aaron's authorized scope, the responsible department, a relevant existing Issue, and its permanent codename. If none exists for the authorized new work, create the Issue **first** with Aaron's authorization and allocate its codename through the [Codename Registry](../codename-registry.md). Route an authorization gap to Aaron. An incidental documentation or governance request is not an exemption.
+The governing naming and authorization gate is in [AI Development Protocol §2B](../../ai-development-protocol.md) and the [AI Department Handoff Standard](../handoff-standard.md). **Before creating a branch, changing a file or opening a PR**, verify Aaron's authorized scope, the responsible department, a relevant existing Issue, and its permanent codename. If none exists for the authorized new work, create the Issue **first** with Aaron's authorization and directly select and verify its codename through the [Codename Registry](../codename-registry.md). Route an authorization gap to Aaron. An incidental documentation or governance request is not an exemption.
 
 When discussing any Issue-backed assignment, use the established codename and originating GitHub Issue number, with the PR number when applicable. Engineering Planning's delegated Issue creation remains engineering-only; Admin coordinates owner-authorized non-engineering documentation and governance work rather than silently extending Planning's authority.
 
@@ -213,7 +215,7 @@ The department should not create unnecessary Issues, procedures, or reporting re
 
 ## 8. Successor Continuity
 
-The outgoing Admin handoff must include exceptional verification/merge troubleshooting assignments, relevant evidence and any unresolved cross-department blockers. Routine Checks & Merge continuity belongs to Independent Review.
+The outgoing Admin handoff must include exceptional verification/merge troubleshooting assignments, relevant evidence and any unresolved cross-department blockers. Routine Checks & Merge continuity belongs to Independent Review. Preserve special-project coordinator authority and independence, the rollout and permissions checkpoint, and the [common PR checkpoint](../handoff-standard.md#46-verification-checkpoint) for relevant PRs.
 
 General Administration follows:
 

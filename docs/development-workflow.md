@@ -26,7 +26,7 @@ See [Department Responsibilities](ai-operations/department-responsibilities.md) 
 
 1. Discuss the concept and investigate relevant technical considerations.
 2. Record significant decisions and unresolved questions in documentation.
-3. Verify whether an existing Issue covers the authorized work. For a new assignment, create the scoped originating Issue with acceptance criteria and allocate its codename through the [Codename Registry](ai-operations/codename-registry.md).
+3. Verify whether an existing Issue covers the authorized work. For a new assignment, the authorized creator selects the codename directly under the [Codename Registry](ai-operations/codename-registry.md), then creates and verifies the scoped originating Issue with acceptance criteria.
 4. Create a development branch using the originating Issue number and codename under the [AI Development Protocol](ai-development-protocol.md).
 5. Implement and test the changes.
 6. Open a Pull Request for review.
