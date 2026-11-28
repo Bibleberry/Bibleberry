@@ -7,7 +7,7 @@
 **Status:** Consolidated planning specification, for Aaron's review; not implementation authorization  
 **Product authority:** Aaron Waid  
 **Theological and substantive teaching authority:** Alexis Waid  
-**Repositories reviewed:** [Bibleberry](https://github.com/ContraPhilosophy/Bibleberry) at `343b7523155e0850558ca05a66b117ea41bbfcc8`; [BerryMark](https://github.com/ContraPhilosophy/BerryMark) at `d94d5fa01d7b423650527d00f802ee0356362c6f`  
+**Repositories reviewed:** [Bibleberry](https://github.com/Bibleberry/Bibleberry) at `343b7523155e0850558ca05a66b117ea41bbfcc8`; [BerryMark](https://github.com/ContraPhilosophy/BerryMark) at `d94d5fa01d7b423650527d00f802ee0356362c6f`  
 **Basis:** 80 CMS planning decisions, including eight deferred items subsequently resolved in discussion; four accepted operating walkthroughs; the November 8 approved reader-experience specification; read-only repository inspection.  
 **Change control:** This file is prepared outside the repositories. No repository, Sanity, Cloudflare, account, Issue, PR, or deployment change is authorized by this document.
 
@@ -545,16 +545,16 @@ These are appropriate targets for engineering design reviews, scoped implementat
 
 ### Primary product and project documents
 
-- [Approved Reader Experience, Month Screen & Field Notebook, November 8](https://github.com/ContraPhilosophy/Bibleberry/blob/343b7523155e0850558ca05a66b117ea41bbfcc8/docs/product/2026-11-08-approved-reader-experience-and-month-screen.md)
-- [Current Project Status, including the November 7 R05 merge reconciliation](https://github.com/ContraPhilosophy/Bibleberry/blob/343b7523155e0850558ca05a66b117ea41bbfcc8/docs/project/current-status.md)
-- [Product & Application Development Roadmap](https://github.com/ContraPhilosophy/Bibleberry/blob/343b7523155e0850558ca05a66b117ea41bbfcc8/docs/product/application-development-roadmap.md)
-- [R05 Secure CMS Release Gateway](https://github.com/ContraPhilosophy/Bibleberry/blob/343b7523155e0850558ca05a66b117ea41bbfcc8/docs/architecture/r05-release-gateway.md)
-- [Bibleberry Studio schema registry](https://github.com/ContraPhilosophy/Bibleberry/blob/343b7523155e0850558ca05a66b117ea41bbfcc8/studio/schemaTypes/index.ts)
-- [Bibleberry Studio navigation](https://github.com/ContraPhilosophy/Bibleberry/blob/343b7523155e0850558ca05a66b117ea41bbfcc8/studio/structure.ts)
-- [Bibleberry Studio production dataset target](https://github.com/ContraPhilosophy/Bibleberry/blob/343b7523155e0850558ca05a66b117ea41bbfcc8/studio/sanity.config.ts)
-- [Release gateway runtime](https://github.com/ContraPhilosophy/Bibleberry/blob/343b7523155e0850558ca05a66b117ea41bbfcc8/src/gateway/handler.ts)
-- [Release gateway projection/validation](https://github.com/ContraPhilosophy/Bibleberry/blob/343b7523155e0850558ca05a66b117ea41bbfcc8/src/gateway/projection.ts)
-- [Reader participation store](https://github.com/ContraPhilosophy/Bibleberry/blob/343b7523155e0850558ca05a66b117ea41bbfcc8/src/participation/store.ts)
+- [Approved Reader Experience, Month Screen & Field Notebook, November 8](https://github.com/Bibleberry/Bibleberry/blob/343b7523155e0850558ca05a66b117ea41bbfcc8/docs/product/2026-11-08-approved-reader-experience-and-month-screen.md)
+- [Current Project Status, including the November 7 R05 merge reconciliation](https://github.com/Bibleberry/Bibleberry/blob/343b7523155e0850558ca05a66b117ea41bbfcc8/docs/project/current-status.md)
+- [Product & Application Development Roadmap](https://github.com/Bibleberry/Bibleberry/blob/343b7523155e0850558ca05a66b117ea41bbfcc8/docs/product/application-development-roadmap.md)
+- [R05 Secure CMS Release Gateway](https://github.com/Bibleberry/Bibleberry/blob/343b7523155e0850558ca05a66b117ea41bbfcc8/docs/architecture/r05-release-gateway.md)
+- [Bibleberry Studio schema registry](https://github.com/Bibleberry/Bibleberry/blob/343b7523155e0850558ca05a66b117ea41bbfcc8/studio/schemaTypes/index.ts)
+- [Bibleberry Studio navigation](https://github.com/Bibleberry/Bibleberry/blob/343b7523155e0850558ca05a66b117ea41bbfcc8/studio/structure.ts)
+- [Bibleberry Studio production dataset target](https://github.com/Bibleberry/Bibleberry/blob/343b7523155e0850558ca05a66b117ea41bbfcc8/studio/sanity.config.ts)
+- [Release gateway runtime](https://github.com/Bibleberry/Bibleberry/blob/343b7523155e0850558ca05a66b117ea41bbfcc8/src/gateway/handler.ts)
+- [Release gateway projection/validation](https://github.com/Bibleberry/Bibleberry/blob/343b7523155e0850558ca05a66b117ea41bbfcc8/src/gateway/projection.ts)
+- [Reader participation store](https://github.com/Bibleberry/Bibleberry/blob/343b7523155e0850558ca05a66b117ea41bbfcc8/src/participation/store.ts)
 
 ### BerryMark source and implementation documents
 

@@ -1,6 +1,6 @@
 # R08-5: Durable Guest Shelf Store & Native/Web Storage Boundary
 
-**Issue:** `ContraPhilosophy/Bibleberry#162`  
+**Issue:** `Bibleberry/Bibleberry#162`  
 **Phase:** Phase 05 / R08-5  
 **Base:** `main` (`425fcbb56e7d8a474c6cc732342860ef215199eb`)
 

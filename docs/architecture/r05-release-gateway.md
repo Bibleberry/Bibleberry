@@ -4,7 +4,7 @@
 **Review Status:** Reviewed and accepted by ChatGPT; authorized by Aaron Waid  
 **Primary Implementation Agent:** Gemini Flash  
 **Parent Roadmap Milestone:** R05 (Secure server-enforced scheduled release)  
-**Parent Issue:** [#25](https://github.com/ContraPhilosophy/Bibleberry/issues/25)  
+**Parent Issue:** [#25](https://github.com/Bibleberry/Bibleberry/issues/25)  
 
 ---
 
