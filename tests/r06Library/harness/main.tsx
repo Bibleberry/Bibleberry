@@ -6,6 +6,10 @@ import type {
   LibraryMonthIndexProvider,
   LibraryMonthSummary,
 } from '../../../src/cms/reader/libraryMonthIndexProvider.ts'
+import type {
+  MonthDetailData,
+  MonthGatewayProvider,
+} from '../../../src/cms/reader/monthProvider.ts'
 import type { ShelfMonthMetadata } from '../../../src/components/shelf/shelfModel.ts'
 import {
   R06LibraryLanding,
@@ -92,6 +96,73 @@ const MONTH_METADATA: Record<string, ShelfMonthMetadata> = {
   '2026-08': { yearMonth: '2026-08', title: 'Abiding Peace' },
   '2026-07': { yearMonth: '2026-07', title: 'Living Word' },
   '2026-06': { yearMonth: '2026-06', title: 'Faithful Witness' },
+}
+
+const HARNESS_SERVER_CONTEXT = {
+  authorizedLocalDate: CURRENT_LOCAL_DATE,
+  effectiveTimeZone: 'America/New_York',
+}
+
+/**
+ * Synthetic gateway Month provider. Since Saffron Ledger (#351) the R06 Shelf
+ * card resolves its title and completion progress through the gateway Month
+ * lookup and withholds the title when that lookup is unavailable. The harness
+ * therefore answers that lookup for the synthetic historical months, and
+ * reports `notFound` for anything else.
+ */
+const HARNESS_MONTH_PROVIDER: MonthGatewayProvider = {
+  async loadMonthPreview() {
+    return { status: 'notFound', source: 'gateway' }
+  },
+  async loadMonth(yearMonth) {
+    const metadata = MONTH_METADATA[yearMonth]
+    if (!metadata) return { status: 'notFound', source: 'gateway' }
+    const [year, month] = yearMonth.split('-').map(Number)
+    const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate()
+    const detail: MonthDetailData = {
+      monthId: yearMonth,
+      documentId: `harness-month-${yearMonth}`,
+      year,
+      month,
+      daysInMonth,
+      phase: 'historical',
+      rosterVersion: 1,
+      totalChallenges: daysInMonth,
+      title: metadata.title ?? '',
+      ...(metadata.subtitle ? { subtitle: metadata.subtitle } : {}),
+      introduction: {
+        version: 'harness',
+        previewScreens: [],
+        welcomeScreen: { id: 'harness-welcome', title: 'Welcome', blocks: [] },
+      },
+      slots: [],
+      discoveries: [],
+    }
+    return { status: 'ready', month: detail, serverContext: HARNESS_SERVER_CONTEXT, source: 'gateway' }
+  },
+  async loadMonthProgress(yearMonth) {
+    const metadata = MONTH_METADATA[yearMonth]
+    if (!metadata) return { status: 'notFound', source: 'gateway' }
+    const [year, month] = yearMonth.split('-').map(Number)
+    const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate()
+    return {
+      status: 'ready',
+      progress: {
+        monthId: yearMonth,
+        rosterVersion: 1,
+        completedInMonthCount: 0,
+        totalChallenges: daysInMonth,
+        thematicEarnedCount: 0,
+        thematicTotalCount: 0,
+        discoveries: [],
+      },
+      serverContext: HARNESS_SERVER_CONTEXT,
+      source: 'gateway',
+    }
+  },
+  async loadNews() {
+    return { status: 'notFound', source: 'gateway' }
+  },
 }
 
 function buildScenarioShelfState(scenario: string): ShelfState {
@@ -416,6 +487,7 @@ function R06LibraryHarnessApp() {
         onShelfStateChange={handleShelfStateChange}
         currentLocalDate={CURRENT_LOCAL_DATE}
         libraryProvider={libraryProvider}
+        monthProgressProvider={HARNESS_MONTH_PROVIDER}
         libraryPageSize={3}
         monthMetadata={MONTH_METADATA}
         surface={isControlledSurface ? controlledSurface : undefined}

@@ -33,6 +33,18 @@ const reviewedTests = [
   'tests/news/newsProvider.test.ts',
   'tests/library/historicalLibraryHost.test.ts',
   'tests/library/historicalLibraryModel.test.ts',
+  // Claude Says (#367): previously uninvoked hermetic Node suites. Chromium-dependent
+  // `tests/performance/**` runs in the reader-browser-suites job instead.
+  'tests/accountAuth/supabaseGoTrueProvider.test.ts',
+  'tests/accountDatabase/accountSb3Static.test.ts',
+  'tests/accountDatabase/accountSchemaStatic.test.ts',
+  'tests/accountDatabase/accountTransactionStatic.test.ts',
+  'tests/accountDatabase/accountVerify1Static.test.ts',
+  'tests/appIntegration/teachingScripture.test.ts',
+  'tests/challenge/challengeReaderControls.test.ts',
+  'tests/r06Library/r06LibraryModel.test.ts',
+  'tests/releaseAudit/monthlyPublicationAudit.test.ts',
+  'tests/shelfUI/shelfModel.test.ts',
 ]
 
 test('reader CI runs exactly the reviewed hermetic tests before browser provisioning', () => {

@@ -89,6 +89,8 @@ test('iOS verifies Draft and Ready PRs by commit without a redundant promotion r
 test('Required and named PR verification jobs remain intact with standard hosted runners', () => {
   const expectedJobs: Array<{ file: string; jobId: string; jobName: string }> = [
     { file: '.github/workflows/ci.yml', jobId: 'reader-app', jobName: 'Build reader application' },
+    { file: '.github/workflows/ci.yml', jobId: 'reader-browser-suites', jobName: 'Reader browser suites (Chromium)' },
+    { file: '.github/workflows/ci.yml', jobId: 'r06-release-artifact', jobName: 'Build and verify R06 release artifact' },
     { file: '.github/workflows/ci.yml', jobId: 'cms-adapter-tests', jobName: 'Verify CMS adapters and BerryMark preview' },
     { file: '.github/workflows/ci.yml', jobId: 'release-gateway-tests', jobName: 'Verify Release Gateway core' },
     { file: '.github/workflows/ci.yml', jobId: 'sanity-studio', jobName: 'Verify Sanity Studio' },
@@ -190,6 +192,8 @@ test('PR verification workflows preserve read-only permissions, SHA-pinned actio
 test('Change-scope skip logs explicitly distinguish irrelevant files from Draft PR suppression', () => {
   const scopedJobs: Array<{ file: string; jobId: string; target: string }> = [
     { file: '.github/workflows/ci.yml', jobId: 'reader-app', target: 'reader' },
+    { file: '.github/workflows/ci.yml', jobId: 'reader-browser-suites', target: 'reader' },
+    { file: '.github/workflows/ci.yml', jobId: 'r06-release-artifact', target: 'reader' },
     { file: '.github/workflows/ci.yml', jobId: 'cms-adapter-tests', target: 'cms-adapter' },
     { file: '.github/workflows/ci.yml', jobId: 'release-gateway-tests', target: 'release-gateway' },
     { file: '.github/workflows/ci.yml', jobId: 'sanity-studio', target: 'studio' },
