@@ -1,6 +1,6 @@
 # Bibleberry R13-3 — Supabase Account Schema, Isolation & RLS Foundation
 
-> **Issue:** [#163](https://github.com/ContraPhilosophy/Bibleberry/issues/163) (`Phase 05 / R13-3`)  
+> **Issue:** [#163](https://github.com/Bibleberry/Bibleberry/issues/163) (`Phase 05 / R13-3`)  
 > **Baseline `main`:** `425fcbb56e7d8a474c6cc732342860ef215199eb`  
 > **Scope Boundary:** Offline database migration ([`supabase/migrations/20261116000001_r13_3_account_schema_and_rls.sql`](../../supabase/migrations/20261116000001_r13_3_account_schema_and_rls.sql)), repeatable local PostgreSQL RLS/constraint test fixtures ([`tests/accountDatabase/`](../../tests/accountDatabase/)), and this architecture/evidence note. Zero live Supabase provisioning, remote SQL execution, auth UI, or compare-and-commit RPC implementation is included.
 

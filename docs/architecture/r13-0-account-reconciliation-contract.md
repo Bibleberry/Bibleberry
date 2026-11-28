@@ -1,6 +1,6 @@
 # Bibleberry R13-0 — Account Reconciliation Contract & Pure Merge Specification
 
-> **Status:** Architecture contract and pure offline reconciliation proof (Issue [#70](https://github.com/ContraPhilosophy/Bibleberry/issues/70))  
+> **Status:** Architecture contract and pure offline reconciliation proof (Issue [#70](https://github.com/Bibleberry/Bibleberry/issues/70))  
 > **Verified Repository Baseline:** `ContraPhilosophy/Bibleberry` `main` at `3e9f2261c0c331ebf12b7d4dac48a2b6cc025837` (November 11, 2026)  
 > **Scope Boundary:** Design contract + isolated pure reconciliation module (`src/accountSync/**`). Zero live Supabase, authentication, UI, Sanity, Gateway, or accepted V2 participation store modifications are included or authorized by this document.
 
