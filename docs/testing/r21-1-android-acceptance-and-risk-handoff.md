@@ -2,7 +2,7 @@
 
 **Date:** November 12, 2026  
 **Branch:** `perf/122-low-end-android-baseline`  
-**Related Issues:** [#122](https://github.com/ContraPhilosophy/Bibleberry/issues/122), umbrella [#37](https://github.com/ContraPhilosophy/Bibleberry/issues/37)  
+**Related Issues:** [#122](https://github.com/Bibleberry/Bibleberry/issues/122), umbrella [#37](https://github.com/Bibleberry/Bibleberry/issues/37)  
 **Supporting Artifacts:**
 - Machine-readable emulated baseline: [r21-1-emulated-baseline.json](r21-1-emulated-baseline.json) (recorded at commit `0009751fb6caa6439620590565ef4974ca894aac`)
 - Human-readable baseline summary: [r21-1-emulated-baseline-summary.md](r21-1-emulated-baseline-summary.md)

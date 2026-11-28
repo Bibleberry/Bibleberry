@@ -1,11 +1,11 @@
 # CI Smoke-Suite Vite Preview Lifecycle Repair
 
-**Related Issue:** [#165](https://github.com/ContraPhilosophy/Bibleberry/issues/165)  
+**Related Issue:** [#165](https://github.com/Bibleberry/Bibleberry/issues/165)  
 **Branch:** `fix/ci-smoke-preview-lifecycle`
 
 ## Problem Summary
 
-In GitHub Actions runs [43812171949](https://github.com/ContraPhilosophy/Bibleberry/actions/runs/43812171949) and [43771621445](https://github.com/ContraPhilosophy/Bibleberry/actions/runs/43771621445), the `Build reader application` job failed in `Run reader regression smoke suite` immediately after a successful Vite public bundle build with:
+In GitHub Actions runs [43812171949](https://github.com/Bibleberry/Bibleberry/actions/runs/43812171949) and [43771621445](https://github.com/Bibleberry/Bibleberry/actions/runs/43771621445), the `Build reader application` job failed in `Run reader regression smoke suite` immediately after a successful Vite public bundle build with:
 
 ```text
 FAILED: Regression suite error: Preview server did not become ready on port 4173
