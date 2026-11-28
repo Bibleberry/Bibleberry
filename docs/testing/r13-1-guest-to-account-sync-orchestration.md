@@ -1,6 +1,6 @@
 # Bibleberry R13-1 — Guest-to-Account Sync Orchestration & Mock Authorized Transport
 
-**Issue:** [#131](https://github.com/ContraPhilosophy/Bibleberry/issues/131) (`R13-1` / Phase 05)  
+**Issue:** [#131](https://github.com/Bibleberry/Bibleberry/issues/131) (`R13-1` / Phase 05)  
 **Verified Baseline `origin/main`:** `c1c31e76336c0ce195db5202949058e6e6a3c082`  
 **Scope Boundary:** Narrow asynchronous `AuthorizedAccountTransport` contract, deterministic `GuestToAccountSyncCoordinator` orchestration engine, safe guest storage clearance guard integration, deterministic mock transport implementation, and rigorous automated test suite. Zero live network clients, real credentials, Supabase provisioning, schema migrations, or app-wide UI changes are introduced.
 
@@ -8,7 +8,7 @@
 
 ## 1. Purpose and Architectural Boundary
 
-Bibleberry Issue [#131](https://github.com/ContraPhilosophy/Bibleberry/issues/131) provides the asynchronous, provider-neutral orchestration layer wrapping the accepted **R13-0 pure reconciliation engine** ([PR #118](https://github.com/ContraPhilosophy/Bibleberry/pull/118), [`src/accountSync/reconcile.ts`](../../src/accountSync/reconcile.ts)).
+Bibleberry Issue [#131](https://github.com/Bibleberry/Bibleberry/issues/131) provides the asynchronous, provider-neutral orchestration layer wrapping the accepted **R13-0 pure reconciliation engine** ([PR #118](https://github.com/Bibleberry/Bibleberry/pull/118), [`src/accountSync/reconcile.ts`](../../src/accountSync/reconcile.ts)).
 
 This layer establishes safe sequencing and verifiable idempotency for future authenticated reader sign-in without premature backend lock-in or live service writes.
 

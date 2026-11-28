@@ -7,7 +7,7 @@
 **Acceptance Authority:** Aaron Waid  
 **Theological/Editorial Authority:** Alexis Waid  
 **Parent Roadmap Milestone:** R05 (Secure server-enforced scheduled release)  
-**Parent Issue:** [#25](https://github.com/ContraPhilosophy/Bibleberry/issues/25)  
+**Parent Issue:** [#25](https://github.com/Bibleberry/Bibleberry/issues/25)  
 **Governing Protocols:** `docs/ai-development-protocol.md`, `docs/architecture/r05-release-gateway.md`
 
 ---

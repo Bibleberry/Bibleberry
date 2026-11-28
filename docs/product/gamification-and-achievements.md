@@ -227,7 +227,7 @@ The two notebook reference images were shared as conversation attachments; **the
 
 ### Historical design record
 
-The October 31 snapshot [remains in Git history](https://github.com/ContraPhilosophy/Bibleberry/blob/35d618e425056997244f0ea6bce5ab795c6af518/docs/product/gamification-and-achievements.md). It records why Aaron initially favored a fully visible gray-locked catalogue, why retrospective release-date chains were proposed as alternatives to punitive streaks, and where botanical and event ideas originated. Its still-useful principles have been carried forward; conflicting proposals have been marked superseded or exploratory in this November 6 revision.
+The October 31 snapshot [remains in Git history](https://github.com/Bibleberry/Bibleberry/blob/35d618e425056997244f0ea6bce5ab795c6af518/docs/product/gamification-and-achievements.md). It records why Aaron initially favored a fully visible gray-locked catalogue, why retrospective release-date chains were proposed as alternatives to punitive streaks, and where botanical and event ideas originated. Its still-useful principles have been carried forward; conflicting proposals have been marked superseded or exploratory in this November 6 revision.
 
 ### November 6 decision summary
 

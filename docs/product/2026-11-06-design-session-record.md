@@ -114,7 +114,7 @@ Aaron explored a Sunday **biblical scavenger hunt / thematic trail**, following 
 2. **Independent Evidence Audit of Gamification, Motivation, and Long-Term Engagement for Bibleberry**, provided within the AppDev project; research runtime did not directly access full Argon original.
 3. **Bibleberry Weekly Formation Alternatives.docx**, 41-page November 6 research report by Gemini Argon; user uploaded it in the AppDev chat, with Argon's own executive takeaways. The full binary report is **not committed** to this repository in this update; its substantive concepts and qualifications are recorded in [Biblical Discovery and Scripture](biblical-discovery-and-scripture.md).
 4. **Alexis's two actual notebook screenshots**, provided in chat as aesthetic references; **not committed** here. Refer to the conversation attachments for the visual source when producing mockups.
-5. [Previous documentation PR #43](https://github.com/ContraPhilosophy/Bibleberry/pull/43), merged November 6, 2026, documented earlier research conflicts, the nine principles and progress hierarchy.
+5. [Previous documentation PR #43](https://github.com/Bibleberry/Bibleberry/pull/43), merged November 6, 2026, documented earlier research conflicts, the nine principles and progress hierarchy.
 
 ## 7. Decision register summary
 

@@ -58,7 +58,7 @@ Executed locally for this change:
 | `git diff --check` | Passed. |
 
 The Native Android debug workflow
-[43036205650](https://github.com/ContraPhilosophy/Bibleberry/actions/runs/43036205650)
+[43036205650](https://github.com/Bibleberry/Bibleberry/actions/runs/43036205650)
 completed successfully on attempt 2 at PR head
 `71a72eb2ea1bc8533de203166a0364c25ac79579`; the runner checked out synthetic
 PR-merge SHA `3ea6815709c532d948c62a0ee1fc95de381c1b0b`. Dependencies, web build,
@@ -71,7 +71,7 @@ expires **2026-11-18 14:13 UTC**. The uploaded ZIP digest is
 `81566802a5bb0d5a3622b896315e0b12e4acc657a76e76aca5aa38b89882b88a`.
 
 The regular CI run
-[43036205512](https://github.com/ContraPhilosophy/Bibleberry/actions/runs/43036205512)
+[43036205512](https://github.com/Bibleberry/Bibleberry/actions/runs/43036205512)
 at the same PR head had its other three jobs pass; the reader-build job was
 still installing Playwright Chromium when this note was updated. The Android
 run covered the final code and generated native configuration. The existing
@@ -94,7 +94,7 @@ cd android
 ```
 
 Open the successful
-[Native Android debug build run](https://github.com/ContraPhilosophy/Bibleberry/actions/runs/43036205650)
+[Native Android debug build run](https://github.com/Bibleberry/Bibleberry/actions/runs/43036205650)
 and download `bibleberry-r20-2a-debug-apk` (artifact ID `13862029969`) from its
 Artifacts section before it expires. It is a short-lived debug artifact, not a
 signed release build. A browser build does not establish Android or iOS

@@ -20,7 +20,7 @@ This document captures the **working decisions made so far**, why they were made
 
 For A3, reader participation identity, completion semantics, optimistic state and React-facing store must be **independent of the physical persistence technology**. A web localStorage adapter is suitable for hosted-web guest mode and development tests, but **must not be treated as the permanent native-device storage contract**. The store must support asynchronous hydration, queued early actions, serialized writes, failure/retry reconciliation and safe reset during pending writes. Capacitor/native Preferences, SQLite, and other native packaging/storage choices remain **unselected**; no native dependency or packaging work is authorized by A3.
 
-A future authenticated Supabase account remains the working route to **recoverable multi-device accomplishments**. Guest records in a native app can still be lost on uninstall or device loss. See [A3 Issue #46](https://github.com/ContraPhilosophy/Bibleberry/issues/46) and [November 6 handoff](../project/handoffs/2026-11-06-a3-mobile-first.md). The native packaging choice should be resolved earlier in [R20](../product/application-development-roadmap.md) planning, before committing to authentication, device notifications or app-store release details.
+A future authenticated Supabase account remains the working route to **recoverable multi-device accomplishments**. Guest records in a native app can still be lost on uninstall or device loss. See [A3 Issue #46](https://github.com/Bibleberry/Bibleberry/issues/46) and [November 6 handoff](../project/handoffs/2026-11-06-a3-mobile-first.md). The native packaging choice should be resolved earlier in [R20](../product/application-development-roadmap.md) planning, before committing to authentication, device notifications or app-store release details.
 
 ## November 6, 2026: approved scope for participation records
 
@@ -80,7 +80,7 @@ The [consolidated Approved Reader Experience & Acceptance Specification](../prod
 
 ## Existing implementation: repository review (October 31, 2026)
 
-Repository: [ContraPhilosophy/Bibleberry](https://github.com/ContraPhilosophy/Bibleberry), default branch `main`.
+Repository: [Bibleberry/Bibleberry](https://github.com/Bibleberry/Bibleberry), default branch `main`.
 
 - The current reader app uses **React 19, TypeScript, and Vite**.
 - Sanity Studio exists as a separate `studio/` workspace.

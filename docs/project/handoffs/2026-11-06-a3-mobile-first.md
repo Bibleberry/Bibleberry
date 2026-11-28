@@ -4,16 +4,16 @@
 **Purpose:** Start the next ChatGPT/AppDev session from verified GitHub state and the latest A3 architectural decisions.  
 **Authority:** Aaron approves product/engineering scope, PR merges and releases; Alexis approves theological/editorial material and appropriate ministry-facing visuals.
 
-> **Read first:** [AI development protocol](../../ai-development-protocol.md), [current status](../current-status.md), [product roadmap](../../product/application-development-roadmap.md), and [Track A A3 Issue #46](https://github.com/ContraPhilosophy/Bibleberry/issues/46). Then verify current branches, PRs and CI. This handoff is a dated checkpoint, not a claim of continuous monitoring.
+> **Read first:** [AI development protocol](../../ai-development-protocol.md), [current status](../current-status.md), [product roadmap](../../product/application-development-roadmap.md), and [Track A A3 Issue #46](https://github.com/Bibleberry/Bibleberry/issues/46). Then verify current branches, PRs and CI. This handoff is a dated checkpoint, not a claim of continuous monitoring.
 
 ## 1. GitHub snapshot taken at end of November 6
 
-- **Bibleberry main:** f2461e4edfdfeff62e2a0578489428b0f8f33a4f ([commit](https://github.com/ContraPhilosophy/Bibleberry/commit/f2461e4edfdfeff62e2a0578489428b0f8f33a4f)).
+- **Bibleberry main:** f2461e4edfdfeff62e2a0578489428b0f8f33a4f ([commit](https://github.com/Bibleberry/Bibleberry/commit/f2461e4edfdfeff62e2a0578489428b0f8f33a4f)).
 - **BerryMark main:** d94d5fa01d7b423650527d00f802ee0356362c6f ([repository](https://github.com/ContraPhilosophy/BerryMark)).
 - **Open Bibleberry PRs:** none at this check.
 - **A3 implementation branch:** feat/46-reader-participation-state exists, but its remote SHA was still identical to Bibleberry main. **No A3 implementation commit or PR was present at this check.** Argon may have advanced it afterward; recheck.
-- **Prior milestones:** [PR #42](https://github.com/ContraPhilosophy/Bibleberry/pull/42) A1, [PR #45](https://github.com/ContraPhilosophy/Bibleberry/pull/45) A2, [PR #43](https://github.com/ContraPhilosophy/Bibleberry/pull/43) and [PR #47](https://github.com/ContraPhilosophy/Bibleberry/pull/47) product docs are all merged.
-- **Issues:** [#41](https://github.com/ContraPhilosophy/Bibleberry/issues/41) Track A umbrella, [#44](https://github.com/ContraPhilosophy/Bibleberry/issues/44) A2, [#46](https://github.com/ContraPhilosophy/Bibleberry/issues/46) A3, [#22](https://github.com/ContraPhilosophy/Bibleberry/issues/22) Hub/Field Notebook design, and [#25](https://github.com/ContraPhilosophy/Bibleberry/issues/25) secure CMS integration were open. Do not assume their state reflects implementation status without reading merged PRs.
+- **Prior milestones:** [PR #42](https://github.com/Bibleberry/Bibleberry/pull/42) A1, [PR #45](https://github.com/Bibleberry/Bibleberry/pull/45) A2, [PR #43](https://github.com/Bibleberry/Bibleberry/pull/43) and [PR #47](https://github.com/Bibleberry/Bibleberry/pull/47) product docs are all merged.
+- **Issues:** [#41](https://github.com/Bibleberry/Bibleberry/issues/41) Track A umbrella, [#44](https://github.com/Bibleberry/Bibleberry/issues/44) A2, [#46](https://github.com/Bibleberry/Bibleberry/issues/46) A3, [#22](https://github.com/Bibleberry/Bibleberry/issues/22) Hub/Field Notebook design, and [#25](https://github.com/Bibleberry/Bibleberry/issues/25) secure CMS integration were open. Do not assume their state reflects implementation status without reading merged PRs.
 - The existing shell and synthetic A2 pilot are **not** production CMS-backed Today/Archive participation. The three-pass smoke suite was reported passing for the merged A2 PR; no new A3 tests were run in this handoff.
 
 ## 2. Latest product clarification: installed mobile application first
@@ -28,7 +28,7 @@ Consequences for architecture:
 4. A future authenticated Supabase account remains the working path for **recoverable cross-device progress**, distinct from one-device guest storage. Native guest storage is also not guaranteed after uninstall.
 5. Bring the native packaging choice earlier in roadmap/release planning so authentication, notifications, deep links and real-device acceptance can be designed around the chosen platform.
 
-See [User accounts and sync](../../architecture/user-accounts-and-sync.md), [Release readiness](../../release/release-readiness-and-rollback.md), and the latest section in [Issue #46](https://github.com/ContraPhilosophy/Bibleberry/issues/46).
+See [User accounts and sync](../../architecture/user-accounts-and-sync.md), [Release readiness](../../release/release-readiness-and-rollback.md), and the latest section in [Issue #46](https://github.com/Bibleberry/Bibleberry/issues/46).
 
 ## 3. A3 design: revisions accepted in principle
 
@@ -57,10 +57,10 @@ Argon produced an initial design, an architecture-revision response addressing o
 
 ## 4. Next-chat operating instructions
 
-1. Reopen [Issue #46](https://github.com/ContraPhilosophy/Bibleberry/issues/46) and inspect **current** feat/46-reader-participation-state branch and any new PR. Compare to main; if implementation was pushed, review code/diff, relevant tests, build isolation and CI before recommending merge.
+1. Reopen [Issue #46](https://github.com/Bibleberry/Bibleberry/issues/46) and inspect **current** feat/46-reader-participation-state branch and any new PR. Compare to main; if implementation was pushed, review code/diff, relevant tests, build isolation and CI before recommending merge.
 2. If the branch is still at base, check whether Argon has started work. The approved direction is **A3 Phase 2 implementation** following the final native-first addendum, but do not claim code exists until verified.
 3. Preserve the standing protocol: protected main, one scoped feature branch, checkpoint commits and PR, independent review, Aaron-only merge approval. No unapproved changes to production Sanity or secrets.
-4. After A3 acceptance, plan next Track A milestones: **A4** controlled, released CMS Challenge integration into ordinary reader and **A5** Hub/entry coordination. Keep Hub and Field Notebook visual/product design in [Issue #22](https://github.com/ContraPhilosophy/Bibleberry/issues/22), subject to Alexis's applicable approval.
+4. After A3 acceptance, plan next Track A milestones: **A4** controlled, released CMS Challenge integration into ordinary reader and **A5** Hub/entry coordination. Keep Hub and Field Notebook visual/product design in [Issue #22](https://github.com/Bibleberry/Bibleberry/issues/22), subject to Alexis's applicable approval.
 5. Elevate **native iOS/Android delivery technology** as an early product/technical decision under R20. Research and select deliberately rather than slipping browser assumptions into interfaces. Do not infer that Capacitor or a native adapter is already implemented.
 
 ## 5. Project context not to lose
