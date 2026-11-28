@@ -1,46 +1,126 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { deflateRawSync } from 'node:zlib';
+import { createGitHubClient, extractSingleFileFromZip } from '../../scripts/ci/merge-queue-batch.ts';
 import {
   abortBatch,
-  advanceBatchOnPullRequestClosed,
+  buildAuthorizedManifest,
+  computeCommentBodyDigest,
+  computeStateChecksum,
+  COORDINATOR_WORKFLOW_PATH,
+  evaluateBranchProtectionSafety,
+  evaluateCheckVerification,
+  evaluateIndependentReviewComments,
   evaluatePullRequestPreflight,
-  handleMergeGroupDestroyed,
+  handleChecksCompleted,
+  handlePullRequestClosed,
+  handlePullRequestSynchronize,
   parseBatchEntries,
+  parseStructuredIndependentReviewComment,
+  prepareAuthorizedManifest,
   reconcileBatch,
+  runPreflight,
+  START_APPROVAL_JOB_NAME,
   startBatch,
+  verifyIntegrationChainFromAuthorizedHead,
+  verifyIntegrationUpdateProvenance,
   type ApprovalVerificationResult,
+  type AuthorizedBatchManifest,
+  type BatchEntry,
   type BatchState,
+  type CommitComparison,
+  type CommitDetails,
   type GitHubBatchClient,
+  type LegacyBatchStateV1,
+  type MergeMethod,
+  type PullRequestCommentNode,
   type PullRequestSnapshot,
+  type RepositoryPolicy,
+  type StoredBatchState,
 } from '../../scripts/ci/merge-queue-batch-lib.ts';
 
+const MAIN_0 = '0000000000000000000000000000000000000000';
+const MAIN_1 = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+const MAIN_2 = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+const MAIN_3 = 'cccccccccccccccccccccccccccccccccccccccc';
 const SHA_1 = '1111111111111111111111111111111111111111';
 const SHA_2 = '2222222222222222222222222222222222222222';
+const SHA_2_UPDATED = '222222222222222222222222222222222222222a';
 const SHA_3 = '3333333333333333333333333333333333333333';
+const SHA_3_UPDATED = '333333333333333333333333333333333333333a';
 
-function makePr(overrides: Partial<PullRequestSnapshot> = {}): PullRequestSnapshot {
+const COMMENT_ID_1 = '7230996401';
+const COMMENT_ID_2 = '7230996402';
+const COMMENT_ID_3 = '7230996403';
+
+function makeApprovedReviewComment(
+  prNumber: number,
+  headSha: string,
+  commentId = COMMENT_ID_1,
+  reviewer = 'ContraPhilosophy',
+  createdAt = '2026-11-27T17:00:00.000Z',
+): PullRequestCommentNode {
   return {
-    id: 'PR_kwDO1',
-    number: 180,
-    url: 'https://github.com/Bibleberry/Bibleberry/pull/180',
-    title: 'Test PR',
+    id: commentId,
+    author: { login: reviewer },
+    createdAt,
+    body: [
+      `**Claude Says | [Issue #367](https://github.com/Bibleberry/Bibleberry/issues/367) | PR #${prNumber} | Independent Review | exact HEAD \`${headSha}\`**`,
+      '',
+      '**Disposition: CODE APPROVED — bounded implementation verified.** No blocking findings.',
+    ].join('\n'),
+  };
+}
+
+function makePr(overrides: Partial<PullRequestSnapshot> = {}, commentId = COMMENT_ID_1): PullRequestSnapshot {
+  const headRefOid = overrides.headRefOid ?? SHA_1;
+  const prNumber = overrides.number ?? 180;
+  return {
+    id: `PR_kwDO${prNumber}`,
+    number: prNumber,
+    url: `https://github.com/Bibleberry/Bibleberry/pull/${prNumber}`,
+    title: '[Copper Turnstile] Test PR',
     state: 'OPEN',
     isDraft: false,
+    author: { login: 'ContraPhilosophy' },
     baseRefName: 'main',
     baseRepository: { nameWithOwner: 'Bibleberry/Bibleberry' },
-    headRefOid: SHA_1,
+    headRefName: `feat/test-pr-${prNumber}`,
+    headRefOid,
+    headRepository: { nameWithOwner: 'Bibleberry/Bibleberry' },
     isInMergeQueue: false,
     mergeable: 'MERGEABLE',
     mergeStateStatus: 'CLEAN',
     reviewDecision: null,
+    mergeCommit: null,
+    mergedAt: null,
+    mergedBy: null,
+    latestReviews: { nodes: [] },
+    issueComments: {
+      pageInfo: { hasNextPage: false },
+      nodes: [makeApprovedReviewComment(prNumber, headRefOid, commentId)],
+    },
     reviewThreads: { totalCount: 0, pageInfo: { hasNextPage: false }, nodes: [] },
     statusCheckRollup: {
       state: 'SUCCESS',
       contexts: {
+        pageInfo: { hasNextPage: false },
         nodes: [
-          { __typename: 'CheckRun', name: 'Build reader application', status: 'COMPLETED', conclusion: 'SUCCESS' },
-          { __typename: 'CheckRun', name: 'Verify Sanity Studio', status: 'COMPLETED', conclusion: 'SUCCESS' },
+          {
+            __typename: 'CheckRun',
+            name: 'Build reader application',
+            status: 'COMPLETED',
+            conclusion: 'SUCCESS',
+            headSha: headRefOid,
+          },
+          {
+            __typename: 'CheckRun',
+            name: 'Verify Sanity Studio',
+            status: 'COMPLETED',
+            conclusion: 'SUCCESS',
+            headSha: headRefOid,
+          },
         ],
       },
     },
@@ -48,16 +128,110 @@ function makePr(overrides: Partial<PullRequestSnapshot> = {}): PullRequestSnapsh
   };
 }
 
+function makePolicy(overrides: Partial<RepositoryPolicy> = {}): RepositoryPolicy {
+  return {
+    defaultBranch: 'main',
+    allowSquashMerge: true,
+    allowMergeCommit: true,
+    allowRebaseMerge: true,
+    allowAutoMerge: true,
+    allowUpdateBranch: false,
+    protectionAccessible: true,
+    strictStatusChecks: true,
+    requiredStatusChecks: ['Build reader application', 'Verify Sanity Studio'],
+    requiredApprovingReviewCount: 0,
+    dismissStaleReviews: false,
+    requiredConversationResolution: true,
+    enforceAdmins: true,
+    allowForcePushes: false,
+    allowDeletions: false,
+    hasBypassAllowances: false,
+    bypassAllowanceTargets: [],
+    ...overrides,
+  };
+}
+
+/**
+ * Builds a valid single-file ZIP archive (optionally with Deflate + streaming data-descriptor
+ * where local header compressedSize=0 and real size is in the Central Directory).
+ */
+function buildTestZip(filename: string, content: string, deflate = true): Uint8Array {
+  const nameBuf = Buffer.from(filename, 'utf8');
+  const rawBuf = Buffer.from(content, 'utf8');
+  const dataBuf = deflate ? deflateRawSync(rawBuf) : rawBuf;
+  const method = deflate ? 8 : 0;
+
+  // Local file header (simulate streaming ZIP: flag bit 3 set, compressedSize=0 in LFH).
+  const lfh = Buffer.alloc(30);
+  lfh.writeUInt32LE(0x04034b50, 0);
+  lfh.writeUInt16LE(20, 4);
+  lfh.writeUInt16LE(deflate ? 0x0008 : 0, 6);
+  lfh.writeUInt16LE(method, 8);
+  lfh.writeUInt32LE(deflate ? 0 : dataBuf.length, 18);
+  lfh.writeUInt32LE(deflate ? 0 : rawBuf.length, 22);
+  lfh.writeUInt16LE(nameBuf.length, 26);
+  lfh.writeUInt16LE(0, 28);
+
+  const localPart = Buffer.concat([lfh, nameBuf, dataBuf]);
+  const cdOffset = localPart.length;
+
+  const cdh = Buffer.alloc(46);
+  cdh.writeUInt32LE(0x02014b50, 0);
+  cdh.writeUInt16LE(20, 4);
+  cdh.writeUInt16LE(20, 6);
+  cdh.writeUInt16LE(deflate ? 0x0008 : 0, 8);
+  cdh.writeUInt16LE(method, 10);
+  cdh.writeUInt32LE(dataBuf.length, 20);
+  cdh.writeUInt32LE(rawBuf.length, 24);
+  cdh.writeUInt16LE(nameBuf.length, 28);
+  cdh.writeUInt16LE(0, 30);
+  cdh.writeUInt16LE(0, 32);
+  cdh.writeUInt32LE(0, 42);
+  const cdPart = Buffer.concat([cdh, nameBuf]);
+
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0);
+  eocd.writeUInt16LE(1, 8);
+  eocd.writeUInt16LE(1, 10);
+  eocd.writeUInt32LE(cdPart.length, 12);
+  eocd.writeUInt32LE(cdOffset, 16);
+  eocd.writeUInt16LE(0, 20);
+
+  return new Uint8Array(Buffer.concat([localPart, cdPart, eocd]));
+}
+
 class MockGitHubClient implements GitHubBatchClient {
   prs = new Map<number, PullRequestSnapshot | null>();
   prSequences = new Map<number, Array<PullRequestSnapshot | null>>();
-  enqueued: Array<{ pullRequestId: string; expectedHeadOid: string }> = [];
+  mainSha = MAIN_0;
+  policy: RepositoryPolicy = makePolicy();
+  commits = new Map<string, CommitDetails>();
+  comparisons = new Map<string, CommitComparison>();
+
+  updates: Array<{ prNumber: number; expectedHeadSha: string }> = [];
+  merges: Array<{ prNumber: number; expectedHeadSha: string; mergeMethod: MergeMethod }> = [];
   dequeued: string[] = [];
-  enqueueError: Error | null = null;
+
+  updateError: Error | null = null;
+  mergeError: Error | null = null;
   dequeueError: Error | null = null;
   saveErrors: Array<Error | null> = [];
-  approvalResult: ApprovalVerificationResult = { ok: true, approvedBy: 'ContraPhilosophy' };
-  state: BatchState | null = null;
+
+  onUpdateBranch?: (prNumber: number, expectedHeadSha: string) => void;
+  onMerge?: (prNumber: number, expectedHeadSha: string, mergeMethod: MergeMethod) => string;
+
+  approvalResult: ApprovalVerificationResult = {
+    ok: true,
+    approvedBy: 'ContraPhilosophy',
+    workflowPath: COORDINATOR_WORKFLOW_PATH,
+    event: 'workflow_dispatch',
+    headBranch: 'main',
+    actor: 'ContraPhilosophy',
+    hasStartApprovalJob: true,
+  };
+  approvalByRunId = new Map<string, ApprovalVerificationResult>();
+  manifestsByRunId = new Map<string, AuthorizedBatchManifest | null>();
+  state: StoredBatchState | null = null;
   saveCount = 0;
 
   async getPullRequest(_owner: string, _repo: string, prNumber: number): Promise<PullRequestSnapshot | null> {
@@ -68,12 +242,70 @@ class MockGitHubClient implements GitHubBatchClient {
     return this.prs.get(prNumber) ?? null;
   }
 
-  async enqueuePullRequest(pullRequestId: string, expectedHeadOid: string): Promise<{ queueEntryId?: string }> {
-    if (this.enqueueError) {
-      throw this.enqueueError;
+  async getBranchHeadSha(): Promise<string> {
+    return this.mainSha;
+  }
+
+  async getRepositoryPolicy(): Promise<RepositoryPolicy> {
+    return this.policy;
+  }
+
+  async getCommit(_owner: string, _repo: string, sha: string): Promise<CommitDetails> {
+    const found = this.commits.get(sha.toLowerCase());
+    if (!found) {
+      throw new Error(`Mock commit not found: ${sha}`);
     }
-    this.enqueued.push({ pullRequestId, expectedHeadOid });
-    return { queueEntryId: `MQE_${this.enqueued.length}` };
+    return found;
+  }
+
+  async compareCommits(_owner: string, _repo: string, base: string, head: string): Promise<CommitComparison> {
+    const key = `${base.toLowerCase()}...${head.toLowerCase()}`;
+    const exact = this.comparisons.get(key);
+    if (exact) return exact;
+    return {
+      status: 'ahead',
+      aheadBy: 1,
+      behindBy: 0,
+      mergeBaseSha: base.toLowerCase(),
+      totalCommits: 1,
+      files: [],
+    };
+  }
+
+  async updatePullRequestBranch(_owner: string, _repo: string, prNumber: number, expectedHeadSha: string) {
+    this.updates.push({ prNumber, expectedHeadSha });
+    if (this.updateError) {
+      throw this.updateError;
+    }
+    if (this.onUpdateBranch) {
+      this.onUpdateBranch(prNumber, expectedHeadSha);
+    }
+    return { message: 'Updating pull request branch.' };
+  }
+
+  async mergePullRequest(
+    _owner: string,
+    _repo: string,
+    prNumber: number,
+    expectedHeadSha: string,
+    mergeMethod: MergeMethod,
+  ) {
+    this.merges.push({ prNumber, expectedHeadSha, mergeMethod });
+    if (this.mergeError) {
+      throw this.mergeError;
+    }
+    const sha = this.onMerge ? this.onMerge(prNumber, expectedHeadSha, mergeMethod) : MAIN_1;
+    this.mainSha = sha;
+    const existing = this.prs.get(prNumber);
+    if (existing) {
+      this.prs.set(prNumber, {
+        ...existing,
+        state: 'MERGED',
+        mergeCommit: { oid: sha },
+        mergedAt: '2026-11-27T12:05:00.000Z',
+      });
+    }
+    return { sha, merged: true, message: 'Pull Request successfully merged' };
   }
 
   async dequeuePullRequest(pullRequestId: string): Promise<void> {
@@ -83,11 +315,11 @@ class MockGitHubClient implements GitHubBatchClient {
     this.dequeued.push(pullRequestId);
   }
 
-  async getBatchState(): Promise<BatchState | null> {
+  async getBatchState(): Promise<StoredBatchState | null> {
     return this.state;
   }
 
-  async saveBatchState(_owner: string, _repo: string, state: BatchState): Promise<void> {
+  async saveBatchState(_owner: string, _repo: string, state: StoredBatchState): Promise<void> {
     const nextErr = this.saveErrors.shift();
     if (nextErr) {
       throw nextErr;
@@ -96,148 +328,150 @@ class MockGitHubClient implements GitHubBatchClient {
     this.saveCount += 1;
   }
 
-  async verifyWorkflowApproval(): Promise<ApprovalVerificationResult> {
-    return this.approvalResult;
+  async verifyWorkflowApproval(
+    _owner: string,
+    _repo: string,
+    runId: string,
+  ): Promise<ApprovalVerificationResult> {
+    return this.approvalByRunId.get(runId) ?? this.approvalResult;
+  }
+
+  async getAuthorizedManifest(
+    _owner: string,
+    _repo: string,
+    runId: string,
+  ): Promise<AuthorizedBatchManifest | null> {
+    if (this.manifestsByRunId.has(runId)) {
+      return this.manifestsByRunId.get(runId) ?? null;
+    }
+    return null;
   }
 }
 
-test('parseBatchEntries parses comma, space, and newline separated PR@SHA entries', () => {
-  const entries = parseBatchEntries(`180@${SHA_1.toUpperCase()},\n 181@${SHA_2} 183@${SHA_3}`);
+function registerManifest(
+  client: MockGitHubClient,
+  runId: string,
+  entries: BatchEntry[],
+  mergeMethod: MergeMethod = 'squash',
+  integrationPolicy: 'integration-only' | 'hold-on-update' = 'integration-only',
+): AuthorizedBatchManifest {
+  const manifest = buildAuthorizedManifest({
+    owner: 'Bibleberry',
+    repo: 'Bibleberry',
+    workflowRunId: runId,
+    authorizedBy: 'ContraPhilosophy',
+    mergeMethod,
+    integrationPolicy,
+    entries,
+  });
+  client.manifestsByRunId.set(runId, manifest);
+  return manifest;
+}
+
+function setupCleanIntegrationProvenance(
+  client: MockGitHubClient,
+  params: {
+    mergeBaseSha: string;
+    prevHeadSha: string;
+    baseSha: string;
+    newHeadSha: string;
+    prFiles?: Array<{ filename: string; status: string; sha: string }>;
+    mainFiles?: Array<{ filename: string; status: string; sha: string }>;
+  },
+) {
+  const {
+    mergeBaseSha,
+    prevHeadSha,
+    baseSha,
+    newHeadSha,
+    prFiles = [{ filename: 'src/pr-feature.ts', status: 'modified', sha: 'blob-pr-1' }],
+    mainFiles = [{ filename: 'src/main-change.ts', status: 'modified', sha: 'blob-main-1' }],
+  } = params;
+
+  client.commits.set(newHeadSha.toLowerCase(), {
+    sha: newHeadSha.toLowerCase(),
+    parents: [prevHeadSha.toLowerCase(), baseSha.toLowerCase()],
+    message: `Merge branch 'main' into feat/pr`,
+  });
+
+  client.comparisons.set(`${baseSha.toLowerCase()}...${prevHeadSha.toLowerCase()}`, {
+    status: 'diverged',
+    aheadBy: 1,
+    behindBy: 1,
+    mergeBaseSha: mergeBaseSha.toLowerCase(),
+    totalCommits: 1,
+    files: prFiles,
+  });
+  client.comparisons.set(`${mergeBaseSha.toLowerCase()}...${prevHeadSha.toLowerCase()}`, {
+    status: 'ahead',
+    aheadBy: 1,
+    behindBy: 0,
+    mergeBaseSha: mergeBaseSha.toLowerCase(),
+    totalCommits: 1,
+    files: prFiles,
+  });
+  client.comparisons.set(`${mergeBaseSha.toLowerCase()}...${baseSha.toLowerCase()}`, {
+    status: 'ahead',
+    aheadBy: 1,
+    behindBy: 0,
+    mergeBaseSha: mergeBaseSha.toLowerCase(),
+    totalCommits: 1,
+    files: mainFiles,
+  });
+  client.comparisons.set(`${prevHeadSha.toLowerCase()}...${newHeadSha.toLowerCase()}`, {
+    status: 'ahead',
+    aheadBy: 2,
+    behindBy: 0,
+    mergeBaseSha: prevHeadSha.toLowerCase(),
+    totalCommits: 2,
+    files: mainFiles,
+  });
+  client.comparisons.set(`${baseSha.toLowerCase()}...${newHeadSha.toLowerCase()}`, {
+    status: 'ahead',
+    aheadBy: 2,
+    behindBy: 0,
+    mergeBaseSha: baseSha.toLowerCase(),
+    totalCommits: 2,
+    files: prFiles,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 1. Input parsing (`PR@SHA#COMMENT_ID` & `PR@SHA`) and Dry-run (zero writes)
+// ---------------------------------------------------------------------------
+
+test('parseBatchEntries parses PR@SHA#COMMENT_ID and PR@SHA entries and rejects malformed input', () => {
+  const entries = parseBatchEntries(
+    `371@${SHA_1.toUpperCase()}#${COMMENT_ID_1},\n 373@${SHA_2}#${COMMENT_ID_2} 374@${SHA_3}`,
+  );
   assert.deepEqual(entries, [
-    { prNumber: 180, expectedHeadSha: SHA_1 },
-    { prNumber: 181, expectedHeadSha: SHA_2 },
-    { prNumber: 183, expectedHeadSha: SHA_3 },
+    { prNumber: 371, expectedHeadSha: SHA_1, reviewCommentId: COMMENT_ID_1 },
+    { prNumber: 373, expectedHeadSha: SHA_2, reviewCommentId: COMMENT_ID_2 },
+    { prNumber: 374, expectedHeadSha: SHA_3 },
   ]);
-});
 
-test('parseBatchEntries rejects empty, malformed, short-SHA, and duplicate entries', () => {
   assert.throws(() => parseBatchEntries('   '), /empty/i);
-  assert.throws(() => parseBatchEntries('180'), /Expected format/);
+  assert.throws(() => parseBatchEntries('371'), /Expected format/);
   assert.throws(() => parseBatchEntries(`0@${SHA_1}`), /positive integer/);
-  assert.throws(() => parseBatchEntries('180@abc1234'), /40-character/);
-  assert.throws(() => parseBatchEntries(`180@${SHA_1},180@${SHA_2}`), /Duplicate PR #180/);
+  assert.throws(() => parseBatchEntries('371@abc1234'), /40-character/);
+  assert.throws(() => parseBatchEntries(`371@${SHA_1}#notanumber`), /numeric GitHub issue comment ID/);
+  assert.throws(() => parseBatchEntries(`371@${SHA_1}#0`), /numeric GitHub issue comment ID/);
+  assert.throws(() => parseBatchEntries(`371@${SHA_1}#1#2`), /at most one #REVIEW_COMMENT_ID/);
+  assert.throws(() => parseBatchEntries(`371@${SHA_1},371@${SHA_2}`), /Duplicate PR #371/);
 });
 
-test('evaluatePullRequestPreflight allows BEHIND branch when mergeable and checks pass', () => {
-  const pr = makePr({ mergeable: 'MERGEABLE', mergeStateStatus: 'BEHIND' });
-  const res = evaluatePullRequestPreflight(pr, { prNumber: 180, expectedHeadSha: SHA_1 }, 'Bibleberry/Bibleberry');
-  assert.equal(res.ok, true);
-  assert.deepEqual(res.reasons, []);
-});
-
-test('evaluatePullRequestPreflight accepts prior SKIPPED check run when newer SUCCESS run exists', () => {
-  const pr = makePr({
-    statusCheckRollup: {
-      state: 'SUCCESS',
-      contexts: {
-        nodes: [
-          { __typename: 'CheckRun', name: 'Build reader application', status: 'COMPLETED', conclusion: 'SKIPPED' },
-          { __typename: 'CheckRun', name: 'Build reader application', status: 'COMPLETED', conclusion: 'SUCCESS' },
-          { __typename: 'CheckRun', name: 'Verify Sanity Studio', status: 'COMPLETED', conclusion: 'SUCCESS' },
-        ],
-      },
-    },
-  });
-  const res = evaluatePullRequestPreflight(pr, { prNumber: 180, expectedHeadSha: SHA_1 }, 'Bibleberry/Bibleberry');
-  assert.equal(res.ok, true);
-});
-
-test('evaluatePullRequestPreflight rejects SKIPPED-only required checks even when rollup state is SUCCESS', () => {
-  const pr = makePr({
-    statusCheckRollup: {
-      state: 'SUCCESS',
-      contexts: {
-        nodes: [
-          { __typename: 'CheckRun', name: 'Build reader application', status: 'COMPLETED', conclusion: 'SKIPPED' },
-          { __typename: 'CheckRun', name: 'Verify Sanity Studio', status: 'COMPLETED', conclusion: 'SUCCESS' },
-        ],
-      },
-    },
-  });
-  const res = evaluatePullRequestPreflight(pr, { prNumber: 180, expectedHeadSha: SHA_1 }, 'Bibleberry/Bibleberry');
-  assert.equal(res.ok, false);
-  assert.match(res.reasons.join(' '), /only has SKIPPED runs and no passing execution/);
-});
-
-test('evaluatePullRequestPreflight rejects negative cases: stale SHA, Draft, wrong state/base/repo, unapproved, unresolved threads, failed checks, conflicts', () => {
-  const cases: Array<{ name: string; pr: PullRequestSnapshot | null; expectedReason: RegExp }> = [
-    { name: 'missing PR', pr: null, expectedReason: /not found/ },
-    { name: 'stale head SHA', pr: makePr({ headRefOid: SHA_2 }), expectedReason: /does not match authorized SHA/ },
-    { name: 'Draft PR', pr: makePr({ isDraft: true }), expectedReason: /Draft PR/ },
-    { name: 'closed PR', pr: makePr({ state: 'CLOSED' }), expectedReason: /expected OPEN/ },
-    { name: 'wrong base', pr: makePr({ baseRefName: 'develop' }), expectedReason: /base branch/ },
-    {
-      name: 'wrong repo',
-      pr: makePr({ baseRepository: { nameWithOwner: 'Other/Bibleberry' } }),
-      expectedReason: /targets repository/,
-    },
-    {
-      name: 'unapproved PR (REVIEW_REQUIRED)',
-      pr: makePr({ reviewDecision: 'REVIEW_REQUIRED' }),
-      expectedReason: /REVIEW_REQUIRED/,
-    },
-    {
-      name: 'changes requested',
-      pr: makePr({ reviewDecision: 'CHANGES_REQUESTED' }),
-      expectedReason: /CHANGES_REQUESTED/,
-    },
-    {
-      name: 'unresolved conversation',
-      pr: makePr({ reviewThreads: { totalCount: 1, pageInfo: { hasNextPage: false }, nodes: [{ isResolved: false }] } }),
-      expectedReason: /unresolved review conversation/,
-    },
-    {
-      name: 'failed checks',
-      pr: makePr({
-        statusCheckRollup: {
-          state: 'FAILURE',
-          contexts: {
-            nodes: [
-              { __typename: 'CheckRun', name: 'Build reader application', status: 'COMPLETED', conclusion: 'FAILURE' },
-              { __typename: 'CheckRun', name: 'Verify Sanity Studio', status: 'COMPLETED', conclusion: 'SUCCESS' },
-            ],
-          },
-        },
-      }),
-      expectedReason: /statusCheckRollup state is FAILURE/,
-    },
-    {
-      name: 'missing required check',
-      pr: makePr({
-        statusCheckRollup: {
-          state: 'SUCCESS',
-          contexts: {
-            nodes: [{ __typename: 'CheckRun', name: 'Build reader application', status: 'COMPLETED', conclusion: 'SUCCESS' }],
-          },
-        },
-      }),
-      expectedReason: /missing required check "Verify Sanity Studio"/,
-    },
-    {
-      name: 'merge conflicts',
-      pr: makePr({ mergeable: 'CONFLICTING', mergeStateStatus: 'DIRTY' }),
-      expectedReason: /merge conflicts/,
-    },
-  ];
-
-  for (const c of cases) {
-    const res = evaluatePullRequestPreflight(c.pr, { prNumber: 180, expectedHeadSha: SHA_1 }, 'Bibleberry/Bibleberry');
-    assert.equal(res.ok, false, `${c.name} should fail preflight`);
-    assert.match(res.reasons.join(' '), c.expectedReason, `${c.name} reason mismatch`);
-  }
-});
-
-test('startBatch dry-run validates without enqueueing or saving state', async () => {
+test('dry-run validates owner-attested entries with zero writes and surfaces inaccessible-protection notice', async () => {
   const client = new MockGitHubClient();
-  client.prs.set(180, makePr({ number: 180, headRefOid: SHA_1 }));
-  client.prs.set(181, makePr({ number: 181, headRefOid: SHA_2 }));
+  client.policy = makePolicy({ protectionAccessible: false });
+  client.prs.set(371, makePr({ number: 371, headRefOid: SHA_1, mergeStateStatus: 'CLEAN' }, COMMENT_ID_1));
+  client.prs.set(373, makePr({ number: 373, headRefOid: SHA_2, mergeStateStatus: 'BEHIND' }, COMMENT_ID_2));
 
   const outcome = await startBatch(client, {
     owner: 'Bibleberry',
     repo: 'Bibleberry',
     entries: [
-      { prNumber: 180, expectedHeadSha: SHA_1 },
-      { prNumber: 181, expectedHeadSha: SHA_2 },
+      { prNumber: 371, expectedHeadSha: SHA_1, reviewCommentId: COMMENT_ID_1 },
+      { prNumber: 373, expectedHeadSha: SHA_2, reviewCommentId: COMMENT_ID_2 },
     ],
     authorizedBy: 'ContraPhilosophy',
     dryRun: true,
@@ -245,554 +479,1450 @@ test('startBatch dry-run validates without enqueueing or saving state', async ()
 
   assert.equal(outcome.ok, true);
   assert.equal(outcome.dryRun, true);
-  assert.equal(client.enqueued.length, 0);
+  assert.equal(outcome.action, 'dry-run');
+  assert.match(outcome.protectionNotice ?? '', /403/);
   assert.equal(client.saveCount, 0);
-});
+  assert.equal(client.updates.length, 0);
+  assert.equal(client.merges.length, 0);
 
-test('startBatch fails closed when actor is not an authorized owner or workflow approval is missing', async () => {
-  const client = new MockGitHubClient();
-  client.prs.set(180, makePr({ number: 180, headRefOid: SHA_1 }));
-
-  const nonOwner = await startBatch(client, {
-    owner: 'Bibleberry',
-    repo: 'Bibleberry',
-    entries: [{ prNumber: 180, expectedHeadSha: SHA_1 }],
-    authorizedBy: 'other-contributor',
-    workflowRunId: '12345',
-  });
-  assert.equal(nonOwner.ok, false);
-  assert.match(nonOwner.error ?? '', /not in authorized owners/);
-  assert.equal(client.enqueued.length, 0);
-
-  client.approvalResult = {
-    ok: false,
-    reason: 'Run 12345 has no recorded "merge-queue-approval" approval.',
-  };
-  const missingApproval = await startBatch(client, {
-    owner: 'Bibleberry',
-    repo: 'Bibleberry',
-    entries: [{ prNumber: 180, expectedHeadSha: SHA_1 }],
-    authorizedBy: 'ContraPhilosophy',
-    workflowRunId: '12345',
-  });
-  assert.equal(missingApproval.ok, false);
-  assert.match(missingApproval.error ?? '', /Authorization failed \(fail-closed\)/);
-  assert.equal(client.enqueued.length, 0);
-});
-
-test('startBatch rechecks SHA immediately before enqueueing to catch race drift', async () => {
-  const client = new MockGitHubClient();
-  client.prSequences.set(180, [
-    makePr({ id: 'PR_180', number: 180, headRefOid: SHA_1 }),
-    makePr({ id: 'PR_180', number: 180, headRefOid: SHA_3 }),
+  const preflight = await runPreflight(client, 'Bibleberry', 'Bibleberry', [
+    { prNumber: 371, expectedHeadSha: SHA_1, reviewCommentId: COMMENT_ID_1 },
   ]);
-
-  const outcome = await startBatch(client, {
-    owner: 'Bibleberry',
-    repo: 'Bibleberry',
-    entries: [{ prNumber: 180, expectedHeadSha: SHA_1 }],
-    authorizedBy: 'ContraPhilosophy',
-  });
-
-  assert.equal(outcome.ok, false);
-  assert.match(outcome.error ?? '', /Pre-enqueue recheck failed/);
-  assert.equal(client.enqueued.length, 0);
+  assert.equal(preflight.ok, true);
   assert.equal(client.saveCount, 0);
 });
 
-test('write-ahead state survives post-enqueue save failure and recovers via reconcileBatch', async () => {
+// ---------------------------------------------------------------------------
+// 2. Unattended 3-PR batch with single owner approval + immutable run manifest
+// ---------------------------------------------------------------------------
+
+test('unattended 3-PR batch merges current PR #1 without extra CI, then updates & merges PR #2 and PR #3 on workflow_run wakeups with verified immutable manifest', async () => {
   const client = new MockGitHubClient();
-  client.prs.set(180, makePr({ id: 'PR_180', number: 180, headRefOid: SHA_1 }));
-  client.prs.set(181, makePr({ id: 'PR_181', number: 181, headRefOid: SHA_2 }));
-  // First save (write-ahead 'enqueuing') succeeds, second save (confirm 'running') fails.
-  client.saveErrors = [null, new Error('GitHub API 503')];
+  let clockMs = Date.parse('2026-11-27T19:00:00.000Z');
+  const now = () => new Date(clockMs).toISOString();
+
+  const entries: BatchEntry[] = [
+    { prNumber: 371, expectedHeadSha: SHA_1, reviewCommentId: COMMENT_ID_1 },
+    { prNumber: 373, expectedHeadSha: SHA_2, reviewCommentId: COMMENT_ID_2 },
+    { prNumber: 374, expectedHeadSha: SHA_3, reviewCommentId: COMMENT_ID_3 },
+  ];
+
+  client.mainSha = MAIN_0;
+  client.prs.set(371, makePr({ number: 371, headRefOid: SHA_1, mergeStateStatus: 'CLEAN' }, COMMENT_ID_1));
+  client.prs.set(373, makePr({ number: 373, headRefOid: SHA_2, mergeStateStatus: 'CLEAN' }, COMMENT_ID_2));
+  client.prs.set(374, makePr({ number: 374, headRefOid: SHA_3, mergeStateStatus: 'CLEAN' }, COMMENT_ID_3));
+
+  // Emit digest-bound immutable manifest BEFORE artifact upload (matching workflow emit-manifest step).
+  const prepared = await prepareAuthorizedManifest(client, {
+    owner: 'Bibleberry',
+    repo: 'Bibleberry',
+    entries,
+    authorizedBy: 'ContraPhilosophy',
+    workflowRunId: '5001',
+    requireWorkflowApprovalRecord: true,
+    now,
+  });
+  assert.equal(prepared.ok, true);
+  assert.ok(prepared.manifest);
+  assert.ok(prepared.manifest.entries.every((e) => Boolean(e.reviewCommentDigest)));
+  client.manifestsByRunId.set('5001', prepared.manifest);
+
+  client.onMerge = (prNum) => {
+    if (prNum === 371) {
+      client.prs.set(373, makePr({ number: 373, headRefOid: SHA_2, mergeStateStatus: 'BEHIND' }, COMMENT_ID_2));
+      client.prs.set(374, makePr({ number: 374, headRefOid: SHA_3, mergeStateStatus: 'BEHIND' }, COMMENT_ID_3));
+      client.comparisons.set(`${MAIN_1}...${SHA_2}`, {
+        status: 'diverged',
+        aheadBy: 1,
+        behindBy: 1,
+        mergeBaseSha: MAIN_0,
+        totalCommits: 1,
+      });
+      return MAIN_1;
+    }
+    if (prNum === 373) {
+      client.comparisons.set(`${MAIN_2}...${SHA_3}`, {
+        status: 'diverged',
+        aheadBy: 1,
+        behindBy: 2,
+        mergeBaseSha: MAIN_0,
+        totalCommits: 1,
+      });
+      return MAIN_2;
+    }
+    return MAIN_3;
+  };
 
   const started = await startBatch(client, {
     owner: 'Bibleberry',
     repo: 'Bibleberry',
-    entries: [
-      { prNumber: 180, expectedHeadSha: SHA_1 },
-      { prNumber: 181, expectedHeadSha: SHA_2 },
-    ],
+    entries,
     authorizedBy: 'ContraPhilosophy',
-  });
-
-  assert.equal(started.ok, false);
-  assert.match(started.error ?? '', /write-ahead state saved \(status=enqueuing\)/);
-  assert.equal(client.state?.status, 'enqueuing');
-  assert.equal(client.state?.activePrNumber, 180);
-  assert.equal(client.enqueued.length, 1);
-
-  // Attempting to start another batch while 'enqueuing' is blocked (prevents double-start).
-  const doubleStart = await startBatch(client, {
-    owner: 'Bibleberry',
-    repo: 'Bibleberry',
-    entries: [{ prNumber: 181, expectedHeadSha: SHA_2 }],
-    authorizedBy: 'ContraPhilosophy',
-  });
-  assert.equal(doubleStart.ok, false);
-  assert.match(doubleStart.error ?? '', /already enqueuing/);
-
-  // Reconcile while PR 180 is in the merge queue -> recovers to 'running' without re-enqueueing.
-  client.prs.set(180, makePr({ id: 'PR_180', number: 180, headRefOid: SHA_1, isInMergeQueue: true }));
-  const reconciled = await reconcileBatch(client, { owner: 'Bibleberry', repo: 'Bibleberry' });
-  assert.equal(reconciled.action, 'reconciled');
-  assert.equal(client.state?.status, 'running');
-  assert.equal(client.enqueued.length, 1);
-});
-
-test('reconcileBatch recovers interrupted advancement when save fails after enqueueing next PR and PR later merges', async () => {
-  const client = new MockGitHubClient();
-  client.prs.set(180, makePr({ id: 'PR_180', number: 180, headRefOid: SHA_1 }));
-  client.prs.set(181, makePr({ id: 'PR_181', number: 181, headRefOid: SHA_2 }));
-
-  await startBatch(client, {
-    owner: 'Bibleberry',
-    repo: 'Bibleberry',
-    entries: [
-      { prNumber: 180, expectedHeadSha: SHA_1 },
-      { prNumber: 181, expectedHeadSha: SHA_2 },
-    ],
-    authorizedBy: 'ContraPhilosophy',
-  });
-
-  // On advance from 180 -> 181, write-ahead save succeeds, enqueue succeeds, confirm save fails.
-  client.saveErrors = [null, new Error('Variables API timeout')];
-  const adv = await advanceBatchOnPullRequestClosed(client, {
-    owner: 'Bibleberry',
-    repo: 'Bibleberry',
-    prNumber: 180,
-    merged: true,
-  });
-  assert.equal(adv.action, 'enqueued');
-  assert.equal(client.state?.status, 'enqueuing');
-  assert.equal(client.state?.activePrNumber, 181);
-
-  // PR 181 subsequently merges -> reconcileBatch sees MERGED and completes the batch!
-  client.prs.set(181, makePr({ id: 'PR_181', number: 181, headRefOid: SHA_2, state: 'MERGED' }));
-  const rec = await reconcileBatch(client, { owner: 'Bibleberry', repo: 'Bibleberry' });
-  assert.equal(rec.action, 'completed');
-  assert.equal(client.state?.status, 'completed');
-  assert.deepEqual(client.state?.completedPrNumbers, [180, 181]);
-});
-
-test('durable batch advancement enqueues one PR at a time and completes cleanly', async () => {
-  const client = new MockGitHubClient();
-  client.prs.set(180, makePr({ id: 'PR_180', number: 180, headRefOid: SHA_1 }));
-  client.prs.set(181, makePr({ id: 'PR_181', number: 181, headRefOid: SHA_2, mergeStateStatus: 'BEHIND' }));
-
-  const started = await startBatch(client, {
-    owner: 'Bibleberry',
-    repo: 'Bibleberry',
-    entries: [
-      { prNumber: 180, expectedHeadSha: SHA_1 },
-      { prNumber: 181, expectedHeadSha: SHA_2 },
-    ],
-    authorizedBy: 'ContraPhilosophy',
-    now: () => '2026-11-17T12:00:00.000Z',
+    workflowRunId: '5001',
+    requireWorkflowApprovalRecord: true,
+    authorizedManifest: prepared.manifest,
+    now,
   });
 
   assert.equal(started.ok, true);
-  assert.deepEqual(client.enqueued, [{ pullRequestId: 'PR_180', expectedHeadOid: SHA_1 }]);
-  assert.equal(client.state?.activePrNumber, 180);
+  assert.equal(started.action, 'updating');
+  assert.deepEqual(client.merges, [{ prNumber: 371, expectedHeadSha: SHA_1, mergeMethod: 'squash' }]);
+  assert.deepEqual(client.updates, [{ prNumber: 373, expectedHeadSha: SHA_2 }]);
+  assert.ok((client.state as BatchState).entries[1].reviewCommentDigest, 'Comment body digest must be captured at start');
 
-  // Unrelated PR close is ignored.
-  const ignored = await advanceBatchOnPullRequestClosed(client, {
-    owner: 'Bibleberry',
-    repo: 'Bibleberry',
-    prNumber: 999,
-    merged: true,
+  // PR #373 synchronize -> verify clean disjoint provenance -> awaiting_checks.
+  setupCleanIntegrationProvenance(client, {
+    mergeBaseSha: MAIN_0,
+    prevHeadSha: SHA_2,
+    baseSha: MAIN_1,
+    newHeadSha: SHA_2_UPDATED,
+    prFiles: [{ filename: 'src/pr373.ts', status: 'added', sha: 'blob-373' }],
+    mainFiles: [{ filename: 'src/pr371.ts', status: 'added', sha: 'blob-371' }],
   });
-  assert.equal(ignored.action, 'ignored');
+  client.prs.set(
+    373,
+    makePr({
+      number: 373,
+      headRefOid: SHA_2_UPDATED,
+      mergeStateStatus: 'BLOCKED',
+      issueComments: {
+        pageInfo: { hasNextPage: false },
+        nodes: [makeApprovedReviewComment(373, SHA_2, COMMENT_ID_2)],
+      },
+      statusCheckRollup: {
+        state: 'PENDING',
+        contexts: {
+          pageInfo: { hasNextPage: false },
+          nodes: [{ __typename: 'CheckRun', name: 'Build reader application', status: 'IN_PROGRESS', conclusion: null, headSha: SHA_2_UPDATED }],
+        },
+      },
+    }),
+  );
 
-  // PR 180 merges -> advances to PR 181.
-  const advanced = await advanceBatchOnPullRequestClosed(client, {
+  clockMs += 20_000;
+  const sync373 = await handlePullRequestSynchronize(client, {
     owner: 'Bibleberry',
     repo: 'Bibleberry',
-    prNumber: 180,
-    merged: true,
+    prNumber: 373,
+    requireWorkflowApprovalRecord: true,
+    now,
   });
-  assert.equal(advanced.action, 'enqueued');
-  assert.deepEqual(client.enqueued, [
-    { pullRequestId: 'PR_180', expectedHeadOid: SHA_1 },
-    { pullRequestId: 'PR_181', expectedHeadOid: SHA_2 },
-  ]);
-  assert.equal(client.state?.activePrNumber, 181);
-  assert.deepEqual(client.state?.completedPrNumbers, [180]);
+  assert.equal(sync373.action, 'awaiting_checks');
 
-  // PR 181 merges -> batch completes.
-  const completed = await advanceBatchOnPullRequestClosed(client, {
+  // Ordinary PR CI finishes -> workflow_run wakeup merges PR #373 and updates PR #374.
+  client.prs.set(
+    373,
+    makePr({
+      number: 373,
+      headRefOid: SHA_2_UPDATED,
+      mergeStateStatus: 'CLEAN',
+      issueComments: { pageInfo: { hasNextPage: false }, nodes: [makeApprovedReviewComment(373, SHA_2, COMMENT_ID_2)] },
+    }),
+  );
+  clockMs += 180_000;
+  const ci373 = await handleChecksCompleted(client, {
     owner: 'Bibleberry',
     repo: 'Bibleberry',
-    prNumber: 181,
-    merged: true,
+    headSha: SHA_2_UPDATED,
+    requireWorkflowApprovalRecord: true,
+    now,
+  });
+  assert.equal(ci373.action, 'updating');
+  assert.equal(client.merges.length, 2);
+  assert.deepEqual(client.updates[1], { prNumber: 374, expectedHeadSha: SHA_3 });
+
+  // PR #374 synchronize + CI pass -> merges automatically and completes batch unattended!
+  setupCleanIntegrationProvenance(client, {
+    mergeBaseSha: MAIN_0,
+    prevHeadSha: SHA_3,
+    baseSha: MAIN_2,
+    newHeadSha: SHA_3_UPDATED,
+    prFiles: [{ filename: 'src/pr374.ts', status: 'added', sha: 'blob-374' }],
+    mainFiles: [
+      { filename: 'src/pr371.ts', status: 'added', sha: 'blob-371' },
+      { filename: 'src/pr373.ts', status: 'added', sha: 'blob-373' },
+    ],
+  });
+  client.prs.set(
+    374,
+    makePr({
+      number: 374,
+      headRefOid: SHA_3_UPDATED,
+      mergeStateStatus: 'CLEAN',
+      issueComments: { pageInfo: { hasNextPage: false }, nodes: [makeApprovedReviewComment(374, SHA_3, COMMENT_ID_3)] },
+    }),
+  );
+
+  clockMs += 180_000;
+  const completed = await handlePullRequestSynchronize(client, {
+    owner: 'Bibleberry',
+    repo: 'Bibleberry',
+    prNumber: 374,
+    requireWorkflowApprovalRecord: true,
+    now,
   });
   assert.equal(completed.action, 'completed');
-  assert.equal(client.state?.status, 'completed');
-  assert.deepEqual(client.state?.completedPrNumbers, [180, 181]);
+  assert.deepEqual((client.state as BatchState).completedPrNumbers, [371, 373, 374]);
 });
 
-test('batch stops on merge_group destruction, permission failure, or stale SHA during advance', async () => {
-  const client = new MockGitHubClient();
-  client.prs.set(180, makePr({ id: 'PR_180', number: 180, headRefOid: SHA_1 }));
-  client.prs.set(181, makePr({ id: 'PR_181', number: 181, headRefOid: SHA_2 }));
+// ---------------------------------------------------------------------------
+// 3. Blocker A Tests: Public-repo external APPROVED, quoted/spoofed review text,
+//    shared-account attestation, digest immutability, stale/superseded evidence,
+//    and actual repository disposition format
+// ---------------------------------------------------------------------------
 
-  await startBatch(client, {
+test('rejects arbitrary non-author external APPROVED reviews in public repos, quoted/fenced/prose spoofing, unattested comments, edited digests, and superseded evidence', () => {
+  // 1. Strict parser checks on quoted, fenced, prose, and real repository format.
+  assert.equal(
+    parseStructuredIndependentReviewComment(
+      `> **Claude Says | Issue #367 | PR #375 | Independent Review | exact HEAD \`${SHA_1}\`**\n> \n> **Disposition: CODE APPROVED.**`,
+    ).kind,
+    'none',
+    'Quoted Independent Review block MUST be ignored',
+  );
+  assert.equal(
+    parseStructuredIndependentReviewComment(
+      `\`\`\`md\n**Claude Says | Issue #367 | PR #375 | Independent Review | exact HEAD \`${SHA_1}\`**\n\n**Disposition: CODE APPROVED.**\n\`\`\``,
+    ).kind,
+    'none',
+    'Fenced code-block review MUST be ignored',
+  );
+  assert.equal(
+    parseStructuredIndependentReviewComment(
+      `Implementation summary: Independent Review will check exact HEAD \`${SHA_1}\`. Hopefully Disposition: CODE APPROVED soon!`,
+    ).kind,
+    'none',
+    'Implementation-agent prose mentioning Independent Review + Disposition MUST be ignored',
+  );
+  // Real repository comment format from PR #375 (#7230996406)!
+  const realParsed = parseStructuredIndependentReviewComment(
+    `**Claude Says | [Issue #367](https://github.com/Bibleberry/Bibleberry/issues/367) | PR #375 | Independent Review | exact HEAD \`${SHA_1}\`**\n\n**Disposition: CODE APPROVED — bounded CI coverage repair.** No material code corrections requested.`,
+  );
+  assert.equal(realParsed.kind, 'approved');
+  assert.equal(realParsed.prNumber, 375);
+  assert.equal(realParsed.reviewedHeadSha, SHA_1);
+
+  const negativeCases: Array<{
+    name: string;
+    entry: BatchEntry;
+    pr: PullRequestSnapshot;
+    policy?: RepositoryPolicy;
+    authorizedNativeReviewers?: string[];
+    expected: RegExp;
+  }> = [
+    {
+      name: 'arbitrary external non-author APPROVED on public repo (requiredCount=0)',
+      entry: { prNumber: 180, expectedHeadSha: SHA_1 },
+      pr: makePr({
+        number: 180,
+        author: { login: 'ContraPhilosophy' },
+        issueComments: { pageInfo: { hasNextPage: false }, nodes: [] },
+        latestReviews: {
+          nodes: [{ state: 'APPROVED', author: { login: 'random-stranger' }, commit: { oid: SHA_1 } }],
+        },
+      }),
+      expected: /not in authorizedNativeReviewers; public-repo non-author is not a trusted reviewer identity/,
+    },
+    {
+      name: 'arbitrary external non-author APPROVED on public repo (requiredCount=1)',
+      entry: { prNumber: 180, expectedHeadSha: SHA_1 },
+      pr: makePr({
+        number: 180,
+        author: { login: 'ContraPhilosophy' },
+        issueComments: { pageInfo: { hasNextPage: false }, nodes: [] },
+        latestReviews: {
+          nodes: [{ state: 'APPROVED', author: { login: 'random-stranger' }, commit: { oid: SHA_1 } }],
+        },
+      }),
+      policy: makePolicy({ requiredApprovingReviewCount: 1 }),
+      expected: /unauthorized identity \[random-stranger\]/,
+    },
+    {
+      name: 'unattested shared-account comment (missing #COMMENT_ID) is rejected',
+      entry: { prNumber: 180, expectedHeadSha: SHA_1 },
+      pr: makePr({ number: 180, headRefOid: SHA_1 }, COMMENT_ID_1),
+      expected: /no owner-attested review comment ID.*specify PR@SHA#REVIEW_COMMENT_ID/,
+    },
+    {
+      name: 'owner-attested comment ID pointing to quoted review text is rejected',
+      entry: { prNumber: 180, expectedHeadSha: SHA_1, reviewCommentId: '9001' },
+      pr: makePr({
+        number: 180,
+        issueComments: {
+          pageInfo: { hasNextPage: false },
+          nodes: [
+            {
+              id: '9001',
+              author: { login: 'ContraPhilosophy' },
+              createdAt: '2026-11-27T17:00:00.000Z',
+              body: `> **Test | Issue #202 | PR #180 | Independent Review | exact HEAD \`${SHA_1}\`**\n> **Disposition: CODE APPROVED.**`,
+            },
+          ],
+        },
+      }),
+      expected: /does not match the strict top-level Independent Review format/,
+    },
+    {
+      name: 'owner-attested comment ID citing wrong PR number (#999 on PR #180) is rejected',
+      entry: { prNumber: 180, expectedHeadSha: SHA_1, reviewCommentId: '9002' },
+      pr: makePr({
+        number: 180,
+        issueComments: {
+          pageInfo: { hasNextPage: false },
+          nodes: [makeApprovedReviewComment(999, SHA_1, '9002')],
+        },
+      }),
+      expected: /cites PR #999, not PR #180/,
+    },
+    {
+      name: 'owner-attested comment ID citing older SHA is rejected as stale',
+      entry: { prNumber: 180, expectedHeadSha: SHA_1, reviewCommentId: '9003' },
+      pr: makePr({
+        number: 180,
+        issueComments: {
+          pageInfo: { hasNextPage: false },
+          nodes: [makeApprovedReviewComment(180, SHA_2, '9003')],
+        },
+      }),
+      expected: /comment #9003 is stale/,
+    },
+    {
+      name: 'owner-attested comment edited after authorization (digest mismatch) is rejected',
+      entry: {
+        prNumber: 180,
+        expectedHeadSha: SHA_1,
+        reviewCommentId: COMMENT_ID_1,
+        reviewCommentDigest: 'deadbeef'.repeat(8),
+      },
+      pr: makePr({ number: 180, headRefOid: SHA_1 }, COMMENT_ID_1),
+      expected: /edited after batch authorization \(comment digest mismatch\)/,
+    },
+    {
+      name: 'chronologically later CHANGES REQUESTED supersedes attested CODE APPROVED comment',
+      entry: { prNumber: 180, expectedHeadSha: SHA_1, reviewCommentId: COMMENT_ID_1 },
+      pr: makePr({
+        number: 180,
+        issueComments: {
+          pageInfo: { hasNextPage: false },
+          nodes: [
+            makeApprovedReviewComment(180, SHA_1, COMMENT_ID_1, 'ContraPhilosophy', '2026-11-27T17:00:00.000Z'),
+            {
+              id: '9004',
+              author: { login: 'ContraPhilosophy' },
+              createdAt: '2026-11-27T18:00:00.000Z',
+              body: `**Copper Turnstile | Issue #202 | PR #180 | Independent re-review | exact HEAD \`${SHA_1}\`**\n\n**Disposition: CHANGES REQUESTED — defect found.**`,
+            },
+          ],
+        },
+      }),
+      expected: /superseded by a later blocking disposition.*CHANGES REQUESTED/,
+    },
+    {
+      name: 'authorized native reviewer with null commit OID is rejected',
+      entry: { prNumber: 180, expectedHeadSha: SHA_1 },
+      pr: makePr({
+        number: 180,
+        author: { login: 'ContraPhilosophy' },
+        issueComments: { pageInfo: { hasNextPage: false }, nodes: [] },
+        latestReviews: {
+          nodes: [{ state: 'APPROVED', author: { login: 'bibleberry-reviewer' }, commit: { oid: null } }],
+        },
+      }),
+      authorizedNativeReviewers: ['bibleberry-reviewer'],
+      expected: /missing\/null commit OID/,
+    },
+    {
+      name: 'untrusted external commenter cannot back owner-attested comment ID',
+      entry: { prNumber: 180, expectedHeadSha: SHA_1, reviewCommentId: '9005' },
+      pr: makePr({
+        number: 180,
+        issueComments: {
+          pageInfo: { hasNextPage: false },
+          nodes: [makeApprovedReviewComment(180, SHA_1, '9005', 'random-public-user')],
+        },
+      }),
+      expected: /untrusted author "random-public-user"/,
+    },
+    {
+      name: 'zero reviews fails closed',
+      entry: { prNumber: 180, expectedHeadSha: SHA_1 },
+      pr: makePr({
+        number: 180,
+        latestReviews: { nodes: [] },
+        issueComments: { pageInfo: { hasNextPage: false }, nodes: [] },
+      }),
+      expected: /no authorized native review and no owner-attested review comment ID/,
+    },
+  ];
+
+  for (const c of negativeCases) {
+    const res = evaluatePullRequestPreflight(c.pr, c.entry, 'Bibleberry/Bibleberry', undefined, {
+      policy: c.policy ?? makePolicy(),
+      authorizedNativeReviewers: c.authorizedNativeReviewers,
+    });
+    assert.equal(res.ok, false, `${c.name} MUST fail closed`);
+    assert.match(res.reasons.join(' '), c.expected, `${c.name} reason mismatch`);
+  }
+
+  // Positive: dedicated authorized native reviewer with non-null exact commit OID passes without #COMMENT_ID!
+  const dedicatedNativePass = evaluatePullRequestPreflight(
+    makePr({
+      number: 180,
+      author: { login: 'ContraPhilosophy' },
+      issueComments: { pageInfo: { hasNextPage: false }, nodes: [] },
+      latestReviews: {
+        nodes: [{ state: 'APPROVED', author: { login: 'bibleberry-reviewer' }, commit: { oid: SHA_1 } }],
+      },
+    }),
+    { prNumber: 180, expectedHeadSha: SHA_1 },
+    'Bibleberry/Bibleberry',
+    undefined,
+    {
+      policy: makePolicy(),
+      authorizedNativeReviewers: ['bibleberry-reviewer'],
+    },
+  );
+  assert.equal(dedicatedNativePass.ok, true);
+  assert.equal(dedicatedNativePass.reviewEvidence?.source, 'native-review');
+
+  // Positive: owner-attested comment with matching digest passes!
+  const commentNode = makeApprovedReviewComment(180, SHA_1, COMMENT_ID_1);
+  const attestedPass = evaluateIndependentReviewComments({
+    pr: makePr({ number: 180, headRefOid: SHA_1, issueComments: { pageInfo: { hasNextPage: false }, nodes: [commentNode] } }),
+    reviewedHeadSha: SHA_1,
+    attestedCommentId: COMMENT_ID_1,
+    expectedCommentDigest: computeCommentBodyDigest(commentNode.body),
+  });
+  assert.equal(attestedPass.approved, true);
+  assert.equal(attestedPass.evidence?.source, 'owner-attested-comment');
+});
+
+// ---------------------------------------------------------------------------
+// 4. Blocker B Tests: Substitution attack using an existing valid approved run,
+//    non-start run replay, wrong workflow/branch, and ZIP manifest extraction
+// ---------------------------------------------------------------------------
+
+test('defeats entry-list substitution attack using a recomputed checksum and an existing valid approved start run', async () => {
+  const client = new MockGitHubClient();
+
+  // Original owner-approved run 5001 authorized ONLY PR #371@SHA_1#COMMENT_ID_1 (with digest bound).
+  const digest1 = computeCommentBodyDigest(makeApprovedReviewComment(371, SHA_1, COMMENT_ID_1).body);
+  const digest2 = computeCommentBodyDigest(makeApprovedReviewComment(999, SHA_2, COMMENT_ID_2).body);
+  const originalEntries: BatchEntry[] = [
+    { prNumber: 371, expectedHeadSha: SHA_1, reviewCommentId: COMMENT_ID_1, reviewCommentDigest: digest1 },
+  ];
+  registerManifest(client, '5001', originalEntries);
+
+  // Attacker modifies MERGE_QUEUE_BATCH_STATE to substitute PR #999@SHA_2, RECOMPUTES a valid
+  // stateChecksum, and points workflowRunId to the genuinely approved run 5001!
+  const substitutedEntries: BatchEntry[] = [
+    { prNumber: 999, expectedHeadSha: SHA_2, reviewCommentId: COMMENT_ID_2, reviewCommentDigest: digest2 },
+  ];
+  client.prs.set(999, makePr({ number: 999, headRefOid: SHA_2 }, COMMENT_ID_2));
+  client.state = {
+    version: 2,
+    revision: 1,
+    batchId: 'batch-run-5001',
+    stateChecksum: computeStateChecksum({
+      owner: 'Bibleberry',
+      repo: 'Bibleberry',
+      entries: substitutedEntries,
+      integrationPolicy: 'integration-only',
+      mergeMethod: 'squash',
+    }),
+    status: 'running',
+    createdAt: '2026-11-27T19:00:00.000Z',
+    updatedAt: '2026-11-27T19:00:00.000Z',
+    authorizedBy: 'ContraPhilosophy',
+    approvedBy: 'ContraPhilosophy',
+    integrationPolicy: 'integration-only',
+    mergeMethod: 'squash',
+    workflowRunId: '5001',
+    entries: substitutedEntries,
+    nextIndex: 0,
+    activePrNumber: 999,
+    activeReviewedHeadSha: SHA_2,
+    activeHeadSha: SHA_2,
+    integrationUpdates: [],
+    completedPrNumbers: [],
+    completedMerges: [],
+    nextAction: 'Substituted PR #999',
+  };
+
+  const res = await reconcileBatch(client, {
     owner: 'Bibleberry',
     repo: 'Bibleberry',
-    entries: [
-      { prNumber: 180, expectedHeadSha: SHA_1 },
-      { prNumber: 181, expectedHeadSha: SHA_2 },
-    ],
+    requireWorkflowApprovalRecord: true,
+  });
+
+  assert.equal(res.action, 'stopped');
+  assert.match(res.message, /does not match immutable manifest entry.*approved start run 5001/);
+  assert.equal(client.merges.length, 0, 'Substituted PR #999 MUST NEVER be merged');
+
+  // Missing manifest artifact also fails closed!
+  client.manifestsByRunId.set('5001', null);
+  client.state = {
+    ...(client.state as BatchState),
+    status: 'running',
+    entries: originalEntries,
+    activePrNumber: 371,
+    activeReviewedHeadSha: SHA_1,
+    activeHeadSha: SHA_1,
+    stateChecksum: computeStateChecksum({
+      owner: 'Bibleberry',
+      repo: 'Bibleberry',
+      entries: originalEntries,
+      integrationPolicy: 'integration-only',
+      mergeMethod: 'squash',
+    }),
+  };
+  const missingManifestRes = await reconcileBatch(client, {
+    owner: 'Bibleberry',
+    repo: 'Bibleberry',
+    requireWorkflowApprovalRecord: true,
+  });
+  assert.equal(missingManifestRes.action, 'stopped');
+  assert.match(missingManifestRes.message, /Missing immutable authorization manifest artifact/);
+  assert.equal(client.merges.length, 0);
+});
+
+test('extractSingleFileFromZip and createGitHubClient verify run metadata, approve-start job, approvals, and immutable ZIP manifest', async () => {
+  const manifest = buildAuthorizedManifest({
+    owner: 'Bibleberry',
+    repo: 'Bibleberry',
+    workflowRunId: '6001',
+    authorizedBy: 'ContraPhilosophy',
+    mergeMethod: 'squash',
+    integrationPolicy: 'integration-only',
+    entries: [{ prNumber: 375, expectedHeadSha: SHA_1, reviewCommentId: '7230996406' }],
+  });
+
+  // Verify both Deflate (streaming data-descriptor) and Store ZIP extraction!
+  const deflatedZip = buildTestZip('copper-turnstile-auth-manifest.json', JSON.stringify(manifest), true);
+  const storedZip = buildTestZip('copper-turnstile-auth-manifest.json', JSON.stringify(manifest), false);
+  assert.deepEqual(JSON.parse(extractSingleFileFromZip(deflatedZip, 'copper-turnstile-auth-manifest.json').toString('utf8')), manifest);
+  assert.deepEqual(JSON.parse(extractSingleFileFromZip(storedZip, 'copper-turnstile-auth-manifest.json').toString('utf8')), manifest);
+
+  // Test createGitHubClient.verifyWorkflowApproval rejects non-start run (e.g. abort run) and non-main branch,
+  // and accepts genuine start run + extracts manifest via getAuthorizedManifest!
+  const originalFetch = globalThis.fetch;
+  let mockRunEvent = 'workflow_dispatch';
+  let mockRunBranch = 'main';
+  let mockRunPath = COORDINATOR_WORKFLOW_PATH;
+  let mockJobName = START_APPROVAL_JOB_NAME;
+
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+    if (url.endsWith('/actions/runs/6001')) {
+      return new Response(
+        JSON.stringify({
+          path: mockRunPath,
+          event: mockRunEvent,
+          head_branch: mockRunBranch,
+          actor: { login: 'ContraPhilosophy' },
+          repository: { full_name: 'Bibleberry/Bibleberry' },
+        }),
+        { status: 200 },
+      );
+    }
+    if (url.endsWith('/actions/runs/6001/approvals')) {
+      return new Response(
+        JSON.stringify([
+          { state: 'approved', environments: [{ name: 'merge-queue-approval' }], user: { login: 'ContraPhilosophy' } },
+        ]),
+        { status: 200 },
+      );
+    }
+    if (url.includes('/actions/runs/6001/jobs')) {
+      return new Response(JSON.stringify({ jobs: [{ name: mockJobName, conclusion: 'success' }] }), { status: 200 });
+    }
+    if (url.includes('/actions/runs/6001/artifacts')) {
+      return new Response(
+        JSON.stringify({
+          artifacts: [
+            {
+              id: 88,
+              name: 'copper-turnstile-auth-manifest-6001',
+              expired: false,
+              archive_download_url: 'https://api.github.com/repos/Bibleberry/Bibleberry/actions/artifacts/88/zip',
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    }
+    if (url.endsWith('/actions/artifacts/88/zip')) {
+      return new Response(Buffer.from(deflatedZip), { status: 200 });
+    }
+    return new Response(JSON.stringify({ message: 'Not found' }), { status: 404 });
+  }) as typeof fetch;
+
+  try {
+    const gh = createGitHubClient('test-token', 'read-token');
+
+    // Genuine start run succeeds and downloads immutable manifest.
+    const okAuth = await gh.verifyWorkflowApproval!(
+      'Bibleberry',
+      'Bibleberry',
+      '6001',
+      'merge-queue-approval',
+      ['ContraPhilosophy'],
+      {
+        expectedWorkflowPath: COORDINATOR_WORKFLOW_PATH,
+        expectedEvent: 'workflow_dispatch',
+        expectedHeadBranch: 'main',
+        expectedStartApprovalJobName: START_APPROVAL_JOB_NAME,
+      },
+    );
+    assert.equal(okAuth.ok, true);
+    assert.equal(okAuth.hasStartApprovalJob, true);
+
+    const fetchedManifest = await gh.getAuthorizedManifest!('Bibleberry', 'Bibleberry', '6001');
+    assert.deepEqual(fetchedManifest, manifest);
+
+    // Replaying an approved `abort` run (wrong job name) fails closed!
+    mockJobName = 'Owner approval gate for batch cancellation';
+    const abortReplay = await gh.verifyWorkflowApproval!(
+      'Bibleberry',
+      'Bibleberry',
+      '6001',
+      'merge-queue-approval',
+      ['ContraPhilosophy'],
+      {
+        expectedWorkflowPath: COORDINATOR_WORKFLOW_PATH,
+        expectedEvent: 'workflow_dispatch',
+        expectedHeadBranch: 'main',
+        expectedStartApprovalJobName: START_APPROVAL_JOB_NAME,
+      },
+    );
+    assert.equal(abortReplay.ok, false);
+    assert.match(abortReplay.reason ?? '', /did not complete "Owner approval gate for batch start"/);
+
+    // Non-main branch run fails closed!
+    mockJobName = START_APPROVAL_JOB_NAME;
+    mockRunBranch = 'feat/rogue';
+    const branchFail = await gh.verifyWorkflowApproval!(
+      'Bibleberry',
+      'Bibleberry',
+      '6001',
+      'merge-queue-approval',
+      ['ContraPhilosophy'],
+      { expectedHeadBranch: 'main' },
+    );
+    assert.equal(branchFail.ok, false);
+    assert.match(branchFail.reason ?? '', /head_branch was "feat\/rogue", expected "main"/);
+
+    // Unrelated workflow path fails closed!
+    mockRunBranch = 'main';
+    mockRunPath = '.github/workflows/other.yml';
+    const pathFail = await gh.verifyWorkflowApproval!(
+      'Bibleberry',
+      'Bibleberry',
+      '6001',
+      'merge-queue-approval',
+      ['ContraPhilosophy'],
+      { expectedWorkflowPath: COORDINATOR_WORKFLOW_PATH },
+    );
+    assert.equal(pathFail.ok, false);
+    assert.match(pathFail.reason ?? '', /executed "\.github\/workflows\/other\.yml"/);
+    // Non-workflow_dispatch event fails closed!
+    mockRunPath = COORDINATOR_WORKFLOW_PATH;
+    mockRunEvent = 'schedule';
+    const eventFail = await gh.verifyWorkflowApproval!(
+      'Bibleberry',
+      'Bibleberry',
+      '6001',
+      'merge-queue-approval',
+      ['ContraPhilosophy'],
+      { expectedEvent: 'workflow_dispatch' },
+    );
+    assert.equal(eventFail.ok, false);
+    assert.match(eventFail.reason ?? '', /event was "schedule", expected "workflow_dispatch"/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 5. Protection safety, provenance, checks, concurrent merges, legacy v1, abort
+// ---------------------------------------------------------------------------
+
+test('fails closed on inaccessible/unsafe branch protection, overlapping files, truncated compare, and bad checks', async () => {
+  const unsafe = [
+    makePolicy({ protectionAccessible: false }),
+    makePolicy({ strictStatusChecks: false }),
+    makePolicy({ enforceAdmins: false }),
+    makePolicy({ requiredConversationResolution: false }),
+    makePolicy({ allowForcePushes: true }),
+    makePolicy({ allowDeletions: true }),
+    makePolicy({ hasBypassAllowances: true, bypassAllowanceTargets: ['app:rogue'] }),
+    makePolicy({ requiredStatusChecks: ['Build reader application'] }),
+  ];
+  for (const policy of unsafe) {
+    assert.equal(evaluateBranchProtectionSafety(policy).ok, false);
+  }
+
+  // Overlapping files hold immediately under integration-only policy.
+  const cOverlap = new MockGitHubClient();
+  cOverlap.mainSha = MAIN_1;
+  cOverlap.prs.set(373, makePr({ number: 373, headRefOid: SHA_2, mergeStateStatus: 'BEHIND' }, COMMENT_ID_2));
+  cOverlap.comparisons.set(`${MAIN_1}...${SHA_2}`, { status: 'diverged', aheadBy: 1, behindBy: 1, mergeBaseSha: MAIN_0, totalCommits: 1 });
+  setupCleanIntegrationProvenance(cOverlap, {
+    mergeBaseSha: MAIN_0,
+    prevHeadSha: SHA_2,
+    baseSha: MAIN_1,
+    newHeadSha: SHA_2_UPDATED,
+    prFiles: [{ filename: 'src/shared.ts', status: 'modified', sha: 'blob-pr' }],
+    mainFiles: [{ filename: 'src/shared.ts', status: 'modified', sha: 'blob-main' }],
+  });
+  cOverlap.onUpdateBranch = () => {
+    cOverlap.prs.set(373, makePr({ number: 373, headRefOid: SHA_2_UPDATED, issueComments: { pageInfo: { hasNextPage: false }, nodes: [makeApprovedReviewComment(373, SHA_2, COMMENT_ID_2)] } }));
+  };
+  const rOverlap = await startBatch(cOverlap, {
+    owner: 'Bibleberry',
+    repo: 'Bibleberry',
+    entries: [{ prNumber: 373, expectedHeadSha: SHA_2, reviewCommentId: COMMENT_ID_2 }],
     authorizedBy: 'ContraPhilosophy',
   });
+  assert.equal(rOverlap.action, 'held');
+  assert.equal(cOverlap.merges.length, 0);
 
-  // Simulate merge_group destroyed due to failed queue check (PR 180 ejected).
-  client.prs.set(180, makePr({ id: 'PR_180', number: 180, headRefOid: SHA_1, isInMergeQueue: false }));
-  const destroyed = await handleMergeGroupDestroyed(client, {
+  // Truncated compare diff (300 files) rejected.
+  const cTrunc = new MockGitHubClient();
+  setupCleanIntegrationProvenance(cTrunc, { mergeBaseSha: MAIN_0, prevHeadSha: SHA_2, baseSha: MAIN_1, newHeadSha: SHA_2_UPDATED });
+  cTrunc.comparisons.set(`${MAIN_0}...${MAIN_1}`, { status: 'ahead', aheadBy: 1, behindBy: 0, mergeBaseSha: MAIN_0, totalCommits: 1, files: [], filesTruncated: true });
+  const rTrunc = await verifyIntegrationUpdateProvenance(cTrunc, {
     owner: 'Bibleberry',
     repo: 'Bibleberry',
-    reason: 'invalidated',
-    headSha: SHA_3,
+    prNumber: 373,
+    previousHeadSha: SHA_2,
+    newHeadSha: SHA_2_UPDATED,
+    expectedBaseSha: MAIN_1,
+    currentMainSha: MAIN_1,
+    requestedAt: '2026-11-27T18:00:00.000Z',
   });
-  assert.equal(destroyed.action, 'stopped');
-  assert.equal(client.state?.status, 'stopped');
-  assert.equal(client.enqueued.length, 1);
+  assert.equal(rTrunc.ok, false);
+  assert.match(rTrunc.reason ?? '', /300-file comparison limit/);
 
-  // Test permission failure on enqueue during advance.
-  client.state = {
+  // Stale, canceled, skipped-only, and missing checks classified accurately.
+  const staleCheck = evaluateCheckVerification({
+    pr: makePr({
+      statusCheckRollup: {
+        state: 'SUCCESS',
+        contexts: {
+          pageInfo: { hasNextPage: false },
+          nodes: [
+            { __typename: 'CheckRun', name: 'Build reader application', status: 'COMPLETED', conclusion: 'SUCCESS', headSha: SHA_3 },
+            { __typename: 'CheckRun', name: 'Verify Sanity Studio', status: 'COMPLETED', conclusion: 'SUCCESS', headSha: SHA_1 },
+          ],
+        },
+      },
+    }),
+    candidateHeadSha: SHA_1,
+    requiredChecks: ['Build reader application', 'Verify Sanity Studio'],
+    protectionAccessible: true,
+  });
+  assert.equal(staleCheck.verdict, 'failed');
+  assert.deepEqual(staleCheck.staleChecks, ['Build reader application']);
+});
+
+test('handles concurrent manual merges, interrupted merge recovery, legacy v1 preservation, and cancellation across stages', async () => {
+  // Concurrent manual merge advancing main during merge -> transitions to behind update!
+  const cAdv = new MockGitHubClient();
+  cAdv.mainSha = MAIN_0;
+  cAdv.prs.set(371, makePr({ number: 371, headRefOid: SHA_1, mergeStateStatus: 'CLEAN' }, COMMENT_ID_1));
+  cAdv.mergePullRequest = async (_o, _r, prNumber, expectedHeadSha, mergeMethod) => {
+    cAdv.merges.push({ prNumber, expectedHeadSha, mergeMethod });
+    cAdv.mainSha = MAIN_1;
+    cAdv.prs.set(371, makePr({ number: 371, headRefOid: SHA_1, mergeStateStatus: 'BEHIND' }, COMMENT_ID_1));
+    cAdv.comparisons.set(`${MAIN_1}...${SHA_1}`, { status: 'diverged', aheadBy: 1, behindBy: 1, mergeBaseSha: MAIN_0 });
+    throw new Error('GitHub REST HTTP 409: Base branch was modified.');
+  };
+  const rAdv = await startBatch(cAdv, {
+    owner: 'Bibleberry',
+    repo: 'Bibleberry',
+    entries: [{ prNumber: 371, expectedHeadSha: SHA_1, reviewCommentId: COMMENT_ID_1 }],
+    authorizedBy: 'ContraPhilosophy',
+  });
+  assert.equal(rAdv.action, 'updating');
+  assert.deepEqual(cAdv.updates, [{ prNumber: 371, expectedHeadSha: SHA_1 }]);
+
+  // External manual merge outside merging stage stops instead of counting as verified batch completion.
+  const cExt = new MockGitHubClient();
+  const extCommentDigest = computeCommentBodyDigest(makeApprovedReviewComment(371, SHA_1, COMMENT_ID_1).body);
+  const extEntries: BatchEntry[] = [
+    { prNumber: 371, expectedHeadSha: SHA_1, reviewCommentId: COMMENT_ID_1, reviewCommentDigest: extCommentDigest },
+  ];
+  cExt.state = {
+    version: 2,
+    revision: 2,
+    batchId: 'batch-ext',
+    stateChecksum: computeStateChecksum({
+      owner: 'Bibleberry',
+      repo: 'Bibleberry',
+      entries: extEntries,
+      integrationPolicy: 'integration-only',
+      mergeMethod: 'squash',
+    }),
+    status: 'awaiting_checks',
+    createdAt: '2026-11-27T18:00:00.000Z',
+    updatedAt: '2026-11-27T18:01:00.000Z',
+    authorizedBy: 'ContraPhilosophy',
+    integrationPolicy: 'integration-only',
+    mergeMethod: 'squash',
+    entries: extEntries,
+    nextIndex: 0,
+    activePrNumber: 371,
+    activeReviewedHeadSha: SHA_1,
+    activeHeadSha: SHA_1,
+    integrationUpdates: [],
+    completedPrNumbers: [],
+    completedMerges: [],
+    nextAction: 'Waiting',
+  };
+  cExt.prs.set(371, makePr({ number: 371, headRefOid: SHA_1, state: 'MERGED', mergeCommit: { oid: MAIN_2 } }, COMMENT_ID_1));
+  const rExt = await handlePullRequestClosed(cExt, { owner: 'Bibleberry', repo: 'Bibleberry', prNumber: 371, merged: true });
+  assert.equal(rExt.action, 'stopped');
+  assert.match(rExt.message, /unverified manual merge/);
+
+  // Legacy v1 active batch preserved & safely aborted with dequeuePullRequest.
+  const cLeg = new MockGitHubClient();
+  const legacy: LegacyBatchStateV1 = {
     version: 1,
-    batchId: 'batch-perm',
-    status: 'running',
+    revision: 3,
+    batchId: 'batch-v1',
+    status: 'enqueuing',
     createdAt: '2026-11-17T12:00:00.000Z',
     updatedAt: '2026-11-17T12:00:00.000Z',
     authorizedBy: 'ContraPhilosophy',
-    entries: [
-      { prNumber: 180, expectedHeadSha: SHA_1 },
-      { prNumber: 181, expectedHeadSha: SHA_2 },
-    ],
+    entries: [{ prNumber: 180, expectedHeadSha: SHA_1 }],
     nextIndex: 0,
     activePrNumber: 180,
     activeHeadSha: SHA_1,
     completedPrNumbers: [],
   };
-  client.enqueueError = new Error('GitHub GraphQL error: Resource not accessible by integration');
-
-  const permFail = await advanceBatchOnPullRequestClosed(client, {
-    owner: 'Bibleberry',
-    repo: 'Bibleberry',
-    prNumber: 180,
-    merged: true,
-  });
-  assert.equal(permFail.action, 'stopped');
-  assert.match(permFail.message, /Resource not accessible by integration/);
-  assert.equal(client.state?.status, 'stopped');
-});
-
-test('abortBatch dequeues active queued PR and handles dequeue failures cleanly', async () => {
-  const client = new MockGitHubClient();
-  client.prs.set(180, makePr({ id: 'PR_180', number: 180, headRefOid: SHA_1 }));
-  await startBatch(client, {
-    owner: 'Bibleberry',
-    repo: 'Bibleberry',
-    entries: [{ prNumber: 180, expectedHeadSha: SHA_1 }],
-    authorizedBy: 'ContraPhilosophy',
-  });
-
-  // PR 180 is actively in the merge queue when abort is requested.
-  client.prs.set(180, makePr({ id: 'PR_180', number: 180, headRefOid: SHA_1, isInMergeQueue: true }));
-  client.dequeueError = new Error('GraphQL dequeue failed');
-  const failedAbort = await abortBatch(client, {
+  cLeg.state = legacy;
+  cLeg.prs.set(180, makePr({ id: 'PR_180', number: 180, headRefOid: SHA_1, isInMergeQueue: true }));
+  const abLeg = await abortBatch(cLeg, {
     owner: 'Bibleberry',
     repo: 'Bibleberry',
     actor: 'ContraPhilosophy',
-    reason: 'Hold for hotfix',
-    workflowRunId: '999',
+    reason: 'Retire legacy v1',
+    workflowRunId: '777',
   });
-  assert.equal(failedAbort.aborted, false);
-  assert.match(failedAbort.message, /Failed to dequeue active PR #180/);
-  assert.equal(client.state?.status, 'running');
-
-  // Clear dequeueError -> abort succeeds and dequeues PR_180.
-  client.dequeueError = null;
-  const aborted = await abortBatch(client, {
-    owner: 'Bibleberry',
-    repo: 'Bibleberry',
-    actor: 'ContraPhilosophy',
-    reason: 'Hold for hotfix',
-    workflowRunId: '999',
-  });
-  assert.equal(aborted.aborted, true);
-  assert.equal(aborted.dequeuedPrNumber, 180);
-  assert.deepEqual(client.dequeued, ['PR_180']);
-  assert.equal(client.state?.status, 'aborted');
-  assert.match(client.state?.stopReason ?? '', /Hold for hotfix.*dequeued PR #180/);
+  assert.equal(abLeg.aborted, true);
+  assert.deepEqual(cLeg.dequeued, ['PR_180']);
 });
 
-test('enqueue succeeds remotely but client throws on initial start and next-PR advancement', async () => {
-  // Case 1: Initial startBatch where enqueue succeeds at GitHub (isInMergeQueue becomes true) but client throws timeout.
-  const startClient = new MockGitHubClient();
-  let startEnqueueCalls = 0;
-  startClient.prs.set(180, makePr({ id: 'PR_180', number: 180, headRefOid: SHA_1, isInMergeQueue: false }));
-  startClient.prs.set(181, makePr({ id: 'PR_181', number: 181, headRefOid: SHA_2 }));
-  startClient.enqueuePullRequest = async () => {
-    startEnqueueCalls += 1;
-    // Simulate remote success followed by dropped response / timeout.
-    startClient.prs.set(180, makePr({ id: 'PR_180', number: 180, headRefOid: SHA_1, isInMergeQueue: true }));
-    throw new Error('Request timeout (ETIMEDOUT)');
-  };
+// ---------------------------------------------------------------------------
+// 6. Workflow Trust Boundary, Environment Isolation, Manifest Upload & Wakeup
+// ---------------------------------------------------------------------------
 
-  const started = await startBatch(startClient, {
-    owner: 'Bibleberry',
-    repo: 'Bibleberry',
-    entries: [
-      { prNumber: 180, expectedHeadSha: SHA_1 },
-      { prNumber: 181, expectedHeadSha: SHA_2 },
-    ],
-    authorizedBy: 'ContraPhilosophy',
-  });
-  assert.equal(started.ok, true);
-  assert.equal(startEnqueueCalls, 1);
-  assert.equal(started.state?.status, 'running');
-  assert.equal(started.state?.activePrNumber, 180);
-
-  // Case 2: Next-PR advancement where enqueue succeeds at GitHub (isInMergeQueue becomes true) but client throws.
-  const advClient = new MockGitHubClient();
-  let advEnqueueCalls = 0;
-  advClient.prs.set(180, makePr({ id: 'PR_180', number: 180, headRefOid: SHA_1 }));
-  advClient.prs.set(181, makePr({ id: 'PR_181', number: 181, headRefOid: SHA_2 }));
-  await startBatch(advClient, {
-    owner: 'Bibleberry',
-    repo: 'Bibleberry',
-    entries: [
-      { prNumber: 180, expectedHeadSha: SHA_1 },
-      { prNumber: 181, expectedHeadSha: SHA_2 },
-    ],
-    authorizedBy: 'ContraPhilosophy',
-  });
-
-  advClient.enqueuePullRequest = async () => {
-    advEnqueueCalls += 1;
-    advClient.prs.set(181, makePr({ id: 'PR_181', number: 181, headRefOid: SHA_2, isInMergeQueue: true }));
-    throw new Error('fetch failed: socket hang up');
-  };
-
-  const advanced = await advanceBatchOnPullRequestClosed(advClient, {
-    owner: 'Bibleberry',
-    repo: 'Bibleberry',
-    prNumber: 180,
-    merged: true,
-  });
-  assert.equal(advanced.action, 'enqueued');
-  assert.equal(advEnqueueCalls, 1);
-  assert.equal(advClient.state?.status, 'running');
-  assert.equal(advClient.state?.activePrNumber, 181);
-});
-
-test('indeterminate enqueue failure preserves enqueuing state for watchdog reconciliation', async () => {
-  const client = new MockGitHubClient();
-  client.prs.set(180, makePr({ id: 'PR_180', number: 180, headRefOid: SHA_1 }));
-  client.prs.set(181, makePr({ id: 'PR_181', number: 181, headRefOid: SHA_2 }));
-  client.enqueueError = new Error('HTTP 502 Bad Gateway');
-
-  const started = await startBatch(client, {
-    owner: 'Bibleberry',
-    repo: 'Bibleberry',
-    entries: [
-      { prNumber: 180, expectedHeadSha: SHA_1 },
-      { prNumber: 181, expectedHeadSha: SHA_2 },
-    ],
-    authorizedBy: 'ContraPhilosophy',
-  });
-  assert.equal(started.ok, false);
-  // Must preserve status='enqueuing' and activePrNumber=180 (not cleared to stopped).
-  assert.equal(client.state?.status, 'enqueuing');
-  assert.equal(client.state?.activePrNumber, 180);
-
-  // Watchdog reconcile sees PR 180 actually entered the queue and recovers to running.
-  client.prs.set(180, makePr({ id: 'PR_180', number: 180, headRefOid: SHA_1, isInMergeQueue: true }));
-  const rec = await reconcileBatch(client, { owner: 'Bibleberry', repo: 'Bibleberry' });
-  assert.equal(rec.action, 'reconciled');
-  assert.equal(client.state?.status, 'running');
-});
-
-test('back-to-back unrelated events and missed webhook recover unattended via reconcileBatch', async () => {
-  const client = new MockGitHubClient();
-  client.prs.set(180, makePr({ id: 'PR_180', number: 180, headRefOid: SHA_1 }));
-  client.prs.set(181, makePr({ id: 'PR_181', number: 181, headRefOid: SHA_2 }));
-
-  await startBatch(client, {
-    owner: 'Bibleberry',
-    repo: 'Bibleberry',
-    entries: [
-      { prNumber: 180, expectedHeadSha: SHA_1 },
-      { prNumber: 181, expectedHeadSha: SHA_2 },
-    ],
-    authorizedBy: 'ContraPhilosophy',
-  });
-
-  // Back-to-back unrelated PR close + merge_group destroyed (reason=merged) must not disturb PR 180.
-  const unrelatedClose = await advanceBatchOnPullRequestClosed(client, {
-    owner: 'Bibleberry',
-    repo: 'Bibleberry',
-    prNumber: 999,
-    merged: true,
-  });
-  assert.equal(unrelatedClose.action, 'ignored');
-  const mgMerged = await handleMergeGroupDestroyed(client, {
-    owner: 'Bibleberry',
-    repo: 'Bibleberry',
-    reason: 'merged',
-    headSha: SHA_3,
-  });
-  assert.equal(mgMerged.action, 'ignored');
-
-  // Even if pull_request: closed for PR 180 was missed, scheduled reconcileBatch advances to PR 181.
-  client.prs.set(180, makePr({ id: 'PR_180', number: 180, headRefOid: SHA_1, state: 'MERGED' }));
-  const watchdog = await reconcileBatch(client, { owner: 'Bibleberry', repo: 'Bibleberry' });
-  assert.equal(watchdog.action, 'enqueued');
-  assert.equal(client.state?.activePrNumber, 181);
-  assert.deepEqual(client.state?.completedPrNumbers, [180]);
-});
-
-test('abort racing with advance prevents post-abort enqueue and preserves aborted state', async () => {
-  const client = new MockGitHubClient();
-  client.prs.set(180, makePr({ id: 'PR_180', number: 180, headRefOid: SHA_1 }));
-  client.prs.set(181, makePr({ id: 'PR_181', number: 181, headRefOid: SHA_2 }));
-
-  const started = await startBatch(client, {
-    owner: 'Bibleberry',
-    repo: 'Bibleberry',
-    entries: [
-      { prNumber: 180, expectedHeadSha: SHA_1 },
-      { prNumber: 181, expectedHeadSha: SHA_2 },
-    ],
-    authorizedBy: 'ContraPhilosophy',
-  });
-  assert.equal(started.ok, true);
-  client.prs.set(180, makePr({ id: 'PR_180', number: 180, headRefOid: SHA_1, state: 'MERGED' }));
-
-  // Simulate abort arriving right as advanceBatchOnPullRequestClosed saves its write-ahead state
-  // (before advance calls enqueuePullRequest for PR 181).
-  let abortRanDuringAdvance = false;
-  const originalSave = client.saveBatchState.bind(client);
-  client.saveBatchState = async (owner, repo, state) => {
-    await originalSave(owner, repo, state);
-    if (!abortRanDuringAdvance && state.status === 'enqueuing' && state.activePrNumber === 181) {
-      abortRanDuringAdvance = true;
-      await abortBatch(client, {
-        owner,
-        repo,
-        actor: 'ContraPhilosophy',
-        reason: 'Emergency owner abort',
-      });
-    }
-  };
-
-  const adv = await advanceBatchOnPullRequestClosed(client, {
-    owner: 'Bibleberry',
-    repo: 'Bibleberry',
-    prNumber: 180,
-    merged: true,
-  });
-
-  assert.equal(abortRanDuringAdvance, true);
-  assert.equal(adv.action, 'ignored');
-  // PR 181 MUST NOT be enqueued after abort, and final state MUST remain 'aborted'.
-  assert.deepEqual(client.enqueued, [{ pullRequestId: 'PR_180', expectedHeadOid: SHA_1 }]);
-  assert.equal(client.state?.status, 'aborted');
-  assert.equal(client.state?.activePrNumber, null);
-});
-
-test('watchdog reconcile racing with advance does not regress state or double-enqueue', async () => {
-  const client = new MockGitHubClient();
-  client.prs.set(180, makePr({ id: 'PR_180', number: 180, headRefOid: SHA_1 }));
-  client.prs.set(181, makePr({ id: 'PR_181', number: 181, headRefOid: SHA_2 }));
-
-  await startBatch(client, {
-    owner: 'Bibleberry',
-    repo: 'Bibleberry',
-    entries: [
-      { prNumber: 180, expectedHeadSha: SHA_1 },
-      { prNumber: 181, expectedHeadSha: SHA_2 },
-    ],
-    authorizedBy: 'ContraPhilosophy',
-  });
-
-  // Simulate a stale reconcileBatch that read status='enqueuing' for PR 180, while a concurrent
-  // advance already moved the batch to PR 181 (higher revision).
-  client.state = {
-    ...client.state!,
-    status: 'enqueuing',
-    revision: 1,
-  };
-  client.prs.set(180, makePr({ id: 'PR_180', number: 180, headRefOid: SHA_1, isInMergeQueue: true }));
-
-  const originalGetPr = client.getPullRequest.bind(client);
-  let advancedConcurrently = false;
-  client.getPullRequest = async (owner, repo, prNumber) => {
-    const pr = await originalGetPr(owner, repo, prNumber);
-    if (!advancedConcurrently && prNumber === 180) {
-      advancedConcurrently = true;
-      // Concurrent advance moves state to PR 181 (revision 3).
-      client.state = {
-        ...client.state!,
-        revision: 3,
-        status: 'running',
-        nextIndex: 1,
-        activePrNumber: 181,
-        activeHeadSha: SHA_2,
-        completedPrNumbers: [180],
-      };
-    }
-    return pr;
-  };
-
-  const rec = await reconcileBatch(client, { owner: 'Bibleberry', repo: 'Bibleberry' });
-  assert.equal(rec.action, 'ignored');
-  // State must not regress back to PR 180 or overwrite revision 3.
-  assert.equal(client.state?.revision, 3);
-  assert.equal(client.state?.activePrNumber, 181);
-  assert.equal(client.enqueued.length, 1);
-});
-
-test('merge-queue-batch workflow enforces main-only trusted checkout, single-writer concurrency, watchdog schedule, and least privilege', () => {
+test('workflow enforces default-branch control plane, main-only runtime environment, immutable manifest upload, workflow_run wakeup, and zero untrusted interpolation', () => {
   const workflow = readFileSync(
     new URL('../../.github/workflows/merge-queue-batch.yml', import.meta.url),
     'utf8',
   );
+
   assert.match(workflow, /^permissions: \{\}\s*$/m);
-  assert.match(workflow, /environment: merge-queue-approval/);
-  assert.match(workflow, /cancel-in-progress: false/);
-  assert.match(workflow, /persist-credentials: false/);
-  assert.match(workflow, /schedule:\s*\n(?:\s*#.*\n)*\s*-\s*cron:\s*['"]\*\/15 \* \* \* \*['"]/);
+  assert.doesNotMatch(workflow, /^ {2}pull_request:/m);
+  assert.doesNotMatch(workflow, /^ {2}check_suite:/m);
+  assert.doesNotMatch(workflow, /^ {2}merge_group:/m);
+  assert.match(workflow, /^ {2}pull_request_target:\s*\n(?:\s*#.*\n)*\s*types: \[closed, synchronize\]\s*\n\s*branches: \[main\]/m);
+  assert.match(workflow, /^ {2}workflow_run:\s*\n/m);
 
-  // All 5 state-mutating jobs must share the single-writer concurrency group with FIFO queuing (queue: max) and cancel-in-progress: false.
-  assert.doesNotMatch(workflow, /^concurrency:\s*$/m);
-  assert.doesNotMatch(workflow, /cancel-in-progress:\s*true/);
-  const writerMatches =
-    workflow.match(
-      /concurrency:\s*\n(?:\s*#.*\n)*\s*group: merge-queue-batch-writer\s*\n\s*cancel-in-progress: false\s*\n\s*queue: max/g,
-    ) ?? [];
-  assert.equal(writerMatches.length, 5);
+  // Immutable start-run authorization manifest emitted with live tokens BEFORE upload-artifact and bound into start.
+  assert.match(workflow, /scripts\/ci\/merge-queue-batch\.ts emit-manifest/);
+  assert.match(workflow, /MANIFEST_PATH: \$\{\{ runner\.temp \}\}\/copper-turnstile-auth-manifest\.json/);
+  assert.match(workflow, /uses: actions\/upload-artifact@[0-9a-f]{40}/);
+  assert.match(workflow, /name: copper-turnstile-auth-manifest-\$\{\{ github\.run_id \}\}/);
 
-  // Every privileged workflow_dispatch job must restrict to refs/heads/main and owner ContraPhilosophy.
-  assert.match(
-    workflow,
-    /inputs\.action == 'start' && github\.ref == 'refs\/heads\/main' && github\.actor == 'ContraPhilosophy'/,
-  );
-  assert.match(
-    workflow,
-    /inputs\.action == 'reconcile' && github\.ref == 'refs\/heads\/main' && github\.actor == 'ContraPhilosophy'/,
-  );
-  assert.match(
-    workflow,
-    /inputs\.action == 'abort' && github\.ref == 'refs\/heads\/main' && github\.actor == 'ContraPhilosophy'/,
-  );
+  // Uses shared .nvmrc Node version pinning from accepted #375 across all 7 setup-node steps.
+  assert.equal((workflow.match(/node-version-file: \.nvmrc/g) ?? []).length, 7);
+  assert.doesNotMatch(workflow, /node-version:\s*['"]?\d+/);
 
-  // Every actions/checkout step in the workflow must explicitly check out default_branch (main).
-  const checkoutMatches = workflow.match(/uses: actions\/checkout@/g) ?? [];
-  const defaultBranchRefMatches = workflow.match(/ref: \$\{\{ github\.event\.repository\.default_branch \}\}/g) ?? [];
-  assert.equal(checkoutMatches.length, 7);
-  assert.equal(defaultBranchRefMatches.length, 7);
+  // Never lists coordinator itself in workflow_run and never downloads untrusted PR workflow artifacts.
+  const workflowRunSection = workflow.slice(workflow.indexOf('  workflow_run:'), workflow.indexOf('  schedule:'));
+  assert.doesNotMatch(workflowRunSection, /Copper Turnstile|Merge Queue Batch/);
+  assert.doesNotMatch(workflow, /download-artifact/i);
+
+  // All 5 runtime jobs use main-only copper-turnstile-runtime; all 3 approval gates use zero-secret merge-queue-approval.
+  assert.equal((workflow.match(/environment: copper-turnstile-runtime/g) ?? []).length, 5);
+  assert.equal((workflow.match(/environment: merge-queue-approval/g) ?? []).length, 3);
+  assert.equal((workflow.match(/uses: actions\/checkout@[0-9a-f]{40}/g) ?? []).length, 7);
+  assert.equal((workflow.match(/ref: \$\{\{ github\.event\.repository\.default_branch \}\}/g) ?? []).length, 7);
+  assert.equal((workflow.match(/persist-credentials: false/g) ?? []).length, 7);
+  assert.equal((workflow.match(/uses: actions\/create-github-app-token@[0-9a-f]{40}/g) ?? []).length, 5);
+
+  assert.doesNotMatch(workflow, /github\.event\.pull_request\.(?:title|body|head\.ref|head\.label)/);
+  assert.doesNotMatch(workflow, /github\.event\.workflow_run\.(?:display_title|head_commit\.message)/);
+});
+
+// ---------------------------------------------------------------------------
+// 7. Complete Authorization Integrity Tests:
+//    - reviewCommentDigest bound in immutable start manifest (changed/removed digest)
+//    - forged activeHeadSha + provenanceVerified / overlappingFiles attacks
+//    - genuine multi-step mechanical integration chain acceptance
+//    - #375 / #377 required-check reconciliation
+// ---------------------------------------------------------------------------
+
+test('binds reviewCommentDigest into immutable start manifest before upload and defeats removed or replaced digest attacks on start and continuation', async () => {
+  const client = new MockGitHubClient();
+  client.mainSha = MAIN_0;
+  const origComment = makeApprovedReviewComment(371, SHA_1, COMMENT_ID_1);
+  const origDigest = computeCommentBodyDigest(origComment.body);
+  client.prs.set(371, makePr({ number: 371, headRefOid: SHA_1, mergeStateStatus: 'CLEAN' }, COMMENT_ID_1));
+
+  // 1. prepareAuthorizedManifest captures exact reviewCommentDigest into immutable manifest BEFORE upload.
+  const prepared = await prepareAuthorizedManifest(client, {
+    owner: 'Bibleberry',
+    repo: 'Bibleberry',
+    entries: [{ prNumber: 371, expectedHeadSha: SHA_1, reviewCommentId: COMMENT_ID_1 }],
+    authorizedBy: 'ContraPhilosophy',
+    workflowRunId: '7001',
+    requireWorkflowApprovalRecord: true,
+  });
+  assert.equal(prepared.ok, true);
+  assert.equal(prepared.manifest?.entries[0].reviewCommentDigest, origDigest);
+  client.manifestsByRunId.set('7001', prepared.manifest!);
+
+  // 2. Manifest missing reviewCommentDigest for an attested reviewCommentId MUST fail closed at startBatch.
+  const digestlessManifest = buildAuthorizedManifest({
+    owner: 'Bibleberry',
+    repo: 'Bibleberry',
+    workflowRunId: '7002',
+    authorizedBy: 'ContraPhilosophy',
+    mergeMethod: 'squash',
+    integrationPolicy: 'integration-only',
+    entries: [{ prNumber: 371, expectedHeadSha: SHA_1, reviewCommentId: COMMENT_ID_1 }],
+  });
+  const startMissingDigest = await startBatch(client, {
+    owner: 'Bibleberry',
+    repo: 'Bibleberry',
+    entries: [{ prNumber: 371, expectedHeadSha: SHA_1, reviewCommentId: COMMENT_ID_1 }],
+    authorizedBy: 'ContraPhilosophy',
+    workflowRunId: '7002',
+    requireWorkflowApprovalRecord: true,
+    authorizedManifest: digestlessManifest,
+  });
+  assert.equal(startMissingDigest.ok, false);
+  assert.match(startMissingDigest.error ?? '', /missing a valid 64-char SHA-256 reviewCommentDigest/);
+  assert.equal(client.merges.length, 0);
+
+  // 3. Comment edited between emit-manifest and startBatch MUST fail closed on start!
+  const editedBody = `${origComment.body}\n(Edited after manifest preparation)`;
+  const editedDigest = computeCommentBodyDigest(editedBody);
+  client.prs.set(
+    371,
+    makePr({
+      number: 371,
+      headRefOid: SHA_1,
+      issueComments: {
+        pageInfo: { hasNextPage: false },
+        nodes: [{ ...origComment, body: editedBody }],
+      },
+    }),
+  );
+  const startEdited = await startBatch(client, {
+    owner: 'Bibleberry',
+    repo: 'Bibleberry',
+    entries: [{ prNumber: 371, expectedHeadSha: SHA_1, reviewCommentId: COMMENT_ID_1 }],
+    authorizedBy: 'ContraPhilosophy',
+    workflowRunId: '7001',
+    requireWorkflowApprovalRecord: true,
+    authorizedManifest: prepared.manifest,
+  });
+  assert.equal(startEdited.ok, false);
+  assert.match(startEdited.preflightResults[0]?.reasons.join(' ') ?? '', /comment digest mismatch/);
+  assert.equal(client.merges.length, 0);
+
+  // 4. Continuation attack A: Attacker REMOVES reviewCommentDigest from mutable state and recomputes stateChecksum.
+  const removedDigestEntries: BatchEntry[] = [
+    { prNumber: 371, expectedHeadSha: SHA_1, reviewCommentId: COMMENT_ID_1 },
+  ];
+  client.state = {
+    version: 2,
+    revision: 1,
+    batchId: 'batch-run-7001',
+    stateChecksum: computeStateChecksum({
+      owner: 'Bibleberry',
+      repo: 'Bibleberry',
+      entries: removedDigestEntries,
+      integrationPolicy: 'integration-only',
+      mergeMethod: 'squash',
+    }),
+    status: 'running',
+    createdAt: '2026-11-27T19:00:00.000Z',
+    updatedAt: '2026-11-27T19:00:00.000Z',
+    authorizedBy: 'ContraPhilosophy',
+    approvedBy: 'ContraPhilosophy',
+    integrationPolicy: 'integration-only',
+    mergeMethod: 'squash',
+    workflowRunId: '7001',
+    entries: removedDigestEntries,
+    nextIndex: 0,
+    activePrNumber: 371,
+    activeReviewedHeadSha: SHA_1,
+    activeHeadSha: SHA_1,
+    integrationUpdates: [],
+    completedPrNumbers: [],
+    completedMerges: [],
+    nextAction: 'Removed digest attack',
+  };
+  const removedRes = await reconcileBatch(client, {
+    owner: 'Bibleberry',
+    repo: 'Bibleberry',
+    requireWorkflowApprovalRecord: true,
+  });
+  assert.equal(removedRes.action, 'stopped');
+  assert.match(removedRes.message, /missing a valid 64-char SHA-256 reviewCommentDigest/);
+  assert.equal(client.merges.length, 0);
+
+  // 5. Continuation attack B: Attacker REPLACES reviewCommentDigest in mutable state with the edited comment's
+  //    new digest AND recomputes stateChecksum — immutable manifest catches the digest mismatch!
+  const replacedDigestEntries: BatchEntry[] = [
+    { prNumber: 371, expectedHeadSha: SHA_1, reviewCommentId: COMMENT_ID_1, reviewCommentDigest: editedDigest },
+  ];
+  client.state = {
+    ...(client.state as BatchState),
+    status: 'running',
+    entries: replacedDigestEntries,
+    stateChecksum: computeStateChecksum({
+      owner: 'Bibleberry',
+      repo: 'Bibleberry',
+      entries: replacedDigestEntries,
+      integrationPolicy: 'integration-only',
+      mergeMethod: 'squash',
+    }),
+  };
+  const replacedRes = await reconcileBatch(client, {
+    owner: 'Bibleberry',
+    repo: 'Bibleberry',
+    requireWorkflowApprovalRecord: true,
+  });
+  assert.equal(replacedRes.action, 'stopped');
+  assert.match(replacedRes.message, /does not match immutable manifest entry \(including reviewCommentDigest\)/);
+  assert.equal(client.merges.length, 0);
+});
+
+test('defeats forged activeHeadSha and provenanceVerified mutable-state attacks while accepting genuine multi-step mechanical integration chains', async () => {
+  const SHA_EVIL = 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+  const ROGUE_BASE = 'dddddddddddddddddddddddddddddddddddddddd';
+  const SHA_2_STEP2 = '222222222222222222222222222222222222222b';
+  const comment2 = makeApprovedReviewComment(373, SHA_2, COMMENT_ID_2);
+  const digest2 = computeCommentBodyDigest(comment2.body);
+  const validEntries: BatchEntry[] = [
+    { prNumber: 373, expectedHeadSha: SHA_2, reviewCommentId: COMMENT_ID_2, reviewCommentDigest: digest2 },
+  ];
+
+  function makeForgedContinuationState(
+    client: MockGitHubClient,
+    runId: string,
+    forgedActiveHeadSha: string,
+    extra: Partial<BatchState> = {},
+  ): BatchState {
+    registerManifest(client, runId, validEntries);
+    return {
+      version: 2,
+      revision: 3,
+      batchId: `batch-run-${runId}`,
+      stateChecksum: computeStateChecksum({
+        owner: 'Bibleberry',
+        repo: 'Bibleberry',
+        entries: validEntries,
+        integrationPolicy: 'integration-only',
+        mergeMethod: 'squash',
+      }),
+      status: 'awaiting_checks',
+      createdAt: '2026-11-27T19:00:00.000Z',
+      updatedAt: '2026-11-27T19:05:00.000Z',
+      authorizedBy: 'ContraPhilosophy',
+      approvedBy: 'ContraPhilosophy',
+      integrationPolicy: 'integration-only',
+      mergeMethod: 'squash',
+      workflowRunId: runId,
+      entries: validEntries,
+      nextIndex: 0,
+      activePrNumber: 373,
+      activeReviewedHeadSha: SHA_2,
+      activeHeadSha: forgedActiveHeadSha,
+      observedMainSha: MAIN_1,
+      awaitingChecksSince: '2026-11-27T19:01:00.000Z',
+      integrationUpdates: [
+        {
+          prNumber: 373,
+          fromHeadSha: SHA_2,
+          toHeadSha: forgedActiveHeadSha,
+          mergedBaseSha: MAIN_1,
+          mergeBaseSha: MAIN_0,
+          requestedAt: '2026-11-27T19:00:30.000Z',
+          verifiedAt: '2026-11-27T19:01:00.000Z',
+          overlappingFiles: [],
+          provenanceVerified: true,
+        },
+      ],
+      completedPrNumbers: [],
+      completedMerges: [],
+      nextAction: 'Forged provenance awaiting checks',
+      ...extra,
+    };
+  }
+
+  // Attack 1: Forged activeHeadSha is a 1-parent unreviewed commit pushed on top of SHA_2.
+  {
+    const client = new MockGitHubClient();
+    client.mainSha = MAIN_1;
+    client.commits.set(SHA_EVIL, { sha: SHA_EVIL, parents: [SHA_2], message: 'Unreviewed backdoor commit' });
+    client.prs.set(
+      373,
+      makePr({
+        number: 373,
+        headRefOid: SHA_EVIL,
+        mergeStateStatus: 'CLEAN',
+        issueComments: { pageInfo: { hasNextPage: false }, nodes: [comment2] },
+      }),
+    );
+    client.state = makeForgedContinuationState(client, '8001', SHA_EVIL);
+    const res = await handleChecksCompleted(client, {
+      owner: 'Bibleberry',
+      repo: 'Bibleberry',
+      headSha: SHA_EVIL,
+      requireWorkflowApprovalRecord: true,
+    });
+    assert.equal(res.action, 'stopped');
+    assert.match(res.message, /failed independent Git integration-chain verification.*1 parent\(s\)/);
+    assert.equal(client.merges.length, 0);
+  }
+
+  // Attack 2: Forged activeHeadSha is a 2-parent merge whose second parent is NOT on accepted main.
+  {
+    const client = new MockGitHubClient();
+    client.mainSha = MAIN_1;
+    client.commits.set(SHA_EVIL, {
+      sha: SHA_EVIL,
+      parents: [SHA_2, ROGUE_BASE],
+      message: 'Merge rogue branch into PR',
+    });
+    client.comparisons.set(`${ROGUE_BASE}...${MAIN_1}`, {
+      status: 'diverged',
+      aheadBy: 1,
+      behindBy: 1,
+      mergeBaseSha: MAIN_0,
+      totalCommits: 1,
+    });
+    client.prs.set(
+      373,
+      makePr({
+        number: 373,
+        headRefOid: SHA_EVIL,
+        mergeStateStatus: 'CLEAN',
+        issueComments: { pageInfo: { hasNextPage: false }, nodes: [comment2] },
+      }),
+    );
+    client.state = makeForgedContinuationState(client, '8002', SHA_EVIL);
+    const res = await handleChecksCompleted(client, {
+      owner: 'Bibleberry',
+      repo: 'Bibleberry',
+      headSha: SHA_EVIL,
+      requireWorkflowApprovalRecord: true,
+    });
+    assert.equal(res.action, 'stopped');
+    assert.match(res.message, /not an accepted commit on main/);
+    assert.equal(client.merges.length, 0);
+  }
+
+  // Attack 3: Forged activeHeadSha is a 2-parent evil merge [SHA_2, MAIN_1] that altered a reviewed PR blob.
+  {
+    const client = new MockGitHubClient();
+    client.mainSha = MAIN_1;
+    setupCleanIntegrationProvenance(client, {
+      mergeBaseSha: MAIN_0,
+      prevHeadSha: SHA_2,
+      baseSha: MAIN_1,
+      newHeadSha: SHA_EVIL,
+      prFiles: [{ filename: 'src/pr373.ts', status: 'modified', sha: 'blob-reviewed-373' }],
+      mainFiles: [{ filename: 'src/main-change.ts', status: 'modified', sha: 'blob-main-1' }],
+    });
+    // Tamper the PR file blob inside the merge commit!
+    client.comparisons.set(`${MAIN_1}...${SHA_EVIL}`, {
+      status: 'ahead',
+      aheadBy: 2,
+      behindBy: 0,
+      mergeBaseSha: MAIN_1,
+      totalCommits: 2,
+      files: [{ filename: 'src/pr373.ts', status: 'modified', sha: 'blob-EVIL-TAMPERED' }],
+    });
+    client.prs.set(
+      373,
+      makePr({
+        number: 373,
+        headRefOid: SHA_EVIL,
+        mergeStateStatus: 'CLEAN',
+        issueComments: { pageInfo: { hasNextPage: false }, nodes: [comment2] },
+      }),
+    );
+    client.state = makeForgedContinuationState(client, '8003', SHA_EVIL);
+    const res = await handleChecksCompleted(client, {
+      owner: 'Bibleberry',
+      repo: 'Bibleberry',
+      headSha: SHA_EVIL,
+      requireWorkflowApprovalRecord: true,
+    });
+    assert.equal(res.action, 'stopped');
+    assert.match(res.message, /altered reviewed PR file "src\/pr373\.ts"/);
+    assert.equal(client.merges.length, 0);
+  }
+
+  // Attack 4: Real 2-parent merge with OVERLAPPING file `src/shared.ts`, while forged state asserts `overlappingFiles: []`.
+  {
+    const client = new MockGitHubClient();
+    client.mainSha = MAIN_1;
+    setupCleanIntegrationProvenance(client, {
+      mergeBaseSha: MAIN_0,
+      prevHeadSha: SHA_2,
+      baseSha: MAIN_1,
+      newHeadSha: SHA_2_UPDATED,
+      prFiles: [{ filename: 'src/shared.ts', status: 'modified', sha: 'blob-pr-shared' }],
+      mainFiles: [{ filename: 'src/shared.ts', status: 'modified', sha: 'blob-main-shared' }],
+    });
+    client.prs.set(
+      373,
+      makePr({
+        number: 373,
+        headRefOid: SHA_2_UPDATED,
+        mergeStateStatus: 'CLEAN',
+        issueComments: { pageInfo: { hasNextPage: false }, nodes: [comment2] },
+      }),
+    );
+    client.state = makeForgedContinuationState(client, '8004', SHA_2_UPDATED);
+    const res = await handleChecksCompleted(client, {
+      owner: 'Bibleberry',
+      repo: 'Bibleberry',
+      headSha: SHA_2_UPDATED,
+      requireWorkflowApprovalRecord: true,
+    });
+    assert.equal(res.action, 'held');
+    assert.match(res.message, /modified file\(s\) also changed on main \(src\/shared\.ts\)/);
+    assert.equal(client.merges.length, 0);
+  }
+
+  // Attack 5: Forged `status: 'updating'` with tampered `pendingOperation.expectedHeadSha` = unreviewed SHA_EVIL,
+  //           followed by a clean update-branch merge on top of SHA_EVIL — full chain back to immutable SHA_2 fails!
+  {
+    const client = new MockGitHubClient();
+    client.mainSha = MAIN_1;
+    client.commits.set(SHA_EVIL, { sha: SHA_EVIL, parents: [SHA_2], message: 'Unreviewed commit' });
+    setupCleanIntegrationProvenance(client, {
+      mergeBaseSha: MAIN_0,
+      prevHeadSha: SHA_EVIL,
+      baseSha: MAIN_1,
+      newHeadSha: SHA_2_UPDATED,
+    });
+    client.prs.set(
+      373,
+      makePr({
+        number: 373,
+        headRefOid: SHA_2_UPDATED,
+        mergeStateStatus: 'CLEAN',
+        issueComments: { pageInfo: { hasNextPage: false }, nodes: [comment2] },
+      }),
+    );
+    client.state = makeForgedContinuationState(client, '8005', SHA_EVIL, {
+      status: 'updating',
+      pendingOperation: {
+        type: 'update-branch',
+        prNumber: 373,
+        expectedHeadSha: SHA_EVIL,
+        observedMainSha: MAIN_1,
+        startedAt: '2026-11-27T19:00:30.000Z',
+      },
+    });
+    const res = await handlePullRequestSynchronize(client, {
+      owner: 'Bibleberry',
+      repo: 'Bibleberry',
+      prNumber: 373,
+      requireWorkflowApprovalRecord: true,
+    });
+    assert.equal(res.action, 'stopped');
+    assert.match(res.message, /Rejected post-update commit.*1 parent\(s\)/);
+    assert.equal(client.merges.length, 0);
+  }
+
+  // Attack 6: Forged `status: 'merging'` with `pendingOperation.expectedHeadSha` = unreviewed SHA_EVIL
+  //           on an already-MERGED PR MUST NOT be accepted as verified coordinator completion!
+  {
+    const client = new MockGitHubClient();
+    client.mainSha = MAIN_2;
+    client.commits.set(SHA_EVIL, { sha: SHA_EVIL, parents: [SHA_2], message: 'Unreviewed manual commit' });
+    client.prs.set(
+      373,
+      makePr({
+        number: 373,
+        state: 'MERGED',
+        headRefOid: SHA_EVIL,
+        mergeCommit: { oid: MAIN_2 },
+        issueComments: { pageInfo: { hasNextPage: false }, nodes: [comment2] },
+      }),
+    );
+    client.state = makeForgedContinuationState(client, '8007', SHA_EVIL, {
+      status: 'merging',
+      pendingOperation: {
+        type: 'merge',
+        prNumber: 373,
+        expectedHeadSha: SHA_EVIL,
+        observedMainSha: MAIN_1,
+        startedAt: '2026-11-27T19:01:00.000Z',
+      },
+    });
+    const res = await reconcileBatch(client, {
+      owner: 'Bibleberry',
+      repo: 'Bibleberry',
+      requireWorkflowApprovalRecord: true,
+    });
+    assert.equal(res.action, 'stopped');
+    assert.match(res.message, /failed independent integration-chain verification.*1 parent\(s\)/);
+  }
+
+  // Genuine acceptance: 2-step mechanical integration chain (SHA_2 -> SHA_2_UPDATED [+MAIN_1] -> SHA_2_STEP2 [+MAIN_2])
+  // with disjoint files and unaltered blobs is independently proven from immutable SHA_2 and merges unattended!
+  {
+    const client = new MockGitHubClient();
+    client.mainSha = MAIN_2;
+
+    // Step 1: SHA_2 + MAIN_1 -> SHA_2_UPDATED (disjoint: src/pr373.ts vs src/main1.ts).
+    setupCleanIntegrationProvenance(client, {
+      mergeBaseSha: MAIN_0,
+      prevHeadSha: SHA_2,
+      baseSha: MAIN_1,
+      newHeadSha: SHA_2_UPDATED,
+      prFiles: [{ filename: 'src/pr373.ts', status: 'added', sha: 'blob-373' }],
+      mainFiles: [{ filename: 'src/main1.ts', status: 'added', sha: 'blob-main-1' }],
+    });
+    // MAIN_1 is a strict ancestor of current MAIN_2.
+    client.comparisons.set(`${MAIN_1}...${MAIN_2}`, {
+      status: 'ahead',
+      aheadBy: 1,
+      behindBy: 0,
+      mergeBaseSha: MAIN_1,
+      totalCommits: 1,
+      files: [{ filename: 'src/main2.ts', status: 'added', sha: 'blob-main-2' }],
+    });
+    // Step 2: SHA_2_UPDATED + MAIN_2 -> SHA_2_STEP2 (disjoint: src/pr373.ts vs src/main2.ts).
+    client.commits.set(SHA_2_STEP2, {
+      sha: SHA_2_STEP2,
+      parents: [SHA_2_UPDATED, MAIN_2],
+      message: "Merge branch 'main' into feat/pr-373 (step 2)",
+    });
+    client.comparisons.set(`${MAIN_2}...${SHA_2_UPDATED}`, {
+      status: 'diverged',
+      aheadBy: 2,
+      behindBy: 1,
+      mergeBaseSha: MAIN_1,
+      totalCommits: 2,
+      files: [{ filename: 'src/pr373.ts', status: 'added', sha: 'blob-373' }],
+    });
+    client.comparisons.set(`${SHA_2_UPDATED}...${SHA_2_STEP2}`, {
+      status: 'ahead',
+      aheadBy: 2,
+      behindBy: 0,
+      mergeBaseSha: SHA_2_UPDATED,
+      totalCommits: 2,
+      files: [{ filename: 'src/main2.ts', status: 'added', sha: 'blob-main-2' }],
+    });
+    client.comparisons.set(`${MAIN_2}...${SHA_2_STEP2}`, {
+      status: 'ahead',
+      aheadBy: 3,
+      behindBy: 0,
+      mergeBaseSha: MAIN_2,
+      totalCommits: 3,
+      files: [{ filename: 'src/pr373.ts', status: 'added', sha: 'blob-373' }],
+    });
+
+    // Direct unit check on verifyIntegrationChainFromAuthorizedHead:
+    const directChain = await verifyIntegrationChainFromAuthorizedHead(client, {
+      owner: 'Bibleberry',
+      repo: 'Bibleberry',
+      prNumber: 373,
+      authorizedHeadSha: SHA_2,
+      candidateHeadSha: SHA_2_STEP2,
+      currentMainSha: MAIN_2,
+    });
+    assert.equal(directChain.ok, true);
+    assert.equal(directChain.steps.length, 2);
+    assert.deepEqual(directChain.overlappingFiles, []);
+
+    // End-to-end unattended merge on workflow_run wakeup (even with empty mutable integrationUpdates):
+    client.prs.set(
+      373,
+      makePr({
+        number: 373,
+        headRefOid: SHA_2_STEP2,
+        mergeStateStatus: 'CLEAN',
+        issueComments: { pageInfo: { hasNextPage: false }, nodes: [comment2] },
+      }),
+    );
+    client.state = makeForgedContinuationState(client, '8006', SHA_2_STEP2, {
+      observedMainSha: MAIN_2,
+      integrationUpdates: [],
+    });
+    const res = await handleChecksCompleted(client, {
+      owner: 'Bibleberry',
+      repo: 'Bibleberry',
+      headSha: SHA_2_STEP2,
+      requireWorkflowApprovalRecord: true,
+    });
+    assert.equal(res.action, 'completed');
+    assert.deepEqual(client.merges, [{ prNumber: 373, expectedHeadSha: SHA_2_STEP2, mergeMethod: 'squash' }]);
+  }
+});
+
+test('reconciles #375 newly accepted CI jobs and #377 required-check configuration fail-closed without deadlocking scope-guarded SUCCESS skips', () => {
+  const policyWith377 = makePolicy({
+    requiredStatusChecks: [
+      'Build reader application',
+      'Verify Sanity Studio',
+      'Reader browser suites (Chromium)',
+      'Build and verify R06 release artifact',
+    ],
+  });
+
+  // Missing either #377 check fails closed once configured on main protection!
+  const missingBrowser = evaluatePullRequestPreflight(
+    makePr({ number: 380, headRefOid: SHA_1 }, COMMENT_ID_1),
+    { prNumber: 380, expectedHeadSha: SHA_1, reviewCommentId: COMMENT_ID_1 },
+    'Bibleberry/Bibleberry',
+    undefined,
+    { policy: policyWith377 },
+  );
+  assert.equal(missingBrowser.ok, false);
+  assert.match(missingBrowser.reasons.join(' '), /Required check "Reader browser suites \(Chromium\)" is missing/);
+  assert.match(missingBrowser.reasons.join(' '), /Required check "Build and verify R06 release artifact" is missing/);
+
+  // Passing (including scope-guarded SUCCESS conclusions from ci.yml) passes cleanly!
+  const allFourPassing = evaluatePullRequestPreflight(
+    makePr(
+      {
+        number: 380,
+        headRefOid: SHA_1,
+        statusCheckRollup: {
+          state: 'SUCCESS',
+          contexts: {
+            pageInfo: { hasNextPage: false },
+            nodes: [
+              { __typename: 'CheckRun', name: 'Build reader application', status: 'COMPLETED', conclusion: 'SUCCESS', headSha: SHA_1 },
+              { __typename: 'CheckRun', name: 'Verify Sanity Studio', status: 'COMPLETED', conclusion: 'SUCCESS', headSha: SHA_1 },
+              { __typename: 'CheckRun', name: 'Reader browser suites (Chromium)', status: 'COMPLETED', conclusion: 'SUCCESS', headSha: SHA_1 },
+              { __typename: 'CheckRun', name: 'Build and verify R06 release artifact', status: 'COMPLETED', conclusion: 'SUCCESS', headSha: SHA_1 },
+            ],
+          },
+        },
+      },
+      COMMENT_ID_1,
+    ),
+    { prNumber: 380, expectedHeadSha: SHA_1, reviewCommentId: COMMENT_ID_1 },
+    'Bibleberry/Bibleberry',
+    undefined,
+    { policy: policyWith377 },
+  );
+  assert.equal(allFourPassing.ok, true);
 });
