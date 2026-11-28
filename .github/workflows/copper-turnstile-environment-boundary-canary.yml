@@ -1,0 +1,19 @@
+name: Copper Turnstile environment boundary canary
+
+# Temporary negative acceptance fixture for Issue #202; never merge.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/copper-turnstile-environment-boundary-canary.yml'
+permissions: {}
+jobs:
+  deny-pr-branch:
+    name: PR branch must be denied runtime environment
+    runs-on: ubuntu-24.04
+    environment: copper-turnstile-runtime
+    steps:
+      - name: Fail if environment restriction permits this job
+        run: |
+          echo 'ERROR: PR environment boundary unexpectedly allowed a runner.'
+          exit 1
