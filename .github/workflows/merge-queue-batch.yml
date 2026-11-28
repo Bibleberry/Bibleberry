@@ -1,5 +1,11 @@
-name: Merge Queue Batch Coordinator
+name: Copper Turnstile Batch Coordinator
 
+# Trusted default-branch control plane ONLY.
+# - No ordinary `pull_request` trigger: PR-branch workflow edits never execute.
+# - `pull_request_target`, `workflow_run`, and `schedule` always run workflow YAML from `main`.
+# - Privileged credentials live ONLY in the `main`-branch-restricted `copper-turnstile-runtime`
+#   environment (never as repository-level secrets), so hostile same-repo PR workflows are
+#   blocked server-side by GitHub's Environment deployment branch policy.
 on:
   workflow_dispatch:
     inputs:
@@ -15,21 +21,38 @@ on:
           - reconcile
           - abort
       entries:
-        description: Ordered PR_NUMBER@REVIEWED_HEAD_SHA list (comma or newline separated)
+        description: Ordered PR_NUMBER@REVIEWED_HEAD_SHA#REVIEW_COMMENT_ID list (comma or newline separated)
         type: string
         required: false
+      merge_method:
+        description: Protected PR merge method (must be allowed by repository settings)
+        type: choice
+        required: false
+        default: squash
+        options:
+          - squash
+          - merge
+          - rebase
       reason:
-        description: Optional reason (used for abort)
+        description: Optional reason (used for abort/cancellation)
         type: string
         required: false
-  pull_request:
-    types: [closed]
+  pull_request_target:
+    # Treated strictly as a wakeup signal. Never checks out PR code or interpolates untrusted PR strings.
+    types: [closed, synchronize]
     branches: [main]
-  merge_group:
-    types: [destroyed]
-    branches: [main]
+  workflow_run:
+    # Reliable immediate wakeup when ordinary PR CI completes (excludes coordinator itself to prevent recursion).
+    # Treated strictly as a wakeup signal; never downloads or consumes workflow artifacts.
+    workflows:
+      - Bibleberry CI
+      - Collections Browser Tests
+      - Native Android debug build
+      - Native iOS simulator build
+      - PR Assignment Identity
+    types: [completed]
   schedule:
-    # Watchdog reconciliation in case a webhook is missed or an enqueue outcome was indeterminate.
+    # Recovery watchdog fallback for missed webhooks or interrupted API calls (zero runners when idle).
     - cron: '*/15 * * * *'
 
 permissions: {}
@@ -45,6 +68,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+      issues: read
       checks: read
       statuses: read
     steps:
@@ -54,23 +78,35 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '24'
-      - name: Validate batch entries
+          node-version-file: .nvmrc
+      - name: Validate batch entries (zero writes)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BATCH_ENTRIES: ${{ inputs.entries }}
-        run: node --experimental-strip-types scripts/ci/merge-queue-batch.ts preflight --entries "$BATCH_ENTRIES"
+          MERGE_METHOD: ${{ inputs.merge_method || 'squash' }}
+        run: node --experimental-strip-types scripts/ci/merge-queue-batch.ts preflight
+
+  approve-start:
+    name: Owner approval gate for batch start
+    needs: [preflight]
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'start' && github.ref == 'refs/heads/main' && github.actor == 'ContraPhilosophy' }}
+    runs-on: ubuntu-24.04
+    environment: merge-queue-approval
+    permissions: {}
+    steps:
+      - name: Record owner approval checkpoint
+        run: echo "Owner approval gate satisfied for workflow run ${GITHUB_RUN_ID}."
 
   authorize-and-start:
-    name: Authorize and enqueue first batch PR
-    needs: [preflight]
+    name: Authorize and start direct-merge batch
+    needs: [preflight, approve-start]
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'start' && github.ref == 'refs/heads/main' && github.actor == 'ContraPhilosophy' }}
     concurrency:
       group: merge-queue-batch-writer
       cancel-in-progress: false
       queue: max
     runs-on: ubuntu-24.04
-    environment: merge-queue-approval
+    environment: copper-turnstile-runtime
     permissions:
       actions: read
       contents: read
@@ -82,107 +118,203 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '24'
-      - name: Verify MERGE_QUEUE_TOKEN is configured
+          node-version-file: .nvmrc
+      - name: Detect configured runtime credentials
+        id: cred_check
         env:
-          HAS_TOKEN: ${{ secrets.MERGE_QUEUE_TOKEN != '' }}
+          HAS_APP: ${{ vars.COPPER_TURNSTILE_APP_CLIENT_ID != '' && secrets.COPPER_TURNSTILE_APP_PRIVATE_KEY != '' }}
+          HAS_PAT: ${{ secrets.MERGE_QUEUE_TOKEN != '' }}
         run: |
-          if [ "$HAS_TOKEN" != "true" ]; then
-            echo "::error::Secret MERGE_QUEUE_TOKEN is not configured. See docs/testing/merge-queue-integration.md for owner setup instructions."
+          if [ "$HAS_APP" = "true" ]; then
+            echo "mode=app" >> "$GITHUB_OUTPUT"
+          elif [ "$HAS_PAT" = "true" ]; then
+            echo "mode=pat" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::No Copper Turnstile runtime credential configured in the main-only copper-turnstile-runtime environment. See docs/testing/merge-queue-integration.md."
             exit 1
           fi
-      - name: Start approved batch and enqueue first PR
+      - name: Mint repository-scoped GitHub App token
+        id: app_token
+        if: ${{ steps.cred_check.outputs.mode == 'app' }}
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
+        with:
+          client-id: ${{ vars.COPPER_TURNSTILE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.COPPER_TURNSTILE_APP_PRIVATE_KEY }}
+          repositories: ${{ github.event.repository.name }}
+      - name: Emit immutable start-run authorization manifest
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COPPER_TURNSTILE_TOKEN: ${{ steps.app_token.outputs.token }}
           MERGE_QUEUE_TOKEN: ${{ secrets.MERGE_QUEUE_TOKEN }}
           BATCH_ENTRIES: ${{ inputs.entries }}
-        run: node --experimental-strip-types scripts/ci/merge-queue-batch.ts start --entries "$BATCH_ENTRIES" --actor "${{ github.actor }}"
+          MERGE_METHOD: ${{ inputs.merge_method || 'squash' }}
+          MANIFEST_OUT: ${{ runner.temp }}/copper-turnstile-auth-manifest.json
+        run: node --experimental-strip-types scripts/ci/merge-queue-batch.ts emit-manifest
+      - name: Upload immutable start-run authorization manifest
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: copper-turnstile-auth-manifest-${{ github.run_id }}
+          path: ${{ runner.temp }}/copper-turnstile-auth-manifest.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Start approved batch (bounded integration-only per §2C)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COPPER_TURNSTILE_TOKEN: ${{ steps.app_token.outputs.token }}
+          MERGE_QUEUE_TOKEN: ${{ secrets.MERGE_QUEUE_TOKEN }}
+          BATCH_ENTRIES: ${{ inputs.entries }}
+          MERGE_METHOD: ${{ inputs.merge_method || 'squash' }}
+          MANIFEST_PATH: ${{ runner.temp }}/copper-turnstile-auth-manifest.json
+        run: node --experimental-strip-types scripts/ci/merge-queue-batch.ts start
 
   advance-or-stop:
-    name: Advance or stop active merge-queue batch
-    if: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
+    name: Advance or reconcile active batch on PR/CI completion
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'pull_request_target' || github.event_name == 'workflow_run') &&
+      vars.MERGE_QUEUE_BATCH_STATE != '' &&
+      (contains(vars.MERGE_QUEUE_BATCH_STATE, '"status":"running"') ||
+       contains(vars.MERGE_QUEUE_BATCH_STATE, '"status":"updating"') ||
+       contains(vars.MERGE_QUEUE_BATCH_STATE, '"status":"awaiting_checks"') ||
+       contains(vars.MERGE_QUEUE_BATCH_STATE, '"status":"merging"') ||
+       contains(vars.MERGE_QUEUE_BATCH_STATE, '"status":"enqueuing"'))
     concurrency:
-      # Single-writer FIFO serialization across all state-mutating jobs (queue: max, up to 100 pending); 15m watchdog recovers lost webhooks or other failures.
+      # Single-writer FIFO serialization across all state-mutating jobs (queue: max, up to 100 pending); 15m watchdog recovers lost events.
       group: merge-queue-batch-writer
       cancel-in-progress: false
       queue: max
     runs-on: ubuntu-24.04
+    environment: copper-turnstile-runtime
     permissions:
+      actions: read
       contents: read
       pull-requests: read
     steps:
-      - name: Check if coordinator token is configured
-        id: token_check
+      - name: Detect configured runtime credentials
+        id: cred_check
         env:
-          HAS_TOKEN: ${{ secrets.MERGE_QUEUE_TOKEN != '' }}
-        run: echo "configured=$HAS_TOKEN" >> "$GITHUB_OUTPUT"
-      - name: Skip when MERGE_QUEUE_TOKEN is not configured
-        if: ${{ steps.token_check.outputs.configured != 'true' }}
-        run: echo "MERGE_QUEUE_TOKEN is not configured; skipping batch coordinator advancement."
+          HAS_APP: ${{ vars.COPPER_TURNSTILE_APP_CLIENT_ID != '' && secrets.COPPER_TURNSTILE_APP_PRIVATE_KEY != '' }}
+          HAS_PAT: ${{ secrets.MERGE_QUEUE_TOKEN != '' }}
+        run: |
+          if [ "$HAS_APP" = "true" ]; then
+            echo "mode=app" >> "$GITHUB_OUTPUT"
+          elif [ "$HAS_PAT" = "true" ]; then
+            echo "mode=pat" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=none" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Skip when runtime credentials are unavailable
+        if: ${{ steps.cred_check.outputs.mode == 'none' }}
+        run: echo "No Copper Turnstile runtime credential configured in copper-turnstile-runtime; skipping automatic advancement."
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: ${{ steps.token_check.outputs.configured == 'true' }}
+        if: ${{ steps.cred_check.outputs.mode != 'none' }}
         with:
-          # Always run the trusted coordinator script from the default branch (main).
+          # Always execute trusted coordinator scripts from default_branch (main). Never check out PR code.
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        if: ${{ steps.token_check.outputs.configured == 'true' }}
+        if: ${{ steps.cred_check.outputs.mode != 'none' }}
         with:
-          node-version: '24'
-      - name: Advance batch on PR close
-        if: ${{ steps.token_check.outputs.configured == 'true' && github.event_name == 'pull_request' }}
+          node-version-file: .nvmrc
+      - name: Mint repository-scoped GitHub App token
+        id: app_token
+        if: ${{ steps.cred_check.outputs.mode == 'app' }}
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
+        with:
+          client-id: ${{ vars.COPPER_TURNSTILE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.COPPER_TURNSTILE_APP_PRIVATE_KEY }}
+          repositories: ${{ github.event.repository.name }}
+      - name: Process PR closed wakeup
+        if: ${{ steps.cred_check.outputs.mode != 'none' && github.event_name == 'pull_request_target' && github.event.action == 'closed' }}
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COPPER_TURNSTILE_TOKEN: ${{ steps.app_token.outputs.token }}
           MERGE_QUEUE_TOKEN: ${{ secrets.MERGE_QUEUE_TOKEN }}
-        run: |
-          node --experimental-strip-types scripts/ci/merge-queue-batch.ts advance \
-            --pr "${{ github.event.pull_request.number }}" \
-            --merged "${{ github.event.pull_request.merged }}"
-      - name: Stop batch on merge_group destruction
-        if: ${{ steps.token_check.outputs.configured == 'true' && github.event_name == 'merge_group' }}
+          EVENT_PR_NUMBER: ${{ github.event.pull_request.number }}
+          EVENT_PR_MERGED: ${{ github.event.pull_request.merged }}
+        run: node --experimental-strip-types scripts/ci/merge-queue-batch.ts advance
+      - name: Process PR synchronize wakeup
+        if: ${{ steps.cred_check.outputs.mode != 'none' && github.event_name == 'pull_request_target' && github.event.action == 'synchronize' }}
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COPPER_TURNSTILE_TOKEN: ${{ steps.app_token.outputs.token }}
           MERGE_QUEUE_TOKEN: ${{ secrets.MERGE_QUEUE_TOKEN }}
-        run: |
-          node --experimental-strip-types scripts/ci/merge-queue-batch.ts destroyed \
-            --reason "${{ github.event.reason }}" \
-            --head-sha "${{ github.event.merge_group.head_sha }}"
+          EVENT_PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: node --experimental-strip-types scripts/ci/merge-queue-batch.ts sync
+      - name: Process ordinary CI workflow_run completion wakeup
+        if: ${{ steps.cred_check.outputs.mode != 'none' && github.event_name == 'workflow_run' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COPPER_TURNSTILE_TOKEN: ${{ steps.app_token.outputs.token }}
+          MERGE_QUEUE_TOKEN: ${{ secrets.MERGE_QUEUE_TOKEN }}
+          EVENT_WORKFLOW_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: node --experimental-strip-types scripts/ci/merge-queue-batch.ts checks
 
   reconcile-watchdog:
-    name: Watchdog reconciliation for active batch
-    if: ${{ github.event_name == 'schedule' }}
+    name: Watchdog recovery reconciliation for active batch
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      github.event_name == 'schedule' &&
+      vars.MERGE_QUEUE_BATCH_STATE != '' &&
+      (contains(vars.MERGE_QUEUE_BATCH_STATE, '"status":"running"') ||
+       contains(vars.MERGE_QUEUE_BATCH_STATE, '"status":"updating"') ||
+       contains(vars.MERGE_QUEUE_BATCH_STATE, '"status":"awaiting_checks"') ||
+       contains(vars.MERGE_QUEUE_BATCH_STATE, '"status":"merging"') ||
+       contains(vars.MERGE_QUEUE_BATCH_STATE, '"status":"enqueuing"'))
     concurrency:
       group: merge-queue-batch-writer
       cancel-in-progress: false
       queue: max
     runs-on: ubuntu-24.04
+    environment: copper-turnstile-runtime
     permissions:
+      actions: read
       contents: read
       pull-requests: read
     steps:
-      - name: Check if coordinator token is configured
-        id: token_check
+      - name: Detect configured runtime credentials
+        id: cred_check
         env:
-          HAS_TOKEN: ${{ secrets.MERGE_QUEUE_TOKEN != '' }}
-        run: echo "configured=$HAS_TOKEN" >> "$GITHUB_OUTPUT"
-      - name: Skip when MERGE_QUEUE_TOKEN is not configured
-        if: ${{ steps.token_check.outputs.configured != 'true' }}
-        run: echo "MERGE_QUEUE_TOKEN is not configured; skipping watchdog reconciliation."
+          HAS_APP: ${{ vars.COPPER_TURNSTILE_APP_CLIENT_ID != '' && secrets.COPPER_TURNSTILE_APP_PRIVATE_KEY != '' }}
+          HAS_PAT: ${{ secrets.MERGE_QUEUE_TOKEN != '' }}
+        run: |
+          if [ "$HAS_APP" = "true" ]; then
+            echo "mode=app" >> "$GITHUB_OUTPUT"
+          elif [ "$HAS_PAT" = "true" ]; then
+            echo "mode=pat" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=none" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Skip when runtime credentials are unavailable
+        if: ${{ steps.cred_check.outputs.mode == 'none' }}
+        run: echo "No Copper Turnstile runtime credential configured in copper-turnstile-runtime; skipping watchdog reconciliation."
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: ${{ steps.token_check.outputs.configured == 'true' }}
+        if: ${{ steps.cred_check.outputs.mode != 'none' }}
         with:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        if: ${{ steps.token_check.outputs.configured == 'true' }}
+        if: ${{ steps.cred_check.outputs.mode != 'none' }}
         with:
-          node-version: '24'
+          node-version-file: .nvmrc
+      - name: Mint repository-scoped GitHub App token
+        id: app_token
+        if: ${{ steps.cred_check.outputs.mode == 'app' }}
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
+        with:
+          client-id: ${{ vars.COPPER_TURNSTILE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.COPPER_TURNSTILE_APP_PRIVATE_KEY }}
+          repositories: ${{ github.event.repository.name }}
       - name: Reconcile active batch state
-        if: ${{ steps.token_check.outputs.configured == 'true' }}
+        if: ${{ steps.cred_check.outputs.mode != 'none' }}
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COPPER_TURNSTILE_TOKEN: ${{ steps.app_token.outputs.token }}
           MERGE_QUEUE_TOKEN: ${{ secrets.MERGE_QUEUE_TOKEN }}
         run: node --experimental-strip-types scripts/ci/merge-queue-batch.ts reconcile
 
   status:
-    name: Report active batch status
+    name: Report active batch status (read-only)
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'status' }}
     concurrency:
       group: merge-queue-readonly-${{ github.run_id }}
@@ -197,22 +329,32 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '24'
-      - name: Read batch status
+          node-version-file: .nvmrc
+      - name: Read batch status without write credentials
         env:
-          MERGE_QUEUE_TOKEN: ${{ secrets.MERGE_QUEUE_TOKEN }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BATCH_STATE_JSON: ${{ vars.MERGE_QUEUE_BATCH_STATE }}
         run: node --experimental-strip-types scripts/ci/merge-queue-batch.ts status
+
+  approve-reconcile:
+    name: Owner approval gate for manual reconcile
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'reconcile' && github.ref == 'refs/heads/main' && github.actor == 'ContraPhilosophy' }}
+    runs-on: ubuntu-24.04
+    environment: merge-queue-approval
+    permissions: {}
+    steps:
+      - name: Record owner approval checkpoint
+        run: echo "Owner approval gate satisfied for manual reconcile run ${GITHUB_RUN_ID}."
 
   reconcile:
     name: Reconcile interrupted batch state
+    needs: [approve-reconcile]
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'reconcile' && github.ref == 'refs/heads/main' && github.actor == 'ContraPhilosophy' }}
     concurrency:
       group: merge-queue-batch-writer
       cancel-in-progress: false
       queue: max
     runs-on: ubuntu-24.04
-    environment: merge-queue-approval
+    environment: copper-turnstile-runtime
     permissions:
       actions: read
       contents: read
@@ -224,22 +366,56 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '24'
+          node-version-file: .nvmrc
+      - name: Detect configured runtime credentials
+        id: cred_check
+        env:
+          HAS_APP: ${{ vars.COPPER_TURNSTILE_APP_CLIENT_ID != '' && secrets.COPPER_TURNSTILE_APP_PRIVATE_KEY != '' }}
+          HAS_PAT: ${{ secrets.MERGE_QUEUE_TOKEN != '' }}
+        run: |
+          if [ "$HAS_APP" = "true" ]; then
+            echo "mode=app" >> "$GITHUB_OUTPUT"
+          elif [ "$HAS_PAT" = "true" ]; then
+            echo "mode=pat" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::No Copper Turnstile runtime credential configured in copper-turnstile-runtime."
+            exit 1
+          fi
+      - name: Mint repository-scoped GitHub App token
+        id: app_token
+        if: ${{ steps.cred_check.outputs.mode == 'app' }}
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
+        with:
+          client-id: ${{ vars.COPPER_TURNSTILE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.COPPER_TURNSTILE_APP_PRIVATE_KEY }}
+          repositories: ${{ github.event.repository.name }}
       - name: Reconcile batch state with live GitHub PRs
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COPPER_TURNSTILE_TOKEN: ${{ steps.app_token.outputs.token }}
           MERGE_QUEUE_TOKEN: ${{ secrets.MERGE_QUEUE_TOKEN }}
-        run: node --experimental-strip-types scripts/ci/merge-queue-batch.ts reconcile
+        run: node --experimental-strip-types scripts/ci/merge-queue-batch.ts reconcile --require-approval
+
+  approve-abort:
+    name: Owner approval gate for batch cancellation
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'abort' && github.ref == 'refs/heads/main' && github.actor == 'ContraPhilosophy' }}
+    runs-on: ubuntu-24.04
+    environment: merge-queue-approval
+    permissions: {}
+    steps:
+      - name: Record owner approval checkpoint
+        run: echo "Owner approval gate satisfied for abort run ${GITHUB_RUN_ID}."
 
   abort:
-    name: Abort active merge-queue batch and dequeue active PR
+    name: Cancel active or held batch
+    needs: [approve-abort]
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'abort' && github.ref == 'refs/heads/main' && github.actor == 'ContraPhilosophy' }}
     concurrency:
       group: merge-queue-batch-writer
       cancel-in-progress: false
       queue: max
     runs-on: ubuntu-24.04
-    environment: merge-queue-approval
+    environment: copper-turnstile-runtime
     permissions:
       actions: read
       contents: read
@@ -251,13 +427,33 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '24'
-      - name: Abort active batch
+          node-version-file: .nvmrc
+      - name: Detect configured runtime credentials
+        id: cred_check
+        env:
+          HAS_APP: ${{ vars.COPPER_TURNSTILE_APP_CLIENT_ID != '' && secrets.COPPER_TURNSTILE_APP_PRIVATE_KEY != '' }}
+          HAS_PAT: ${{ secrets.MERGE_QUEUE_TOKEN != '' }}
+        run: |
+          if [ "$HAS_APP" = "true" ]; then
+            echo "mode=app" >> "$GITHUB_OUTPUT"
+          elif [ "$HAS_PAT" = "true" ]; then
+            echo "mode=pat" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::No Copper Turnstile runtime credential configured in copper-turnstile-runtime."
+            exit 1
+          fi
+      - name: Mint repository-scoped GitHub App token
+        id: app_token
+        if: ${{ steps.cred_check.outputs.mode == 'app' }}
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
+        with:
+          client-id: ${{ vars.COPPER_TURNSTILE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.COPPER_TURNSTILE_APP_PRIVATE_KEY }}
+          repositories: ${{ github.event.repository.name }}
+      - name: Cancel active batch
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COPPER_TURNSTILE_TOKEN: ${{ steps.app_token.outputs.token }}
           MERGE_QUEUE_TOKEN: ${{ secrets.MERGE_QUEUE_TOKEN }}
-          ABORT_REASON: ${{ inputs.reason }}
-        run: |
-          node --experimental-strip-types scripts/ci/merge-queue-batch.ts abort \
-            --actor "${{ github.actor }}" \
-            --reason "${ABORT_REASON:-Aborted by operator}"
+          ABORT_REASON: ${{ inputs.reason || 'Aborted by operator' }}
+        run: node --experimental-strip-types scripts/ci/merge-queue-batch.ts abort

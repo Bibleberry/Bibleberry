@@ -1,0 +1,31 @@
+# Pull request review status
+
+This is the common policy for open PRs in every Bibleberry organization repository. General Administration keeps this policy current in Bibleberry/Bibleberry. Supporting repositories link to the accepted policy and registry from their contributor or governance documentation. Their local instructions identify repository-specific checks, protected branches and contacts. Where accepted local governance assigns verification or protected merge execution to another role, that role supplies verified evidence and the independent classifier owns the review-status decision.
+
+## Ownership and updates
+
+Independent Review classifies ordinary PRs and records the basis in the PR Conversation. For an owner-authorized special project, the designated coordinator performs the equivalent review and Checks & Merge duties independently of implementation. Admin preserves the authorization and handoff for that coordinator. If there is no independent coordinator, refer the PR to Independent Review. Planning reads status for board reconciliation and sends discrepancies to the responsible classifier.
+
+Use exactly one of the five labels below on every open PR, including Draft, bot-authored and reopened PRs. At creation, use the classification supported by current evidence, normally `review: awaiting review`. Dev removes `review: ready to merge` before modifying an approved revision and uses `review: awaiting review` when submitting a new PR or a correction for review. A correction submitted for review is eligible for reclassification when the new HEAD is pushed and the PR is ready for independent review. Dev keeps it Draft while corrective work is underway and marks it Ready for Review when formally resubmitted. Review returns PRs requiring technical corrections to Draft, records the disposition and assigns the next action to Dev. Review alone, or the independent special-project coordinator acting under the same rules, designates merge readiness.
+
+## Classification precedence
+
+Apply the first matching row, from top to bottom, using live PR state and the exact current candidate.
+
+| Label | Color | When it applies |
+| --- | --- | --- |
+| `review: changes requested` | `D73A4A` | Independent Review has active blocking technical findings. After corrective submission, Review checks the findings on the new HEAD before treating them as resolved. |
+| `review: awaiting review` | `D4C5F9` | No current independent technical approval or express owner-recorded nontechnical applicability and approval decision, or review evidence is unknown. Includes new submissions, unsubmitted Drafts and a changed HEAD awaiting fresh review. |
+| `review: integration required` | `1D76DB` | Independent disposition is valid for the candidate, but the branch needs updating, mergeability is unknown, conflicts exist, or another integration/blocker or Draft state prevents readiness. |
+| `review: awaiting checks` | `FBCA04` | The candidate has valid independent disposition and is otherwise compatible, but applicable hosted checks or required verification are pending, failed, canceled, missing, stale or unverified. Record the actual result and accountable next action. Record skipped or inapplicable checks with the applicable scope decision. A confirmed technical defect returns to Review for disposition. |
+| `review: ready to merge` | `0E8A16` | The PR is open and Ready for Review, independent technical approval is valid for the exact current HEAD (or the separately accepted integration policy below applies), applicable hosted checks and evidence are verified on the correct candidate or required protected merge candidate, the branch is compatible, and blockers and required conversations are resolved. Apply any expressly recorded owner decision on review applicability for strictly nontechnical work. |
+
+On a correction handback, Dev's awaiting-review label signals a new submission. An outstanding blocking disposition continues to bar readiness. If Independent Review confirms the findings still apply, it records that result, restores changes-requested status and returns the PR to Draft. Record each verified state with the current HEAD, the approved HEAD or explicit applicability decision and its link, and the underlying evidence. Record owner authorization separately, including whether it is pending or present and its applicable candidate and scope.
+
+## Invalidation and recovery
+
+A changed HEAD invalidates readiness. Fresh independent review and applicable owner authorization are required for that candidate unless an independently accepted integration-only authorization policy expressly covers this update. Under such a policy, record both the original approved SHA and the current integration SHA, and verify the policy's exact authorization, provenance, fresh checks and protection requirements before any readiness decision. A branch update, base advancement or retargeting, reopening, change to Draft, review dismissal, failed check, or new blocker calls for fresh reconciliation of any affected evidence.
+
+A missing, conflicting or stale label gives no evidence of readiness. Re-read the live identity, HEAD, Draft state, disposition, actual checks, base compatibility, blockers, owner authorization, and relevant queue or auto-merge state. Remove invalid ready status promptly, apply the single supported label and confirm it against a fresh read. Preserve unrelated labels. If a write fails or the candidate moves during reconciliation, report the actual state and blocker and hand recovery back to the classifier. If a queued or auto-merge candidate has become unauthorized, follow the protected recovery procedure in [AI Development Protocol §2C](../ai-development-protocol.md#2c-protected-merge-authorization-and-coordination).
+
+The formal technical dispositions remain `CODE APPROVED` and `CHANGES REQUESTED`. Labels supplement those dispositions, branch and queue protections, applicable CI and Aaron's merge authorization. Anyone preparing a merge or resuming a handoff independently checks the live record against §2C. Batch coordination uses the owner-authorized candidate and independently verified disposition, checks and protections even when the PR carries a ready label.

@@ -1241,8 +1241,15 @@ test.describe('Phase 05 / R06: Hub Continue on ordinary Today (Issue #233)', () 
     expect(await page.evaluate(() => window.history.state?.returnedChallengeOrigin)).toEqual({ kind: 'hub' })
 
     // 4. Genuine in-app Month Screen navigation keeps its origin, including after reload.
+    //    Step 3 finished Day 1 and nothing else is in progress, so Hub Continue offers the
+    //    Active Focus Month itself (`openFocusMonth`). Its primary action is the in-app Month
+    //    entrance; the secondary `View October 2026` action exists only on resume suggestions.
     await page.goto(enabledBaseUrl, { waitUntil: 'domcontentloaded' })
-    await page.locator('.hub-continue').getByRole('button', { name: 'View October 2026' }).click()
+    const focusMonthCard = page.locator('.hub-continue')
+    await expect(focusMonthCard).toHaveAttribute('data-continue-kind', 'openFocusMonth')
+    await expect(focusMonthCard).toHaveAttribute('data-year-month', '2026-10')
+    await expect(focusMonthCard.getByRole('button', { name: 'View October 2026' })).toHaveCount(0)
+    await focusMonthCard.getByRole('button', { name: 'Continue Your Study: October 2026' }).click()
     await expect(page).toHaveURL(/#\/month\/2026-10$/)
     // Advance through first-time historical month introduction
     await page.getByRole('button', { name: 'Continue' }).click()

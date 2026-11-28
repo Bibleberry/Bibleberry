@@ -11,7 +11,7 @@
 
 ## Rebuild and verify
 
-Use the reviewed tooling checkout on Linux x64. Install its locked dependencies with `npm ci` and Chromium with `npx playwright install chromium`. Match the previously recorded Node and npm versions for a byte comparison. The initial rehearsal uses Node 24.22.1 and npm 11.9.0. The optional last build argument accepts a local npm cache directory. The build extracts the pinned commit to a new directory, installs from its lockfile with lifecycle scripts disabled, then typechecks, builds and runs Wrangler dry-run over that exact `dist` with a fresh home and a restricted environment.
+Use the reviewed tooling checkout on Linux x64. Install its locked dependencies with `npm ci` and Chromium with `npx playwright install chromium`. Match the previously recorded Node and npm versions for a byte comparison. The initial rehearsal uses Node 24.22.1 and npm 11.9.0. The repository's `.nvmrc` pins the same Node 24.22.1 for hosted web CI. Its bundled npm may differ, and the manifest records the npm version actually used. The optional last build argument accepts a local npm cache directory. The build extracts the pinned commit to a new directory, installs from its lockfile with lifecycle scripts disabled, then typechecks, builds and runs Wrangler dry-run over that exact `dist` with a fresh home and a restricted environment.
 
 Set `R06_COMMIT` to the full accepted M1 SHA for qualification, or the full source SHA labeled as an interim rehearsal. Set `R06_OUTPUT` to a new local directory with an existing parent. Keep the manifest SHA-256 printed by the build in the review/approval record independently of the artifact folder.
 
@@ -35,6 +35,8 @@ npm run lint
 npm run build
 npm run test:smoke
 ```
+
+Hosted CI rehearses this build on every relevant PR, merge group and `main` push. The **Build and verify R06 release artifact** job runs `tests/release/r06-preflight.test.mjs`, then `build`, `verify` and `smoke` at the checked-out commit, and writes the manifest and artifact SHA-256 values to its job summary. It never deploys or runs `perimeter`. A merge-group or PR run builds GitHub's integration commit, so its digests describe that commit, not a separately pinned M1 candidate. It does not replace the independently recorded qualification build. ([Claude Says #367](https://github.com/Bibleberry/Bibleberry/issues/367))
 
 General Administration should record the hosted `Bibleberry CI` run, built Git SHA (including merge-queue SHA when applicable), and executed versus skipped steps for **Build reader application**, **Verify Release Gateway core** and other applicable checks. The standard reader job’s build and staging dry-run operate on its ordinary build. Record the dedicated packaged-reader smoke and dry-run separately. For Full M1, tie the accepted G09 J1–J7 evidence to the exact configuration and artifact. Record J8 hosted accounts and native packaging outside this guest-only web scope, and record any manual accessibility gaps and live monthly content proof still pending.
 
