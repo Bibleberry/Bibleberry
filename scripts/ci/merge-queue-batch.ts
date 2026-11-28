@@ -1,6 +1,9 @@
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, writeFileSync } from 'node:fs';
+import { inflateRawSync } from 'node:zlib';
 import {
   abortBatch,
+  AUTH_MANIFEST_ARTIFACT_PREFIX,
+  buildAuthorizedManifest,
   COMPARE_FILES_TRUNCATION_LIMIT,
   DEFAULT_INTEGRATION_POLICY,
   DEFAULT_MERGE_METHOD,
@@ -13,10 +16,12 @@ import {
   runPreflight,
   startBatch,
   type ApprovalVerificationResult,
+  type AuthorizedBatchManifest,
   type CommitComparison,
   type CommitDetails,
   type GitHubBatchClient,
   type IntegrationPolicy,
+  type MergeMethod,
   type PullRequestCommentNode,
   type PullRequestSnapshot,
   type RepositoryPolicy,
@@ -27,6 +32,75 @@ import {
 const STATE_VARIABLE_NAME = 'MERGE_QUEUE_BATCH_STATE';
 const GITHUB_API_BASE = 'https://api.github.com';
 const MAX_COMMENT_PAGES = 10;
+const MANIFEST_FILENAME = 'copper-turnstile-auth-manifest.json';
+
+/**
+ * Extracts a single file from a standard ZIP archive (Store method 0 or Deflate method 8)
+ * by reading the End of Central Directory and Central Directory Header, supporting
+ * streaming ZIPs created by `actions/upload-artifact` where local header sizes may be 0.
+ */
+export function extractSingleFileFromZip(zipBytes: Uint8Array, expectedFilename?: string): Buffer {
+  const buf = Buffer.from(zipBytes);
+  // Locate End of Central Directory record (signature 0x06054b50) scanning backwards.
+  let eocdOffset = -1;
+  const minOffset = Math.max(0, buf.length - 65557);
+  for (let i = buf.length - 22; i >= minOffset; i -= 1) {
+    if (buf.readUInt32LE(i) === 0x06054b50) {
+      eocdOffset = i;
+      break;
+    }
+  }
+  if (eocdOffset < 0) {
+    throw new Error('Invalid ZIP archive: missing End of Central Directory record.');
+  }
+
+  const totalEntries = buf.readUInt16LE(eocdOffset + 10);
+  const cdOffset = buf.readUInt32LE(eocdOffset + 16);
+  if (totalEntries < 1) {
+    throw new Error('Invalid ZIP archive: no entries present.');
+  }
+
+  let cursor = cdOffset;
+  for (let entryIndex = 0; entryIndex < totalEntries; entryIndex += 1) {
+    if (cursor + 46 > buf.length || buf.readUInt32LE(cursor) !== 0x02014b50) {
+      throw new Error('Invalid ZIP archive: malformed Central Directory Header.');
+    }
+    const compressionMethod = buf.readUInt16LE(cursor + 10);
+    const compressedSize = buf.readUInt32LE(cursor + 20);
+    const fileNameLength = buf.readUInt16LE(cursor + 28);
+    const extraLength = buf.readUInt16LE(cursor + 30);
+    const commentLength = buf.readUInt16LE(cursor + 32);
+    const localHeaderOffset = buf.readUInt32LE(cursor + 42);
+    const fileName = buf.subarray(cursor + 46, cursor + 46 + fileNameLength).toString('utf8');
+
+    cursor += 46 + fileNameLength + extraLength + commentLength;
+
+    if (expectedFilename && fileName !== expectedFilename && !fileName.endsWith(`/${expectedFilename}`)) {
+      continue;
+    }
+
+    if (localHeaderOffset + 30 > buf.length || buf.readUInt32LE(localHeaderOffset) !== 0x04034b50) {
+      throw new Error('Invalid ZIP archive: malformed Local File Header.');
+    }
+    const localNameLen = buf.readUInt16LE(localHeaderOffset + 26);
+    const localExtraLen = buf.readUInt16LE(localHeaderOffset + 28);
+    const dataStart = localHeaderOffset + 30 + localNameLen + localExtraLen;
+    const dataEnd = dataStart + compressedSize;
+    if (dataEnd > buf.length) {
+      throw new Error('Invalid ZIP archive: entry data exceeds buffer bounds.');
+    }
+    const compressedSlice = buf.subarray(dataStart, dataEnd);
+    if (compressionMethod === 0) {
+      return Buffer.from(compressedSlice);
+    }
+    if (compressionMethod === 8) {
+      return inflateRawSync(compressedSlice);
+    }
+    throw new Error(`Unsupported ZIP compression method ${compressionMethod}.`);
+  }
+
+  throw new Error(`ZIP archive did not contain expected file "${expectedFilename ?? ''}".`);
+}
 
 const PR_SNAPSHOT_QUERY = `
 query DirectBatchPullRequest($owner: String!, $repo: String!, $prNumber: Int!) {
@@ -502,9 +576,69 @@ export function createGitHubClient(token: string, readToken?: string): GitHubBat
       runId,
       environmentName,
       authorizedOwners,
+      expectations,
     ): Promise<ApprovalVerificationResult> {
-      const url = `${GITHUB_API_BASE}/repos/${owner}/${repo}/actions/runs/${runId}/approvals`;
-      const response = await fetch(url, { method: 'GET', headers: approvalHeaders });
+      const allowedLogins = new Set(authorizedOwners.map((u) => u.toLowerCase()));
+
+      // 1. Verify workflow run identity, event, head_branch, and actor from GitHub API.
+      const runUrl = `${GITHUB_API_BASE}/repos/${owner}/${repo}/actions/runs/${encodeURIComponent(runId)}`;
+      const runResponse = await fetch(runUrl, { method: 'GET', headers: approvalHeaders });
+      if (!runResponse.ok) {
+        const body = await runResponse.text();
+        return {
+          ok: false,
+          reason: `Unable to read workflow run ${runId} metadata (HTTP ${runResponse.status}): ${body}`,
+        };
+      }
+
+      const runMeta = (await runResponse.json()) as {
+        path?: string;
+        event?: string;
+        head_branch?: string;
+        actor?: { login?: string };
+        repository?: { full_name?: string };
+      };
+
+      const workflowPath = runMeta.path ?? '';
+      const event = runMeta.event ?? '';
+      const headBranch = runMeta.head_branch ?? '';
+      const actor = runMeta.actor?.login ?? '';
+      const repoFullName = runMeta.repository?.full_name ?? '';
+
+      if (repoFullName && repoFullName.toLowerCase() !== `${owner}/${repo}`.toLowerCase()) {
+        return {
+          ok: false,
+          reason: `Workflow run ${runId} belongs to repository "${repoFullName}", expected "${owner}/${repo}".`,
+        };
+      }
+      if (expectations?.expectedWorkflowPath && workflowPath !== expectations.expectedWorkflowPath) {
+        return {
+          ok: false,
+          reason: `Workflow run ${runId} executed "${workflowPath}", expected "${expectations.expectedWorkflowPath}".`,
+        };
+      }
+      if (expectations?.expectedEvent && event !== expectations.expectedEvent) {
+        return {
+          ok: false,
+          reason: `Workflow run ${runId} event was "${event}", expected "${expectations.expectedEvent}".`,
+        };
+      }
+      if (expectations?.expectedHeadBranch && headBranch !== expectations.expectedHeadBranch) {
+        return {
+          ok: false,
+          reason: `Workflow run ${runId} head_branch was "${headBranch}", expected "${expectations.expectedHeadBranch}".`,
+        };
+      }
+      if (!allowedLogins.has(actor.toLowerCase())) {
+        return {
+          ok: false,
+          reason: `Workflow run ${runId} actor "${actor || 'unknown'}" is not in authorized owners [${authorizedOwners.join(', ')}].`,
+        };
+      }
+
+      // 2. Verify environment approval on `merge-queue-approval` by authorized owner.
+      const approvalsUrl = `${GITHUB_API_BASE}/repos/${owner}/${repo}/actions/runs/${encodeURIComponent(runId)}/approvals`;
+      const response = await fetch(approvalsUrl, { method: 'GET', headers: approvalHeaders });
       if (!response.ok) {
         const body = await response.text();
         return {
@@ -514,8 +648,6 @@ export function createGitHubClient(token: string, readToken?: string): GitHubBat
       }
 
       const approvals = (await response.json()) as WorkflowRunApproval[];
-      const allowedLogins = new Set(authorizedOwners.map((u) => u.toLowerCase()));
-
       const match = approvals.find((entry) => {
         const isApproved = entry.state === 'approved';
         const hasEnv = Boolean(entry.environments?.some((env) => env.name === environmentName));
@@ -530,10 +662,83 @@ export function createGitHubClient(token: string, readToken?: string): GitHubBat
         };
       }
 
+      // 3. When verifying a batch `start` run, confirm the `approve-start` job succeeded
+      //    (prevents replaying an approved `abort` or `reconcile` run as a batch start).
+      let hasStartApprovalJob: boolean | undefined;
+      if (expectations?.expectedStartApprovalJobName) {
+        const jobsUrl = `${GITHUB_API_BASE}/repos/${owner}/${repo}/actions/runs/${encodeURIComponent(runId)}/jobs?per_page=100`;
+        const jobsResponse = await fetch(jobsUrl, { method: 'GET', headers: approvalHeaders });
+        if (!jobsResponse.ok) {
+          const body = await jobsResponse.text();
+          return {
+            ok: false,
+            reason: `Unable to inspect jobs for run ${runId} (HTTP ${jobsResponse.status}): ${body}`,
+          };
+        }
+        const jobsData = (await jobsResponse.json()) as {
+          jobs?: Array<{ name?: string; conclusion?: string | null }>;
+        };
+        const startJob = (jobsData.jobs ?? []).find(
+          (j) => j.name === expectations.expectedStartApprovalJobName && j.conclusion === 'success',
+        );
+        hasStartApprovalJob = Boolean(startJob);
+        if (!startJob) {
+          return {
+            ok: false,
+            reason: `Workflow run ${runId} did not complete "${expectations.expectedStartApprovalJobName}" (cannot treat an unrelated or non-start run as a batch start authorization).`,
+          };
+        }
+      }
+
       return {
         ok: true,
         approvedBy: match.user?.login,
+        workflowPath,
+        event,
+        headBranch,
+        actor,
+        hasStartApprovalJob,
       };
+    },
+
+    async getAuthorizedManifest(
+      owner,
+      repo,
+      runId,
+    ): Promise<AuthorizedBatchManifest | null> {
+      const artifactName = `${AUTH_MANIFEST_ARTIFACT_PREFIX}-${runId}`;
+      const listUrl = `${GITHUB_API_BASE}/repos/${owner}/${repo}/actions/runs/${encodeURIComponent(runId)}/artifacts?name=${encodeURIComponent(artifactName)}`;
+      const listResp = await fetch(listUrl, { method: 'GET', headers: approvalHeaders });
+      if (!listResp.ok) {
+        if (listResp.status === 404) return null;
+        const body = await listResp.text();
+        throw new Error(`Failed to list artifacts for run ${runId} (HTTP ${listResp.status}): ${body}`);
+      }
+
+      const listPayload = (await listResp.json()) as {
+        artifacts?: Array<{ id: number; name: string; expired: boolean; archive_download_url?: string }>;
+      };
+      const artifact = (listPayload.artifacts ?? []).find((a) => a.name === artifactName && !a.expired);
+      if (!artifact) {
+        return null;
+      }
+
+      const downloadUrl =
+        artifact.archive_download_url ||
+        `${GITHUB_API_BASE}/repos/${owner}/${repo}/actions/artifacts/${artifact.id}/zip`;
+      const dlResp = await fetch(downloadUrl, {
+        method: 'GET',
+        headers: approvalHeaders,
+        redirect: 'follow',
+      });
+      if (!dlResp.ok) {
+        const body = await dlResp.text();
+        throw new Error(`Failed to download authorization manifest artifact ${artifact.id} (HTTP ${dlResp.status}): ${body}`);
+      }
+
+      const zipBytes = new Uint8Array(await dlResp.arrayBuffer());
+      const jsonBuf = extractSingleFileFromZip(zipBytes, MANIFEST_FILENAME);
+      return JSON.parse(jsonBuf.toString('utf8')) as AuthorizedBatchManifest;
     },
   };
 }
@@ -612,7 +817,48 @@ async function main(): Promise<void> {
 
   if (!command || flags.help) {
     console.log(
-      'Usage: node --experimental-strip-types scripts/ci/merge-queue-batch.ts <preflight|start|advance|sync|checks|reconcile|status|abort> [options]',
+      'Usage: node --experimental-strip-types scripts/ci/merge-queue-batch.ts <emit-manifest|preflight|start|advance|sync|checks|reconcile|status|abort> [options]',
+    );
+    return;
+  }
+
+  // `emit-manifest` writes the immutable start-run authorization manifest JSON for upload-artifact.
+  if (command === 'emit-manifest') {
+    const rawEntries =
+      (typeof flags.entries === 'string' ? flags.entries : undefined) ?? process.env.BATCH_ENTRIES ?? '';
+    const entries = parseBatchEntries(rawEntries);
+    const mergeMethod = ((typeof flags['merge-method'] === 'string' ? flags['merge-method'] : undefined) ??
+      process.env.MERGE_METHOD ??
+      DEFAULT_MERGE_METHOD)
+      .trim()
+      .toLowerCase() as MergeMethod;
+    const integrationPolicy = resolveIntegrationPolicy(
+      flags['integration-policy'] ?? process.env.INTEGRATION_POLICY,
+    );
+    const workflowRunId =
+      (typeof flags['run-id'] === 'string' ? flags['run-id'] : undefined) ?? process.env.GITHUB_RUN_ID ?? '';
+    if (!workflowRunId) {
+      throw new Error('emit-manifest requires GITHUB_RUN_ID or --run-id.');
+    }
+    const actor =
+      (typeof flags.actor === 'string' && flags.actor) || process.env.GITHUB_ACTOR || 'unknown';
+    const outPath =
+      (typeof flags.out === 'string' ? flags.out : undefined) ?? process.env.MANIFEST_OUT ?? '';
+    if (!outPath) {
+      throw new Error('emit-manifest requires MANIFEST_OUT or --out.');
+    }
+    const manifest = buildAuthorizedManifest({
+      owner,
+      repo,
+      workflowRunId,
+      authorizedBy: actor,
+      mergeMethod,
+      integrationPolicy,
+      entries,
+    });
+    writeFileSync(outPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+    console.log(
+      `Emitted immutable authorization manifest for run ${workflowRunId} (${entries.length} entries, sha256=${manifest.manifestSha256.slice(0, 12)}).`,
     );
     return;
   }

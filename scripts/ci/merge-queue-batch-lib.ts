@@ -6,9 +6,25 @@ export const DEFAULT_REQUIRED_CHECKS = [
   'Verify Sanity Studio',
 ];
 export const DEFAULT_AUTHORIZED_OWNERS = ['ContraPhilosophy'];
-export const DEFAULT_TRUSTED_REVIEWERS = ['ContraPhilosophy'];
+/**
+ * Distinct GitHub user/bot logins authorized to issue native GitHub PR APPROVED reviews
+ * for Independent Technical Approval. Empty by default in a public repository so arbitrary
+ * external non-author GitHub users can NEVER satisfy the independent review gate.
+ */
+export const DEFAULT_AUTHORIZED_NATIVE_REVIEWERS: string[] = [];
+/**
+ * Accounts permitted to post owner-attested Independent Review conversation comments
+ * under the shared-account operating model. Account login alone never establishes
+ * independence; comments MUST also be explicitly owner-attested by exact comment ID
+ * (`PR@SHA#COMMENT_ID`) inside the owner-approved batch manifest and pass strict
+ * top-level structure + digest immutability checks.
+ */
+export const DEFAULT_TRUSTED_COMMENT_POSTERS = ['ContraPhilosophy'];
 export const APPROVAL_ENVIRONMENT_NAME = 'merge-queue-approval';
 export const RUNTIME_ENVIRONMENT_NAME = 'copper-turnstile-runtime';
+export const COORDINATOR_WORKFLOW_PATH = '.github/workflows/merge-queue-batch.yml';
+export const START_APPROVAL_JOB_NAME = 'Owner approval gate for batch start';
+export const AUTH_MANIFEST_ARTIFACT_PREFIX = 'copper-turnstile-auth-manifest';
 export const DEFAULT_MERGE_METHOD: MergeMethod = 'squash';
 export const DEFAULT_INTEGRATION_POLICY: IntegrationPolicy = 'integration-only';
 export const DEFAULT_CHECK_TIMEOUT_MS = 90 * 60 * 1000;
@@ -23,6 +39,33 @@ export type IntegrationPolicy = 'integration-only' | 'hold-on-update';
 export interface BatchEntry {
   prNumber: number;
   expectedHeadSha: string;
+  /**
+   * Owner-attested PR Conversation Independent Review comment ID (`PR@SHA#COMMENT_ID`).
+   * Required under the shared-account model when no distinct authorized native reviewer
+   * identity has approved the PR.
+   */
+  reviewCommentId?: string;
+  /**
+   * SHA-256 digest of the attested comment body captured at owner batch start to detect
+   * post-authorization edits.
+   */
+  reviewCommentDigest?: string;
+}
+
+export interface AuthorizedBatchManifest {
+  version: 2;
+  owner: string;
+  repo: string;
+  workflowRunId: string;
+  authorizedBy: string;
+  mergeMethod: MergeMethod;
+  integrationPolicy: IntegrationPolicy;
+  entries: Array<{
+    prNumber: number;
+    expectedHeadSha: string;
+    reviewCommentId?: string;
+  }>;
+  manifestSha256: string;
 }
 
 export interface StatusContextNode {
@@ -53,11 +96,12 @@ export interface PullRequestCommentNode {
 }
 
 export interface IndependentReviewEvidence {
-  source: 'native-review' | 'conversation-comment';
+  source: 'native-review' | 'owner-attested-comment';
   reviewedHeadSha: string;
   reviewer: string;
   recordedAt?: string | null;
   commentId?: string;
+  commentDigest?: string;
 }
 
 export interface PullRequestSnapshot {
@@ -289,10 +333,22 @@ export interface BatchState {
 
 export type StoredBatchState = BatchState | LegacyBatchStateV1;
 
+export interface WorkflowApprovalExpectations {
+  expectedWorkflowPath?: string;
+  expectedEvent?: string;
+  expectedHeadBranch?: string;
+  expectedStartApprovalJobName?: string;
+}
+
 export interface ApprovalVerificationResult {
   ok: boolean;
   reason?: string;
   approvedBy?: string;
+  workflowPath?: string;
+  event?: string;
+  headBranch?: string;
+  actor?: string;
+  hasStartApprovalJob?: boolean;
 }
 
 export interface GitHubBatchClient {
@@ -323,7 +379,13 @@ export interface GitHubBatchClient {
     runId: string,
     environmentName: string,
     authorizedOwners: string[],
+    expectations?: WorkflowApprovalExpectations,
   ): Promise<ApprovalVerificationResult>;
+  getAuthorizedManifest?(
+    owner: string,
+    repo: string,
+    runId: string,
+  ): Promise<AuthorizedBatchManifest | null>;
 }
 
 export function isLegacyBatchState(state: StoredBatchState | null): state is LegacyBatchStateV1 {
@@ -345,8 +407,17 @@ export function isActiveBatchStatus(state: StoredBatchState | null): boolean {
 }
 
 /**
- * Computes a deterministic SHA-256 consistency checksum over repo, ordered batch entries,
- * integration policy, and merge method. (Not a cryptographic signature; see BatchState.stateChecksum.)
+ * Computes a deterministic SHA-256 digest of a PR review comment body (LF-normalized).
+ */
+export function computeCommentBodyDigest(body: string): string {
+  return createHash('sha256').update(body.replace(/\r\n/g, '\n')).digest('hex');
+}
+
+/**
+ * Computes a deterministic SHA-256 consistency checksum over repo, ordered batch entries
+ * (including owner-attested reviewCommentId), integration policy, and merge method.
+ * (Not a cryptographic signature; authorization binding is enforced against the immutable
+ * workflow-run manifest artifact and live run metadata/approvals.)
  */
 export function computeStateChecksum(params: {
   owner: string;
@@ -363,13 +434,49 @@ export function computeStateChecksum(params: {
     entries: params.entries.map((e) => ({
       prNumber: e.prNumber,
       expectedHeadSha: e.expectedHeadSha.toLowerCase(),
+      ...(e.reviewCommentId ? { reviewCommentId: e.reviewCommentId } : {}),
     })),
   });
   return createHash('sha256').update(canonical).digest('hex');
 }
 
 /**
- * Parses an ordered list of `PR_NUMBER@REVIEWED_HEAD_SHA` entries.
+ * Builds the canonical immutable authorization manifest uploaded as a run-bound artifact
+ * by the owner-approved `start` run and re-verified on every continuation step.
+ */
+export function buildAuthorizedManifest(params: {
+  owner: string;
+  repo: string;
+  workflowRunId: string;
+  authorizedBy: string;
+  mergeMethod: MergeMethod;
+  integrationPolicy: IntegrationPolicy;
+  entries: BatchEntry[];
+}): AuthorizedBatchManifest {
+  const normalizedEntries = params.entries.map((e) => ({
+    prNumber: e.prNumber,
+    expectedHeadSha: e.expectedHeadSha.toLowerCase(),
+    ...(e.reviewCommentId ? { reviewCommentId: e.reviewCommentId } : {}),
+  }));
+  const payload = {
+    version: 2 as const,
+    owner: params.owner.toLowerCase(),
+    repo: params.repo.toLowerCase(),
+    workflowRunId: params.workflowRunId,
+    authorizedBy: params.authorizedBy,
+    mergeMethod: params.mergeMethod,
+    integrationPolicy: params.integrationPolicy,
+    entries: normalizedEntries,
+  };
+  const manifestSha256 = createHash('sha256').update(JSON.stringify(payload)).digest('hex');
+  return {
+    ...payload,
+    manifestSha256,
+  };
+}
+
+/**
+ * Parses an ordered list of `PR_NUMBER@REVIEWED_HEAD_SHA[#REVIEW_COMMENT_ID]` entries.
  * Accepts comma, whitespace, or newline separators.
  */
 export function parseBatchEntries(raw: string): BatchEntry[] {
@@ -379,28 +486,50 @@ export function parseBatchEntries(raw: string): BatchEntry[] {
     .filter(Boolean);
 
   if (tokens.length === 0) {
-    throw new Error('Batch entries list is empty. Provide one or more PR_NUMBER@REVIEWED_HEAD_SHA entries.');
+    throw new Error(
+      'Batch entries list is empty. Provide one or more PR_NUMBER@REVIEWED_HEAD_SHA[#REVIEW_COMMENT_ID] entries.',
+    );
   }
 
   const seenPrs = new Set<number>();
   const entries: BatchEntry[] = [];
 
   for (const token of tokens) {
-    const parts = token.split('@');
-    if (parts.length !== 2) {
-      throw new Error(`Invalid batch entry "${token}". Expected format PR_NUMBER@REVIEWED_HEAD_SHA.`);
+    const atParts = token.split('@');
+    if (atParts.length !== 2) {
+      throw new Error(
+        `Invalid batch entry "${token}". Expected format PR_NUMBER@REVIEWED_HEAD_SHA or PR_NUMBER@REVIEWED_HEAD_SHA#REVIEW_COMMENT_ID.`,
+      );
     }
 
-    const [rawPr, rawSha] = parts;
+    const [rawPr, shaAndComment] = atParts;
     if (!/^[1-9]\d*$/.test(rawPr)) {
       throw new Error(`Invalid PR number in entry "${token}". PR number must be a positive integer.`);
     }
     const prNumber = Number(rawPr);
 
+    const hashParts = shaAndComment.split('#');
+    if (hashParts.length > 2) {
+      throw new Error(
+        `Invalid batch entry "${token}". Expected at most one #REVIEW_COMMENT_ID suffix.`,
+      );
+    }
+
+    const [rawSha, rawCommentId] = hashParts;
     if (!FULL_SHA_PATTERN.test(rawSha)) {
       throw new Error(
         `Invalid head SHA in entry "${token}". Provide the full 40-character hexadecimal commit SHA.`,
       );
+    }
+
+    let reviewCommentId: string | undefined;
+    if (rawCommentId !== undefined) {
+      if (!/^[1-9]\d*$/.test(rawCommentId)) {
+        throw new Error(
+          `Invalid review comment ID in entry "${token}". Provide the numeric GitHub issue comment ID after "#".`,
+        );
+      }
+      reviewCommentId = rawCommentId;
     }
 
     if (seenPrs.has(prNumber)) {
@@ -411,6 +540,7 @@ export function parseBatchEntries(raw: string): BatchEntry[] {
     entries.push({
       prNumber,
       expectedHeadSha: rawSha.toLowerCase(),
+      ...(reviewCommentId ? { reviewCommentId } : {}),
     });
   }
 
@@ -792,37 +922,151 @@ export function evaluateCheckVerification(options: {
   };
 }
 
-const INDEPENDENT_REVIEW_HEADER_PATTERN =
-  /\b(?:Independent\s+(?:re-?review|review|documentary\s+review|source\s+review|technical\s+review)|Final\s+merge-readiness\s+review)\b/i;
-const REVIEWED_HEAD_SHA_PATTERN =
-  /\b(?:exact\s+HEAD|reviewed\s+head|head\s+SHA|review(?:ed)?\s+commit)\b[^\n0-9a-f]{0,16}`?([0-9a-f]{40})`?/i;
-const BLOCKING_DISPOSITION_PATTERN =
-  /\bDisposition:\s*(?:CHANGES\s+REQUESTED|HOLD|BLOCKED|REJECTED|DO\s+NOT\s+MERGE|NOT\s+APPROVED)\b/i;
-const APPROVING_DISPOSITION_PATTERN =
-  /\bDisposition:\s*(?:CODE\s+APPROVED|APPROVED(?:\s+FOR\s+OWNER\s+(?:MERGE|QUEUE\s+ENTRY))?)\b/i;
+// Strict top-level Line-1 Independent Review header matching real Bibleberry dispositions:
+// e.g. `**Claude Says | [Issue #367](...) | PR #375 | Independent Review | exact HEAD `cecc4...`**`
+const STRUCTURED_REVIEW_HEADER_LINE =
+  /^(?:\*\*)?[^|\n]+\|\s*(?:\[?Issue #[1-9]\d*\]?(?:\([^)]+\))?\s*\|\s*)?\[?PR #([1-9]\d*)\]?(?:\([^)]+\))?\s*\|\s*Independent\s+(?:re-?review|review|documentary\s+review|source\s+review|technical\s+review)\s*\|\s*exact\s+HEAD\s+`([0-9a-f]{40})`(?:\*\*)?$/i;
+
+const TOP_LEVEL_APPROVING_DISPOSITION_LINE =
+  /^(?:\*\*)?Disposition:\s*(CODE\s+APPROVED|APPROVED(?:\s+FOR\s+OWNER\s+(?:MERGE|QUEUE\s+ENTRY))?)(?:\b|[\s.—:-])/i;
+
+const TOP_LEVEL_BLOCKING_DISPOSITION_LINE =
+  /^(?:\*\*)?Disposition:\s*(CHANGES\s+REQUESTED|HOLD|BLOCKED|REJECTED|DO\s+NOT\s+MERGE|NOT\s+APPROVED)(?:\b|[\s.—:-])/i;
+
+export interface ParsedStructuredReviewComment {
+  kind: 'approved' | 'blocking' | 'none';
+  prNumber?: number;
+  reviewedHeadSha?: string;
+  dispositionLine?: string;
+}
+
+/**
+ * Strictly parses a PR Conversation comment for top-level (non-quoted, non-fenced)
+ * Independent Review dispositions. Quoted text (`> ...`), fenced code blocks (` ``` `),
+ * and prose references buried inside implementation-agent comments are ignored/rejected.
+ */
+export function parseStructuredIndependentReviewComment(body: string): ParsedStructuredReviewComment {
+  const rawLines = body.replace(/\r\n/g, '\n').split('\n');
+  const topLevelNonEmptyLines: Array<{ line: string; originalIndex: number }> = [];
+  let inFence = false;
+
+  for (let i = 0; i < rawLines.length; i += 1) {
+    const trimmed = rawLines[i].trim();
+    if (/^`{3,}|^~{3,}/.test(trimmed)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) {
+      continue;
+    }
+    if (!trimmed) {
+      continue;
+    }
+    if (trimmed.startsWith('>')) {
+      continue;
+    }
+    topLevelNonEmptyLines.push({ line: trimmed, originalIndex: i });
+  }
+
+  if (topLevelNonEmptyLines.length === 0) {
+    return { kind: 'none' };
+  }
+
+  // First non-empty raw line MUST NOT be a blockquote or code fence for a valid structured review.
+  const firstRawNonEmpty = rawLines.find((l) => l.trim().length > 0)?.trim() ?? '';
+  const firstLineIsQuotedOrFenced =
+    firstRawNonEmpty.startsWith('>') || /^`{3,}|^~{3,}/.test(firstRawNonEmpty);
+
+  // Check if ANY top-level non-quoted line carries a blocking Disposition directive.
+  for (const item of topLevelNonEmptyLines) {
+    const blockMatch = TOP_LEVEL_BLOCKING_DISPOSITION_LINE.exec(item.line);
+    if (blockMatch) {
+      const headerMatch = !firstLineIsQuotedOrFenced
+        ? STRUCTURED_REVIEW_HEADER_LINE.exec(topLevelNonEmptyLines[0].line)
+        : null;
+      return {
+        kind: 'blocking',
+        prNumber: headerMatch ? Number(headerMatch[1]) : undefined,
+        reviewedHeadSha: headerMatch ? headerMatch[2].toLowerCase() : undefined,
+        dispositionLine: blockMatch[0].replace(/^\*\*/, ''),
+      };
+    }
+  }
+
+  if (firstLineIsQuotedOrFenced || topLevelNonEmptyLines.length < 2) {
+    return { kind: 'none' };
+  }
+
+  // Approving review MUST strictly have the canonical header on line 1 AND Disposition on line 2.
+  const headerMatch = STRUCTURED_REVIEW_HEADER_LINE.exec(topLevelNonEmptyLines[0].line);
+  if (!headerMatch) {
+    return { kind: 'none' };
+  }
+
+  const prNumber = Number(headerMatch[1]);
+  const reviewedHeadSha = headerMatch[2].toLowerCase();
+  const secondLine = topLevelNonEmptyLines[1].line;
+
+  if (TOP_LEVEL_BLOCKING_DISPOSITION_LINE.test(secondLine)) {
+    return {
+      kind: 'blocking',
+      prNumber,
+      reviewedHeadSha,
+      dispositionLine: secondLine,
+    };
+  }
+
+  const approveMatch = TOP_LEVEL_APPROVING_DISPOSITION_LINE.exec(secondLine);
+  if (!approveMatch) {
+    return { kind: 'none' };
+  }
+
+  return {
+    kind: 'approved',
+    prNumber,
+    reviewedHeadSha,
+    dispositionLine: approveMatch[0].replace(/^\*\*/, ''),
+  };
+}
 
 export interface CommentReviewEvaluation {
   truncated: boolean;
   blocked: boolean;
   blockReason?: string;
   approved: boolean;
+  missingAttestation?: boolean;
+  attestationError?: string;
   staleApprovedSha?: string;
   evidence?: IndependentReviewEvidence;
 }
 
 /**
- * Evaluates authoritative PR Conversation Independent Review comments authored by
- * trusted reviewers. Chronologically latest disposition wins: any blocking disposition
- * (CHANGES REQUESTED, HOLD, BLOCKED, REJECTED) supersedes earlier approvals, and an
- * approving disposition must carry an Independent Review header plus the exact 40-char
- * reviewed HEAD SHA.
+ * Evaluates PR Conversation Independent Review comments under the shared-account model.
+ *
+ * Security invariants:
+ * - Account login alone NEVER establishes departmental independence; under the shared
+ *   account model, the owner MUST explicitly attest the exact review comment ID inside
+ *   the batch entry (`PR@SHA#COMMENT_ID`).
+ * - The attested comment MUST exist on this PR, be authored by `trustedCommentPosters`,
+ *   strictly match the top-level 2-line Independent Review format for this exact PR and
+ *   40-char `reviewedHeadSha`, and match `expectedCommentDigest` if recorded at start.
+ * - Any chronologically later top-level blocking disposition (`CHANGES REQUESTED`,
+ *   `HOLD`, `BLOCKED`, `REJECTED`) from a trusted poster supersedes the attested approval.
  */
 export function evaluateIndependentReviewComments(options: {
   pr: PullRequestSnapshot;
   reviewedHeadSha: string;
-  trustedReviewers?: string[];
+  attestedCommentId?: string;
+  expectedCommentDigest?: string;
+  trustedCommentPosters?: string[];
 }): CommentReviewEvaluation {
-  const { pr, reviewedHeadSha, trustedReviewers = DEFAULT_TRUSTED_REVIEWERS } = options;
+  const {
+    pr,
+    reviewedHeadSha,
+    attestedCommentId,
+    expectedCommentDigest,
+    trustedCommentPosters = DEFAULT_TRUSTED_COMMENT_POSTERS,
+  } = options;
 
   if (pr.issueComments?.pageInfo?.hasNextPage) {
     return {
@@ -833,7 +1077,7 @@ export function evaluateIndependentReviewComments(options: {
     };
   }
 
-  const allowedReviewers = new Set(trustedReviewers.map((login) => login.toLowerCase()));
+  const allowedPosters = new Set(trustedCommentPosters.map((login) => login.toLowerCase()));
   const nodes = pr.issueComments?.nodes ?? [];
 
   const ordered = nodes.map((node, index) => ({
@@ -845,65 +1089,127 @@ export function evaluateIndependentReviewComments(options: {
     ordered.sort((a, b) => (a.ts === b.ts ? a.index - b.index : a.ts - b.ts));
   }
 
-  let latestVerdict:
-    | { kind: 'blocking'; reviewer: string; dispositionLine: string; citedSha?: string }
-    | { kind: 'approved'; reviewer: string; citedSha: string; createdAt?: string | null; commentId?: string }
-    | null = null;
+  // First check whether the latest top-level trusted disposition on the PR is blocking.
+  let latestBlocking: { index: number; reviewer: string; dispositionLine: string; citedSha?: string } | null = null;
+  let attestedIndex = -1;
+  let attestedNode: PullRequestCommentNode | null = null;
 
-  for (const { node } of ordered) {
+  for (let i = 0; i < ordered.length; i += 1) {
+    const { node } = ordered[i];
+    if (attestedCommentId && node.id === attestedCommentId) {
+      attestedIndex = i;
+      attestedNode = node;
+    }
+
     const authorLogin = node.author?.login ?? '';
-    if (!allowedReviewers.has(authorLogin.toLowerCase())) {
+    if (!allowedPosters.has(authorLogin.toLowerCase())) {
       continue;
     }
 
-    const body = node.body ?? '';
-    const hasReviewHeader = INDEPENDENT_REVIEW_HEADER_PATTERN.test(body);
-    const shaMatch = REVIEWED_HEAD_SHA_PATTERN.exec(body);
-    const citedSha = shaMatch?.[1]?.toLowerCase();
-
-    const blockingMatch = BLOCKING_DISPOSITION_PATTERN.exec(body);
-    if (blockingMatch) {
-      latestVerdict = {
-        kind: 'blocking',
+    const parsed = parseStructuredIndependentReviewComment(node.body ?? '');
+    if (parsed.kind === 'blocking') {
+      latestBlocking = {
+        index: i,
         reviewer: authorLogin,
-        dispositionLine: blockingMatch[0],
-        citedSha,
-      };
-      continue;
-    }
-
-    const approvingMatch = APPROVING_DISPOSITION_PATTERN.exec(body);
-    if (approvingMatch && hasReviewHeader && citedSha && FULL_SHA_PATTERN.test(citedSha)) {
-      latestVerdict = {
-        kind: 'approved',
-        reviewer: authorLogin,
-        citedSha,
-        createdAt: node.createdAt,
-        commentId: node.id,
+        dispositionLine: parsed.dispositionLine ?? 'Disposition: BLOCKED',
+        citedSha: parsed.reviewedHeadSha,
       };
     }
   }
 
-  if (!latestVerdict) {
-    return { truncated: false, blocked: false, approved: false };
-  }
-
-  if (latestVerdict.kind === 'blocking') {
-    const shaSuffix = latestVerdict.citedSha ? ` at ${latestVerdict.citedSha.slice(0, 12)}` : '';
-    return {
-      truncated: false,
-      blocked: true,
-      blockReason: `PR #${pr.number} has a blocking Independent Review conversation disposition from ${latestVerdict.reviewer} (${latestVerdict.dispositionLine}${shaSuffix}).`,
-      approved: false,
-    };
-  }
-
-  if (latestVerdict.citedSha !== reviewedHeadSha.toLowerCase()) {
+  // If no comment ID was owner-attested, never silently accept an unattested shared-account comment.
+  if (!attestedCommentId) {
+    if (latestBlocking) {
+      const shaSuffix = latestBlocking.citedSha ? ` at ${latestBlocking.citedSha.slice(0, 12)}` : '';
+      return {
+        truncated: false,
+        blocked: true,
+        blockReason: `PR #${pr.number} has a blocking Independent Review conversation disposition from ${latestBlocking.reviewer} (${latestBlocking.dispositionLine}${shaSuffix}).`,
+        approved: false,
+      };
+    }
     return {
       truncated: false,
       blocked: false,
       approved: false,
-      staleApprovedSha: latestVerdict.citedSha,
+      missingAttestation: true,
+    };
+  }
+
+  if (!attestedNode) {
+    return {
+      truncated: false,
+      blocked: false,
+      approved: false,
+      attestationError: `Owner-attested review comment #${attestedCommentId} was not found on PR #${pr.number}.`,
+    };
+  }
+
+  const attestedAuthor = attestedNode.author?.login ?? '';
+  if (!allowedPosters.has(attestedAuthor.toLowerCase())) {
+    return {
+      truncated: false,
+      blocked: false,
+      approved: false,
+      attestationError: `Owner-attested review comment #${attestedCommentId} was posted by untrusted author "${attestedAuthor || 'unknown'}" (allowed: [${trustedCommentPosters.join(', ')}]).`,
+    };
+  }
+
+  const parsedAttested = parseStructuredIndependentReviewComment(attestedNode.body ?? '');
+  if (parsedAttested.kind === 'blocking') {
+    return {
+      truncated: false,
+      blocked: true,
+      blockReason: `Owner-attested review comment #${attestedCommentId} on PR #${pr.number} carries a blocking disposition (${parsedAttested.dispositionLine}).`,
+      approved: false,
+    };
+  }
+
+  if (parsedAttested.kind !== 'approved') {
+    return {
+      truncated: false,
+      blocked: false,
+      approved: false,
+      attestationError: `Owner-attested comment #${attestedCommentId} on PR #${pr.number} does not match the strict top-level Independent Review format (quoted, fenced, or unstructured prose is rejected).`,
+    };
+  }
+
+  if (parsedAttested.prNumber !== pr.number) {
+    return {
+      truncated: false,
+      blocked: false,
+      approved: false,
+      attestationError: `Owner-attested review comment #${attestedCommentId} cites PR #${parsedAttested.prNumber}, not PR #${pr.number}.`,
+    };
+  }
+
+  if (parsedAttested.reviewedHeadSha !== reviewedHeadSha.toLowerCase()) {
+    return {
+      truncated: false,
+      blocked: false,
+      approved: false,
+      staleApprovedSha: parsedAttested.reviewedHeadSha,
+    };
+  }
+
+  const actualDigest = computeCommentBodyDigest(attestedNode.body ?? '');
+  if (expectedCommentDigest && actualDigest !== expectedCommentDigest) {
+    return {
+      truncated: false,
+      blocked: false,
+      approved: false,
+      attestationError: `Owner-attested review comment #${attestedCommentId} on PR #${pr.number} was edited after batch authorization (comment digest mismatch).`,
+    };
+  }
+
+  // Check if a chronologically later trusted blocking comment superseded the attested approval!
+  if (latestBlocking && latestBlocking.index > attestedIndex) {
+    const shaSuffix = latestBlocking.citedSha ? ` at ${latestBlocking.citedSha.slice(0, 12)}` : '';
+    return {
+      truncated: false,
+      blocked: true,
+      blockReason: `Owner-attested review comment #${attestedCommentId} on PR #${pr.number} was superseded by a later blocking disposition from ${latestBlocking.reviewer} (${latestBlocking.dispositionLine}${shaSuffix}).`,
+      approved: false,
     };
   }
 
@@ -912,11 +1218,12 @@ export function evaluateIndependentReviewComments(options: {
     blocked: false,
     approved: true,
     evidence: {
-      source: 'conversation-comment',
+      source: 'owner-attested-comment',
       reviewedHeadSha: reviewedHeadSha.toLowerCase(),
-      reviewer: latestVerdict.reviewer,
-      recordedAt: latestVerdict.createdAt ?? null,
-      commentId: latestVerdict.commentId,
+      reviewer: attestedAuthor,
+      recordedAt: attestedNode.createdAt ?? null,
+      commentId: attestedCommentId,
+      commentDigest: actualDigest,
     },
   };
 }
@@ -924,25 +1231,37 @@ export function evaluateIndependentReviewComments(options: {
 /**
  * Fail-closed review and independent-approval evaluator.
  *
- * Requires an independently verifiable exact-HEAD technical approval bound to
- * `reviewedHeadSha` (either non-author native GitHub APPROVED review with non-null
- * exact commit OID, or an authoritative trusted-reviewer PR Conversation Independent
- * Review disposition when requiredApprovingReviewCount === 0). Zero reviews, null commit
- * OIDs, self-approvals, stale approvals, blocking comments, and unresolved threads ALL fail closed.
+ * Distinguishes two separate requirements:
+ * 1. Native GitHub branch-protection review requirements (`reviewDecision`, `CHANGES_REQUESTED`,
+ *    `requiredApprovingReviewCount` when > 0, unresolved threads).
+ * 2. Independent Technical Approval for `reviewedHeadSha`:
+ *    - Native path: ONLY accepts `APPROVED` reviews whose author is in `authorizedNativeReviewers`
+ *      (never arbitrary public-repo external users!), differs from PR author, AND carries a
+ *      non-null exact 40-char `commit.oid === reviewedHeadSha`.
+ *    - Shared-account owner-attested comment path (when `requiredApprovingReviewCount === 0`):
+ *      requires an explicit owner-attested `#REVIEW_COMMENT_ID` in the batch entry matching the
+ *      strict top-level Independent Review format for this PR + exact `reviewedHeadSha`, unchanged
+ *      comment digest, and zero superseding blocking dispositions.
  */
 export function evaluateReviewEligibility(options: {
   pr: PullRequestSnapshot;
   reviewedHeadSha: string;
   candidateHeadSha: string;
+  attestedCommentId?: string;
+  expectedCommentDigest?: string;
   policy?: RepositoryPolicy | null;
-  trustedReviewers?: string[];
+  authorizedNativeReviewers?: string[];
+  trustedCommentPosters?: string[];
 }): { ok: boolean; reasons: string[]; evidence?: IndependentReviewEvidence } {
   const {
     pr,
     reviewedHeadSha,
     candidateHeadSha,
+    attestedCommentId,
+    expectedCommentDigest,
     policy,
-    trustedReviewers = DEFAULT_TRUSTED_REVIEWERS,
+    authorizedNativeReviewers = DEFAULT_AUTHORIZED_NATIVE_REVIEWERS,
+    trustedCommentPosters = DEFAULT_TRUSTED_COMMENT_POSTERS,
   } = options;
   const reasons: string[] = [];
   const normalizedReviewed = reviewedHeadSha.toLowerCase();
@@ -970,66 +1289,84 @@ export function evaluateReviewEligibility(options: {
     );
   }
 
-  // Evaluate authoritative PR Conversation Independent Review comments.
+  // Evaluate PR Conversation comments (checking both owner-attested approval AND any blocking dispositions).
   const commentEval = evaluateIndependentReviewComments({
     pr,
     reviewedHeadSha: normalizedReviewed,
-    trustedReviewers,
+    attestedCommentId,
+    expectedCommentDigest,
+    trustedCommentPosters,
   });
   if (commentEval.blocked && commentEval.blockReason) {
     reasons.push(commentEval.blockReason);
   }
 
-  // Evaluate native GitHub reviews strictly (null commit OIDs are NEVER accepted as current).
+  // Evaluate native GitHub APPROVED reviews strictly:
+  // - Non-author AND explicitly listed in `authorizedNativeReviewers` (public-repo external users NEVER qualify!)
+  // - Non-null exact 40-char commit.oid matching target SHA.
   const prAuthor = pr.author?.login?.toLowerCase() ?? '';
+  const allowedNativeReviewers = new Set(authorizedNativeReviewers.map((u) => u.toLowerCase()));
   const approvedReviews = latestReviews.filter((r) => r.state === 'APPROVED');
-  const independentApproved = approvedReviews.filter(
+  const nonAuthorApproved = approvedReviews.filter(
     (r) => !prAuthor || (r.author?.login?.toLowerCase() ?? '') !== prAuthor,
   );
-  const nullOidApproved = independentApproved.filter(
+  const authorizedNativeApproved = nonAuthorApproved.filter((r) =>
+    allowedNativeReviewers.has(r.author?.login?.toLowerCase() ?? ''),
+  );
+  const unauthorizedExternalApproved = nonAuthorApproved.filter(
+    (r) => !allowedNativeReviewers.has(r.author?.login?.toLowerCase() ?? ''),
+  );
+
+  const nullOidAuthorized = authorizedNativeApproved.filter(
     (r) => !r.commit?.oid || !FULL_SHA_PATTERN.test(r.commit.oid),
   );
-  const exactReviewedNative = independentApproved.filter(
+  const exactReviewedAuthorizedNative = authorizedNativeApproved.filter(
     (r) => Boolean(r.commit?.oid && r.commit.oid.toLowerCase() === normalizedReviewed),
   );
-  const exactCandidateNative = independentApproved.filter(
+  const exactCandidateAuthorizedNative = authorizedNativeApproved.filter(
     (r) => Boolean(r.commit?.oid && r.commit.oid.toLowerCase() === normalizedCandidate),
   );
-  const staleNativeForReviewed = independentApproved.filter(
+  const staleAuthorizedForReviewed = authorizedNativeApproved.filter(
     (r) =>
       Boolean(r.commit?.oid && FULL_SHA_PATTERN.test(r.commit.oid)) &&
       r.commit!.oid!.toLowerCase() !== normalizedReviewed,
   );
-  const staleNativeForCandidate = independentApproved.filter(
+  const staleAuthorizedForCandidate = authorizedNativeApproved.filter(
     (r) =>
       Boolean(r.commit?.oid && FULL_SHA_PATTERN.test(r.commit.oid)) &&
       r.commit!.oid!.toLowerCase() !== normalizedCandidate,
   );
 
+  // Separate check for native required_approving_review_count (when branch protection enforces > 0).
   const requiredApprovalCount = policy?.requiredApprovingReviewCount ?? 0;
   let evidence: IndependentReviewEvidence | undefined;
 
   if (requiredApprovalCount > 0) {
-    if (exactCandidateNative.length < requiredApprovalCount) {
-      if (nullOidApproved.length > 0) {
+    if (exactCandidateAuthorizedNative.length < requiredApprovalCount) {
+      if (nullOidAuthorized.length > 0) {
         reasons.push(
-          `PR #${pr.number} has a native approving review with missing/null commit OID, which cannot verify exact HEAD ${normalizedCandidate.slice(0, 12)}.`,
+          `PR #${pr.number} has an authorized native approving review with missing/null commit OID, which cannot verify exact HEAD ${normalizedCandidate.slice(0, 12)}.`,
         );
-      } else if (staleNativeForCandidate.length > 0) {
+      } else if (staleAuthorizedForCandidate.length > 0) {
         reasons.push(
-          `PR #${pr.number} native approving review is stale (bound to ${staleNativeForCandidate[0].commit?.oid?.slice(0, 12)}, not current HEAD ${normalizedCandidate.slice(0, 12)}).`,
+          `PR #${pr.number} authorized native approving review is stale (bound to ${staleAuthorizedForCandidate[0].commit?.oid?.slice(0, 12)}, not current HEAD ${normalizedCandidate.slice(0, 12)}).`,
         );
-      } else if (approvedReviews.length > 0 && independentApproved.length === 0) {
+      } else if (unauthorizedExternalApproved.length > 0 && authorizedNativeApproved.length === 0) {
+        const externalLogins = unauthorizedExternalApproved.map((r) => r.author?.login ?? 'unknown').join(', ');
+        reasons.push(
+          `PR #${pr.number} only has native approval from unauthorized identity [${externalLogins}] (not in authorizedNativeReviewers).`,
+        );
+      } else if (approvedReviews.length > 0 && nonAuthorApproved.length === 0) {
         reasons.push(
           `PR #${pr.number} only has self-approval by PR author; independent approving review is required.`,
         );
       } else {
         reasons.push(
-          `PR #${pr.number} has ${exactCandidateNative.length}/${requiredApprovalCount} required independent native approving review(s) bound to exact HEAD ${normalizedCandidate.slice(0, 12)}.`,
+          `PR #${pr.number} has ${exactCandidateAuthorizedNative.length}/${requiredApprovalCount} required authorized independent native approving review(s) bound to exact HEAD ${normalizedCandidate.slice(0, 12)}.`,
         );
       }
     } else {
-      const first = exactCandidateNative[0];
+      const first = exactCandidateAuthorizedNative[0];
       evidence = {
         source: 'native-review',
         reviewedHeadSha: normalizedCandidate,
@@ -1038,9 +1375,9 @@ export function evaluateReviewEligibility(options: {
       };
     }
   } else {
-    // requiredApprovingReviewCount === 0: MUST STILL FAIL CLOSED without verified exact-HEAD approval!
-    if (exactReviewedNative.length > 0) {
-      const first = exactReviewedNative[0];
+    // requiredApprovingReviewCount === 0: MUST STILL FAIL CLOSED without authorized independent approval!
+    if (exactReviewedAuthorizedNative.length > 0) {
+      const first = exactReviewedAuthorizedNative[0];
       evidence = {
         source: 'native-review',
         reviewedHeadSha: normalizedReviewed,
@@ -1050,26 +1387,34 @@ export function evaluateReviewEligibility(options: {
     } else if (commentEval.approved && commentEval.evidence) {
       evidence = commentEval.evidence;
     } else {
-      // Fail closed with the most diagnostic reason.
-      if (approvedReviews.length > 0 && independentApproved.length === 0) {
-        reasons.push(
-          `PR #${pr.number} has only an invalid self-approval by PR author and no independent exact-HEAD review approval for ${normalizedReviewed.slice(0, 12)}.`,
-        );
-      } else if (nullOidApproved.length > 0) {
-        reasons.push(
-          `PR #${pr.number} native approving review has missing/null commit OID and cannot satisfy exact-HEAD approval for ${normalizedReviewed.slice(0, 12)}.`,
-        );
-      } else if (staleNativeForReviewed.length > 0) {
-        reasons.push(
-          `PR #${pr.number} native approving review is stale (bound to ${staleNativeForReviewed[0].commit?.oid?.slice(0, 12)}, not reviewed HEAD ${normalizedReviewed.slice(0, 12)}).`,
-        );
+      if (commentEval.attestationError) {
+        reasons.push(commentEval.attestationError);
       } else if (commentEval.staleApprovedSha) {
         reasons.push(
-          `PR #${pr.number} Independent Review conversation approval is stale (bound to ${commentEval.staleApprovedSha.slice(0, 12)}, not reviewed HEAD ${normalizedReviewed.slice(0, 12)}).`,
+          `PR #${pr.number} owner-attested Independent Review comment #${attestedCommentId} is stale (bound to ${commentEval.staleApprovedSha.slice(0, 12)}, not reviewed HEAD ${normalizedReviewed.slice(0, 12)}).`,
+        );
+      } else if (approvedReviews.length > 0 && nonAuthorApproved.length === 0) {
+        reasons.push(
+          `PR #${pr.number} has only an invalid self-approval by PR author and no authorized independent review approval for ${normalizedReviewed.slice(0, 12)}.`,
+        );
+      } else if (nullOidAuthorized.length > 0) {
+        reasons.push(
+          `PR #${pr.number} authorized native approving review has missing/null commit OID and cannot satisfy exact-HEAD approval for ${normalizedReviewed.slice(0, 12)}.`,
+        );
+      } else if (staleAuthorizedForReviewed.length > 0) {
+        reasons.push(
+          `PR #${pr.number} authorized native approving review is stale (bound to ${staleAuthorizedForReviewed[0].commit?.oid?.slice(0, 12)}, not reviewed HEAD ${normalizedReviewed.slice(0, 12)}).`,
+        );
+      } else if (unauthorizedExternalApproved.length > 0 && authorizedNativeApproved.length === 0) {
+        const externalLogins = unauthorizedExternalApproved.map((r) => r.author?.login ?? 'unknown').join(', ');
+        reasons.push(
+          `PR #${pr.number} native approval by "${externalLogins}" is rejected (not in authorizedNativeReviewers; public-repo non-author is not a trusted reviewer identity). Provide an owner-attested PR@SHA#REVIEW_COMMENT_ID or configure a dedicated authorized native reviewer.`,
         );
       } else if (!commentEval.blocked) {
         reasons.push(
-          `PR #${pr.number} has no verified exact-HEAD Independent Review approval for ${normalizedReviewed.slice(0, 12)} (an owner-submitted SHA and passing CI are not substitutes for independent review).`,
+          commentEval.missingAttestation
+            ? `PR #${pr.number} has no authorized native review and no owner-attested review comment ID for ${normalizedReviewed.slice(0, 12)}. Under the shared-account model, specify PR@SHA#REVIEW_COMMENT_ID referencing the structured Independent Review disposition comment.`
+            : `PR #${pr.number} has no verified exact-HEAD Independent Review approval for ${normalizedReviewed.slice(0, 12)}.`,
         );
       }
     }
@@ -1094,7 +1439,8 @@ export function evaluatePullRequestPreflight(
     observedBaseSha?: string;
     expectedHeadOverride?: string;
     allowPendingChecks?: boolean;
-    trustedReviewers?: string[];
+    authorizedNativeReviewers?: string[];
+    trustedCommentPosters?: string[];
     now?: () => string;
   },
 ): PreflightResult {
@@ -1149,8 +1495,11 @@ export function evaluatePullRequestPreflight(
     pr,
     reviewedHeadSha: entry.expectedHeadSha,
     candidateHeadSha: expectedSha,
+    attestedCommentId: entry.reviewCommentId,
+    expectedCommentDigest: entry.reviewCommentDigest,
     policy: options?.policy,
-    trustedReviewers: options?.trustedReviewers,
+    authorizedNativeReviewers: options?.authorizedNativeReviewers,
+    trustedCommentPosters: options?.trustedCommentPosters,
   });
   reasons.push(...reviewEval.reasons);
 
@@ -1191,7 +1540,8 @@ export async function runPreflight(
   options?: {
     mergeMethod?: string;
     requireVerifiedProtection?: boolean;
-    trustedReviewers?: string[];
+    authorizedNativeReviewers?: string[];
+    trustedCommentPosters?: string[];
     now?: () => string;
   },
 ): Promise<{
@@ -1234,7 +1584,8 @@ export async function runPreflight(
       evaluatePullRequestPreflight(pr, entry, expectedRepo, requiredChecks, {
         policy,
         observedBaseSha: observedMainSha,
-        trustedReviewers: options?.trustedReviewers,
+        authorizedNativeReviewers: options?.authorizedNativeReviewers,
+        trustedCommentPosters: options?.trustedCommentPosters,
         now: options?.now,
       }),
     );
@@ -1440,6 +1791,7 @@ async function verifyOwnerAuthorization(
     actor: string;
     workflowRunId?: string;
     authorizedOwners?: string[];
+    expectations?: WorkflowApprovalExpectations;
   },
 ): Promise<{ ok: boolean; reason?: string; approvedBy?: string }> {
   const authorizedOwners = options.authorizedOwners ?? DEFAULT_AUTHORIZED_OWNERS;
@@ -1465,6 +1817,12 @@ async function verifyOwnerAuthorization(
       options.workflowRunId,
       APPROVAL_ENVIRONMENT_NAME,
       authorizedOwners,
+      {
+        expectedWorkflowPath: COORDINATOR_WORKFLOW_PATH,
+        expectedEvent: 'workflow_dispatch',
+        expectedHeadBranch: 'main',
+        ...options.expectations,
+      },
     );
     if (!approval.ok) {
       return {
@@ -1481,7 +1839,8 @@ async function verifyOwnerAuthorization(
 export interface RuntimePolicyOptions {
   requiredChecks?: string[];
   authorizedOwners?: string[];
-  trustedReviewers?: string[];
+  authorizedNativeReviewers?: string[];
+  trustedCommentPosters?: string[];
   requireWorkflowApprovalRecord?: boolean;
   maxIntegrationUpdatesPerPr?: number;
   checkTimeoutMs?: number;
@@ -1558,6 +1917,68 @@ function formatCompletedSummary(completedMerges: CompletedMergeRecord[], complet
   return 'none';
 }
 
+function verifyManifestMatchesState(
+  manifest: AuthorizedBatchManifest,
+  state: BatchState,
+  owner: string,
+  repo: string,
+): { ok: boolean; reason?: string } {
+  const expected = buildAuthorizedManifest({
+    owner: manifest.owner,
+    repo: manifest.repo,
+    workflowRunId: manifest.workflowRunId,
+    authorizedBy: manifest.authorizedBy,
+    mergeMethod: manifest.mergeMethod,
+    integrationPolicy: manifest.integrationPolicy,
+    entries: manifest.entries,
+  });
+
+  if (manifest.manifestSha256 !== expected.manifestSha256) {
+    return {
+      ok: false,
+      reason: `Authorized manifest artifact for run ${manifest.workflowRunId} failed internal SHA-256 verification.`,
+    };
+  }
+
+  if (
+    manifest.owner.toLowerCase() !== owner.toLowerCase() ||
+    manifest.repo.toLowerCase() !== repo.toLowerCase() ||
+    manifest.workflowRunId !== state.workflowRunId ||
+    manifest.authorizedBy.toLowerCase() !== state.authorizedBy.toLowerCase() ||
+    manifest.mergeMethod !== state.mergeMethod ||
+    manifest.integrationPolicy !== state.integrationPolicy
+  ) {
+    return {
+      ok: false,
+      reason: `Persisted batch ${state.batchId} metadata (repo/actor/method/policy) does not match the immutable manifest attached to approved start run ${state.workflowRunId}.`,
+    };
+  }
+
+  if (manifest.entries.length !== state.entries.length) {
+    return {
+      ok: false,
+      reason: `Persisted batch ${state.batchId} entry count (${state.entries.length}) does not match immutable start-run manifest (${manifest.entries.length}) for run ${state.workflowRunId}.`,
+    };
+  }
+
+  for (let i = 0; i < manifest.entries.length; i += 1) {
+    const m = manifest.entries[i];
+    const s = state.entries[i];
+    if (
+      m.prNumber !== s.prNumber ||
+      m.expectedHeadSha.toLowerCase() !== s.expectedHeadSha.toLowerCase() ||
+      (m.reviewCommentId ?? '') !== (s.reviewCommentId ?? '')
+    ) {
+      return {
+        ok: false,
+        reason: `Persisted batch ${state.batchId} entry #${i + 1} (PR #${s.prNumber}@${s.expectedHeadSha.slice(0, 12)}${s.reviewCommentId ? `#${s.reviewCommentId}` : ''}) does not match immutable manifest entry (PR #${m.prNumber}@${m.expectedHeadSha.slice(0, 12)}${m.reviewCommentId ? `#${m.reviewCommentId}` : ''}) for approved start run ${state.workflowRunId}.`,
+      };
+    }
+  }
+
+  return { ok: true };
+}
+
 async function verifyPersistedBatchAuthority(
   client: GitHubBatchClient,
   state: BatchState,
@@ -1566,9 +1987,16 @@ async function verifyPersistedBatchAuthority(
     repo: string;
     authorizedOwners: string[];
     requireWorkflowApprovalRecord?: boolean;
+    isOriginatingStartRun?: boolean;
   },
 ): Promise<{ ok: boolean; reason?: string }> {
-  const { owner, repo, authorizedOwners, requireWorkflowApprovalRecord = false } = options;
+  const {
+    owner,
+    repo,
+    authorizedOwners,
+    requireWorkflowApprovalRecord = false,
+    isOriginatingStartRun = false,
+  } = options;
   const allowed = new Set(authorizedOwners.map((u) => u.toLowerCase()));
   if (!allowed.has(state.authorizedBy.toLowerCase())) {
     return {
@@ -1611,12 +2039,40 @@ async function verifyPersistedBatchAuthority(
       state.workflowRunId,
       APPROVAL_ENVIRONMENT_NAME,
       authorizedOwners,
+      {
+        expectedWorkflowPath: COORDINATOR_WORKFLOW_PATH,
+        expectedEvent: 'workflow_dispatch',
+        expectedHeadBranch: 'main',
+        expectedStartApprovalJobName: START_APPROVAL_JOB_NAME,
+      },
     );
     if (!approval.ok) {
       return {
         ok: false,
         reason: `Persisted batch ${state.batchId} failed live owner-approval verification for workflow run ${state.workflowRunId}: ${approval.reason}`,
       };
+    }
+
+    // Bind persisted state to the immutable manifest artifact uploaded by the approved start run
+    // on every continuation/reconciliation run (eliminating mutable-state substitution attacks).
+    if (!isOriginatingStartRun && (requireWorkflowApprovalRecord || client.getAuthorizedManifest)) {
+      if (!client.getAuthorizedManifest) {
+        return {
+          ok: false,
+          reason: `Persisted batch ${state.batchId} requires immutable start-run manifest verification for run ${state.workflowRunId}, but getAuthorizedManifest is unavailable.`,
+        };
+      }
+      const manifest = await client.getAuthorizedManifest(owner, repo, state.workflowRunId);
+      if (!manifest) {
+        return {
+          ok: false,
+          reason: `Missing immutable authorization manifest artifact (${AUTH_MANIFEST_ARTIFACT_PREFIX}-${state.workflowRunId}) for approved start run ${state.workflowRunId}; refusing to trust mutable batch state.`,
+        };
+      }
+      const manifestCheck = verifyManifestMatchesState(manifest, state, owner, repo);
+      if (!manifestCheck.ok) {
+        return manifestCheck;
+      }
     }
   }
 
@@ -1723,14 +2179,17 @@ async function driveBatchProgress(
     owner: string;
     repo: string;
     fromReconcile?: boolean;
+    isOriginatingStartRun?: boolean;
   } & RuntimePolicyOptions,
 ): Promise<AdvanceOutcome> {
   const {
     owner,
     repo,
+    isOriginatingStartRun = false,
     requiredChecks = DEFAULT_REQUIRED_CHECKS,
     authorizedOwners = DEFAULT_AUTHORIZED_OWNERS,
-    trustedReviewers = DEFAULT_TRUSTED_REVIEWERS,
+    authorizedNativeReviewers = DEFAULT_AUTHORIZED_NATIVE_REVIEWERS,
+    trustedCommentPosters = DEFAULT_TRUSTED_COMMENT_POSTERS,
     requireWorkflowApprovalRecord = false,
     maxIntegrationUpdatesPerPr = DEFAULT_MAX_INTEGRATION_UPDATES_PER_PR,
     checkTimeoutMs = DEFAULT_CHECK_TIMEOUT_MS,
@@ -1746,6 +2205,7 @@ async function driveBatchProgress(
     repo,
     authorizedOwners,
     requireWorkflowApprovalRecord,
+    isOriginatingStartRun,
   });
   if (!authority.ok) {
     const stopped = await stopBatchState(client, owner, repo, state, authority.reason!, now);
@@ -2105,7 +2565,8 @@ async function driveBatchProgress(
       observedBaseSha: currentMainSha,
       expectedHeadOverride: trackedHeadSha,
       allowPendingChecks: state.status === 'awaiting_checks',
-      trustedReviewers,
+      authorizedNativeReviewers,
+      trustedCommentPosters,
       now,
     });
 
@@ -2590,7 +3051,8 @@ export async function startBatch(
     workflowRunUrl,
     requiredChecks = DEFAULT_REQUIRED_CHECKS,
     authorizedOwners = DEFAULT_AUTHORIZED_OWNERS,
-    trustedReviewers = DEFAULT_TRUSTED_REVIEWERS,
+    authorizedNativeReviewers = DEFAULT_AUTHORIZED_NATIVE_REVIEWERS,
+    trustedCommentPosters = DEFAULT_TRUSTED_COMMENT_POSTERS,
     requireWorkflowApprovalRecord = false,
     maxIntegrationUpdatesPerPr = DEFAULT_MAX_INTEGRATION_UPDATES_PER_PR,
     checkTimeoutMs = DEFAULT_CHECK_TIMEOUT_MS,
@@ -2616,6 +3078,9 @@ export async function startBatch(
       actor: authorizedBy,
       workflowRunId,
       authorizedOwners,
+      expectations: {
+        expectedStartApprovalJobName: START_APPROVAL_JOB_NAME,
+      },
     });
     if (!auth.ok) {
       return {
@@ -2647,7 +3112,8 @@ export async function startBatch(
   const preflight = await runPreflight(client, owner, repo, entries, requiredChecks, {
     mergeMethod: rawMergeMethod,
     requireVerifiedProtection: !dryRun,
-    trustedReviewers,
+    authorizedNativeReviewers,
+    trustedCommentPosters,
     now,
   });
 
@@ -2685,13 +3151,18 @@ export async function startBatch(
   }
 
   const mergeMethod = rawMergeMethod.trim().toLowerCase() as MergeMethod;
-  const firstEntry = entries[0];
+  // Capture verified comment body digests at start time to detect post-authorization edits.
+  const boundEntries: BatchEntry[] = entries.map((entry, idx) => {
+    const digest = preflight.results[idx]?.reviewEvidence?.commentDigest;
+    return digest ? { ...entry, reviewCommentDigest: digest } : { ...entry };
+  });
+  const firstEntry = boundEntries[0];
   const createdAt = now();
   const initialRevision = (existingState?.revision ?? 0) + 1;
   const stateChecksum = computeStateChecksum({
     owner,
     repo,
-    entries,
+    entries: boundEntries,
     integrationPolicy,
     mergeMethod,
   });
@@ -2699,7 +3170,7 @@ export async function startBatch(
   const initialState: BatchState = {
     version: 2,
     revision: initialRevision,
-    batchId: `batch-${createdAt.replace(/[:.]/g, '-')}`,
+    batchId: workflowRunId ? `batch-run-${workflowRunId}` : `batch-${createdAt.replace(/[:.]/g, '-')}`,
     stateChecksum,
     status: 'running',
     createdAt,
@@ -2710,7 +3181,7 @@ export async function startBatch(
     mergeMethod,
     workflowRunId,
     workflowRunUrl,
-    entries,
+    entries: boundEntries,
     nextIndex: 0,
     activePrNumber: firstEntry.prNumber,
     activeReviewedHeadSha: firstEntry.expectedHeadSha,
@@ -2731,9 +3202,11 @@ export async function startBatch(
   const outcome = await driveBatchProgress(client, initialState, {
     owner,
     repo,
+    isOriginatingStartRun: true,
     requiredChecks,
     authorizedOwners,
-    trustedReviewers,
+    authorizedNativeReviewers,
+    trustedCommentPosters,
     requireWorkflowApprovalRecord,
     maxIntegrationUpdatesPerPr,
     checkTimeoutMs,

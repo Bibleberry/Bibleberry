@@ -21,7 +21,7 @@ on:
           - reconcile
           - abort
       entries:
-        description: Ordered PR_NUMBER@REVIEWED_HEAD_SHA list (comma or newline separated)
+        description: Ordered PR_NUMBER@REVIEWED_HEAD_SHA#REVIEW_COMMENT_ID list (comma or newline separated)
         type: string
         required: false
       merge_method:
@@ -141,6 +141,19 @@ jobs:
           client-id: ${{ vars.COPPER_TURNSTILE_APP_CLIENT_ID }}
           private-key: ${{ secrets.COPPER_TURNSTILE_APP_PRIVATE_KEY }}
           repositories: ${{ github.event.repository.name }}
+      - name: Emit immutable start-run authorization manifest
+        env:
+          BATCH_ENTRIES: ${{ inputs.entries }}
+          MERGE_METHOD: ${{ inputs.merge_method || 'squash' }}
+          MANIFEST_OUT: ${{ runner.temp }}/copper-turnstile-auth-manifest.json
+        run: node --experimental-strip-types scripts/ci/merge-queue-batch.ts emit-manifest
+      - name: Upload immutable start-run authorization manifest
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: copper-turnstile-auth-manifest-${{ github.run_id }}
+          path: ${{ runner.temp }}/copper-turnstile-auth-manifest.json
+          if-no-files-found: error
+          retention-days: 30
       - name: Start approved batch (bounded integration-only per §2C)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
